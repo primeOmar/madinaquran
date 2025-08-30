@@ -19,7 +19,7 @@ export default function Hero() {
         }
       `}</style>
 
-      <section className="relative flex flex-col justify-center items-center min-h-screen w-screen pt-20 md:pt-24 lg:pt-28 bg-gradient-to-b from-green-900 via-black to-black overflow-hidden">
+      <section className="relative flex flex-col justify-center items-center min-h-screen w-screen pt-20 md:pt-24 lg:pt-28 bg-gradient-to-b from-green-900 via-black to-black overflow-hidden" id="home">
         
         {/* Fixed background gradient */}
         <div className="fixed inset-0 -z-10 bg-gradient-to-b from-green-900 via-black to-black" />
