@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 export default function CTA() {
   return (
-    <section className="relative overflow-hidden py-20 px-6 text-center bg-gradient-to-br from-green-50 via-white to-green-100">
+    <section className="relative overflow-hidden py-20 px-6 text-center bg-gradient-to-br from-green-50 via-white to-green-100" id="cta">
       {/* 🌌 Animated gradient blobs */}
       <motion.div
         className="absolute -top-32 -left-32 w-96 h-96 bg-green-200 rounded-full mix-blend-multiply filter blur-3xl opacity-50"
