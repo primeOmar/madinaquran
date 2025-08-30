@@ -7,21 +7,20 @@ export default function Testimonials() {
       role: "Student from UK",
       quote:
         "Alhamdulillah, the teachers are patient and knowledgeable. I improved my Tajweed within weeks!",
-      img: "https://i.pravatar.cc/100?img=5",
     },
     {
       name: "Omar K.",
       role: "Parent from Kenya",
       quote:
         "My kids love the classes! They are now excited to memorize Qur’an every day.",
-      img: "https://i.pravatar.cc/100?img=8",
+      
     },
     {
       name: "Fatima S.",
       role: "Student from USA",
       quote:
         "The online setup makes it so easy to learn. May Allah reward the teachers for their effort.",
-      img: "https://i.pravatar.cc/100?img=12",
+      
     },
   ];
 
@@ -49,11 +48,6 @@ export default function Testimonials() {
               transition={{ duration: 0.6, delay: idx * 0.2 }}
               whileHover={{ scale: 1.05 }}
             >
-              <img
-                src={t.img}
-                alt={t.name}
-                className="w-16 h-16 rounded-full mx-auto mb-4 border-2 border-green-500"
-              />
               <p className="text-gray-700 italic mb-4">“{t.quote}”</p>
               <h4 className="text-lg font-semibold text-gray-900">{t.name}</h4>
               <p className="text-sm text-gray-500">{t.role}</p>
