@@ -46,8 +46,8 @@ export default function Navbar() {
     { href: "#courses", label: "Courses" },
   ];
   const navLinksRight = [
-    { href: "#blog", label: "Blog" },
-    { href: "#contact", label: "Contact" },
+    { href: "#pricing", label: "Pricing" },
+     { href: "#cta", label: "Enroll" },
   ];
 
   const navbarFloatVariants = {
