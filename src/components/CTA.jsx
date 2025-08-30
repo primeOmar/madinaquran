@@ -16,18 +16,16 @@ export default function CTA() {
         transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
       />
 
-      {/* 🌙 Floating Islamic SVG pattern */}
+      {/* 🌙 Floating Crescent Moon SVG */}
       <motion.svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
-        fill="none"
-        stroke="green"
-        strokeWidth={1.5}
-        className="absolute top-10 left-10 w-10 h-10 opacity-40"
-        animate={{ y: [0, -10, 0] }}
+        fill="green"
+        className="absolute top-10 left-10 w-10 h-10 opacity-50"
+        animate={{ y: [0, -12, 0] }}
         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
       >
-        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2z"/>
+        <path d="M21 12.79A9 9 0 0111.21 3a7 7 0 100 14 9 9 0 009.79-4.21z" />
       </motion.svg>
 
       {/* ✨ Content */}
