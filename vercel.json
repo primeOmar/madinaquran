@@ -17,6 +17,15 @@
       }
     },
     {
+  "build": {
+    "env": {
+      "VITE_API_URL": "https://madina-quran-backend.onrender.com",
+      "VITE_APP_NAME": "Madina Quran School",
+      "VITE_NODE_ENV": "production"
+    }
+  }
+},
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
