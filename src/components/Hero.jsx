@@ -10,14 +10,13 @@ export default function Hero() {
 
   // ✅ Using absolute paths from public folder
   const backgroundImages = [
-    "/images/madina1.jpg",
-    "/images/madina2.jpg", 
-    "/images/madina3.jpg",
-    "/images/madina4.jpg",
-    "/images/madina5.jpg",
-    "/images/madina6.jpg"
-  ];
-
+  `${process.env.PUBLIC_URL || ''}/images/madina1.jpg`,
+  `${process.env.PUBLIC_URL || ''}/images/madina2.jpg`,
+  `${process.env.PUBLIC_URL || ''}/images/madina3.jpg`,
+  `${process.env.PUBLIC_URL || ''}/images/madina4.jpg`,
+  `${process.env.PUBLIC_URL || ''}/images/madina5.jpg`,
+  `${process.env.PUBLIC_URL || ''}/images/madina6.jpg`
+];
   const colorFilters = [
     "bg-gradient-to-b from-green-900/70 via-black/70 to-black/70",
     "bg-gradient-to-b from-green-800/60 via-black/80 to-black/80", 
