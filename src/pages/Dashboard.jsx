@@ -29,40 +29,6 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
-// Create API call utility function
-const createApiCall = (endpoint, options = {}) => {
-  return async (headers) => {
-    try {
-      const response = await fetch(`/api/student${endpoint}`, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-          ...options.headers,
-        },
-      });
-
-      // Check if response is HTML instead of JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error(`Non-JSON response from ${endpoint}:`, text.substring(0, 200));
-        throw new Error(`Server returned non-JSON response: ${response.status}`);
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error(`API call error for ${endpoint}:`, error);
-      throw error;
-    }
-  };
-};
-
 export default function Dashboard() {
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -92,61 +58,52 @@ export default function Dashboard() {
   const [resendingEmail, setResendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
 
-  // Enhanced fetch functions using the utility
-const fetchStatsData = async () => {
-  setLoadingStats(true);
-  try {
-    const statsData = await makeApiRequest('/api/student/stats');
-    
-    // Check if statsData is valid
-    if (!statsData || typeof statsData !== 'object') {
-      throw new Error('Invalid stats data received');
-    }
-    
-    const statsArray = [
-      { 
-        label: "Total Classes", 
-        value: statsData.total_classes?.toString() || "0", 
-        icon: BookOpen, 
-        change: "+0" 
-      },
-      { 
-        label: "Hours Learned", 
-        value: statsData.hours_learned?.toString() || "0", 
-        icon: Clock, 
-        change: "+0" 
-      },
-      { 
-        label: "Assignments", 
-        value: statsData.assignments?.toString() || "0", 
-        icon: FileText, 
-        change: "+0" 
-      },
-      { 
-        label: "Avg. Score", 
-        value: `${statsData.avg_score || "0"}%`, 
-        icon: BarChart3, 
-        change: "+0%" 
-      },
-    ];
-    
-    setStats(statsArray);
-  } catch (error) {
-    console.error('Error fetching stats:', error);
-    
-    // Set default stats on error
-    setStats([
-      { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
-      { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
-      { label: "Assignments", value: "0", icon: FileText, change: "+0" },
-      { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
-    ]);
-    
-    alert('Failed to load statistics. Please try again later.');
-  } finally {
-    setLoadingStats(false);
-  }
-};    
+  // PROPERLY AUTHENTICATED FETCH FUNCTIONS
+  const fetchStatsData = async () => {
+    setLoadingStats(true);
+    try {
+      const statsData = await makeApiRequest('/api/student/stats');
+      
+      if (!statsData || typeof statsData !== 'object') {
+        throw new Error('Invalid stats data received');
+      }
+      
+      const statsArray = [
+        { 
+          label: "Total Classes", 
+          value: statsData.total_classes?.toString() || "0", 
+          icon: BookOpen, 
+          change: "+0" 
+        },
+        { 
+          label: "Hours Learned", 
+          value: statsData.hours_learned?.toString() || "0", 
+          icon: Clock, 
+          change: "+0" 
+        },
+        { 
+          label: "Assignments", 
+          value: statsData.assignments?.toString() || "0", 
+          icon: FileText, 
+          change: "+0" 
+        },
+        { 
+          label: "Avg. Score", 
+          value: `${statsData.avg_score || "0"}%`, 
+          icon: BarChart3, 
+          change: "+0%" 
+        },
+      ];
+      
+      setStats(statsArray);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      setStats([
+        { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
+        { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
+        { label: "Assignments", value: "0", icon: FileText, change: "+0" },
+        { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
+      ]);
       alert('Failed to load statistics. Please try again later.');
     } finally {
       setLoadingStats(false);
@@ -154,202 +111,130 @@ const fetchStatsData = async () => {
   };
 
   const fetchClasses = async () => {
-  setLoadingClasses(true);
-  try {
-    const classesData = await makeApiRequest('/api/student/classes');
-    
-    // Handle different possible response formats
-    if (Array.isArray(classesData)) {
-      setClasses(classesData);
-    } else if (classesData && Array.isArray(classesData.classes)) {
-      setClasses(classesData.classes);
-    } else {
+    setLoadingClasses(true);
+    try {
+      const classesData = await makeApiRequest('/api/student/classes');
+      
+      if (Array.isArray(classesData)) {
+        setClasses(classesData);
+      } else if (classesData && Array.isArray(classesData.classes)) {
+        setClasses(classesData.classes);
+      } else {
+        setClasses([]);
+      }
+    } catch (error) {
+      console.error('Error fetching classes:', error);
       setClasses([]);
+      alert('Failed to load classes. Please try again later.');
+    } finally {
+      setLoadingClasses(false);
     }
-  } catch (error) {
-    console.error('Error fetching classes:', error);
-    setClasses([]);
-    alert('Failed to load classes. Please try again later.');
-  } finally {
-    setLoadingClasses(false);
-  }
-};
+  };
 
-const fetchAssignments = async () => {
-  setLoadingAssignments(true);
-  try {
-    const assignmentsData = await makeApiRequest('/api/student/assignments');
-    
-    // Handle different possible response formats
-    if (Array.isArray(assignmentsData)) {
-      setAssignments(assignmentsData);
-    } else if (assignmentsData && Array.isArray(assignmentsData.assignments)) {
-      setAssignments(assignmentsData.assignments);
-    } else {
+  const fetchAssignments = async () => {
+    setLoadingAssignments(true);
+    try {
+      const assignmentsData = await makeApiRequest('/api/student/assignments');
+      
+      if (Array.isArray(assignmentsData)) {
+        setAssignments(assignmentsData);
+      } else if (assignmentsData && Array.isArray(assignmentsData.assignments)) {
+        setAssignments(assignmentsData.assignments);
+      } else {
+        setAssignments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching assignments:', error);
       setAssignments([]);
+      alert('Failed to load assignments. Please try again later.');
+    } finally {
+      setLoadingAssignments(false);
     }
-  } catch (error) {
-    console.error('Error fetching assignments:', error);
-    setAssignments([]);
-    alert('Failed to load assignments. Please try again later.');
-  } finally {
-    setLoadingAssignments(false);
-  }
-};
+  };
 
-const fetchPayments = async () => {
-  setLoadingPayments(true);
-  try {
-    const paymentsData = await makeApiRequest('/api/student/payments');
-    
-    // Handle different possible response formats
-    if (Array.isArray(paymentsData)) {
-      setPayments(paymentsData);
-    } else if (paymentsData && Array.isArray(paymentsData.payments)) {
-      setPayments(paymentsData.payments);
-    } else {
+  const fetchPayments = async () => {
+    setLoadingPayments(true);
+    try {
+      const paymentsData = await makeApiRequest('/api/student/payments');
+      
+      if (Array.isArray(paymentsData)) {
+        setPayments(paymentsData);
+      } else if (paymentsData && Array.isArray(paymentsData.payments)) {
+        setPayments(paymentsData.payments);
+      } else {
+        setPayments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching payments:', error);
       setPayments([]);
+      alert('Failed to load payments. Please try again later.');
+    } finally {
+      setLoadingPayments(false);
     }
-  } catch (error) {
-    console.error('Error fetching payments:', error);
-    setPayments([]);
-    alert('Failed to load payments. Please try again later.');
-  } finally {
-    setLoadingPayments(false);
-  }
-};
+  };
 
-const fetchTeacherStatus = async () => {
-  try {
-    const teacherData = await makeApiRequest('/api/student/teacher-check');
-    
-    // Handle different possible response formats
-    if (typeof teacherData === 'object' && teacherData !== null) {
-      setHasTeacher(teacherData.hasTeacher || teacherData.has_teacher || false);
-    } else {
+  const fetchTeacherStatus = async () => {
+    try {
+      const teacherData = await makeApiRequest('/api/student/teacher-check');
+      
+      if (typeof teacherData === 'object' && teacherData !== null) {
+        setHasTeacher(teacherData.hasTeacher || teacherData.has_teacher || false);
+      } else {
+        setHasTeacher(false);
+      }
+    } catch (error) {
+      console.error('Error fetching teacher status:', error);
       setHasTeacher(false);
     }
-  } catch (error) {
-    console.error('Error fetching teacher status:', error);
-    setHasTeacher(false);
-  }
-};
+  };
 
-const fetchExams = async () => {
-  try {
-    // This endpoint might not exist yet, so handle gracefully
-    const examsData = await makeApiRequest('/api/student/exams');
-    
-    if (Array.isArray(examsData)) {
-      setExams(examsData);
-    } else if (examsData && Array.isArray(examsData.exams)) {
-      setExams(examsData.exams);
-    } else {
+  const fetchExams = async () => {
+    try {
+      const examsData = await makeApiRequest('/api/student/exams');
+      
+      if (Array.isArray(examsData)) {
+        setExams(examsData);
+      } else if (examsData && Array.isArray(examsData.exams)) {
+        setExams(examsData.exams);
+      } else {
+        setExams([]);
+      }
+    } catch (error) {
+      console.error('Error fetching exams:', error);
       setExams([]);
     }
-  } catch (error) {
-    // Don't alert for exams since this might be a feature not yet implemented
-    console.error('Error fetching exams:', error);
-    setExams([]);
-  }
-};
+  };
 
-// Updated contact admin function
-const handleContactAdmin = async () => {
-  if (!contactMessage.trim()) {
-    alert('Please enter a message before sending.');
-    return;
-  }
-
-  setSendingMessage(true);
-  try {
-    const response = await makeApiRequest('/api/student/contact-admin', {
-      method: 'POST',
-      body: JSON.stringify({
-        message: contactMessage
-      }),
-    });
-    
-    if (response && response.success !== false) {
-      alert('Message sent to admin! They will contact you soon.');
-      setContactMessage('');
-    } else {
-      throw new Error(response?.error || 'Failed to send message');
+  const handleContactAdmin = async () => {
+    if (!contactMessage.trim()) {
+      alert('Please enter a message before sending.');
+      return;
     }
-  } catch (error) {
-    console.error('Error contacting admin:', error);
-    alert('Failed to send message. Please try again.');
-  } finally {
-    setSendingMessage(false);
-  }
-};
 
-// Updated initialization function that doesn't need headers
-const initializeDashboard = async () => {
-  try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError) throw userError;
-    
-    if (user) {
-      setUserEmailVerified(user.email_confirmed_at !== null);
-      setStudentName(user.user_metadata?.name || "Student");
+    setSendingMessage(true);
+    try {
+      const response = await makeApiRequest('/api/student/contact-admin', {
+        method: 'POST',
+        body: JSON.stringify({
+          message: contactMessage
+        }),
+      });
       
-      if (user.email_confirmed_at) {
-        // Fetch all data without needing to pass headers
-        await Promise.all([
-          fetchStatsData(),
-          fetchClasses(),
-          fetchTeacherStatus(),
-          fetchAssignments(),
-          fetchPayments(),
-          fetchExams()
-        ]);
+      if (response && response.success !== false) {
+        alert('Message sent to admin! They will contact you soon.');
+        setContactMessage('');
+      } else {
+        throw new Error(response?.error || 'Failed to send message');
       }
+    } catch (error) {
+      console.error('Error contacting admin:', error);
+      alert('Failed to send message. Please try again.');
+    } finally {
+      setSendingMessage(false);
     }
-  } catch (error) {
-    console.error('Error initializing dashboard:', error);
-    
-    if (error.message.includes('JWT') || error.message.includes('authentication')) {
-      // Token is invalid, redirect to login
-      await supabase.auth.signOut();
-      window.location.href = "/login";
-    } else {
-      alert('Failed to load dashboard data. Please refresh the page.');
-    }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
-// Updated section-based fetch function
-const fetchDataForSection = async (section) => {
-  if (!userEmailVerified) return;
-
-  try {
-    switch (section) {
-      case "classes":
-        await fetchClasses();
-        break;
-      case "assignments":
-        await fetchAssignments();
-        break;
-      case "payments":
-        await fetchPayments();
-        break;
-      case "exams":
-        await fetchExams();
-        break;
-      default:
-        break;
-    }
-  } catch (error) {
-    console.error(`Error fetching data for ${section}:`, error);
-    alert(`Failed to load ${section} data. Please try again.`);
-  }
-};
-
-  // Fetch all data on component mount
+  // FIXED: Initialize dashboard without headers
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
@@ -362,43 +247,25 @@ const fetchDataForSection = async (section) => {
           setStudentName(user.user_metadata?.name || "Student");
           
           if (user.email_confirmed_at) {
-            // Check and refresh session if needed
-            let { data: { session }, error: sessionError } = await supabase.auth.getSession();
-            if (sessionError) throw sessionError;
-            
-            if (session) {
-              // Check if token is expired or about to expire
-              const expiresAt = new Date(session.expires_at * 1000);
-              const now = new Date();
-              
-              if (expiresAt - now < 5 * 60 * 1000) { // 5 minutes threshold
-                const { data: { session: refreshedSession }, error: refreshError } = 
-                  await supabase.auth.refreshSession();
-                
-                if (refreshError) throw refreshError;
-                session = refreshedSession;
-              }
-              
-              const headers = {
-                'Authorization': `Bearer ${session.access_token}`
-              };
-              
-              await Promise.all([
-                fetchStatsData(headers),
-                fetchClasses(headers),
-                fetchTeacherStatus(headers),
-                fetchAssignments(headers),
-                fetchPayments(headers)
-              ]);
-            }
+            // Fetch all data - NO HEADERS NEEDED
+            await Promise.all([
+              fetchStatsData(),
+              fetchClasses(),
+              fetchTeacherStatus(),
+              fetchAssignments(),
+              fetchPayments(),
+              fetchExams()
+            ]);
           }
         }
       } catch (error) {
         console.error('Error initializing dashboard:', error);
-        if (error.message.includes('JWT')) {
-          // Token is invalid, redirect to login
+        
+        if (error.message.includes('JWT') || error.message.includes('authentication')) {
           await supabase.auth.signOut();
           window.location.href = "/login";
+        } else {
+          alert('Failed to load dashboard data. Please refresh the page.');
         }
       } finally {
         setLoading(false);
@@ -419,31 +286,24 @@ const fetchDataForSection = async (section) => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Fetch data based on active section
+  // FIXED: Fetch data based on active section - NO HEADERS
   useEffect(() => {
     if (!userEmailVerified) return;
 
     const fetchData = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
-        const headers = {
-          'Authorization': `Bearer ${session.access_token}`
-        };
-
         switch (activeSection) {
           case "classes":
-            await fetchClasses(headers);
+            await fetchClasses();
             break;
           case "assignments":
-            await fetchAssignments(headers);
+            await fetchAssignments();
             break;
           case "payments":
-            await fetchPayments(headers);
+            await fetchPayments();
             break;
           case "exams":
-            await fetchExams(headers);
+            await fetchExams();
             break;
         }
       } catch (error) {
@@ -453,36 +313,6 @@ const fetchDataForSection = async (section) => {
 
     fetchData();
   }, [activeSection, userEmailVerified]);
-
-  const handleContactAdmin = async () => {
-    setSendingMessage(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await fetch('/api/student/contact-admin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          message: contactMessage
-        }),
-      });
-      
-      if (response.ok) {
-        alert('Message sent to admin! They will contact you soon.');
-        setContactMessage('');
-      } else {
-        throw new Error('Failed to send message');
-      }
-    } catch (error) {
-      console.error('Error contacting admin:', error);
-      alert('Failed to send message. Please try again.');
-    } finally {
-      setSendingMessage(false);
-    }
-  };
 
   const getTimeUntilClass = (scheduledDate) => {
     const now = new Date();
