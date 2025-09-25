@@ -33,60 +33,76 @@ const apiBaseUrl = window._env_?.REACT_APP_API_BASE_URL ||
 // API request helper
 export const makeApiRequest = async (endpoint, options = {}) => {
   try {
-    console.log('🔗 API Request Debug:', endpoint);
+    console.log(`🔗 API Request to: ${endpoint}`);
     
-    // Get the current session properly
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    // Get the current session PROPERLY
+    const { data: { session } } = await supabase.auth.getSession();
     
-    if (sessionError) {
-      console.error('❌ Session error:', sessionError);
-      throw new Error('Authentication session error');
+    if (!session) {
+      console.error('❌ No active session found');
+      throw new Error('User not authenticated. Please login again.');
     }
     
-    console.log('Session exists:', !!session);
-    console.log('Session user:', session?.user?.email);
+    console.log('✅ Session found for:', session.user.email);
+    console.log('🔑 Token available:', !!session.access_token);
     
-    const headers = {
-      'Content-Type': 'application/json',
-    };
+    const API_BASE = 'https://madina-quran-backend.onrender.com/api';
+    const fullUrl = `${API_BASE}${endpoint}`;
     
-    // Add authorization header if session exists
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
-      console.log('✅ Adding auth token to request');
-    } else {
-      console.log('❌ No auth token available');
-    }
+    console.log(`🌐 Calling: ${fullUrl}`);
     
-    const response = await fetch(`https://madina-quran-backend.onrender.com/api${endpoint}`, {
+    const requestOptions = {
       method: options.method || 'GET',
       headers: {
-        ...headers,
-        ...options.headers,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
       },
-      body: options.body,
-    });
+      ...options
+    };
     
-    console.log('Response status:', response.status);
+    // Remove body if it's undefined to avoid errors
+    if (options.body === undefined) {
+      delete requestOptions.body;
+    }
+    
+    const response = await fetch(fullUrl, requestOptions);
+    
+    console.log(`📊 Response Status: ${response.status}`);
+    
+    // Handle non-JSON responses
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const errorText = await response.text();
+      console.error('❌ Non-JSON response received:', errorText.substring(0, 200));
+      throw new Error(`Expected JSON but got: ${contentType}`);
+    }
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ API Error Response:', errorText);
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorData = await response.json();
+      console.error('❌ API Error:', errorData);
+      
+      if (response.status === 401) {
+        // Token is invalid, sign out user
+        await supabase.auth.signOut();
+        window.location.href = '/login';
+        throw new Error('Authentication failed. Please login again.');
+      }
+      
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
     
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const data = await response.json();
-      console.log('✅ API Success:', data);
-      return data;
-    } else {
-      const text = await response.text();
-      console.error('❌ Non-JSON response:', text.substring(0, 200));
-      throw new Error('Server returned non-JSON response');
-    }
+    const data = await response.json();
+    console.log('✅ API Success:', data);
+    return data;
+    
   } catch (error) {
-    console.error('❌ API request failed:', error.message);
+    console.error(`❌ API request failed for ${endpoint}:`, error.message);
+    
+    // Enhanced error handling
+    if (error.message.includes('Failed to fetch')) {
+      throw new Error('Network error: Cannot connect to server. Check your internet connection.');
+    }
+    
     throw error;
   }
 };
