@@ -27,7 +27,7 @@ import {
   Mail,
   RefreshCw
 } from "lucide-react";
-import { supabase } from "../lib/supabaseClient";
+
 
 export default function Dashboard() {
   const [classes, setClasses] = useState([]);
