@@ -46,7 +46,7 @@ export const makeApiRequest = async (endpoint, options = {}) => {
     console.log('✅ Session found for:', session.user.email);
     console.log('🔑 Token available:', !!session.access_token);
     
-    const API_BASE = 'https://madina-quran-backend.onrender.com/api';
+    const API_BASE = 'https://madina-quran-backend.onrender.com';
     const fullUrl = `${API_BASE}${endpoint}`;
     
     console.log(`🌐 Calling: ${fullUrl}`);
