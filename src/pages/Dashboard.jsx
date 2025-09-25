@@ -1,6 +1,6 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from "react";
-import { makeApiRequest } from "../lib/supabaseClient";
+import { makeApiRequest, supabase, testAuthentication } from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -59,15 +59,15 @@ export default function Dashboard() {
   const [emailSent, setEmailSent] = useState(false);
 
   // PROPERLY AUTHENTICATED FETCH FUNCTIONS
-  const fetchStatsData = async () => {
-    setLoadingStats(true);
+ const fetchStatsData = async () => {
     try {
-      const statsData = await makeApiRequest('/api/student/stats');
+      console.log('📊 Starting stats fetch...');
+      const statsData = await makeApiRequest('/student/stats');
+      console.log('📊 Stats data received:', statsData);
       
       if (!statsData || typeof statsData !== 'object') {
         throw new Error('Invalid stats data received');
       }
-      
       const statsArray = [
         { 
           label: "Total Classes", 
