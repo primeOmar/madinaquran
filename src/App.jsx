@@ -12,8 +12,10 @@ import Pricing from "./components/Pricing";
 import CTA from "./components/CTA";
 import Footer from "./components/Footer";
 import { useAuth } from "./components/AuthContext"; // ✅ Pull auth state
+import ConnectionTest from './pages/ConnectionTest';
 
 // ✅ Pages
+
 import Register from "./pages/Register";
 import VerifyEmail from "./pages/VerifyEmail";
 import Congratulations from "./pages/Congratulations"; 
@@ -74,6 +76,7 @@ function App() {
         <Route path="/auth-callback" element={<AuthCallback />} />
         <Route path="/email-confirmation" element={<EmailConfirmationHandler />} />
         {/*<Route path="/TeacherDashboard" element={<TeacherDashboard/>} />*/}
+        <Route path="/debug-connection" element={<ConnectionTest />} />
       </Routes>
     </>
   );
