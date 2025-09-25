@@ -290,7 +290,7 @@ getClasses: async (filters = {}) => {
     }
 
     const params = new URLSearchParams(filters);
-    const response = await fetch(`${apiBaseUrl}}/api/admin/classes?${params}`, {
+    const response = await fetch(`${apiBaseUrl}/api/admin/classes?${params}`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
