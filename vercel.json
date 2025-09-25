@@ -5,17 +5,10 @@
       "src": "package.json", 
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "dist"
+        "distDir": "build"
       }
     }
   ],
-  "build": {
-    "env": {
-      "VITE_API_URL": "https://madina-quran-backend.onrender.com",
-      "VITE_APP_NAME": "Madina Quran School",
-      "VITE_NODE_ENV": "production"
-    }
-  },
   "routes": [
     {
       "src": "/assets/(.*)",
@@ -24,24 +17,8 @@
       }
     },
     {
-      "src": "/stats",
-      "dest": "https://madina-quran-backend.onrender.com/api/student/stats"
-    },
-    {
-      "src": "/classes", 
-      "dest": "https://madina-quran-backend.onrender.com/api/student/classes"
-    },
-    {
-      "src": "/assignments",
-      "dest": "https://madina-quran-backend.onrender.com/api/student/assignments"
-    },
-    {
-      "src": "/payments",
-      "dest": "https://madina-quran-backend.onrender.com/api/student/payments"
-    },
-    {
-      "src": "/teacher-check",
-      "dest": "https://madina-quran-backend.onrender.com/api/student/teacher-check"
+      "src": "/api/(.*)",
+      "dest": "https://madina-quran-backend.onrender.com/api/$1"
     },
     {
       "src": "/(.*)",
