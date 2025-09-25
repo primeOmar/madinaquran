@@ -28,7 +28,6 @@ import {
   RefreshCw
 } from "lucide-react";
 
-
 export default function Dashboard() {
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -57,17 +56,20 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [resendingEmail, setResendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [authError, setAuthError] = useState(null);
 
-  // PROPERLY AUTHENTICATED FETCH FUNCTIONS
- const fetchStatsData = async () => {
+  // PROPERLY AUTHENTICATED FETCH FUNCTIONS WITH CONSISTENT API PATHS
+  const fetchStatsData = async () => {
+    setLoadingStats(true);
     try {
       console.log('📊 Starting stats fetch...');
-      const statsData = await makeApiRequest('/student/stats');
+      const statsData = await makeApiRequest('/api/student/stats'); // Fixed path
       console.log('📊 Stats data received:', statsData);
       
       if (!statsData || typeof statsData !== 'object') {
         throw new Error('Invalid stats data received');
       }
+      
       const statsArray = [
         { 
           label: "Total Classes", 
@@ -104,7 +106,6 @@ export default function Dashboard() {
         { label: "Assignments", value: "0", icon: FileText, change: "+0" },
         { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
       ]);
-      alert('Failed to load statistics. Please try again later.');
     } finally {
       setLoadingStats(false);
     }
@@ -113,7 +114,9 @@ export default function Dashboard() {
   const fetchClasses = async () => {
     setLoadingClasses(true);
     try {
+      console.log('📚 Starting classes fetch...');
       const classesData = await makeApiRequest('/api/student/classes');
+      console.log('📚 Classes data received:', classesData);
       
       if (Array.isArray(classesData)) {
         setClasses(classesData);
@@ -125,7 +128,6 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching classes:', error);
       setClasses([]);
-      alert('Failed to load classes. Please try again later.');
     } finally {
       setLoadingClasses(false);
     }
@@ -134,7 +136,9 @@ export default function Dashboard() {
   const fetchAssignments = async () => {
     setLoadingAssignments(true);
     try {
+      console.log('📝 Starting assignments fetch...');
       const assignmentsData = await makeApiRequest('/api/student/assignments');
+      console.log('📝 Assignments data received:', assignmentsData);
       
       if (Array.isArray(assignmentsData)) {
         setAssignments(assignmentsData);
@@ -146,7 +150,6 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching assignments:', error);
       setAssignments([]);
-      alert('Failed to load assignments. Please try again later.');
     } finally {
       setLoadingAssignments(false);
     }
@@ -155,7 +158,9 @@ export default function Dashboard() {
   const fetchPayments = async () => {
     setLoadingPayments(true);
     try {
+      console.log('💰 Starting payments fetch...');
       const paymentsData = await makeApiRequest('/api/student/payments');
+      console.log('💰 Payments data received:', paymentsData);
       
       if (Array.isArray(paymentsData)) {
         setPayments(paymentsData);
@@ -167,7 +172,6 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching payments:', error);
       setPayments([]);
-      alert('Failed to load payments. Please try again later.');
     } finally {
       setLoadingPayments(false);
     }
@@ -175,7 +179,9 @@ export default function Dashboard() {
 
   const fetchTeacherStatus = async () => {
     try {
+      console.log('👨‍🏫 Starting teacher status fetch...');
       const teacherData = await makeApiRequest('/api/student/teacher-check');
+      console.log('👨‍🏫 Teacher status received:', teacherData);
       
       if (typeof teacherData === 'object' && teacherData !== null) {
         setHasTeacher(teacherData.hasTeacher || teacherData.has_teacher || false);
@@ -190,7 +196,9 @@ export default function Dashboard() {
 
   const fetchExams = async () => {
     try {
+      console.log('📋 Starting exams fetch...');
       const examsData = await makeApiRequest('/api/student/exams');
+      console.log('📋 Exams data received:', examsData);
       
       if (Array.isArray(examsData)) {
         setExams(examsData);
@@ -234,8 +242,7 @@ export default function Dashboard() {
     }
   };
 
-  // FIXED: Initialize dashboard without headers
- 
+  // FIXED: Initialize dashboard with proper useEffect
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
@@ -276,7 +283,6 @@ export default function Dashboard() {
     };
 
     initializeDashboard();
-  }, []);
     
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
@@ -288,9 +294,9 @@ export default function Dashboard() {
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  } ;[]);
+  }, []);
 
-  // FIXED: Fetch data based on active section - NO HEADERS
+  // FIXED: Fetch data based on active section
   useEffect(() => {
     if (!userEmailVerified) return;
 
@@ -397,6 +403,7 @@ export default function Dashboard() {
     });
   };
 
+  // Loading state
   if (loading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white">
@@ -412,6 +419,26 @@ export default function Dashboard() {
     );
   }
 
+  // Authentication error state
+  if (authError) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white">
+        <div className="text-center max-w-md p-6 bg-red-900/50 rounded-lg">
+          <AlertCircle size={48} className="mx-auto mb-4 text-red-300" />
+          <h2 className="text-2xl font-bold mb-2">Authentication Error</h2>
+          <p className="mb-4">{authError}</p>
+          <button 
+            onClick={() => window.location.href = "/login"}
+            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Email verification required
   if (!userEmailVerified) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white p-4">
@@ -561,12 +588,6 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-        <button 
-  onClick={() => window.open('/debug-connection', '_blank')}
-  className="fixed bottom-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg z-50"
->
-  🐛 Debug Connection
-</button>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
