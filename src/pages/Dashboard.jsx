@@ -288,7 +288,7 @@ export default function Dashboard() {
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  } []);
+  } ;[]);
 
   // FIXED: Fetch data based on active section - NO HEADERS
   useEffect(() => {
