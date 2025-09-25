@@ -92,55 +92,60 @@ export default function Dashboard() {
   const [emailSent, setEmailSent] = useState(false);
 
   // Enhanced fetch functions using the utility
-const fetchStatsData = async (headers) => {
-    setLoadingStats(true);
-    try {
-      const statsData = await createApiCall('/stats')(headers);
-      
-      // Check if statsData is valid
-      if (!statsData || typeof statsData !== 'object') {
-        throw new Error('Invalid stats data received');
-      }
-      
-      const statsArray = [
-        { 
-          label: "Total Classes", 
-          value: statsData.total_classes?.toString() || "0", 
-          icon: BookOpen, 
-          change: "+0" 
-        },
-        { 
-          label: "Hours Learned", 
-          value: statsData.hours_learned?.toString() || "0", 
-          icon: Clock, 
-          change: "+0" 
-        },
-        { 
-          label: "Assignments", 
-          value: statsData.assignments?.toString() || "0", 
-          icon: FileText, 
-          change: "+0" 
-        },
-        { 
-          label: "Avg. Score", 
-          value: `${statsData.avg_score || "0"}%`, 
-          icon: BarChart3, 
-          change: "+0%" 
-        },
-      ];
-      
-      setStats(statsArray);
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      
-      // Set default stats on error
-      setStats([
-        { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
-        { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
-        { label: "Assignments", value: "0", icon: FileText, change: "+0" },
-        { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
-      ]);
-      
+const fetchStatsData = async () => {
+  setLoadingStats(true);
+  try {
+    const statsData = await makeApiRequest('/api/student/stats');
+    
+    // Check if statsData is valid
+    if (!statsData || typeof statsData !== 'object') {
+      throw new Error('Invalid stats data received');
+    }
+    
+    const statsArray = [
+      { 
+        label: "Total Classes", 
+        value: statsData.total_classes?.toString() || "0", 
+        icon: BookOpen, 
+        change: "+0" 
+      },
+      { 
+        label: "Hours Learned", 
+        value: statsData.hours_learned?.toString() || "0", 
+        icon: Clock, 
+        change: "+0" 
+      },
+      { 
+        label: "Assignments", 
+        value: statsData.assignments?.toString() || "0", 
+        icon: FileText, 
+        change: "+0" 
+      },
+      { 
+        label: "Avg. Score", 
+        value: `${statsData.avg_score || "0"}%`, 
+        icon: BarChart3, 
+        change: "+0%" 
+      },
+    ];
+    
+    setStats(statsArray);
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    
+    // Set default stats on error
+    setStats([
+      { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
+      { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
+      { label: "Assignments", value: "0", icon: FileText, change: "+0" },
+      { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
+    ]);
+    
+    alert('Failed to load statistics. Please try again later.');
+  } finally {
+    setLoadingStats(false);
+  }
+};    
       alert('Failed to load statistics. Please try again later.');
     } finally {
       setLoadingStats(false);
