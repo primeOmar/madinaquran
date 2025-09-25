@@ -24,6 +24,26 @@
       }
     },
     {
+      "src": "/stats",
+      "dest": "https://madina-quran-backend.onrender.com/api/student/stats"
+    },
+    {
+      "src": "/classes", 
+      "dest": "https://madina-quran-backend.onrender.com/api/student/classes"
+    },
+    {
+      "src": "/assignments",
+      "dest": "https://madina-quran-backend.onrender.com/api/student/assignments"
+    },
+    {
+      "src": "/payments",
+      "dest": "https://madina-quran-backend.onrender.com/api/student/payments"
+    },
+    {
+      "src": "/teacher-check",
+      "dest": "https://madina-quran-backend.onrender.com/api/student/teacher-check"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
