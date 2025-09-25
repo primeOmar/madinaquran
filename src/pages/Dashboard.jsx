@@ -517,12 +517,6 @@ export default function Dashboard() {
             <BookOpen className="mr-2" size={24} />
             Madrasa Dashboard
           </h1>
-          <button 
-  onClick={() => window.open('/debug-connection', '_blank')}
-  className="fixed bottom-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg z-50"
->
-  🐛 Debug Connection
-</button>
         </div>
         
         <div className="flex items-center space-x-4">
@@ -567,6 +561,12 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+        <button 
+  onClick={() => window.open('/debug-connection', '_blank')}
+  className="fixed bottom-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg z-50"
+>
+  🐛 Debug Connection
+</button>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
