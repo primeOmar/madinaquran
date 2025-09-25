@@ -235,44 +235,61 @@ export default function Dashboard() {
   };
 
   // FIXED: Initialize dashboard without headers
-  useEffect(() => {
-    const initializeDashboard = async () => {
-      try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError) throw userError;
-        
-        if (user) {
-          setUserEmailVerified(user.email_confirmed_at !== null);
-          setStudentName(user.user_metadata?.name || "Student");
-          
-          if (user.email_confirmed_at) {
-            // Fetch all data - NO HEADERS NEEDED
-            await Promise.all([
-              fetchStatsData(),
-              fetchClasses(),
-              fetchTeacherStatus(),
-              fetchAssignments(),
-              fetchPayments(),
-              fetchExams()
-            ]);
-          }
-        }
-      } catch (error) {
-        console.error('Error initializing dashboard:', error);
-        
-        if (error.message.includes('JWT') || error.message.includes('authentication')) {
-          await supabase.auth.signOut();
-          window.location.href = "/login";
-        } else {
-          alert('Failed to load dashboard data. Please refresh the page.');
-        }
-      } finally {
-        setLoading(false);
+  // In your Dashboard.jsx - Update the useEffect
+useEffect(() => {
+  const initializeDashboard = async () => {
+    try {
+      console.log('🚀 Initializing dashboard...');
+      
+      // First, check if we have a valid session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('❌ Session error:', sessionError);
+        throw sessionError;
       }
-    };
+      
+      if (!session) {
+        console.log('❌ No session found, redirecting to login');
+        await supabase.auth.signOut();
+        window.location.href = "/login";
+        return;
+      }
+      
+      console.log('✅ Valid session found for:', session.user.email);
+      setUserEmailVerified(session.user.email_confirmed_at !== null);
+      setStudentName(session.user.user_metadata?.name || "Student");
+      
+      if (session.user.email_confirmed_at) {
+        console.log('📊 Fetching dashboard data...');
+        // Fetch all data with proper authentication
+        await Promise.all([
+          fetchStatsData(),
+          fetchClasses(),
+          fetchTeacherStatus(),
+          fetchAssignments(),
+          fetchPayments(),
+          fetchExams()
+        ]);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error initializing dashboard:', error);
+      
+      if (error.message.includes('JWT') || error.message.includes('authentication')) {
+        console.log('🔄 Authentication invalid, signing out...');
+        await supabase.auth.signOut();
+        window.location.href = "/login";
+      } else {
+        alert('Failed to load dashboard data. Please refresh the page.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    initializeDashboard();
+  initializeDashboard();
+}, []);
     
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
