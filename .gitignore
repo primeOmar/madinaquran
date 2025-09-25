@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 supabase/functions/register-admin/supabase_linux_amd64.tar.gz
+
+
+.env
