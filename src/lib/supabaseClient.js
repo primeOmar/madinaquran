@@ -212,8 +212,7 @@ addTeacher: async (teacherData) => {
     method: 'DELETE'
   }),
 
-  // Class management
-  getClasses: () => makeApiRequest('/api/admin/classes'),
+ 
   
 getVideoSessions: () => makeApiRequest('/api/admin/video-sessions'),
   joinVideoCall: (meetingId) => makeApiRequest('/api/admin/join-video-call', {
@@ -291,7 +290,7 @@ getClasses: async (filters = {}) => {
     }
 
     const params = new URLSearchParams(filters);
-    const response = await fetch(`${apiBaseUrl}/classes?${params}`, {
+    const response = await fetch(`${apiBaseUrl}}/api/admin/classes?${params}`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
