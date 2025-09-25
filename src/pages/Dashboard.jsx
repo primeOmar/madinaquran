@@ -1,31 +1,36 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from "react";
 import { makeApiRequest, supabase, testAuthentication } from "../lib/supabaseClient";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  LayoutDashboard,
-  FileText,
-  CreditCard,
-  ClipboardList,
-  BookOpen,
-  Clock,
-  User,
-  Calendar,
-  Award,
-  BarChart3,
-  Download,
-  Upload,
-  Bell,
-  Settings,
-  LogOut,
-  Menu,
-  X,
-  ChevronDown,
-  CheckCircle,
-  AlertCircle,
-  PlayCircle,
-  Mail,
-  RefreshCw
+
+// Import framer-motion components individually to avoid build issues
+import { motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
+
+// Import Lucide icons individually
+import { 
+  LayoutDashboard, 
+  FileText, 
+  CreditCard, 
+  ClipboardList, 
+  BookOpen, 
+  Clock, 
+  User, 
+  Calendar, 
+  Award, 
+  BarChart3, 
+  Download, 
+  Upload, 
+  Bell, 
+  Settings, 
+  LogOut, 
+  Menu, 
+  X, 
+  ChevronDown, 
+  CheckCircle, 
+  AlertCircle, 
+  PlayCircle, 
+  Mail, 
+  RefreshCw 
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -49,7 +54,7 @@ export default function Dashboard() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [activeSection, setActiveSection] = useState("classes");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isMobile, setIsMobile] = useState(false); // Initialize as false
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userEmailVerified, setUserEmailVerified] = useState(false);
@@ -58,12 +63,17 @@ export default function Dashboard() {
   const [emailSent, setEmailSent] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // PROPERLY AUTHENTICATED FETCH FUNCTIONS WITH CONSISTENT API PATHS
+  // Fix window.innerWidth issue - move to useEffect
+  useEffect(() => {
+    setIsMobile(window.innerWidth < 768);
+  }, []);
+
+  // PROPERLY AUTHENTICATED FETCH FUNCTIONS
   const fetchStatsData = async () => {
     setLoadingStats(true);
     try {
       console.log('📊 Starting stats fetch...');
-      const statsData = await makeApiRequest('/api/student/stats'); // Fixed path
+      const statsData = await makeApiRequest('/api/student/stats');
       console.log('📊 Stats data received:', statsData);
       
       if (!statsData || typeof statsData !== 'object') {
@@ -242,7 +252,7 @@ export default function Dashboard() {
     }
   };
 
-  // FIXED: Initialize dashboard with proper useEffect
+  // Initialize dashboard
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
@@ -296,7 +306,7 @@ export default function Dashboard() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // FIXED: Fetch data based on active section
+  // Fetch data based on active section
   useEffect(() => {
     if (!userEmailVerified) return;
 
@@ -314,6 +324,8 @@ export default function Dashboard() {
             break;
           case "exams":
             await fetchExams();
+            break;
+          default:
             break;
         }
       } catch (error) {
@@ -401,6 +413,13 @@ export default function Dashboard() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // Close sidebar function
+  const closeSidebar = () => {
+    if (isMobile) {
+      setIsSidebarOpen(false);
+    }
   };
 
   // Loading state
@@ -493,7 +512,6 @@ export default function Dashboard() {
   }
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-  const closeSidebar = () => setIsMobile && setIsSidebarOpen(false);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white overflow-hidden">
@@ -531,7 +549,6 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
-
       <header className="sticky top-0 z-40 bg-green-950/90 backdrop-blur-md border-b border-green-700/30 p-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center">
           <button 
