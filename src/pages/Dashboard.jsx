@@ -1,5 +1,6 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from "react";
+import { makeApiRequest } from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -152,62 +153,201 @@ const fetchStatsData = async () => {
     }
   };
 
-  const fetchClasses = async (headers) => {
-    setLoadingClasses(true);
-    try {
-      const classesData = await createApiCall('/classes')(headers);
-      setClasses(classesData.classes || []);
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      alert('Failed to load classes. Please try again later.');
-    } finally {
-      setLoadingClasses(false);
+  const fetchClasses = async () => {
+  setLoadingClasses(true);
+  try {
+    const classesData = await makeApiRequest('/api/student/classes');
+    
+    // Handle different possible response formats
+    if (Array.isArray(classesData)) {
+      setClasses(classesData);
+    } else if (classesData && Array.isArray(classesData.classes)) {
+      setClasses(classesData.classes);
+    } else {
+      setClasses([]);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching classes:', error);
+    setClasses([]);
+    alert('Failed to load classes. Please try again later.');
+  } finally {
+    setLoadingClasses(false);
+  }
+};
 
-  const fetchAssignments = async (headers) => {
-    setLoadingAssignments(true);
-    try {
-      const assignmentsData = await createApiCall('/assignments')(headers);
-      setAssignments(assignmentsData || []);
-    } catch (error) {
-      console.error('Error fetching assignments:', error);
-      alert('Failed to load assignments. Please try again later.');
-    } finally {
-      setLoadingAssignments(false);
+const fetchAssignments = async () => {
+  setLoadingAssignments(true);
+  try {
+    const assignmentsData = await makeApiRequest('/api/student/assignments');
+    
+    // Handle different possible response formats
+    if (Array.isArray(assignmentsData)) {
+      setAssignments(assignmentsData);
+    } else if (assignmentsData && Array.isArray(assignmentsData.assignments)) {
+      setAssignments(assignmentsData.assignments);
+    } else {
+      setAssignments([]);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching assignments:', error);
+    setAssignments([]);
+    alert('Failed to load assignments. Please try again later.');
+  } finally {
+    setLoadingAssignments(false);
+  }
+};
 
-  const fetchPayments = async (headers) => {
-    setLoadingPayments(true);
-    try {
-      const paymentsData = await createApiCall('/payments')(headers);
-      setPayments(paymentsData || []);
-    } catch (error) {
-      console.error('Error fetching payments:', error);
-      alert('Failed to load payments. Please try again later.');
-    } finally {
-      setLoadingPayments(false);
+const fetchPayments = async () => {
+  setLoadingPayments(true);
+  try {
+    const paymentsData = await makeApiRequest('/api/student/payments');
+    
+    // Handle different possible response formats
+    if (Array.isArray(paymentsData)) {
+      setPayments(paymentsData);
+    } else if (paymentsData && Array.isArray(paymentsData.payments)) {
+      setPayments(paymentsData.payments);
+    } else {
+      setPayments([]);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    setPayments([]);
+    alert('Failed to load payments. Please try again later.');
+  } finally {
+    setLoadingPayments(false);
+  }
+};
 
-  const fetchTeacherStatus = async (headers) => {
-    try {
-      const teacherData = await createApiCall('/teacher-check')(headers);
-      setHasTeacher(teacherData.hasTeacher);
-    } catch (error) {
-      console.error('Error fetching teacher status:', error);
+const fetchTeacherStatus = async () => {
+  try {
+    const teacherData = await makeApiRequest('/api/student/teacher-check');
+    
+    // Handle different possible response formats
+    if (typeof teacherData === 'object' && teacherData !== null) {
+      setHasTeacher(teacherData.hasTeacher || teacherData.has_teacher || false);
+    } else {
+      setHasTeacher(false);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching teacher status:', error);
+    setHasTeacher(false);
+  }
+};
 
-  const fetchExams = async (headers) => {
-    try {
-      const mockExams = [];
-      setExams(mockExams);
-    } catch (error) {
-      console.error('Error fetching exams:', error);
+const fetchExams = async () => {
+  try {
+    // This endpoint might not exist yet, so handle gracefully
+    const examsData = await makeApiRequest('/api/student/exams');
+    
+    if (Array.isArray(examsData)) {
+      setExams(examsData);
+    } else if (examsData && Array.isArray(examsData.exams)) {
+      setExams(examsData.exams);
+    } else {
+      setExams([]);
     }
-  };
+  } catch (error) {
+    // Don't alert for exams since this might be a feature not yet implemented
+    console.error('Error fetching exams:', error);
+    setExams([]);
+  }
+};
+
+// Updated contact admin function
+const handleContactAdmin = async () => {
+  if (!contactMessage.trim()) {
+    alert('Please enter a message before sending.');
+    return;
+  }
+
+  setSendingMessage(true);
+  try {
+    const response = await makeApiRequest('/api/student/contact-admin', {
+      method: 'POST',
+      body: JSON.stringify({
+        message: contactMessage
+      }),
+    });
+    
+    if (response && response.success !== false) {
+      alert('Message sent to admin! They will contact you soon.');
+      setContactMessage('');
+    } else {
+      throw new Error(response?.error || 'Failed to send message');
+    }
+  } catch (error) {
+    console.error('Error contacting admin:', error);
+    alert('Failed to send message. Please try again.');
+  } finally {
+    setSendingMessage(false);
+  }
+};
+
+// Updated initialization function that doesn't need headers
+const initializeDashboard = async () => {
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError) throw userError;
+    
+    if (user) {
+      setUserEmailVerified(user.email_confirmed_at !== null);
+      setStudentName(user.user_metadata?.name || "Student");
+      
+      if (user.email_confirmed_at) {
+        // Fetch all data without needing to pass headers
+        await Promise.all([
+          fetchStatsData(),
+          fetchClasses(),
+          fetchTeacherStatus(),
+          fetchAssignments(),
+          fetchPayments(),
+          fetchExams()
+        ]);
+      }
+    }
+  } catch (error) {
+    console.error('Error initializing dashboard:', error);
+    
+    if (error.message.includes('JWT') || error.message.includes('authentication')) {
+      // Token is invalid, redirect to login
+      await supabase.auth.signOut();
+      window.location.href = "/login";
+    } else {
+      alert('Failed to load dashboard data. Please refresh the page.');
+    }
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Updated section-based fetch function
+const fetchDataForSection = async (section) => {
+  if (!userEmailVerified) return;
+
+  try {
+    switch (section) {
+      case "classes":
+        await fetchClasses();
+        break;
+      case "assignments":
+        await fetchAssignments();
+        break;
+      case "payments":
+        await fetchPayments();
+        break;
+      case "exams":
+        await fetchExams();
+        break;
+      default:
+        break;
+    }
+  } catch (error) {
+    console.error(`Error fetching data for ${section}:`, error);
+    alert(`Failed to load ${section} data. Please try again.`);
+  }
+};
 
   // Fetch all data on component mount
   useEffect(() => {
