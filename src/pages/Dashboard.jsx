@@ -1,39 +1,36 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from "react";
-import { makeApiRequest, supabase, testAuthentication } from "../lib/supabaseClient";
-
-// Import framer-motion components individually to avoid build issues
-import { motion } from "framer-motion";
-import { AnimatePresence } from "framer-motion";
-
-// Import Lucide icons individually
-import { 
-  LayoutDashboard, 
-  FileText, 
-  CreditCard, 
-  ClipboardList, 
-  BookOpen, 
-  Clock, 
-  User, 
-  Calendar, 
-  Award, 
-  BarChart3, 
-  Download, 
-  Upload, 
-  Bell, 
-  Settings, 
-  LogOut, 
-  Menu, 
-  X, 
-  ChevronDown, 
-  CheckCircle, 
-  AlertCircle, 
-  PlayCircle, 
-  Mail, 
-  RefreshCw 
+import { makeApiRequest } from "../lib/supabaseClient";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  LayoutDashboard,
+  FileText,
+  CreditCard,
+  ClipboardList,
+  BookOpen,
+  Clock,
+  User,
+  Calendar,
+  Award,
+  BarChart3,
+  Download,
+  Upload,
+  Bell,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  ChevronDown,
+  CheckCircle,
+  AlertCircle,
+  PlayCircle,
+  Mail,
+  RefreshCw
 } from "lucide-react";
+import { supabase } from "../lib/supabaseClient";
 
 export default function Dashboard() {
+  // State declarations
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -54,27 +51,19 @@ export default function Dashboard() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [activeSection, setActiveSection] = useState("classes");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false); // Initialize as false
+  const [isMobile, setIsMobile] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userEmailVerified, setUserEmailVerified] = useState(false);
   const [loading, setLoading] = useState(true);
   const [resendingEmail, setResendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
-  const [authError, setAuthError] = useState(null);
 
-  // Fix window.innerWidth issue - move to useEffect
-  useEffect(() => {
-    setIsMobile(window.innerWidth < 768);
-  }, []);
-
-  // PROPERLY AUTHENTICATED FETCH FUNCTIONS
+  // API fetch functions
   const fetchStatsData = async () => {
     setLoadingStats(true);
     try {
-      console.log('📊 Starting stats fetch...');
       const statsData = await makeApiRequest('/api/student/stats');
-      console.log('📊 Stats data received:', statsData);
       
       if (!statsData || typeof statsData !== 'object') {
         throw new Error('Invalid stats data received');
@@ -124,9 +113,7 @@ export default function Dashboard() {
   const fetchClasses = async () => {
     setLoadingClasses(true);
     try {
-      console.log('📚 Starting classes fetch...');
       const classesData = await makeApiRequest('/api/student/classes');
-      console.log('📚 Classes data received:', classesData);
       
       if (Array.isArray(classesData)) {
         setClasses(classesData);
@@ -146,9 +133,7 @@ export default function Dashboard() {
   const fetchAssignments = async () => {
     setLoadingAssignments(true);
     try {
-      console.log('📝 Starting assignments fetch...');
       const assignmentsData = await makeApiRequest('/api/student/assignments');
-      console.log('📝 Assignments data received:', assignmentsData);
       
       if (Array.isArray(assignmentsData)) {
         setAssignments(assignmentsData);
@@ -168,9 +153,7 @@ export default function Dashboard() {
   const fetchPayments = async () => {
     setLoadingPayments(true);
     try {
-      console.log('💰 Starting payments fetch...');
       const paymentsData = await makeApiRequest('/api/student/payments');
-      console.log('💰 Payments data received:', paymentsData);
       
       if (Array.isArray(paymentsData)) {
         setPayments(paymentsData);
@@ -189,9 +172,7 @@ export default function Dashboard() {
 
   const fetchTeacherStatus = async () => {
     try {
-      console.log('👨‍🏫 Starting teacher status fetch...');
       const teacherData = await makeApiRequest('/api/student/teacher-check');
-      console.log('👨‍🏫 Teacher status received:', teacherData);
       
       if (typeof teacherData === 'object' && teacherData !== null) {
         setHasTeacher(teacherData.hasTeacher || teacherData.has_teacher || false);
@@ -206,9 +187,7 @@ export default function Dashboard() {
 
   const fetchExams = async () => {
     try {
-      console.log('📋 Starting exams fetch...');
       const examsData = await makeApiRequest('/api/student/exams');
-      console.log('📋 Exams data received:', examsData);
       
       if (Array.isArray(examsData)) {
         setExams(examsData);
@@ -252,41 +231,36 @@ export default function Dashboard() {
     }
   };
 
-  // Initialize dashboard
+  // Effects
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
-        console.log('🚀 Initializing dashboard with auth check...');
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
         
-        // Test authentication first
-        const authTest = await testAuthentication();
-        console.log('🔐 Auth test result:', authTest);
+        if (userError) throw userError;
         
-        if (!authTest.success) {
-          setAuthError(authTest.error);
-          setLoading(false);
-          return;
+        if (user) {
+          setUserEmailVerified(user.email_confirmed_at !== null);
+          setStudentName(user.user_metadata?.name || "Student");
+          
+          if (user.email_confirmed_at) {
+            await Promise.all([
+              fetchStatsData(),
+              fetchClasses(),
+              fetchTeacherStatus(),
+              fetchAssignments(),
+              fetchPayments(),
+              fetchExams()
+            ]);
+          }
         }
-        
-        console.log('✅ Authentication successful, fetching data...');
-        
-        setStudentName(authTest.user.user_metadata?.name || "Student");
-        setUserEmailVerified(authTest.user.email_confirmed_at !== null);
-        
-        if (authTest.user.email_confirmed_at) {
-          // Fetch all data in parallel
-          await Promise.allSettled([
-            fetchStatsData(),
-            fetchClasses(),
-            fetchTeacherStatus(),
-            fetchAssignments(),
-            fetchPayments()
-          ]);
-        }
-        
       } catch (error) {
-        console.error('❌ Dashboard initialization error:', error);
-        setAuthError(error.message);
+        console.error('Error initializing dashboard:', error);
+        
+        if (error.message.includes('JWT') || error.message.includes('authentication')) {
+          await supabase.auth.signOut();
+          window.location.href = "/login";
+        }
       } finally {
         setLoading(false);
       }
@@ -302,11 +276,11 @@ export default function Dashboard() {
       }
     };
 
+    handleResize(); // Set initial state
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Fetch data based on active section
   useEffect(() => {
     if (!userEmailVerified) return;
 
@@ -325,8 +299,6 @@ export default function Dashboard() {
           case "exams":
             await fetchExams();
             break;
-          default:
-            break;
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -336,6 +308,7 @@ export default function Dashboard() {
     fetchData();
   }, [activeSection, userEmailVerified]);
 
+  // Utility functions
   const getTimeUntilClass = (scheduledDate) => {
     const now = new Date();
     const classTime = new Date(scheduledDate);
@@ -415,14 +388,10 @@ export default function Dashboard() {
     });
   };
 
-  // Close sidebar function
-  const closeSidebar = () => {
-    if (isMobile) {
-      setIsSidebarOpen(false);
-    }
-  };
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+  const closeSidebar = () => setIsMobile && setIsSidebarOpen(false);
 
-  // Loading state
+  // Render loading state
   if (loading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white">
@@ -438,26 +407,7 @@ export default function Dashboard() {
     );
   }
 
-  // Authentication error state
-  if (authError) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white">
-        <div className="text-center max-w-md p-6 bg-red-900/50 rounded-lg">
-          <AlertCircle size={48} className="mx-auto mb-4 text-red-300" />
-          <h2 className="text-2xl font-bold mb-2">Authentication Error</h2>
-          <p className="mb-4">{authError}</p>
-          <button 
-            onClick={() => window.location.href = "/login"}
-            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Email verification required
+  // Render email verification screen
   if (!userEmailVerified) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white p-4">
@@ -511,8 +461,7 @@ export default function Dashboard() {
     );
   }
 
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-
+  // Main dashboard render
   return (
     <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white overflow-hidden">
       <AnimatePresence>
@@ -549,6 +498,8 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Header */}
       <header className="sticky top-0 z-40 bg-green-950/90 backdrop-blur-md border-b border-green-700/30 p-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center">
           <button 
@@ -608,6 +559,7 @@ export default function Dashboard() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
         <div 
           className={`
             fixed md:relative inset-y-0 left-0 z-30 w-64 bg-green-950/90 backdrop-blur-md 
@@ -695,6 +647,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Sidebar overlay for mobile */}
         {isSidebarOpen && (
           <div 
             className="fixed inset-0 bg-black/50 z-20 md:hidden"
@@ -702,7 +655,9 @@ export default function Dashboard() {
           />
         )}
 
+        {/* Main content */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6">
+          {/* Stats cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {stats.map((stat, index) => (
               <motion.div 
@@ -729,6 +684,7 @@ export default function Dashboard() {
             ))}
           </div>
 
+          {/* Section content */}
           <AnimatePresence mode="wait">
             <motion.div
               key={activeSection}
@@ -738,6 +694,7 @@ export default function Dashboard() {
               transition={{ duration: 0.3 }}
               className="bg-green-800/40 backdrop-blur-md rounded-xl p-4 md:p-6 border border-green-700/30"
             >
+              {/* Classes Section */}
               {activeSection === "classes" && (
                 <div>
                   <div className="flex justify-between items-center mb-6">
@@ -799,7 +756,7 @@ export default function Dashboard() {
                                   className="bg-green-600 hover:bg-green-500 p-2 rounded-lg flex items-center"
                                   onClick={() => joinClass(classItem)}
                                 >
-                                  <PlayCircle size={16} className="mr-1" />
+                                  <PlayCircle size={16} className="mr-1"/>
                                   Join
                                 </button>
                               )}
