@@ -33,42 +33,63 @@ const apiBaseUrl = window._env_?.REACT_APP_API_BASE_URL ||
 // API request helper
 export const makeApiRequest = async (endpoint, options = {}) => {
   try {
-    // Get auth token
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-
-    if (!token) {
-      throw new Error('No authentication token available. Please log in again.');
+    console.log('🔗 API Request Debug:', endpoint);
+    
+    // Get the current session properly
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error('❌ Session error:', sessionError);
+      throw new Error('Authentication session error');
     }
-
-    const response = await fetch(`${apiBaseUrl}${endpoint}`, {
+    
+    console.log('Session exists:', !!session);
+    console.log('Session user:', session?.user?.email);
+    
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Add authorization header if session exists
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+      console.log('✅ Adding auth token to request');
+    } else {
+      console.log('❌ No auth token available');
+    }
+    
+    const response = await fetch(`https://madina-quran-backend.onrender.com/api${endpoint}`, {
+      method: options.method || 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers
+        ...headers,
+        ...options.headers,
       },
-      credentials: 'include',
-      ...options
+      body: options.body,
     });
-
+    
+    console.log('Response status:', response.status);
+    
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`API error: ${response.status} ${response.statusText} - ${errorText}`);
+      console.error('❌ API Error Response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-
-    return await response.json();
+    
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await response.json();
+      console.log('✅ API Success:', data);
+      return data;
+    } else {
+      const text = await response.text();
+      console.error('❌ Non-JSON response:', text.substring(0, 200));
+      throw new Error('Server returned non-JSON response');
+    }
   } catch (error) {
-    console.error('API request failed:', error);
-    
-    // User-friendly error messages
-    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-      throw new Error('Cannot connect to the server. Please make sure the backend is running on port 3001.');
-    }
-    
+    console.error('❌ API request failed:', error.message);
     throw error;
   }
 };
-
 // Health check function
 export const checkServerHealth = async () => {
   try {
