@@ -90,9 +90,9 @@ const [newClass, setNewClass] = useState({
 
   // Enhanced search and filter logic
   const filteredClasses = useMemo(() => {
-    if (!classes || classes.length === 0) return [];
-    
-    let result = [...classes];
+  if (!classes || !Array.isArray(classes) || classes.length === 0) return [];
+  
+  let result = [...classes];
 
     // Status filter
     if (filters.status) {
@@ -363,12 +363,12 @@ const [newClass, setNewClass] = useState({
               onChange={(e) => updateFilter('teacher', e.target.value)}
               className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
-              <option value="">All Teachers</option>
-              {teachers.map(teacher => (
-                <option key={teacher.id} value={teacher.id}>
-                  {teacher.name} - {teacher.subject || 'No subject'}
-                </option>
-              ))}
+             <option value="">All Teachers</option>
+{teachers?.map?.(teacher => (
+  <option key={teacher.id} value={teacher.id}>
+    {teacher.name} - {teacher.subject || 'No subject'}
+  </option>
+)) || []}
             </select>
           </div>
 
