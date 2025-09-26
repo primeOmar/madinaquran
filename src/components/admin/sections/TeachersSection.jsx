@@ -4,7 +4,7 @@ import { Users, Plus, Edit, Trash2, Mail, BookOpen, CheckCircle, XCircle, Loader
 import { toast } from 'react-toastify';
 import { adminApi } from '../../../lib/supabaseClient';
 import AddTeacherModal from '../../modals/AddTeacherModal';
-import CredentialsModal from '../../modals/CredentialsModal';
+import CredentialsModal from '../../modals/CredentialsModal'; // Keep this import
 import WaveLoader from '../loaders/WaveLoader';
 
 export default function TeachersSection({ data, loading, onRefresh, onError }) {
@@ -248,90 +248,6 @@ function TeacherCard({ teacher, onRemove, onResendInvite, isRemoving, isResendin
           )}
           Resend Invite
         </motion.button>
-      </div>
-    </div>
-  );
-}
-
-// Updated CredentialsModal component
-function CredentialsModal({ isOpen, credentials, onClose, onCopy, title, teacherName }) {
-  if (!isOpen || !credentials) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
-      <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-bold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="text-blue-300 hover:text-white"
-          >
-            ✕
-          </button>
-        </div>
-        
-        {teacherName && (
-          <p className="text-blue-200 mb-4">Credentials for: <strong>{teacherName}</strong></p>
-        )}
-        
-        <div className="space-y-3 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-blue-300 mb-1">Email</label>
-            <div className="flex items-center justify-between p-2 bg-blue-800/50 rounded-lg">
-              <code className="text-blue-100">{credentials.email}</code>
-              <button
-                onClick={() => navigator.clipboard.writeText(credentials.email)}
-                className="text-blue-300 hover:text-white ml-2"
-              >
-                <Copy size={14} />
-              </button>
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-blue-300 mb-1">Password</label>
-            <div className="flex items-center justify-between p-2 bg-blue-800/50 rounded-lg">
-              <code className="text-blue-100">{credentials.password}</code>
-              <button
-                onClick={() => navigator.clipboard.writeText(credentials.password)}
-                className="text-blue-300 hover:text-white ml-2"
-              >
-                <Copy size={14} />
-              </button>
-            </div>
-          </div>
-          
-          {credentials.login_url && (
-            <div>
-              <label className="block text-sm font-medium text-blue-300 mb-1">Login URL</label>
-              <div className="flex items-center justify-between p-2 bg-blue-800/50 rounded-lg">
-                <code className="text-blue-100 text-xs">{credentials.login_url}</code>
-                <button
-                  onClick={() => navigator.clipboard.writeText(credentials.login_url)}
-                  className="text-blue-300 hover:text-white ml-2"
-                >
-                  <Copy size={14} />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="flex justify-end space-x-2">
-          <button
-            onClick={() => onCopy(credentials)}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 flex items-center"
-          >
-            <Copy size={16} className="mr-2" />
-            Copy All
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50"
-          >
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );
