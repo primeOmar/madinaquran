@@ -278,10 +278,10 @@ scheduleClass: async (classData) => {
   }
 },
 
-// supabaseClient.js - Fix getClasses function
+// getClasses function
+
 getClasses: async (filters = {}) => {
   try {
-    // Use proper Supabase auth instead of localStorage
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     
@@ -297,15 +297,15 @@ getClasses: async (filters = {}) => {
     });
 
     if (!response.ok) {
-      // More detailed error information
-      console.error('HTTP Error:', response.status, response.statusText);
       const errorText = await response.text();
-      console.error('Error response:', errorText);
-      
-      throw new Error(`Failed to fetch classes: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch classes: ${response.status}`);
     }
 
-    return await response.json();
+    const result = await response.json();
+    
+    // Return the classes array from the paginated response
+    return result.classes || [];
+    
   } catch (error) {
     console.error('Error fetching classes:', error);
     throw error;
