@@ -509,30 +509,30 @@ const [newClass, setNewClass] = useState({
         </div>
       )}
 
-      {/* Teachers Without Classes Section */}
-     {teachersWithoutClasses?.map((teacher) => (
-        <div className="mt-8">
-          <h3 className="text-lg font-semibold text-blue-200 mb-4 flex items-center">
-            <UserX size={20} className="mr-2" />
-            Available Teachers ({teachersWithoutClasses.length})
-          </h3>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {teachersWithoutClasses.map((teacher) => (
-              <div key={teacher.id} className="bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition-colors">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                    <User size={16} />
-                  </div>
-                  <div>
-                    <p className="font-medium text-blue-100">{teacher.name}</p>
-                    <p className="text-blue-300 text-sm">{teacher.subject || teacher.email}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+     {/* Teachers Without Classes Section */}
+{teachersWithoutClasses?.length > 0 && (
+  <div className="mt-8">
+    <h3 className="text-lg font-semibold text-blue-200 mb-4 flex items-center">
+      <UserX size={20} className="mr-2" />
+      Available Teachers ({teachersWithoutClasses.length})
+    </h3>
+    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+      {teachersWithoutClasses.map((teacher) => (
+        <div key={teacher.id} className="bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition-colors">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+              <User size={16} />
+            </div>
+            <div>
+              <p className="font-medium text-blue-100">{teacher.name}</p>
+              <p className="text-blue-300 text-sm">{teacher.subject || teacher.email}</p>
+            </div>
           </div>
         </div>
-      )}
+      ))}
+    </div>
+  </div>
+)}
 
       {/* Statistics Summary */}
       {classes.length > 0 && (
