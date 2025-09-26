@@ -245,9 +245,8 @@ getVideoSessions: () => makeApiRequest('/api/admin/video-sessions'),
       })
   },
 // Class management methods
-scheduleClass: async (classData) => {
+sscheduleClass: async (classData) => {
   try {
-    // Use Supabase's getSession() - RECOMMENDED
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     
@@ -257,7 +256,8 @@ scheduleClass: async (classData) => {
       throw new Error('No active session. Please log in again.');
     }
 
-    const response = await fetch(`${apiBaseUrl}/classes`, {
+    // FIX: Add /api/admin to the path
+    const response = await fetch(`${apiBaseUrl}/api/admin/classes`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -313,50 +313,54 @@ getClasses: async (filters = {}) => {
 },
 
   updateClass: async (id, updates) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${apiBaseUrl}/classes/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(updates)
-      });
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    
+    const response = await fetch(`${apiBaseUrl}/api/admin/classes/${id}`, { // ← Add /api/admin
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(updates)
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update class');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error updating class:', error);
-      throw error;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update class');
     }
-  },
 
-  deleteClass: async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${apiBaseUrl}/classes/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating class:', error);
+    throw error;
+  }
+},
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete class');
+deleteClass: async (id) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    
+    const response = await fetch(`${apiBaseUrl}/api/admin/classes/${id}`, { // ← Add /api/admin
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
       }
+    });
 
-      return await response.json();
-    } catch (error) {
-      console.error('Error deleting class:', error);
-      throw error;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete class');
     }
-  },
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting class:', error);
+    throw error;
+  }
+},
   // Other admin functions
   getStats: () => makeApiRequest('/api/admin/stats'),
   
