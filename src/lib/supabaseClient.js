@@ -245,7 +245,7 @@ getVideoSessions: () => makeApiRequest('/api/admin/video-sessions'),
       })
   },
 // Class management methods
-sscheduleClass: async (classData) => {
+scheduleClass: async (classData) => {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
