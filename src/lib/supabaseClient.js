@@ -211,7 +211,29 @@ addTeacher: async (teacherData) => {
   removeTeacher: (teacherId) => makeApiRequest(`/api/admin/teachers/${teacherId}`, {
     method: 'DELETE'
   }),
+//resend credentials
+  getTeacherCredentials: async (teacherId) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    
+    const response = await fetch(`${apiBaseUrl}/api/admin/teachers/${teacherId}/credentials`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to fetch teacher credentials');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching teacher credentials:', error);
+    throw error;
+  }
+},
  
   
 getVideoSessions: () => makeApiRequest('/api/admin/video-sessions'),
