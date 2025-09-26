@@ -510,7 +510,7 @@ const [newClass, setNewClass] = useState({
       )}
 
       {/* Teachers Without Classes Section */}
-      {teachersWithoutClasses.length > 0 && (
+     {teachersWithoutClasses?.map((teacher) => (
         <div className="mt-8">
           <h3 className="text-lg font-semibold text-blue-200 mb-4 flex items-center">
             <UserX size={20} className="mr-2" />
@@ -619,7 +619,7 @@ const [newClass, setNewClass] = useState({
                     className="w-full p-3 rounded-lg bg-blue-800/50 border border-blue-700/30 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">Select Teacher</option>
-                    {teachers.map(teacher => (
+                   {teachers?.map(teacher => (
                       <option key={teacher.id} value={teacher.id}>
                         {teacher.name} ({teacher.email})
                       </option>
