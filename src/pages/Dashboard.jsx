@@ -1028,7 +1028,7 @@ export default function Dashboard() {
             transition={{ delay: 0.2 }}
             className="text-2xl font-bold mb-2"
           >
-            Welcome to Madrasa
+            Welcome to Madina Quran Classes. Dashboard setting up
           </motion.h2>
           <motion.p
             initial={{ opacity: 0 }}
