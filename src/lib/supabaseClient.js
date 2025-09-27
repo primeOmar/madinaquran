@@ -207,7 +207,32 @@ addTeacher: async (teacherData) => {
     throw error;
   }
 },
+//reset pass
+resetTeacherPassword: async (teacherId) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    
+    const response = await fetch(`${apiBaseUrl}/api/admin/teachers/${teacherId}/reset-password`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to reset teacher password');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error resetting teacher password:', error);
+    throw error;
+  }
+},
+  
   removeTeacher: (teacherId) => makeApiRequest(`/api/admin/teachers/${teacherId}`, {
     method: 'DELETE'
   }),
