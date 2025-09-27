@@ -226,6 +226,110 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     }
   };
 
+  // Assignment Item Component - ADD THIS RIGHT AFTER AssignmentSubmissionModal
+const AssignmentItem = ({ assignment, onSubmitAssignment }) => {
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+
+  const isSubmitted = assignment.submissions?.[0]?.status === "submitted" || 
+                     assignment.submissions?.[0]?.status === "graded";
+  const isGraded = assignment.submissions?.[0]?.status === "graded";
+  const dueDate = new Date(assignment.due_date);
+  const isOverdue = dueDate < new Date() && !isSubmitted;
+
+  return (
+    <div>
+      <div className="p-4 rounded-lg bg-green-700/30 border border-green-600/30 hover:bg-green-700/50 transition-colors">
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <h4 className="font-bold text-lg">{assignment.title}</h4>
+            <div className="flex flex-wrap items-center mt-2 text-sm text-green-200">
+              <span className="flex items-center mr-4">
+                <BookOpen size={14} className="mr-1" />
+                {assignment.subject || assignment.class?.title}
+              </span>
+              <span className="flex items-center mr-4">
+                <Calendar size={14} className="mr-1" />
+                Due: {new Date(assignment.due_date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric'
+                })}
+              </span>
+              <span className="flex items-center">
+                <Award size={14} className="mr-1" />
+                {assignment.max_score} points
+              </span>
+            </div>
+            {assignment.description && (
+              <p className="text-green-300 text-sm mt-2">{assignment.description}</p>
+            )}
+            
+            <div className="mt-3 flex items-center space-x-3">
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                isGraded 
+                  ? "bg-green-900/50 text-green-300" 
+                  : isSubmitted
+                  ? "bg-blue-900/50 text-blue-300"
+                  : isOverdue
+                  ? "bg-red-900/50 text-red-300"
+                  : "bg-yellow-900/50 text-yellow-300"
+              }`}>
+                {isGraded 
+                  ? `Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
+                  : isSubmitted
+                  ? "Submitted - Awaiting Grade"
+                  : isOverdue
+                  ? "Overdue"
+                  : "Pending Submission"
+                }
+              </span>
+              
+              {isOverdue && (
+                <span className="text-xs text-red-300 flex items-center">
+                  <AlertCircle size={12} className="mr-1" />
+                  Past due date
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-4 flex space-x-2 flex-wrap gap-2">
+          <button className="text-sm bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center">
+            <Download className="mr-2" size={16} />
+            Download Materials
+          </button>
+          
+          {!isGraded && (
+            <button 
+              onClick={() => setShowSubmissionModal(true)}
+              className="text-sm bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center"
+            >
+              <Mic className="mr-2" size={16} />
+              {isSubmitted ? 'Resubmit Audio' : 'Record & Submit'}
+            </button>
+          )}
+          
+          {isGraded && assignment.submissions?.[0]?.feedback && (
+            <button className="text-sm bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center">
+              <CheckCircle className="mr-2" size={16} />
+              View Feedback
+            </button>
+          )}
+        </div>
+      </div>
+
+      <AssignmentSubmissionModal
+        assignment={assignment}
+        isOpen={showSubmissionModal}
+        onClose={() => setShowSubmissionModal(false)}
+        onSubmit={onSubmitAssignment}
+      />
+    </div>
+  );
+};
+  
+
   if (!isOpen) return null;
 
   return (
@@ -1256,7 +1360,13 @@ export default function Dashboard() {
                                 )}
                               </div>
                             </div>
-
+{assignments.map((assignment) => (
+  <AssignmentItem 
+    key={assignment.id} 
+    assignment={assignment}
+    onSubmitAssignment={handleSubmitAssignment}
+  />
+))}
                             {/* Submission Modal */}
                             <AssignmentSubmissionModal
                               assignment={assignment}
