@@ -44,7 +44,7 @@ import {
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 
-// === COMPONENTS MOVED OUTSIDE DASHBOARD ===
+
 
 // Audio recording hook
 const useAudioRecorder = () => {
@@ -78,7 +78,6 @@ const useAudioRecorder = () => {
       setIsRecording(true);
       setRecordingTime(0);
 
-      // Start timer
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
@@ -433,16 +432,10 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
                 <Award size={14} className="mr-1" />
                 {assignment.max_score} points
               </span>
-              {assignment.estimated_time && (
-                <span className="flex items-center mb-2">
-                  <Clock size={14} className="mr-1" />
-                  {assignment.estimated_time}
-                </span>
-              )}
             </div>
             
             {assignment.description && (
-              <p className="text-green-300 text-sm mt-2 line-clamp-2">{assignment.description}</p>
+              <p className="text-green-300 text-sm mt-2">{assignment.description}</p>
             )}
             
             {isOverdue && (
@@ -478,13 +471,6 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
             <button className="text-sm bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
               <MessageCircle className="mr-2" size={16} />
               View Feedback
-            </button>
-          )}
-          
-          {isGraded && (
-            <button className="text-sm bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-              <FileCheck className="mr-2" size={16} />
-              View Solution
             </button>
           )}
         </div>
@@ -555,23 +541,11 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
                 <Calendar size={14} className="mr-1" />
                 {formatDate(classItem.scheduled_date)}
               </span>
-              {classItem.duration && (
-                <span className="flex items-center mb-2">
-                  <Clock size={14} className="mr-1" />
-                  {classItem.duration}
-                </span>
-              )}
             </div>
             
             <div className="mt-2 text-sm text-green-300">
               {timeInfo.text}
             </div>
-            
-            {classItem.topic && (
-              <div className="mt-2 text-sm text-green-400">
-                Topic: {classItem.topic}
-              </div>
-            )}
           </div>
         </div>
         
@@ -593,17 +567,12 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
             </button>
           )}
           
-          {classClassCompleted && (
+          {isClassCompleted && (
             <button className="bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
               <Download size={16} className="mr-1"/>
               Download Recording
             </button>
           )}
-          
-          <button className="bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-            <MessageCircle size={16} className="mr-1"/>
-            Message Teacher
-          </button>
         </div>
         
         {classItem.video_session && (
@@ -617,6 +586,24 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
   );
 };
 
+// Simple DollarSign component
+const DollarSign = ({ size = 16, className = "" }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    className={className} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+  >
+    <line x1="12" y1="1" x2="12" y2="23"></line>
+    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+  </svg>
+);
+
 // === MAIN DASHBOARD COMPONENT ===
 export default function Dashboard() {
   // State declarations
@@ -625,10 +612,10 @@ export default function Dashboard() {
   const [payments, setPayments] = useState([]);
   const [exams, setExams] = useState([]);
   const [stats, setStats] = useState([
-    { label: "Total Classes", value: "0", icon: BookOpen, change: "+0", color: "green" },
-    { label: "Hours Learned", value: "0", icon: Clock, change: "+0", color: "blue" },
-    { label: "Assignments", value: "0", icon: FileText, change: "+0", color: "purple" },
-    { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%", color: "yellow" },
+    { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
+    { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
+    { label: "Assignments", value: "0", icon: FileText, change: "+0" },
+    { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
   ]);
   const [studentName, setStudentName] = useState("Student");
   const [loadingClasses, setLoadingClasses] = useState(true);
@@ -648,8 +635,6 @@ export default function Dashboard() {
   const [resendingEmail, setResendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [notifications, setNotifications] = useState([]);
-
-  // Enhanced stats with progress data
   const [progressStats, setProgressStats] = useState({
     completionRate: 0,
     streak: 0,
@@ -658,7 +643,7 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // API fetch functions (unchanged backend logic)
+  // API fetch functions
   const fetchStatsData = async () => {
     setLoadingStats(true);
     try {
@@ -673,35 +658,30 @@ export default function Dashboard() {
           label: "Total Classes", 
           value: statsData.total_classes?.toString() || "0", 
           icon: BookOpen, 
-          change: "+0",
-          color: "green"
+          change: "+0" 
         },
         { 
           label: "Hours Learned", 
           value: statsData.hours_learned?.toString() || "0", 
           icon: Clock, 
-          change: "+0",
-          color: "blue"
+          change: "+0" 
         },
         { 
           label: "Assignments", 
           value: statsData.assignments?.toString() || "0", 
           icon: FileText, 
-          change: "+0",
-          color: "purple"
+          change: "+0" 
         },
         { 
           label: "Avg. Score", 
           value: `${statsData.avg_score || "0"}%`, 
           icon: BarChart3, 
-          change: "+0%",
-          color: "yellow"
+          change: "+0%" 
         },
       ];
       
       setStats(statsArray);
 
-      // Enhanced progress stats
       setProgressStats({
         completionRate: Math.min(100, Math.round((statsData.completed_assignments || 0) / (statsData.total_assignments || 1) * 100)),
         streak: statsData.streak || 0,
@@ -806,11 +786,9 @@ export default function Dashboard() {
 
   const fetchNotifications = async () => {
     try {
-      // Simulate notifications
       setNotifications([
         { id: 1, type: 'assignment', message: 'New assignment posted', time: '5 min ago', read: false },
         { id: 2, type: 'class', message: 'Class starting in 15 minutes', time: '1 hour ago', read: true },
-        { id: 3, type: 'achievement', message: 'You reached level 2!', time: '2 hours ago', read: true }
       ]);
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -855,7 +833,7 @@ export default function Dashboard() {
       if (response.success) {
         toast.success('Assignment submitted successfully!');
         fetchAssignments();
-        fetchStatsData(); // Refresh stats
+        fetchStatsData();
       } else {
         throw new Error(response.error || 'Failed to submit assignment');
       }
@@ -1030,7 +1008,7 @@ export default function Dashboard() {
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsMobile && setIsSidebarOpen(false);
 
-  // Enhanced loading state
+  // Render loading state
   if (loading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white">
@@ -1162,7 +1140,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Enhanced Header */}
+      {/* Header */}
       <motion.header 
         initial={{ y: -100 }}
         animate={{ y: 0 }}
@@ -1187,10 +1165,7 @@ export default function Dashboard() {
         
         <div className="flex items-center space-x-4">
           <div className="relative">
-            <button 
-              onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center space-x-2 p-2 rounded-lg hover:bg-green-800/50 transition-all duration-200 relative"
-            >
+            <button className="flex items-center space-x-2 p-2 rounded-lg hover:bg-green-800/50 transition-all duration-200 relative">
               <Bell size={20} />
               {notifications.filter(n => !n.read).length > 0 && (
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
@@ -1247,7 +1222,7 @@ export default function Dashboard() {
       </motion.header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Enhanced Sidebar */}
+        {/* Sidebar */}
         <motion.div 
           initial={{ x: -300 }}
           animate={{ x: isSidebarOpen ? 0 : (isMobile ? -300 : 0) }}
@@ -1370,7 +1345,7 @@ export default function Dashboard() {
             </p>
           </motion.div>
 
-          {/* Enhanced Stats cards */}
+          {/* Stats cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {stats.map((stat, index) => (
               <motion.div 
@@ -1391,8 +1366,8 @@ export default function Dashboard() {
                       <span className="ml-2">from last week</span>
                     </p>
                   </div>
-                  <div className={`p-2 rounded-lg bg-${stat.color}-700/30`}>
-                    <stat.icon size={20} className={`text-${stat.color}-300`} />
+                  <div className="p-2 rounded-lg bg-green-700/30">
+                    <stat.icon size={20} className="text-green-300" />
                   </div>
                 </div>
               </motion.div>
@@ -1430,7 +1405,7 @@ export default function Dashboard() {
               transition={{ duration: 0.3 }}
               className="bg-green-800/40 backdrop-blur-md rounded-xl p-4 md:p-6 border border-green-700/30"
             >
-              {/* Enhanced Classes Section */}
+              {/* Classes Section */}
               {activeSection === "classes" && (
                 <div>
                   <div className="flex justify-between items-center mb-6">
@@ -1450,10 +1425,6 @@ export default function Dashboard() {
                       <button className="text-sm bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
                         <Calendar className="mr-2" size={16} />
                         Calendar View
-                      </button>
-                      <button className="text-sm bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                        <Video className="mr-2" size={16} />
-                        Join Quick Session
                       </button>
                     </div>
                   </div>
@@ -1523,7 +1494,7 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Enhanced Assignments Section */}
+              {/* Assignments Section */}
               {activeSection === "assignments" && (
                 <div>
                   <div className="flex justify-between items-center mb-6">
@@ -1543,10 +1514,6 @@ export default function Dashboard() {
                       <button className="text-sm bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
                         <Download className="mr-2" size={16} />
                         Export All
-                      </button>
-                      <button className="text-sm bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                        <TrendingUp className="mr-2" size={16} />
-                        Progress Report
                       </button>
                     </div>
                   </div>
@@ -1574,17 +1541,15 @@ export default function Dashboard() {
                       <p className="text-green-200 mb-4">Your teacher will post assignments soon.</p>
                       <div className="bg-green-800/30 p-4 rounded-lg max-w-md mx-auto">
                         <p className="text-sm text-green-300">
-                                 <p className="text-sm text-green-300">
                           💡 <strong>Pro Tip:</strong> Check back regularly for new assignments and stay ahead of your learning goals!
                         </p>
-                          </p>
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Enhanced Payments Section */}
+              {/* Payments Section */}
               {activeSection === "payments" && (
                 <div>
                   <div className="flex justify-between items-center mb-6">
@@ -1604,10 +1569,6 @@ export default function Dashboard() {
                       <button className="text-sm bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
                         <Download className="mr-2" size={16} />
                         Invoice History
-                      </button>
-                      <button className="text-sm bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                        <CreditCard className="mr-2" size={16} />
-                        Make Payment
                       </button>
                     </div>
                   </div>
@@ -1679,11 +1640,6 @@ export default function Dashboard() {
                                         <span>Ref: {payment.transaction_code}</span>
                                       </div>
                                     )}
-                                    {payment.description && (
-                                      <div className="text-green-300 text-xs">
-                                        {payment.description}
-                                      </div>
-                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1694,12 +1650,6 @@ export default function Dashboard() {
                                 <Download className="mr-2" size={16} />
                                 Download Receipt
                               </button>
-                              {payment.status === "pending" && (
-                                <button className="text-sm bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                                  <AlertCircle className="mr-2" size={16} />
-                                  Track Payment
-                                </button>
-                              )}
                             </div>
                           </div>
                         </motion.div>
@@ -1720,7 +1670,7 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Enhanced Exams Section */}
+              {/* Exams Section */}
               {activeSection === "exams" && (
                 <div>
                   <div className="flex justify-between items-center mb-6">
@@ -1733,165 +1683,23 @@ export default function Dashboard() {
                         Track your exam progress and preparation
                       </p>
                     </div>
-                    <div className="flex space-x-2">
-                      <button className="text-sm bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                        <Target className="mr-2" size={16} />
-                        Study Planner
-                      </button>
-                      <button className="text-sm bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                        <BarChart3 className="mr-2" size={16} />
-                        Performance Analytics
-                      </button>
-                    </div>
                   </div>
                   
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    {/* Exam Stats */}
-                    <motion.div
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="bg-gradient-to-br from-purple-600 to-blue-500 rounded-xl p-6 text-white"
-                    >
-                      <h4 className="font-bold text-lg mb-4 flex items-center">
-                        <Target className="mr-2" size={20} />
-                        Exam Readiness
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center">
-                          <div className="text-3xl font-bold">85%</div>
-                          <div className="text-sm opacity-90">Preparedness</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-3xl font-bold">12</div>
-                          <div className="text-sm opacity-90">Days to Next</div>
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <div className="flex justify-between text-sm mb-1">
-                          <span>Progress</span>
-                          <span>85%</span>
-                        </div>
-                        <div className="w-full bg-white/20 rounded-full h-2">
-                          <div className="bg-white h-2 rounded-full" style={{ width: '85%' }}></div>
-                        </div>
-                      </div>
-                    </motion.div>
-
-                    {/* Quick Actions */}
-                    <motion.div
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.1 }}
-                      className="bg-green-700/30 rounded-xl p-6 border border-green-600/30"
-                    >
-                      <h4 className="font-bold text-lg mb-4 flex items-center">
-                        <Clock className="mr-2" size={20} />
-                        Quick Actions
-                      </h4>
-                      <div className="space-y-3">
-                        <button className="w-full bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center justify-between transition-all duration-200">
-                          <span>Practice Test</span>
-                          <PlayCircle size={16} />
-                        </button>
-                        <button className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center justify-between transition-all duration-200">
-                          <span>Study Materials</span>
-                          <BookOpen size={16} />
-                        </button>
-                        <button className="w-full bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center justify-between transition-all duration-200">
-                          <span>Exam Schedule</span>
-                          <Calendar size={16} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  </div>
-
-                  {/* Upcoming Exams */}
-                  <div className="mb-8">
-                    <h4 className="text-lg font-semibold mb-4 flex items-center">
-                      <Calendar className="mr-2" size={20} />
-                      Upcoming Exams
-                    </h4>
-                    {exams.length > 0 ? (
-                      <div className="grid gap-4">
-                        {exams.map((exam, index) => (
-                          <motion.div
-                            key={exam.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                            className="p-4 rounded-lg bg-green-700/30 border border-green-600/30 hover:bg-green-700/50 transition-all duration-300"
-                          >
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h5 className="font-bold text-lg flex items-center">
-                                  <ClipboardList className="mr-2" size={18} />
-                                  {exam.title}
-                                </h5>
-                                <div className="flex flex-wrap items-center mt-2 text-sm text-green-200">
-                                  <span className="flex items-center mr-4">
-                                    <Calendar size={14} className="mr-1" />
-                                    Date: {formatDate(exam.exam_date)}
-                                  </span>
-                                  <span className="flex items-center mr-4">
-                                    <Clock size={14} className="mr-1" />
-                                    Duration: {exam.duration}
-                                  </span>
-                                  <span className="flex items-center">
-                                    <Award size={14} className="mr-1" />
-                                    Total Marks: {exam.total_marks}
-                                  </span>
-                                </div>
-                                {exam.description && (
-                                  <p className="text-green-300 text-sm mt-2">{exam.description}</p>
-                                )}
-                              </div>
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                new Date(exam.exam_date) < new Date() 
-                                  ? 'bg-green-900/50 text-green-300'
-                                  : 'bg-yellow-900/50 text-yellow-300'
-                              }`}>
-                                {new Date(exam.exam_date) < new Date() ? 'Completed' : 'Upcoming'}
-                              </span>
-                            </div>
-                            <div className="mt-3 flex space-x-2">
-                              <button className="text-sm bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                                <BookOpen className="mr-2" size={16} />
-                                Study Guide
-                              </button>
-                              <button className="text-sm bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-                                <Target className="mr-2" size={16} />
-                                Practice Test
-                              </button>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 bg-green-800/20 rounded-lg">
-                        <ClipboardList size={48} className="mx-auto text-green-400 mb-3" />
-                        <p className="text-green-200">No exams scheduled yet.</p>
-                        <p className="text-green-300 text-sm mt-1">Your teacher will schedule exams as needed.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Exam Performance */}
-                  <div>
-                    <h4 className="text-lg font-semibold mb-4 flex items-center">
-                      <TrendingUp className="mr-2" size={20} />
-                      Performance History
-                    </h4>
-                    <div className="bg-green-800/20 rounded-lg p-6 text-center">
-                      <BarChart3 size={48} className="mx-auto text-green-400 mb-3" />
-                      <p className="text-green-200">Detailed performance analytics coming soon!</p>
-                      <p className="text-green-300 text-sm mt-1">
-                        Track your progress with visual charts and detailed insights.
+                  <div className="text-center py-12">
+                    <ClipboardList size={64} className="mx-auto text-green-400 mb-4" />
+                    <h4 className="text-xl font-semibold mb-2">Exams Feature Coming Soon</h4>
+                    <p className="text-green-200">
+                      The exams section is currently under development and will be available soon.
+                    </p>
+                    <div className="bg-green-800/30 p-4 rounded-lg max-w-md mx-auto mt-4">
+                      <p className="text-sm text-green-300">
+                        🎯 <strong>Stay tuned!</strong> We're working on comprehensive exam tracking and preparation tools.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           </AnimatePresence>
 
           {/* Footer */}
@@ -1909,13 +1717,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-// Add missing icon component
-const DollarSign = ({ size, className }) => (
-  <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor">
-    <line x1="12" y1="1" x2="12" y2="23"></line>
-    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-  </svg>
-);
-
-export default Dashboard;
