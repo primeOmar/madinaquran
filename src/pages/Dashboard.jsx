@@ -44,6 +44,7 @@ import {
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 
+// === COMPONENTS MOVED OUTSIDE DASHBOARD ===
 
 // Audio recording hook
 const useAudioRecorder = () => {
