@@ -1577,6 +1577,7 @@ export default function Dashboard() {
                                  <p className="text-sm text-green-300">
                           💡 <strong>Pro Tip:</strong> Check back regularly for new assignments and stay ahead of your learning goals!
                         </p>
+                          </p>
                       </div>
                     </div>
                   )}
@@ -1890,7 +1891,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
-            </motion.div>
+            </div>
           </AnimatePresence>
 
           {/* Footer */}
