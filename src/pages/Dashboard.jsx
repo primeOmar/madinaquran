@@ -3,7 +3,8 @@ import {
   FileText, Download, Upload, Mic, Square, Play, Pause, 
   Trash2, CheckCircle, AlertCircle, Loader2 
 } from "lucide-react";
-import multer from 'multer';
+
+export default function Dashboard() {
 // Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -156,7 +157,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     hasRecording
   } = useAudioRecorder();
 
- const handleSubmit = async () => {
+const handleSubmit = async () => {
   if (!hasRecording && !submissionText.trim()) {
     alert('Please either record audio or add text comments before submitting.');
     return;
@@ -168,9 +169,10 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     
     if (audioBlob) {
       // Convert blob to base64
-      audioBase64 = await new Promise((resolve) => {
+      audioBase64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
         reader.readAsDataURL(audioBlob);
       });
     }
@@ -178,13 +180,14 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     const submissionData = {
       assignment_id: assignment.id,
       submission_text: submissionText,
-      audio_data: audioBase64 
+      audio_data: audioBase64
     };
 
     await onSubmit(submissionData);
     onClose();
   } catch (error) {
     console.error('Error submitting assignment:', error);
+    toast.error('Failed to submit assignment');
   } finally {
     setSubmitting(false);
   }
@@ -325,32 +328,28 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
           const [showSubmissionModal, setShowSubmissionModal] = useState(false);
           const [submitting, setSubmitting] = useState(false);
 
-          const handleSubmitAssignment = async (formData) => {
-            setSubmitting(true);
-            try {
-              // Use makeApiRequest to submit the assignment
-              const response = await makeApiRequest('/api/student/submit-assignment', {
-                method: 'POST',
-                body: formData,
-                // Note: Don't set Content-Type header for FormData - browser will set it automatically with boundary
-              });
+          const handleSubmitAssignment = async (submissionData) => {
+  try {
+    const response = await makeApiRequest('/api/student/submit-assignment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(submissionData),
+    });
 
-              if (response.success) {
-                toast.success('Assignment submitted successfully!');
-                // Refresh assignments to show updated status
-                fetchAssignments();
-              } else {
-                throw new Error(response.error || 'Failed to submit assignment');
-              }
-            } catch (error) {
-              console.error('Error submitting assignment:', error);
-              toast.error(`Failed to submit assignment: ${error.message}`);
-              throw error;
-            } finally {
-              setSubmitting(false);
-            }
-          };
-
+    if (response.success) {
+      toast.success('Assignment submitted successfully!');
+      fetchAssignments(); // Refresh the list
+    } else {
+      throw new Error(response.error || 'Failed to submit assignment');
+    }
+  } catch (error) {
+    console.error('Error submitting assignment:', error);
+    toast.error(`Failed to submit assignment: ${error.message}`);
+    throw error;
+  }
+};
           const isSubmitted = assignment.submissions?.[0]?.status === "submitted" || 
                              assignment.submissions?.[0]?.status === "graded";
           const isGraded = assignment.submissions?.[0]?.status === "graded";
