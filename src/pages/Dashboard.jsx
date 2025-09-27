@@ -3,7 +3,7 @@ import {
   FileText, Download, Upload, Mic, Square, Play, Pause, 
   Trash2, CheckCircle, AlertCircle, Loader2 
 } from "lucide-react";
-
+import multer from 'multer';
 // Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -156,31 +156,39 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     hasRecording
   } = useAudioRecorder();
 
-  const handleSubmit = async () => {
-    if (!hasRecording && !submissionText.trim()) {
-      alert('Please either record audio or add text comments before submitting.');
-      return;
+ const handleSubmit = async () => {
+  if (!hasRecording && !submissionText.trim()) {
+    alert('Please either record audio or add text comments before submitting.');
+    return;
+  }
+
+  setSubmitting(true);
+  try {
+    let audioBase64 = null;
+    
+    if (audioBlob) {
+      // Convert blob to base64
+      audioBase64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(audioBlob);
+      });
     }
 
-    setSubmitting(true);
-    try {
-      const formData = new FormData();
-      formData.append('assignment_id', assignment.id);
-      formData.append('submission_text', submissionText);
-      
-      if (audioBlob) {
-        formData.append('audio_submission', audioBlob, `assignment_${assignment.id}_audio.wav`);
-      }
+    const submissionData = {
+      assignment_id: assignment.id,
+      submission_text: submissionText,
+      audio_data: audioBase64 
+    };
 
-      await onSubmit(formData);
-      onClose();
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+    await onSubmit(submissionData);
+    onClose();
+  } catch (error) {
+    console.error('Error submitting assignment:', error);
+  } finally {
+    setSubmitting(false);
+  }
+};
   if (!isOpen) return null;
 
   return (
