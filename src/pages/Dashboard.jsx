@@ -45,7 +45,6 @@ import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 
 
-
 // Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
