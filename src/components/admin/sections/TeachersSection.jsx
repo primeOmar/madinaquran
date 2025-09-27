@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { motion } from "framer-motion";
-import { Users, Plus, Edit, Trash2, Mail, BookOpen, CheckCircle, XCircle, Loader2, Copy } from "lucide-react";
+import { Users, Plus, Edit, Trash2, Mail, BookOpen, CheckCircle, XCircle, Loader2, Copy, Key } from "lucide-react";
 import { toast } from 'react-toastify';
 import { adminApi } from '../../../lib/supabaseClient';
 import AddTeacherModal from '../../modals/AddTeacherModal';
-import CredentialsModal from '../../modals/CredentialsModal'; // Keep this import
+import CredentialsModal from '../../modals/CredentialsModal';
 import WaveLoader from '../loaders/WaveLoader';
 
 export default function TeachersSection({ data, loading, onRefresh, onError }) {
@@ -67,24 +67,23 @@ export default function TeachersSection({ data, loading, onRefresh, onError }) {
     }
   };
 
-  const handleResendInvite = async (teacherId, teacherName) => {
+  const handleResendInvite = async (teacherId, teacherName, teacherEmail) => {
     setActionLoading(prev => ({ ...prev, [`resend_${teacherId}`]: true }));
     
     try {
-      // For now, we'll create a mock response since the API endpoint might not exist yet
-      const mockCredentials = {
-        email: teacherName.toLowerCase().replace(/\s+/g, '.') + '@example.com',
-        password: 'teacher123', // In real implementation, fetch from database
-        login_url: `${window.location.origin}/teacher-login`,
-        teacherName: teacherName
-      };
+      // Reset password and get new credentials
+      const result = await adminApi.resetTeacherPassword(teacherId);
       
-      setTeacherCredentials(mockCredentials);
-      setShowCredentialsPopup(true);
-      toast.success(`Login credentials ready for ${teacherName}`);
+      if (result.success) {
+        setTeacherCredentials(result.credentials);
+        setShowCredentialsPopup(true);
+        toast.success(`New password generated for ${teacherName}`);
+      } else {
+        throw new Error('Failed to reset password');
+      }
       
     } catch (error) {
-      toast.error(`Failed to fetch credentials: ${error.message}`);
+      toast.error(`Failed to reset password: ${error.message}`);
     } finally {
       setActionLoading(prev => ({ ...prev, [`resend_${teacherId}`]: false }));
     }
@@ -237,16 +236,16 @@ function TeacherCard({ teacher, onRemove, onResendInvite, isRemoving, isResendin
         <motion.button 
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => onResendInvite(teacher.id, teacher.name)}
+          onClick={() => onResendInvite(teacher.id, teacher.name, teacher.email)}
           disabled={isResending}
           className="text-sm bg-green-600 hover:bg-green-500 py-1 px-3 rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isResending ? (
             <Loader2 className="h-4 w-4 animate-spin mr-1" />
           ) : (
-            <Mail size={14} className="mr-1" />
+            <Key size={14} className="mr-1" />
           )}
-          Resend Invite
+          Reset Password
         </motion.button>
       </div>
     </div>
