@@ -839,6 +839,7 @@ getPendingSubmissions: async () => {
     }
   }
 };
+export {adminApi};
 // Export everything as default for backward compatibility
 export default {
   supabase,
