@@ -730,7 +730,7 @@ createAssignment: async (assignmentData) => {
     throw new Error(error.message || 'Failed to create assignment');
   }
 },
-// Replace all instances of supabase.auth.session() with the new method
+
 getMyAssignments: async (filters = {}) => {
   const { status, student_id, class_id, page = 1, limit = 50 } = filters;
   
@@ -759,52 +759,86 @@ getMyAssignments: async (filters = {}) => {
   return response.json();
 },
 
-gradeAssignment: async (submissionId, score, feedback) => {
-  // Get the current session
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (!session) {
-    throw new Error('Not authenticated');
-  }
-  
-  const response = await fetch(`/api/teacher/assignments/${submissionId}/grade`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`
-    },
-    body: JSON.stringify({ score, feedback })
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to grade assignment');
-  }
-  
-  return response.json();
-},
+  getAssignmentsWithSubmissions: async () => {
+    const { data: assignments, error } = await supabase
+      .from('assignments')
+      .select(`
+        *,
+        class:classes(title),
+        assignment_submissions(
+          *,
+          student:profiles(name, email)
+        )
+      `)
+      .order('created_at', { ascending: false });
 
-  // Grade an assignment submission
-gradeAssignment: async (submissionId, score, feedback) => {
-  const response = await fetch(`/api/teacher/assignments/${submissionId}/grade`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${supabase.auth.session().access_token}`
-    },
-    body: JSON.stringify({ score, feedback })
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to grade assignment');
+    if (error) throw error;
+    return assignments;
+  },
+
+getPendingSubmissions: async () => {
+    const { data: submissions, error } = await supabase
+      .from('assignment_submissions')
+      .select(`
+        *,
+        assignment:assignments(title, max_score, due_date),
+        student:profiles(name, email)
+      `)
+      .eq('status', 'submitted')
+      .is('grade', null)
+      .order('submitted_at', { ascending: true });
+
+    if (error) throw error;
+    return submissions;
+  },
+
+  // Grade assignment
+  gradeAssignment: async (submissionId, score, feedback) => {
+    const { data, error } = await supabase
+      .from('assignment_submissions')
+      .update({
+        grade: score,
+        feedback: feedback,
+        graded_at: new Date().toISOString(),
+        status: 'graded'
+      })
+      .eq('id', submissionId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Update student progress after grading
+  updateStudentProgress: async (studentId) => {
+    // Calculate average grade and update student profile
+    const { data: submissions, error } = await supabase
+      .from('assignment_submissions')
+      .select('grade, assignment:assignments(max_score)')
+      .eq('student_id', studentId)
+      .not('grade', 'is', null);
+
+    if (error) throw error;
+
+    if (submissions.length > 0) {
+      const averageGrade = submissions.reduce((sum, sub) => {
+        const percentage = (sub.grade / sub.assignment.max_score) * 100;
+        return sum + percentage;
+      }, 0) / submissions.length;
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          overall_score: Math.round(averageGrade),
+          last_active: new Date().toISOString()
+        })
+        .eq('id', studentId);
+
+      if (updateError) throw updateError;
+    }
   }
-  
-  return response.json();
-}
 };
-
-// Export adminApi as a named export
-export {adminApi }; 
-
 // Export everything as default for backward compatibility
 export default {
   supabase,
