@@ -434,7 +434,7 @@ export const teacherApi = {
   },
 
   // Get pending submissions for grading
-  getPendingSubmissions: async () => {
+getPendingSubmissions: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
@@ -528,9 +528,7 @@ getGradedSubmissions: async () => {
   }
 },
 
-
-  // Grade assignment with optional audio feedback
-  gradeAssignment: async (submissionId, score, feedback, audioFeedbackBlob = null) => {
+gradeAssignment: async (submissionId, score, feedback, audioFeedbackBlob = null) => {
   try {
     let audioFeedbackUrl = null;
 
@@ -571,8 +569,7 @@ getGradedSubmissions: async () => {
   }
 },
 
-  // Update student progress after grading
-  updateStudentProgress: async (studentId) => {
+updateStudentProgress: async (studentId) => {
   try {
     const { data: submissions, error } = await supabase
       .from('assignment_submissions')
