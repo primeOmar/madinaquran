@@ -434,6 +434,7 @@ export const teacherApi = {
   },
 
   // Get pending submissions for grading
+
 getPendingSubmissions: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
