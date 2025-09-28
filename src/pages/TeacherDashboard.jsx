@@ -613,7 +613,6 @@ const getStudentsForClass = (classId) => {
   />
 )}
 
-          // In your main content section, add the new tab:
 {activeTab === 'grading' && (
   <GradingTab 
     submissions={submissions}
