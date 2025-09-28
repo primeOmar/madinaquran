@@ -26,7 +26,7 @@ export default function Sidebar({
   return (
     <div 
       className={`
-        fixed md:relative inset-y-0 left-0 z-30 w-64 bg-blue-950/90 backdrop-blur-md 
+        fixed md:relative inset-y-0 left-0 z-30 w-64 bg-black bg-blue-950/90 backdrop-blur-md 
         transform transition-transform duration-300 ease-in-out md:transform-none
         flex-shrink-0 h-full overflow-y-auto
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
@@ -40,7 +40,7 @@ export default function Sidebar({
           </h2>
           <p className="text-blue-100 mt-2 flex items-center">
             <Settings size={16} className="mr-2" />
-            Welcome, {adminName}
+            Welcome, {name}
           </p>
         </div>
 
