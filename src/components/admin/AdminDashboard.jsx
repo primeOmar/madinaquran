@@ -350,7 +350,7 @@ const handleAddTeacher = async (teacherData) => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
-              className="bg-blue-800/40 backdrop-blur-md rounded-xl p-4 md:p-6 border border-blue-700/30"
+              className="bg-blue-800/40 backdrop-blur-md  rounded-xl p-4 bg-black md:p-6 border border-blue-700/30"
             >
               {renderActiveSection()}
             </motion.div>
