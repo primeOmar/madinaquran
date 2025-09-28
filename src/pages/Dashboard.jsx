@@ -1229,7 +1229,7 @@ export default function Dashboard() {
           className={`
             fixed md:relative inset-y-0 left-0 z-30 w-64 bg-green-950/90 backdrop-blur-md 
             transform transition-transform duration-300 ease-in-out md:transform-none
-            flex-shrink-0 h-full overflow-y-auto border-r border-green-700/30
+            flex-shrink-0 h-full overflow-y-auto border-r border-green-700/30 pt-16 md:pt-0
           `}
         >
           <div className="p-6 flex flex-col h-full">
