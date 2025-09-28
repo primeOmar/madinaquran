@@ -209,6 +209,7 @@ export const makeApiRequest = async (endpoint, options = {}) => {
     throw new Error(error.message || `API request failed: ${endpoint}`);
   }
 };
+
 // Health check function
 export const checkServerHealth = async () => {
   try {
@@ -230,295 +231,11 @@ export const checkServerHealth = async () => {
   }
 };
 
-// Admin API functions
-const adminApi = {
-  // Student management
-  getStudents: () => makeApiRequest('/api/admin/students'),
-  
-  addStudent: (studentData) => makeApiRequest('/api/admin/students', {
-    method: 'POST',
-    body: JSON.stringify(studentData)
-  }),
-  
-  removeStudent: (studentId) => makeApiRequest(`/api/admin/students/${studentId}`, {
-    method: 'DELETE'
-  }),
-  
-  getUnassignedStudents: () => makeApiRequest('/api/admin/students/unassigned'),
-  
-  assignStudentToTeacher: (studentId, teacherId) => 
-    makeApiRequest(`/api/admin/students/${studentId}/assign`, {
-      method: 'POST',
-      body: JSON.stringify({ teacher_id: teacherId })
-    }),
-  
-  bulkAssignStudents: (assignments) => 
-    makeApiRequest('/api/admin/students/bulk-assign', {
-      method: 'POST',
-      body: JSON.stringify({ assignments })
-    }),
-  
-  unassignStudent: (studentId) => 
-    makeApiRequest(`/api/admin/students/${studentId}/unassign`, {
-      method: 'POST'
-    }),
-
-  // Teacher management
-  getTeachers: () => makeApiRequest('/api/admin/teachers'),
-  
-  getAvailableTeachers: () => makeApiRequest('/api/admin/teachers/available'),
-  
-addTeacher: async (teacherData) => {
-  try {
-    // Get the current session token
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      throw new Error('Not authenticated');
-    }   
-    const response = await fetch(`${apiBaseUrl}/api/admin/teachers`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
-      body: JSON.stringify(teacherData)
-    });
-
-    // Handle empty responses
-    const responseText = await response.text();
-    
-    if (!responseText) {
-      throw new Error('Server returned empty response');
-    }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse response:', responseText);
-      throw new Error('Server returned invalid JSON response');
-    }
-    
-    if (!response.ok) {
-      throw new Error(result.error || `Server error: ${response.status}`);
-    }
-
-    return result;
-  } catch (error) {
-    console.error('Teacher creation error:', error);
-    throw error;
-  }
-},
-//reset pass
-resetTeacherPassword: async (teacherId) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    
-    const response = await fetch(`${apiBaseUrl}/api/admin/teachers/${teacherId}/reset-password`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to reset teacher password');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error resetting teacher password:', error);
-    throw error;
-  }
-},
-  
-  removeTeacher: (teacherId) => makeApiRequest(`/api/admin/teachers/${teacherId}`, {
-    method: 'DELETE'
-  }),
-//resend credentials
-  getTeacherCredentials: async (teacherId) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    
-    const response = await fetch(`${apiBaseUrl}/api/admin/teachers/${teacherId}/credentials`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to fetch teacher credentials');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching teacher credentials:', error);
-    throw error;
-  }
-},
- 
-  
-getVideoSessions: () => makeApiRequest('/api/admin/video-sessions'),
-  joinVideoCall: (meetingId) => makeApiRequest('/api/admin/join-video-call', {
-    method: 'POST',
-    body: JSON.stringify({ meetingId })
-  }),
-  
-  removeFromVideoCall: (meetingId, participantId) => 
-    makeApiRequest('/api/admin/remove-from-video-call', {
-      method: 'POST',
-      body: JSON.stringify({ meetingId, participantId })
-    }),
-
-  // Fees management
-  feesManagement: {
-    getStudentsWithFees: () => makeApiRequest('/api/admin/fees/students'),
-    
-    getFeeStatistics: () => makeApiRequest('/api/admin/fees/statistics'),
-    
-    confirmPayment: (paymentId, paymentMethod) => 
-      makeApiRequest('/api/admin/fees/confirm-payment', {
-        method: 'POST',
-        body: JSON.stringify({ paymentId, paymentMethod })
-      }),
-    
-    rejectPayment: (paymentId, reason) => 
-      makeApiRequest('/api/admin/fees/reject-payment', {
-        method: 'POST',
-        body: JSON.stringify({ paymentId, reason })
-      })
-  },
-// Class management methods
-scheduleClass: async (classData) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    
-    console.log('Supabase session token:', token);
-    
-    if (!token) {
-      throw new Error('No active session. Please log in again.');
-    }
-
-    // FIX: Add /api/admin to the path
-    const response = await fetch(`${apiBaseUrl}/api/admin/classes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(classData)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to schedule class');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error scheduling class:', error);
-    throw error;
-  }
-},
-
-// getClasses function
-
-getClasses: async (filters = {}) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    
-    if (!token) {
-      throw new Error('No authentication token available');
-    }
-
-    const params = new URLSearchParams(filters);
-    const response = await fetch(`${apiBaseUrl}/api/admin/classes?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to fetch classes: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    // Return the classes array from the paginated response
-    return result.classes || [];
-    
-  } catch (error) {
-    console.error('Error fetching classes:', error);
-    throw error;
-  }
-},
-
-  updateClass: async (id, updates) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    
-    const response = await fetch(`${apiBaseUrl}/api/admin/classes/${id}`, { // ← Add /api/admin
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(updates)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to update class');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error updating class:', error);
-    throw error;
-  }
-},
-
-deleteClass: async (id) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    
-    const response = await fetch(`${apiBaseUrl}/api/admin/classes/${id}`, { // ← Add /api/admin
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to delete class');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error deleting class:', error);
-    throw error;
-  }
-},
-  // Other admin functions
-  getStats: () => makeApiRequest('/api/admin/stats'),
-  
-  getAdminActions: (page = 1, limit = 50) => 
-    makeApiRequest(`/api/admin/actions?page=${page}&limit=${limit}`),
-  
-  getStudentsByTeacher: (teacherId) => 
-    makeApiRequest(`/api/admin/students/teacher/${teacherId}`)
+// Helper function to get current user ID
+const getCurrentUserId = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('User not authenticated');
+  return user.id;
 };
 
 // Get auth token
@@ -532,9 +249,10 @@ export const getAuthToken = async () => {
   }
 };
 
-//teacherapi functions
+// Teacher API functions with GRADING capabilities
 export const teacherApi = {
- getMyClasses: async () => {
+  // Existing methods
+  getMyClasses: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
@@ -558,48 +276,49 @@ export const teacherApi = {
   },
 
   // Get teacher's students
-getMyStudents: async () => {
-  try {
-    console.log('🔄 Fetching students from API...');
-    const token = await getAuthToken();
-    console.log('🔑 Using token:', token ? 'Present' : 'Missing');
-    
-    const response = await fetch(`${apiBaseUrl}/api/teacher/students`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
+  getMyStudents: async () => {
+    try {
+      console.log('🔄 Fetching students from API...');
+      const token = await getAuthToken();
+      console.log('🔑 Using token:', token ? 'Present' : 'Missing');
+      
+      const response = await fetch(`${apiBaseUrl}/api/teacher/students`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log('📊 API Response status:', response.status);
+      
+      // First, check what content type we're getting
+      const contentType = response.headers.get('content-type');
+      console.log('📄 Content-Type:', contentType);
+      
+      if (!response.ok) {
+        // Get the response text to see what's actually being returned
+        const responseText = await response.text();
+        console.error('❌ Server error response:', responseText.substring(0, 200));
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    });
-    
-    console.log('📊 API Response status:', response.status);
-    
-    // First, check what content type we're getting
-    const contentType = response.headers.get('content-type');
-    console.log('📄 Content-Type:', contentType);
-    
-    if (!response.ok) {
-      // Get the response text to see what's actually being returned
-      const responseText = await response.text();
-      console.error('❌ Server error response:', responseText.substring(0, 200));
-      throw new Error(`HTTP error! status: ${response.status}`);
+      
+      // Check if we're getting JSON
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        console.log('✅ Students fetched:', data.length);
+        return data;
+      } else {
+        // We're getting HTML instead of JSON
+        const responseText = await response.text();
+        console.error('❌ Got HTML instead of JSON:', responseText.substring(0, 200));
+        throw new Error('Server returned HTML instead of JSON. Check API endpoint.');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error fetching students:', error);
+      throw error;
     }
-    
-    // Check if we're getting JSON
-    if (contentType && contentType.includes('application/json')) {
-      const data = await response.json();
-      console.log('✅ Students fetched:', data.length);
-      return data;
-    } else {
-      // We're getting HTML instead of JSON
-      const responseText = await response.text();
-      console.error('❌ Got HTML instead of JSON:', responseText.substring(0, 200));
-      throw new Error('Server returned HTML instead of JSON. Check API endpoint.');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error fetching students:', error);
-    throw error;
-  }
-},
+  },
+
   // Get teacher's assignments
   getMyAssignments: async () => {
     try {
@@ -665,8 +384,8 @@ getMyStudents: async () => {
     }
   },
 
-
-   getMyAssignmentsWithSubmissions: async () => {
+  // GRADING METHODS - NEWLY ADDED
+  getMyAssignmentsWithSubmissions: async () => {
     const teacherId = await getCurrentUserId();
     
     const { data: assignments, error } = await supabase
@@ -709,25 +428,34 @@ getMyStudents: async () => {
     return assignmentsWithStats;
   },
 
-  // Get pending submissions for teacher's assignments
-  getMyPendingSubmissions: async () => {
+  // Get pending submissions for grading
+  getPendingSubmissions: async () => {
     const teacherId = await getCurrentUserId();
     
     const { data: submissions, error } = await supabase
       .from('assignment_submissions')
       .select(`
-        *,
-        assignment:assignments!inner(
-          id,
-          title,
-          max_score,
-          due_date,
-          teacher_id
-        ),
+        id,
+        submission_text,
+        audio_url,
+        submitted_at,
+        status,
+        grade,
+        feedback,
+        audio_feedback_url,
         student:profiles!assignment_submissions_student_id_fkey(
           id,
           name,
-          email
+          email,
+          overall_score
+        ),
+        assignment:assignments!inner(
+          id,
+          title,
+          description,
+          max_score,
+          due_date,
+          teacher_id
         )
       `)
       .eq('assignment.teacher_id', teacherId)
@@ -739,7 +467,113 @@ getMyStudents: async () => {
     return submissions;
   },
 
-  // Get students assigned to this teacher
+  // Get graded submissions history
+  getGradedSubmissions: async () => {
+    const teacherId = await getCurrentUserId();
+    
+    const { data: submissions, error } = await supabase
+      .from('assignment_submissions')
+      .select(`
+        id,
+        submission_text,
+        audio_url,
+        submitted_at,
+        graded_at,
+        status,
+        grade,
+        feedback,
+        audio_feedback_url,
+        student:profiles!assignment_submissions_student_id_fkey(
+          id,
+          name,
+          email,
+          overall_score
+        ),
+        assignment:assignments!inner(
+          id,
+          title,
+          description,
+          max_score,
+          due_date,
+          teacher_id
+        )
+      `)
+      .eq('assignment.teacher_id', teacherId)
+      .not('grade', 'is', null)
+      .order('graded_at', { ascending: false });
+
+    if (error) throw error;
+    return submissions;
+  },
+
+  // Grade assignment with optional audio feedback
+  gradeAssignment: async (submissionId, score, feedback, audioFeedbackBlob = null) => {
+    let audioFeedbackUrl = null;
+
+    // Upload audio feedback if provided
+    if (audioFeedbackBlob) {
+      const fileName = `feedback-${submissionId}-${Date.now()}.webm`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('assignment-feedback')
+        .upload(fileName, audioFeedbackBlob);
+
+      if (uploadError) throw uploadError;
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('assignment-feedback')
+        .getPublicUrl(fileName);
+      
+      audioFeedbackUrl = urlData.publicUrl;
+    }
+
+    const { data, error } = await supabase
+      .from('assignment_submissions')
+      .update({
+        grade: score,
+        feedback: feedback,
+        audio_feedback_url: audioFeedbackUrl,
+        graded_at: new Date().toISOString(),
+        status: 'graded'
+      })
+      .eq('id', submissionId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Update student progress after grading
+  updateStudentProgress: async (studentId) => {
+    const { data: submissions, error } = await supabase
+      .from('assignment_submissions')
+      .select('grade, assignment:assignments(max_score)')
+      .eq('student_id', studentId)
+      .not('grade', 'is', null);
+
+    if (error) throw error;
+
+    if (submissions.length > 0) {
+      const averageGrade = submissions.reduce((sum, sub) => {
+        const percentage = (sub.grade / sub.assignment.max_score) * 100;
+        return sum + percentage;
+      }, 0) / submissions.length;
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          overall_score: Math.round(averageGrade),
+          completed_assignments: submissions.length,
+          last_active: new Date().toISOString()
+        })
+        .eq('id', studentId);
+
+      if (updateError) throw updateError;
+    }
+  },
+
+  // Get students assigned to this teacher with details
   getMyStudentsWithDetails: async () => {
     const teacherId = await getCurrentUserId();
     
@@ -799,15 +633,8 @@ getMyStudents: async () => {
 
     if (error) throw error;
     return assignment;
-  }
-};
+  },
 
-// Helper function to get current user ID
-const getCurrentUserId = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-  return user.id;
-};
   // Start a video session
   startVideoSession: async (classId) => {
     try {
@@ -844,99 +671,66 @@ const getCurrentUserId = async () => {
   },
 
   // Create a new assignment
-createAssignment: async (assignmentData) => {
-  try {
-    // Get fresh session (handles token refresh)
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  createAssignment: async (assignmentData) => {
+    try {
+      // Get fresh session (handles token refresh)
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch('/api/teacher/assignments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(assignmentData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create assignment');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw new Error(error.message || 'Failed to create assignment');
+    }
+  },
+
+  getMyAssignmentsWithFilters: async (filters = {}) => {
+    const { status, student_id, class_id, page = 1, limit = 50 } = filters;
     
-    if (sessionError || !session) {
+    // Get the current session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
       throw new Error('Not authenticated');
     }
-
-    const response = await fetch('/api/teacher/assignments', {
-      method: 'POST',
+    
+    let url = `/api/teacher/assignments?page=${page}&limit=${limit}`;
+    if (status) url += `&status=${status}`;
+    if (student_id) url += `&student_id=${student_id}`;
+    if (class_id) url += `&class_id=${class_id}`;
+    
+    const response = await fetch(url, {
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`
-      },
-      body: JSON.stringify(assignmentData)
+      }
     });
-
+    
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to create assignment');
+      throw new Error('Failed to fetch assignments');
     }
-
+    
     return response.json();
-  } catch (error) {
-    console.error('API Error:', error);
-    throw new Error(error.message || 'Failed to create assignment');
-  }
-},
-
-getMyAssignments: async (filters = {}) => {
-  const { status, student_id, class_id, page = 1, limit = 50 } = filters;
-  
-  // Get the current session
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (!session) {
-    throw new Error('Not authenticated');
-  }
-  
-  let url = `/api/teacher/assignments?page=${page}&limit=${limit}`;
-  if (status) url += `&status=${status}`;
-  if (student_id) url += `&student_id=${student_id}`;
-  if (class_id) url += `&class_id=${class_id}`;
-  
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`
-    }
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch assignments');
-  }
-  
-  return response.json();
-},
-
-  getAssignmentsWithSubmissions: async () => {
-    const { data: assignments, error } = await supabase
-      .from('assignments')
-      .select(`
-        *,
-        class:classes(title),
-        assignment_submissions(
-          *,
-          student:profiles(name, email)
-        )
-      `)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return assignments;
   },
 
-getPendingSubmissions: async () => {
-    const { data: submissions, error } = await supabase
-      .from('assignment_submissions')
-      .select(`
-        *,
-        assignment:assignments(title, max_score, due_date),
-        student:profiles(name, email)
-      `)
-      .eq('status', 'submitted')
-      .is('grade', null)
-      .order('submitted_at', { ascending: true });
-
-    if (error) throw error;
-    return submissions;
-  },
-
-  // Grade assignment
-  gradeAssignment: async (submissionId, score, feedback) => {
+  // Simple grade assignment (without audio feedback - for backward compatibility)
+  simpleGradeAssignment: async (submissionId, score, feedback) => {
     const { data, error } = await supabase
       .from('assignment_submissions')
       .update({
@@ -951,38 +745,304 @@ getPendingSubmissions: async () => {
 
     if (error) throw error;
     return data;
-  },
-
-  // Update student progress after grading
-  updateStudentProgress: async (studentId) => {
-    // Calculate average grade and update student profile
-    const { data: submissions, error } = await supabase
-      .from('assignment_submissions')
-      .select('grade, assignment:assignments(max_score)')
-      .eq('student_id', studentId)
-      .not('grade', 'is', null);
-
-    if (error) throw error;
-
-    if (submissions.length > 0) {
-      const averageGrade = submissions.reduce((sum, sub) => {
-        const percentage = (sub.grade / sub.assignment.max_score) * 100;
-        return sum + percentage;
-      }, 0) / submissions.length;
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          overall_score: Math.round(averageGrade),
-          last_active: new Date().toISOString()
-        })
-        .eq('id', studentId);
-
-      if (updateError) throw updateError;
-    }
   }
 };
-export {adminApi};
+
+// Admin API functions (keep existing)
+const adminApi = {
+  // Student management
+  getStudents: () => makeApiRequest('/api/admin/students'),
+  
+  addStudent: (studentData) => makeApiRequest('/api/admin/students', {
+    method: 'POST',
+    body: JSON.stringify(studentData)
+  }),
+  
+  removeStudent: (studentId) => makeApiRequest(`/api/admin/students/${studentId}`, {
+    method: 'DELETE'
+  }),
+  
+  getUnassignedStudents: () => makeApiRequest('/api/admin/students/unassigned'),
+  
+  assignStudentToTeacher: (studentId, teacherId) => 
+    makeApiRequest(`/api/admin/students/${studentId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ teacher_id: teacherId })
+    }),
+  
+  bulkAssignStudents: (assignments) => 
+    makeApiRequest('/api/admin/students/bulk-assign', {
+      method: 'POST',
+      body: JSON.stringify({ assignments })
+    }),
+  
+  unassignStudent: (studentId) => 
+    makeApiRequest(`/api/admin/students/${studentId}/unassign`, {
+      method: 'POST'
+    }),
+
+  // Teacher management
+  getTeachers: () => makeApiRequest('/api/admin/teachers'),
+  
+  getAvailableTeachers: () => makeApiRequest('/api/admin/teachers/available'),
+  
+  addTeacher: async (teacherData) => {
+    try {
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Not authenticated');
+      }   
+      const response = await fetch(`${apiBaseUrl}/api/admin/teachers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(teacherData)
+      });
+
+      // Handle empty responses
+      const responseText = await response.text();
+      
+      if (!responseText) {
+        throw new Error('Server returned empty response');
+      }
+
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response:', responseText);
+        throw new Error('Server returned invalid JSON response');
+      }
+      
+      if (!response.ok) {
+        throw new Error(result.error || `Server error: ${response.status}`);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Teacher creation error:', error);
+      throw error;
+    }
+  },
+
+  //reset pass
+  resetTeacherPassword: async (teacherId) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const response = await fetch(`${apiBaseUrl}/api/admin/teachers/${teacherId}/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to reset teacher password');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error resetting teacher password:', error);
+      throw error;
+    }
+  },
+  
+  removeTeacher: (teacherId) => makeApiRequest(`/api/admin/teachers/${teacherId}`, {
+    method: 'DELETE'
+  }),
+
+  //resend credentials
+  getTeacherCredentials: async (teacherId) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const response = await fetch(`${apiBaseUrl}/api/admin/teachers/${teacherId}/credentials`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch teacher credentials');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching teacher credentials:', error);
+      throw error;
+    }
+  },
+  
+  getVideoSessions: () => makeApiRequest('/api/admin/video-sessions'),
+  joinVideoCall: (meetingId) => makeApiRequest('/api/admin/join-video-call', {
+    method: 'POST',
+    body: JSON.stringify({ meetingId })
+  }),
+  
+  removeFromVideoCall: (meetingId, participantId) => 
+    makeApiRequest('/api/admin/remove-from-video-call', {
+      method: 'POST',
+      body: JSON.stringify({ meetingId, participantId })
+    }),
+
+  // Fees management
+  feesManagement: {
+    getStudentsWithFees: () => makeApiRequest('/api/admin/fees/students'),
+    
+    getFeeStatistics: () => makeApiRequest('/api/admin/fees/statistics'),
+    
+    confirmPayment: (paymentId, paymentMethod) => 
+      makeApiRequest('/api/admin/fees/confirm-payment', {
+        method: 'POST',
+        body: JSON.stringify({ paymentId, paymentMethod })
+      }),
+    
+    rejectPayment: (paymentId, reason) => 
+      makeApiRequest('/api/admin/fees/reject-payment', {
+        method: 'POST',
+        body: JSON.stringify({ paymentId, reason })
+      })
+  },
+
+  // Class management methods
+  scheduleClass: async (classData) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      console.log('Supabase session token:', token);
+      
+      if (!token) {
+        throw new Error('No active session. Please log in again.');
+      }
+
+      // FIX: Add /api/admin to the path
+      const response = await fetch(`${apiBaseUrl}/api/admin/classes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(classData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to schedule class');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error scheduling class:', error);
+      throw error;
+    }
+  },
+
+  // getClasses function
+  getClasses: async (filters = {}) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+
+      const params = new URLSearchParams(filters);
+      const response = await fetch(`${apiBaseUrl}/api/admin/classes?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch classes: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // Return the classes array from the paginated response
+      return result.classes || [];
+      
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+      throw error;
+    }
+  },
+
+  updateClass: async (id, updates) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const response = await fetch(`${apiBaseUrl}/api/admin/classes/${id}`, { // ← Add /api/admin
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(updates)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update class');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error updating class:', error);
+      throw error;
+    }
+  },
+
+  deleteClass: async (id) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const response = await fetch(`${apiBaseUrl}/api/admin/classes/${id}`, { // ← Add /api/admin
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete class');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error deleting class:', error);
+      throw error;
+    }
+  },
+
+  // Other admin functions
+  getStats: () => makeApiRequest('/api/admin/stats'),
+  
+  getAdminActions: (page = 1, limit = 50) => 
+    makeApiRequest(`/api/admin/actions?page=${page}&limit=${limit}`),
+  
+  getStudentsByTeacher: (teacherId) => 
+    makeApiRequest(`/api/admin/students/teacher/${teacherId}`)
+};
+
+export { adminApi };
+
 // Export everything as default for backward compatibility
 export default {
   supabase,
