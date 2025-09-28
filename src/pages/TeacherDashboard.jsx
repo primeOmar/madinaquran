@@ -11,6 +11,7 @@ import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
+import GradingDashboard from './GradingDashboard';
 
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
@@ -613,20 +614,19 @@ const getStudentsForClass = (classId) => {
   />
 )}
 
+// In your main content section, add this case:
 {activeTab === 'grading' && (
-  <GradingTab 
-    submissions={submissions}
-    pendingSubmissions={pendingSubmissions}
+  <GradingDashboard 
+    submissions={assignmentsWithSubmissions}
+    pendingSubmissions={myPendingSubmissions}
     onGradeAssignment={gradeAssignment}
     onStartGrading={(submission) => {
       setGradingSubmission(submission);
       setGradeData({ 
-        score: '', 
-        feedback: '' 
+        score: submission.grade || '', 
+        feedback: submission.feedback || '' 
       });
     }}
-    activeTab={activeGradingTab}
-    setActiveTab={setActiveGradingTab}
   />
 )}
           {activeTab === 'upcoming' && (
