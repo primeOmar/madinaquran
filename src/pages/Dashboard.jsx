@@ -1149,7 +1149,7 @@ export default function Dashboard() {
         <div className="flex items-center">
           <button 
             onClick={toggleSidebar}
-            className="md:hidden p-2 rounded-lg hover:bg-green-800/50 mr-2 transition-all duration-200"
+            className="md:hidden p-2 rounded-lg hover:bg-green-800/50 mr-2 transition-all duration-200 bg-black"
           >
             {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -1165,7 +1165,7 @@ export default function Dashboard() {
         
         <div className="flex items-center space-x-4">
           <div className="relative">
-            <button className="flex items-center space-x-2 p-2 rounded-lg hover:bg-green-800/50 transition-all duration-200 relative">
+            <button className="flex items-center space-x-2 p-2 bg-black rounded-lg hover:bg-green-800/50 transition-all duration-200 relative">
               <Bell size={20} />
               {notifications.filter(n => !n.read).length > 0 && (
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
@@ -1176,12 +1176,12 @@ export default function Dashboard() {
           <div className="relative">
             <button 
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center space-x-2 p-2 rounded-lg hover:bg-green-800/50 transition-all duration-200"
+              className="flex items-center space-x-2 p-2 rounded-lg bg-black hover:bg-green-800/50 transition-all duration-200"
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-green-500 to-teal-400 flex items-center justify-center">
                 <User size={16} />
               </div>
-              <span className="hidden sm:block font-medium">{studentName}</span>
+              <span className="hidden sm:block font-medium">{name}</span>
               <ChevronDown size={16} className={`transition-transform duration-200 ${userMenuOpen ? 'rotate-180' : ''}`} />
             </button>
             
@@ -1194,14 +1194,14 @@ export default function Dashboard() {
                   className="absolute right-0 mt-2 w-48 bg-green-900 rounded-lg shadow-xl py-1 z-50 border border-green-700/30"
                 >
                   <div className="px-4 py-2 border-b border-green-700/30">
-                    <p className="text-sm font-medium">{studentName}</p>
+                    <p className="text-sm font-medium">{name}</p>
                     <p className="text-xs text-green-300">Student</p>
                   </div>
-                  <button className="w-full text-left px-4 py-2 hover:bg-green-800 flex items-center transition-all duration-200">
+                  <button className="w-full text-left px-4 py-2 hover:bg-green-800 bg-black flex items-center transition-all duration-200">
                     <Settings size={16} className="mr-2" />
                     Settings
                   </button>
-                  <button className="w-full text-left px-4 py-2 hover:bg-green-800 flex items-center transition-all duration-200">
+                  <button className="w-full text-left px-4 py-2 hover:bg-green-800 bg-black flex items-center transition-all duration-200">
                     <Award size={16} className="mr-2" />
                     Achievements
                   </button>
@@ -1209,7 +1209,7 @@ export default function Dashboard() {
                     whileHover={{ x: 4 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={handleLogout}
-                    className="w-full text-left px-4 py-2 hover:bg-green-800 flex items-center transition-all duration-200 text-red-300 hover:text-red-200"
+                    className="w-full text-left px-4 py-2 hover:bg-green-800 flex items-center bg-black transition-all duration-200 text-red-300 hover:text-red-200"
                   >
                     <LogOut size={16} className="mr-2" />
                     Sign Out
@@ -1245,7 +1245,7 @@ export default function Dashboard() {
                   <User size={20} />
                 </div>
                 <div>
-                  <h2 className="font-bold text-green-100">{studentName}</h2>
+                  <h2 className="font-bold text-green-100">{name}</h2>
                   <p className="text-green-300 text-sm">Level {progressStats.level}</p>
                 </div>
               </div>
@@ -1278,7 +1278,7 @@ export default function Dashboard() {
                   whileHover={{ x: 5 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => { setActiveSection(item.id); closeSidebar(); }}
-                  className={`w-full flex items-center justify-between space-x-3 p-3 rounded-lg transition-all duration-200 group ${
+                  className={`w-full flex items-center justify-between space-x-3 p-3 bg-black rounded-lg transition-all duration-200 group ${
                     activeSection === item.id
                       ? "bg-gradient-to-r from-green-600 to-teal-500 text-white shadow-lg"
                       : "hover:bg-green-800/60"
@@ -1289,7 +1289,7 @@ export default function Dashboard() {
                     <span>{item.label}</span>
                   </div>
                   {item.badge > 0 && (
-                    <span className={`px-2 py-1 rounded-full text-xs ${
+                    <span className={`px-2 py-1 rounded-full bg-black text-xs ${
                       activeSection === item.id 
                         ? "bg-white/20" 
                         : "bg-green-700/50"
