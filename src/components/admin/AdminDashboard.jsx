@@ -18,7 +18,7 @@ import LoadingOverlay from './LoadingOverlay';
 import ErrorAlert from './ErrorAlert';
 import { useAdminData } from '../../hooks/useAdminData';
 
-// Import your modal
+// Import  modal
 import AddTeacherModal from '../modals/AddTeacherModal';
 
 export default function AdminDashboard({ adminName = "Administrator" }) {
@@ -223,7 +223,7 @@ const handleAddTeacher = async (teacherData) => {
         <div className="flex items-center space-x-4">
            <button
             onClick={toggleSidebar}
-            className="p-2 rounded-lg hover:bg-blue-800/50 transition-all duration-200"
+            className="p-2 rounded-lg hover:bg-blue-800/50 transition-all duration-200 bg-black"
           >
             {isSidebarOpen ? (
               <X className="h-6 w-6" />
@@ -249,7 +249,7 @@ const handleAddTeacher = async (teacherData) => {
                 <Shield size={20} className="text-white" />
               </div>
               <div className="text-left hidden md:block">
-                <p className="text-sm font-medium">{adminName}</p>
+                <p className="text-sm font-medium">{name}</p>
                 <p className="text-xs text-blue-300">Administrator</p>
               </div>
             </div>
@@ -273,7 +273,7 @@ const handleAddTeacher = async (teacherData) => {
               >
                 {/* User Info */}
                 <div className="px-4 py-3 border-b border-blue-700/30">
-                  <p className="text-sm font-semibold text-white truncate">{adminName}</p>
+                  <p className="text-sm font-semibold text-white truncate">{name}</p>
                   <p className="text-xs text-blue-300 mt-1">Administrator Account</p>
                   <div className="mt-2">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
@@ -334,7 +334,7 @@ const handleAddTeacher = async (teacherData) => {
         {/* Overlay for mobile sidebar */}
         {isSidebarOpen && (
           <div 
-            className="fixed inset-0 bg-black/50 z-20 md:hidden"
+            className="fixed inset-0 bg-black/50 z-20 md:hidden bg black"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
