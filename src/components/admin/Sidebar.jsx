@@ -54,7 +54,7 @@ export default function Sidebar({
                 setActiveSection(item.id); 
                 closeSidebar(); 
               }}
-              className={`w-full flex items-center space-x-3 p-3 rounded-lg transition ${
+              className={`w-full flex items-center space-x-3 p-3 bg-black rounded-lg transition ${
                 activeSection === item.id
                   ? "bg-blue-700 text-white shadow-lg"
                   : "hover:bg-blue-800/60"
