@@ -33,77 +33,180 @@ const apiBaseUrl = window._env_?.REACT_APP_API_BASE_URL ||
 // API request helper
 export const makeApiRequest = async (endpoint, options = {}) => {
   try {
-    console.log(`🔗 API Request to: ${endpoint}`);
+    console.log(`🔗 [API] Starting request to: ${endpoint}`);
     
-    // Get the current session PROPERLY
-    const { data: { session } } = await supabase.auth.getSession();
+    // Get the current session with better error handling
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    console.log('🔐 [API] Session check:', {
+      hasSession: !!session,
+      hasUser: session?.user?.id,
+      userEmail: session?.user?.email,
+      sessionError: sessionError?.message
+    });
+
+    if (sessionError) {
+      console.error('❌ [API] Session error:', sessionError);
+      throw new Error('Authentication failed. Please login again.');
+    }
     
     if (!session) {
-      console.error('❌ No active session found');
+      console.error('❌ [API] No active session found');
       throw new Error('User not authenticated. Please login again.');
     }
     
-    console.log('✅ Session found for:', session.user.email);
-    console.log('🔑 Token available:', !!session.access_token);
+    if (!session.access_token) {
+      console.error('❌ [API] No access token in session');
+      throw new Error('Authentication token missing. Please login again.');
+    }
+    
+    console.log('✅ [API] Session found for:', session.user.email);
+    console.log('🔑 [API] Token preview:', `${session.access_token.substring(0, 20)}...`);
     
     const API_BASE = 'https://madina-quran-backend.onrender.com';
     const fullUrl = `${API_BASE}${endpoint}`;
     
-    console.log(`🌐 Calling: ${fullUrl}`);
+    console.log(`🌐 [API] Full URL: ${fullUrl}`);
     
+    // Prepare headers with authorization - KEEP existing header merging
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      ...options.headers, // Preserve any custom headers
+    };
+
+    console.log('📋 [API] Request headers:', {
+      hasAuthHeader: !!headers.Authorization,
+      authHeaderLength: headers.Authorization?.length,
+      contentType: headers['Content-Type'],
+      customHeaders: Object.keys(headers).filter(key => !['Content-Type', 'Authorization'].includes(key))
+    });
+
+    // Prepare request options - PRESERVE all existing functionality
     const requestOptions = {
       method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
-      ...options
+      headers: headers,
+      // Preserve all other options like credentials, mode, cache, etc.
+      ...Object.fromEntries(
+        Object.entries(options).filter(([key]) => 
+          !['headers', 'body', 'method'].includes(key)
+        )
+      )
     };
     
-    // Remove body if it's undefined to avoid errors
-    if (options.body === undefined) {
+    // FIX: Handle body properly - always stringify if it's an object, but preserve strings
+    if (options.body !== undefined && options.body !== null) {
+      if (typeof options.body === 'string') {
+        // If it's already a string, use it as-is (for FormData, URLSearchParams, etc.)
+        requestOptions.body = options.body;
+        console.log('📦 [API] Body is already string, using as-is. Length:', options.body.length);
+      } else {
+        // If it's an object, array, or other type, stringify it
+        requestOptions.body = JSON.stringify(options.body);
+        console.log('📦 [API] Body stringified to JSON. Length:', requestOptions.body.length);
+      }
+    } else {
       delete requestOptions.body;
+      console.log('📦 [API] No request body');
     }
-    
+
+    console.log('🚀 [API] Making fetch request with options:', {
+      method: requestOptions.method,
+      hasBody: !!requestOptions.body,
+      bodyType: requestOptions.body ? typeof requestOptions.body : 'none',
+      preservedOptions: Object.keys(requestOptions).filter(key => !['method', 'headers', 'body'].includes(key))
+    });
+
     const response = await fetch(fullUrl, requestOptions);
     
-    console.log(`📊 Response Status: ${response.status}`);
-    
-    // Handle non-JSON responses
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      const errorText = await response.text();
-      console.error('❌ Non-JSON response received:', errorText.substring(0, 200));
-      throw new Error(`Expected JSON but got: ${contentType}`);
-    }
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('❌ API Error:', errorData);
+    console.log(`📊 [API] Response received:`, {
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+      ok: response.ok
+    });
+
+    // Handle authentication errors - KEEP existing refresh logic
+    if (response.status === 401) {
+      console.error('❌ [API] 401 Unauthorized - Invalid token');
       
-      if (response.status === 401) {
-        // Token is invalid, sign out user
+      // Try to refresh the session first
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError) {
+        console.error('❌ [API] Session refresh failed:', refreshError);
         await supabase.auth.signOut();
         window.location.href = '/login';
-        throw new Error('Authentication failed. Please login again.');
+        throw new Error('Session expired. Please login again.');
       }
       
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      console.log('🔄 [API] Session refreshed, retrying request...');
+      // Retry the request with new token
+      return makeApiRequest(endpoint, options);
     }
-    
-    const data = await response.json();
-    console.log('✅ API Success:', data);
-    return data;
-    
+
+    // Handle other error statuses - KEEP existing error handling
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      
+      try {
+        const errorText = await response.text();
+        console.error(`❌ [API] Error response body:`, errorText);
+        
+        if (errorText) {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorText;
+        }
+      } catch (parseError) {
+        console.error('❌ [API] Error parsing error response:', parseError);
+        // Use default error message if parsing fails
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    // Parse successful response - KEEP existing response handling
+    let responseData;
+    try {
+      const responseText = await response.text();
+      console.log('✅ [API] Raw response received, length:', responseText.length);
+      
+      if (responseText) {
+        responseData = JSON.parse(responseText);
+        console.log('✅ [API] Response parsed successfully');
+      } else {
+        responseData = { success: true }; // Default success for empty responses
+        console.log('✅ [API] Empty response, using default success');
+      }
+    } catch (parseError) {
+      console.error('❌ [API] Error parsing success response:', parseError);
+      throw new Error('Invalid response from server');
+    }
+
+    console.log('🎉 [API] Request successful:', {
+      success: responseData.success,
+      hasMessage: !!responseData.message,
+      hasData: !!responseData.data
+    });
+    return responseData;
+
   } catch (error) {
-    console.error(`❌ API request failed for ${endpoint}:`, error.message);
+    console.error(`💥 [API] Request failed for ${endpoint}:`, error);
     
-    // Enhanced error handling
-    if (error.message.includes('Failed to fetch')) {
-      throw new Error('Network error: Cannot connect to server. Check your internet connection.');
+    // Handle network errors - KEEP existing network error handling
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('🌐 [API] Network error - check internet connection');
+      throw new Error('Network error. Please check your internet connection.');
     }
     
-    throw error;
+    // Handle JSON parsing errors specifically
+    if (error.message.includes('JSON') || error.message.includes('parse')) {
+      console.error('📄 [API] JSON parsing error - possible server response issue');
+      throw new Error('Server response format error. Please try again.');
+    }
+    
+    // Re-throw the error with proper context - KEEP existing error propagation
+    throw new Error(error.message || `API request failed: ${endpoint}`);
   }
 };
 // Health check function
