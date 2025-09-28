@@ -245,7 +245,7 @@ const handleAddTeacher = async (teacherData) => {
             onBlur={() => setTimeout(() => setUserMenuOpen(false), 150)}
           >
             <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center bg-black">
                 <Shield size={20} className="text-white" />
               </div>
               <div className="text-left hidden md:block">
