@@ -253,27 +253,32 @@ export const getAuthToken = async () => {
 export const teacherApi = {
   // Existing methods
   getMyClasses: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      const { data, error } = await supabase
-        .from('classes')
-        .select(`
-          *,
-          course:course_id (*),
-          students_classes (*),
-          video_sessions (*)
-        `)
-        .eq('teacher_id', user.id)
-        .order('scheduled_date', { ascending: true })
-
-      if (error) throw error
-      return data || []
-    } catch (error) {
-      console.error('Error fetching classes:', error)
-      throw error
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    // Add null check for user
+    if (!user) {
+      throw new Error('User not authenticated');
     }
-  },
+    
+    const { data, error } = await supabase
+      .from('classes')
+      .select(`
+        *,
+        course:course_id (*),
+        students_classes (*),
+        video_sessions (*)
+      `)
+      .eq('teacher_id', user.id)
+      .order('scheduled_date', { ascending: true })
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching classes:', error);
+    throw error;
+  }
+},
 
   // Get teacher's students
   getMyStudents: async () => {
@@ -430,8 +435,13 @@ export const teacherApi = {
 
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
-    const teacherId = await getCurrentUserId();
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
     
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
     const { data: submissions, error } = await supabase
       .from('assignment_submissions')
       .select(`
@@ -458,19 +468,27 @@ export const teacherApi = {
           teacher_id
         )
       `)
-      .eq('assignment.teacher_id', teacherId)
+      .eq('assignment.teacher_id', user.id)
       .eq('status', 'submitted')
       .is('grade', null)
       .order('submitted_at', { ascending: true });
 
     if (error) throw error;
-    return submissions;
-  },
+    return submissions || [];
+  } catch (error) {
+    console.error('Error fetching pending submissions:', error);
+    throw error;
+  }
+},
 
-  // Get graded submissions history
-  getGradedSubmissions: async () => {
-    const teacherId = await getCurrentUserId();
+getGradedSubmissions: async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
     
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
     const { data: submissions, error } = await supabase
       .from('assignment_submissions')
       .select(`
@@ -498,16 +516,22 @@ export const teacherApi = {
           teacher_id
         )
       `)
-      .eq('assignment.teacher_id', teacherId)
+      .eq('assignment.teacher_id', user.id)
       .not('grade', 'is', null)
       .order('graded_at', { ascending: false });
 
     if (error) throw error;
-    return submissions;
-  },
+    return submissions || [];
+  } catch (error) {
+    console.error('Error fetching graded submissions:', error);
+    throw error;
+  }
+},
+
 
   // Grade assignment with optional audio feedback
   gradeAssignment: async (submissionId, score, feedback, audioFeedbackBlob = null) => {
+  try {
     let audioFeedbackUrl = null;
 
     // Upload audio feedback if provided
@@ -519,7 +543,6 @@ export const teacherApi = {
 
       if (uploadError) throw uploadError;
       
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from('assignment-feedback')
         .getPublicUrl(fileName);
@@ -542,10 +565,15 @@ export const teacherApi = {
 
     if (error) throw error;
     return data;
-  },
+  } catch (error) {
+    console.error('Error grading assignment:', error);
+    throw error;
+  }
+},
 
   // Update student progress after grading
   updateStudentProgress: async (studentId) => {
+  try {
     const { data: submissions, error } = await supabase
       .from('assignment_submissions')
       .select('grade, assignment:assignments(max_score)')
@@ -554,7 +582,7 @@ export const teacherApi = {
 
     if (error) throw error;
 
-    if (submissions.length > 0) {
+    if (submissions && submissions.length > 0) {
       const averageGrade = submissions.reduce((sum, sub) => {
         const percentage = (sub.grade / sub.assignment.max_score) * 100;
         return sum + percentage;
@@ -571,8 +599,11 @@ export const teacherApi = {
 
       if (updateError) throw updateError;
     }
-  },
-
+  } catch (error) {
+    console.error('Error updating student progress:', error);
+    throw error;
+  }
+}
   // Get students assigned to this teacher with details
   getMyStudentsWithDetails: async () => {
     const teacherId = await getCurrentUserId();
