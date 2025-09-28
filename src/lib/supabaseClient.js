@@ -251,34 +251,33 @@ export const getAuthToken = async () => {
 
 // Teacher API functions with GRADING capabilities
 export const teacherApi = {
-  // Existing methods
+  // Get teacher's classes
   getMyClasses: async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    // Add null check for user
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-    
-    const { data, error } = await supabase
-      .from('classes')
-      .select(`
-        *,
-        course:course_id (*),
-        students_classes (*),
-        video_sessions (*)
-      `)
-      .eq('teacher_id', user.id)
-      .order('scheduled_date', { ascending: true })
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      const { data, error } = await supabase
+        .from('classes')
+        .select(`
+          *,
+          course:course_id (*),
+          students_classes (*),
+          video_sessions (*)
+        `)
+        .eq('teacher_id', user.id)
+        .order('scheduled_date', { ascending: true });
 
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('Error fetching classes:', error);
-    throw error;
-  }
-},
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+      throw error;
+    }
+  },
 
   // Get teacher's students
   getMyStudents: async () => {
@@ -295,29 +294,24 @@ export const teacherApi = {
       
       console.log('📊 API Response status:', response.status);
       
-      // First, check what content type we're getting
       const contentType = response.headers.get('content-type');
       console.log('📄 Content-Type:', contentType);
       
       if (!response.ok) {
-        // Get the response text to see what's actually being returned
         const responseText = await response.text();
         console.error('❌ Server error response:', responseText.substring(0, 200));
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      // Check if we're getting JSON
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json();
         console.log('✅ Students fetched:', data.length);
         return data;
       } else {
-        // We're getting HTML instead of JSON
         const responseText = await response.text();
         console.error('❌ Got HTML instead of JSON:', responseText.substring(0, 200));
         throw new Error('Server returned HTML instead of JSON. Check API endpoint.');
       }
-      
     } catch (error) {
       console.error('❌ Error fetching students:', error);
       throw error;
@@ -327,8 +321,12 @@ export const teacherApi = {
   // Get teacher's assignments
   getMyAssignments: async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser();
       
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
       const { data, error } = await supabase
         .from('assignments')
         .select(`
@@ -351,13 +349,13 @@ export const teacherApi = {
           )
         `)
         .eq('teacher_id', user.id)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
-      if (error) throw error
+      if (error) throw error;
       
       // Transform data with submission counts
       const transformed = data.map(assignment => {
-        const submissions = assignment.assignment_submissions || []
+        const submissions = assignment.assignment_submissions || [];
         return {
           id: assignment.id,
           title: assignment.title,
@@ -379,330 +377,191 @@ export const teacherApi = {
           submitted_count: submissions.length,
           graded_count: submissions.filter(s => s.score !== null).length,
           pending_count: submissions.filter(s => s.score === null).length
-        }
-      })
+        };
+      });
 
-      return transformed
+      return transformed;
     } catch (error) {
-      console.error('Error fetching assignments:', error)
-      throw error
+      console.error('Error fetching assignments:', error);
+      throw error;
     }
-  },
-
-  // GRADING METHODS - NEWLY ADDED
-  getMyAssignmentsWithSubmissions: async () => {
-    const teacherId = await getCurrentUserId();
-    
-    const { data: assignments, error } = await supabase
-      .from('assignments')
-      .select(`
-        *,
-        class:classes(title),
-        assignment_submissions(
-          *,
-          student:profiles!assignment_submissions_student_id_fkey(
-            id,
-            name,
-            email
-          )
-        )
-      `)
-      .eq('teacher_id', teacherId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    
-    // Process the data to get submission counts
-    const assignmentsWithStats = assignments.map(assignment => {
-      const submissions = assignment.assignment_submissions || [];
-      const submittedCount = submissions.length;
-      const gradedCount = submissions.filter(sub => sub.grade !== null).length;
-      const pendingCount = submittedCount - gradedCount;
-
-      return {
-        ...assignment,
-        submission_count: submittedCount,
-        graded_count: gradedCount,
-        pending_count: pendingCount,
-        student_count: assignment.student_ids === 'all' ? 
-          'All Students' : 
-          (assignment.student_ids?.length || 0)
-      };
-    });
-
-    return assignmentsWithStats;
   },
 
   // Get pending submissions for grading
-
-getPendingSubmissions: async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    const { data: submissions, error } = await supabase
-      .from('assignment_submissions')
-      .select(`
-        id,
-        submission_text,
-        audio_url,
-        submitted_at,
-        status,
-        grade,
-        feedback,
-        audio_feedback_url,
-        student:profiles!assignment_submissions_student_id_fkey(
-          id,
-          name,
-          email,
-          overall_score
-        ),
-        assignment:assignments!inner(
-          id,
-          title,
-          description,
-          max_score,
-          due_date,
-          teacher_id
-        )
-      `)
-      .eq('assignment.teacher_id', user.id)
-      .eq('status', 'submitted')
-      .is('grade', null)
-      .order('submitted_at', { ascending: true });
-
-    if (error) throw error;
-    return submissions || [];
-  } catch (error) {
-    console.error('Error fetching pending submissions:', error);
-    throw error;
-  }
-},
-
-getGradedSubmissions: async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    const { data: submissions, error } = await supabase
-      .from('assignment_submissions')
-      .select(`
-        id,
-        submission_text,
-        audio_url,
-        submitted_at,
-        graded_at,
-        status,
-        grade,
-        feedback,
-        audio_feedback_url,
-        student:profiles!assignment_submissions_student_id_fkey(
-          id,
-          name,
-          email,
-          overall_score
-        ),
-        assignment:assignments!inner(
-          id,
-          title,
-          description,
-          max_score,
-          due_date,
-          teacher_id
-        )
-      `)
-      .eq('assignment.teacher_id', user.id)
-      .not('grade', 'is', null)
-      .order('graded_at', { ascending: false });
-
-    if (error) throw error;
-    return submissions || [];
-  } catch (error) {
-    console.error('Error fetching graded submissions:', error);
-    throw error;
-  }
-},
-
-gradeAssignment: async (submissionId, score, feedback, audioFeedbackBlob = null) => {
-  try {
-    let audioFeedbackUrl = null;
-
-    // Upload audio feedback if provided
-    if (audioFeedbackBlob) {
-      const fileName = `feedback-${submissionId}-${Date.now()}.webm`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('assignment-feedback')
-        .upload(fileName, audioFeedbackBlob);
-
-      if (uploadError) throw uploadError;
+  getPendingSubmissions: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
       
-      const { data: urlData } = supabase.storage
-        .from('assignment-feedback')
-        .getPublicUrl(fileName);
-      
-      audioFeedbackUrl = urlData.publicUrl;
-    }
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
 
-    const { data, error } = await supabase
-      .from('assignment_submissions')
-      .update({
-        grade: score,
-        feedback: feedback,
-        audio_feedback_url: audioFeedbackUrl,
-        graded_at: new Date().toISOString(),
-        status: 'graded'
-      })
-      .eq('id', submissionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error grading assignment:', error);
-    throw error;
-  }
-},
-
-updateStudentProgress: async (studentId) => {
-  try {
-    const { data: submissions, error } = await supabase
-      .from('assignment_submissions')
-      .select('grade, assignment:assignments(max_score)')
-      .eq('student_id', studentId)
-      .not('grade', 'is', null);
-
-    if (error) throw error;
-
-    if (submissions && submissions.length > 0) {
-      const averageGrade = submissions.reduce((sum, sub) => {
-        const percentage = (sub.grade / sub.assignment.max_score) * 100;
-        return sum + percentage;
-      }, 0) / submissions.length;
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          overall_score: Math.round(averageGrade),
-          completed_assignments: submissions.length,
-          last_active: new Date().toISOString()
-        })
-        .eq('id', studentId);
-
-      if (updateError) throw updateError;
-    }
-  } catch (error) {
-    console.error('Error updating student progress:', error);
-    throw error;
-  }
-}
-  // Get students assigned to this teacher with details
-  getMyStudentsWithDetails: async () => {
-    const teacherId = await getCurrentUserId();
-    
-    const { data: students, error } = await supabase
-      .from('profiles')
-      .select(`
-        id,
-        name,
-        email,
-        created_at,
-        overall_score,
-        completed_assignments,
-        classes:students_classes(
-          class:classes(
-            id,
-            title
-          )
-        )
-      `)
-      .eq('teacher_id', teacherId)
-      .eq('role', 'student')
-      .order('name');
-
-    if (error) throw error;
-    
-    // Format the data
-    return students.map(student => ({
-      id: student.id,
-      name: student.name,
-      email: student.email,
-      created_at: student.created_at,
-      overall_score: student.overall_score,
-      completed_assignments: student.completed_assignments,
-      classes: student.classes?.map(sc => sc.class) || []
-    }));
-  },
-
-  // Get detailed assignment view with all submissions
-  getAssignmentDetails: async (assignmentId) => {
-    const { data: assignment, error } = await supabase
-      .from('assignments')
-      .select(`
-        *,
-        class:classes(title),
-        assignment_submissions(
-          *,
+      const { data: submissions, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          id,
+          submission_text,
+          audio_url,
+          submitted_at,
+          status,
+          grade,
+          feedback,
+          audio_feedback_url,
           student:profiles!assignment_submissions_student_id_fkey(
             id,
             name,
             email,
             overall_score
+          ),
+          assignment:assignments!inner(
+            id,
+            title,
+            description,
+            max_score,
+            due_date,
+            teacher_id
           )
-        )
-      `)
-      .eq('id', assignmentId)
-      .single();
+        `)
+        .eq('assignment.teacher_id', user.id)
+        .eq('status', 'submitted')
+        .is('grade', null)
+        .order('submitted_at', { ascending: true });
 
-    if (error) throw error;
-    return assignment;
+      if (error) throw error;
+      return submissions || [];
+    } catch (error) {
+      console.error('Error fetching pending submissions:', error);
+      throw error;
+    }
   },
 
-  // Start a video session
-  startVideoSession: async (classId) => {
+  // Get graded submissions history
+  getGradedSubmissions: async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser();
       
-      // Generate a unique meeting ID
-      const meetingId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      
-      const { data, error } = await supabase
-        .from('video_sessions')
-        .insert([{
-          class_id: classId,
-          teacher_id: user.id,
-          meeting_id: meetingId,
-          status: 'active',
-          started_at: new Date().toISOString()
-        }])
-        .select()
-        .single()
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
 
-      if (error) throw error
-      
-      // Update class status to active
-      await supabase
-        .from('classes')
-        .update({ status: 'active' })
-        .eq('id', classId)
+      const { data: submissions, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          id,
+          submission_text,
+          audio_url,
+          submitted_at,
+          graded_at,
+          status,
+          grade,
+          feedback,
+          audio_feedback_url,
+          student:profiles!assignment_submissions_student_id_fkey(
+            id,
+            name,
+            email,
+            overall_score
+          ),
+          assignment:assignments!inner(
+            id,
+            title,
+            description,
+            max_score,
+            due_date,
+            teacher_id
+          )
+        `)
+        .eq('assignment.teacher_id', user.id)
+        .not('grade', 'is', null)
+        .order('graded_at', { ascending: false });
 
-      return data
+      if (error) throw error;
+      return submissions || [];
     } catch (error) {
-      console.error('Error starting video session:', error)
-      throw error
+      console.error('Error fetching graded submissions:', error);
+      throw error;
+    }
+  },
+
+  // Grade assignment
+  gradeAssignment: async (submissionId, score, feedback, audioFeedbackBlob = null) => {
+    try {
+      let audioFeedbackUrl = null;
+
+      // Upload audio feedback if provided
+      if (audioFeedbackBlob) {
+        const fileName = `feedback-${submissionId}-${Date.now()}.webm`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('assignment-feedback')
+          .upload(fileName, audioFeedbackBlob);
+
+        if (uploadError) throw uploadError;
+        
+        const { data: urlData } = supabase.storage
+          .from('assignment-feedback')
+          .getPublicUrl(fileName);
+        
+        audioFeedbackUrl = urlData.publicUrl;
+      }
+
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .update({
+          grade: score,
+          feedback: feedback,
+          audio_feedback_url: audioFeedbackUrl,
+          graded_at: new Date().toISOString(),
+          status: 'graded'
+        })
+        .eq('id', submissionId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error grading assignment:', error);
+      throw error;
+    }
+  },
+
+  // Update student progress after grading
+  updateStudentProgress: async (studentId) => {
+    try {
+      const { data: submissions, error } = await supabase
+        .from('assignment_submissions')
+        .select('grade, assignment:assignments(max_score)')
+        .eq('student_id', studentId)
+        .not('grade', 'is', null);
+
+      if (error) throw error;
+
+      if (submissions && submissions.length > 0) {
+        const averageGrade = submissions.reduce((sum, sub) => {
+          const percentage = (sub.grade / sub.assignment.max_score) * 100;
+          return sum + percentage;
+        }, 0) / submissions.length;
+
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            overall_score: Math.round(averageGrade),
+            completed_assignments: submissions.length,
+            last_active: new Date().toISOString()
+          })
+          .eq('id', studentId);
+
+        if (updateError) throw updateError;
+      }
+    } catch (error) {
+      console.error('Error updating student progress:', error);
+      throw error;
     }
   },
 
   // Create a new assignment
   createAssignment: async (assignmentData) => {
     try {
-      // Get fresh session (handles token refresh)
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError || !session) {
@@ -730,52 +589,46 @@ updateStudentProgress: async (studentId) => {
     }
   },
 
-  getMyAssignmentsWithFilters: async (filters = {}) => {
-    const { status, student_id, class_id, page = 1, limit = 50 } = filters;
-    
-    // Get the current session
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      throw new Error('Not authenticated');
-    }
-    
-    let url = `/api/teacher/assignments?page=${page}&limit=${limit}`;
-    if (status) url += `&status=${status}`;
-    if (student_id) url += `&student_id=${student_id}`;
-    if (class_id) url += `&class_id=${class_id}`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`
+  // Start a video session
+  startVideoSession: async (classId) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
       }
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch assignments');
+
+      // Generate a unique meeting ID
+      const meetingId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const { data, error } = await supabase
+        .from('video_sessions')
+        .insert([{
+          class_id: classId,
+          teacher_id: user.id,
+          meeting_id: meetingId,
+          status: 'active',
+          started_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Update class status to active
+      await supabase
+        .from('classes')
+        .update({ status: 'active' })
+        .eq('id', classId);
+
+      return data;
+    } catch (error) {
+      console.error('Error starting video session:', error);
+      throw error;
     }
-    
-    return response.json();
-  },
-
-  // Simple grade assignment (without audio feedback - for backward compatibility)
-  simpleGradeAssignment: async (submissionId, score, feedback) => {
-    const { data, error } = await supabase
-      .from('assignment_submissions')
-      .update({
-        grade: score,
-        feedback: feedback,
-        graded_at: new Date().toISOString(),
-        status: 'graded'
-      })
-      .eq('id', submissionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
   }
 };
+
 
 // Admin API functions (keep existing)
 const adminApi = {
