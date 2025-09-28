@@ -10,10 +10,10 @@ import {
 import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
-import { useNavigate } from 'react-router-dom'; // Add this import
+import { useNavigate } from 'react-router-dom'; 
 
 export default function TeacherDashboard() {
-  const { user, signOut } = useAuth(); // Add signOut from useAuth
+  const { user, signOut } = useAuth(); 
   const navigate = useNavigate(); // Add navigate hook
   const [activeTab, setActiveTab] = useState('classes');
   const [classes, setClasses] = useState([]);
@@ -26,6 +26,10 @@ export default function TeacherDashboard() {
     students: true, 
     assignments: true 
   });
+  const [submissions, setSubmissions] = useState([]);
+  const [pendingSubmissions, setPendingSubmissions] = useState([]);
+  const [activeGradingTab, setActiveGradingTab] = useState('pending');
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [filters, setFilters] = useState({ status: '', search: '' });
   const [notifications, setNotifications] = useState([]);
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
@@ -102,6 +106,31 @@ const [assignmentCreated, setAssignmentCreated] = useState(false);
       toast.error('Failed to log out');
     }
   };
+useEffect(() => {
+    if (user) {
+      loadSubmissions();
+    }
+  }, [user]);
+
+  const loadSubmissions = async () => {
+    try {
+      const submissionsData = await teacherApi.getAssignmentsWithSubmissions();
+      const pendingData = await teacherApi.getPendingSubmissions();
+      
+      setSubmissions(submissionsData);
+      setPendingSubmissions(pendingData);
+      
+      // Update stats with pending submissions count
+      setStats(prev => ({
+        ...prev,
+        pendingSubmissions: pendingData.length
+      }));
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      toast.error('Failed to load submissions');
+    }
+  };
+
 
   // Filter classes based on filters
   const filteredClasses = useMemo(() => {
@@ -317,16 +346,27 @@ const getStudentsForClass = (classId) => {
       }
       
       await teacherApi.gradeAssignment(submissionId, score, feedback);
+      
+      // Update student progress
+      const submission = submissions.find(s => s.id === submissionId) || 
+                        pendingSubmissions.find(s => s.id === submissionId);
+      if (submission) {
+        await teacherApi.updateStudentProgress(submission.student_id);
+      }
+      
       toast.success('Assignment graded successfully!');
       setGradingSubmission(null);
+      setSelectedSubmission(null);
       setGradeData({ score: '', feedback: '' });
-      // Refresh assignments
-      const assignmentsData = await teacherApi.getMyAssignments();
-      setAssignments(assignmentsData);
+      
+      // Refresh data
+      loadSubmissions();
+      loadTeacherData(); // Refresh assignments list
     } catch (error) {
       toast.error(`Failed to grade assignment: ${error.message}`);
     }
   };
+
 
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
@@ -373,6 +413,7 @@ const getStudentsForClass = (classId) => {
     { id: 'classes', label: 'My Classes', icon: BookOpen },
     { id: 'students', label: 'Students', icon: Users },
     { id: 'assignments', label: 'Assignments', icon: FileText },
+     { id: 'grading', label: 'Grade Work', icon: FileCheck, badge: pendingSubmissions.length },
     { id: 'upcoming', label: 'Upcoming', icon: Calendar },
     { id: 'completed', label: 'Completed', icon: BarChart3 }
   ];
@@ -1139,7 +1180,7 @@ const AssignmentsTab = ({
             </div>
           )}
 
-          {/* Alternative: Horizontal scroll view (uncomment if preferred) */}
+         
           {/* <div className="flex overflow-x-auto space-x-4 pb-4 -mx-4 px-4">
             {assignments.map((assignment) => (
               <div key={assignment.id} className="min-w-[300px] max-w-md flex-shrink-0">
@@ -1345,7 +1386,243 @@ const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
   </div>
 );
 };
+// GRading tab component
+const GradingTab = ({ 
+  submissions, 
+  pendingSubmissions, 
+  onGradeAssignment, 
+  onStartGrading,
+  activeTab,
+  setActiveTab 
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
 
+  const filteredPendingSubmissions = pendingSubmissions.filter(sub => 
+    sub.student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    sub.assignment.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredGradedSubmissions = submissions.flatMap(assignment => 
+    assignment.assignment_submissions.filter(sub => 
+      sub.grade !== null && (
+        sub.student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        assignment.title.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    )
+  );
+
+  return (
+    <div>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <div>
+          <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
+          <p className="text-blue-300 text-sm">
+            {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        
+        <div className="flex items-center space-x-4 w-full md:w-auto">
+          <div className="relative flex-1 md:flex-none">
+            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
+            <input
+              type="text"
+              placeholder="Search students or assignments..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Grading Tabs */}
+      <div className="flex space-x-4 mb-6 border-b border-white/20">
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'pending'
+              ? 'border-yellow-400 text-yellow-400'
+              : 'border-transparent text-blue-300 hover:text-white'
+          }`}
+        >
+          Pending Grading
+          {pendingSubmissions.length > 0 && (
+            <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
+              {pendingSubmissions.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('graded')}
+          className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'graded'
+              ? 'border-green-400 text-green-400'
+              : 'border-transparent text-blue-300 hover:text-white'
+          }`}
+        >
+          Graded Work
+          <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
+            {filteredGradedSubmissions.length}
+          </span>
+        </button>
+      </div>
+
+      {/* Content based on active grading tab */}
+      {activeTab === 'pending' && (
+        <PendingSubmissions 
+          submissions={filteredPendingSubmissions}
+          onStartGrading={onStartGrading}
+        />
+      )}
+
+      {activeTab === 'graded' && (
+        <GradedSubmissions 
+          submissions={filteredGradedSubmissions}
+        />
+      )}
+    </div>
+  );
+};
+
+// Pending Submissions Component
+const PendingSubmissions = ({ submissions, onStartGrading }) => {
+  if (submissions.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <FileCheck size={48} className="mx-auto text-green-400 mb-3" />
+        <p className="text-blue-200">No pending submissions to grade</p>
+        <p className="text-blue-300 text-sm mt-1">All caught up!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {submissions.map((submission) => (
+        <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+            <div className="flex-1">
+              <div className="flex items-center mb-2">
+                <User size={16} className="text-yellow-400 mr-2" />
+                <h4 className="font-semibold text-white">{submission.student.name}</h4>
+                <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
+                  {submission.student.email}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment.title}</span></p>
+                  <p className="text-blue-200">Due: <span className="text-white">
+                    {new Date(submission.assignment.due_date).toLocaleDateString()}
+                  </span></p>
+                </div>
+                <div>
+                  <p className="text-blue-200">Submitted: <span className="text-white">
+                    {new Date(submission.submitted_at).toLocaleDateString()}
+                  </span></p>
+                  <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment.max_score}</span></p>
+                </div>
+              </div>
+
+              {submission.submission_text && (
+                <div className="mt-3 p-3 bg-black/20 rounded">
+                  <p className="text-blue-200 text-sm font-medium mb-1">Submission:</p>
+                  <p className="text-white text-sm">{submission.submission_text}</p>
+                </div>
+              )}
+
+              {submission.audio_url && (
+                <div className="mt-2">
+                  <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
+                  <audio controls className="w-full max-w-md">
+                    <source src={submission.audio_url} type="audio/webm" />
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
+            </div>
+
+            <div className="flex space-x-2 self-end md:self-auto">
+              <button
+                onClick={() => onStartGrading(submission)}
+                className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
+              >
+                <FileCheck size={16} className="mr-2" />
+                Grade Now
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// Graded Submissions Component
+const GradedSubmissions = ({ submissions }) => {
+  if (submissions.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <Award size={48} className="mx-auto text-blue-400 mb-3" />
+        <p className="text-blue-200">No graded submissions yet</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {submissions.map((submission) => (
+        <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+            <div className="flex-1">
+              <div className="flex items-center mb-2">
+                <User size={16} className="text-green-400 mr-2" />
+                <h4 className="font-semibold text-white">{submission.student.name}</h4>
+                <div className="ml-3 flex items-center space-x-2">
+                  <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
+                    Score: {submission.grade}/{submission.assignment?.max_score || 100}
+                  </span>
+                  <span className="text-blue-300 text-sm">
+                    {Math.round((submission.grade / (submission.assignment?.max_score || 100)) * 100)}%
+                  </span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
+                  <p className="text-blue-200">Graded on: <span className="text-white">
+                    {new Date(submission.graded_at).toLocaleDateString()}
+                  </span></p>
+                </div>
+                <div>
+                  <p className="text-blue-200">Submitted: <span className="text-white">
+                    {new Date(submission.submitted_at).toLocaleDateString()}
+                  </span></p>
+                  <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
+                </div>
+              </div>
+
+              {submission.feedback && (
+                <div className="mt-3 p-3 bg-black/20 rounded">
+                  <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
+                  <p className="text-white text-sm">{submission.feedback}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex space-x-2 self-end md:self-auto">
+              <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
+                GRADED
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
 const UpcomingTab = ({ classes, formatDateTime }) => (
   <div>
     <h3 className="text-lg font-semibold text-white mb-4">Upcoming Classes ({classes.length})</h3>
