@@ -580,4 +580,3 @@ const GradingModal = ({
   );
 };
 
-export default GradingDashboard;
