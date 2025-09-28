@@ -665,6 +665,149 @@ getMyStudents: async () => {
     }
   },
 
+
+   getMyAssignmentsWithSubmissions: async () => {
+    const teacherId = await getCurrentUserId();
+    
+    const { data: assignments, error } = await supabase
+      .from('assignments')
+      .select(`
+        *,
+        class:classes(title),
+        assignment_submissions(
+          *,
+          student:profiles!assignment_submissions_student_id_fkey(
+            id,
+            name,
+            email
+          )
+        )
+      `)
+      .eq('teacher_id', teacherId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    
+    // Process the data to get submission counts
+    const assignmentsWithStats = assignments.map(assignment => {
+      const submissions = assignment.assignment_submissions || [];
+      const submittedCount = submissions.length;
+      const gradedCount = submissions.filter(sub => sub.grade !== null).length;
+      const pendingCount = submittedCount - gradedCount;
+
+      return {
+        ...assignment,
+        submission_count: submittedCount,
+        graded_count: gradedCount,
+        pending_count: pendingCount,
+        student_count: assignment.student_ids === 'all' ? 
+          'All Students' : 
+          (assignment.student_ids?.length || 0)
+      };
+    });
+
+    return assignmentsWithStats;
+  },
+
+  // Get pending submissions for teacher's assignments
+  getMyPendingSubmissions: async () => {
+    const teacherId = await getCurrentUserId();
+    
+    const { data: submissions, error } = await supabase
+      .from('assignment_submissions')
+      .select(`
+        *,
+        assignment:assignments!inner(
+          id,
+          title,
+          max_score,
+          due_date,
+          teacher_id
+        ),
+        student:profiles!assignment_submissions_student_id_fkey(
+          id,
+          name,
+          email
+        )
+      `)
+      .eq('assignment.teacher_id', teacherId)
+      .eq('status', 'submitted')
+      .is('grade', null)
+      .order('submitted_at', { ascending: true });
+
+    if (error) throw error;
+    return submissions;
+  },
+
+  // Get students assigned to this teacher
+  getMyStudentsWithDetails: async () => {
+    const teacherId = await getCurrentUserId();
+    
+    const { data: students, error } = await supabase
+      .from('profiles')
+      .select(`
+        id,
+        name,
+        email,
+        created_at,
+        overall_score,
+        completed_assignments,
+        classes:students_classes(
+          class:classes(
+            id,
+            title
+          )
+        )
+      `)
+      .eq('teacher_id', teacherId)
+      .eq('role', 'student')
+      .order('name');
+
+    if (error) throw error;
+    
+    // Format the data
+    return students.map(student => ({
+      id: student.id,
+      name: student.name,
+      email: student.email,
+      created_at: student.created_at,
+      overall_score: student.overall_score,
+      completed_assignments: student.completed_assignments,
+      classes: student.classes?.map(sc => sc.class) || []
+    }));
+  },
+
+  // Get detailed assignment view with all submissions
+  getAssignmentDetails: async (assignmentId) => {
+    const { data: assignment, error } = await supabase
+      .from('assignments')
+      .select(`
+        *,
+        class:classes(title),
+        assignment_submissions(
+          *,
+          student:profiles!assignment_submissions_student_id_fkey(
+            id,
+            name,
+            email,
+            overall_score
+          )
+        )
+      `)
+      .eq('id', assignmentId)
+      .single();
+
+    if (error) throw error;
+    return assignment;
+  }
+};
+
+// Helper function to get current user ID
+const getCurrentUserId = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('User not authenticated');
+  return user.id;
+};
   // Start a video session
   startVideoSession: async (classId) => {
     try {
