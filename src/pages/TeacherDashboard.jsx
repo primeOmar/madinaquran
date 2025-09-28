@@ -11,7 +11,7 @@ import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
-import GradingDashboard from './GradingDashboard';
+import GradingDashboard from './gradingDashboard';
 
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
