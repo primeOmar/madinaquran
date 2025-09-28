@@ -405,6 +405,7 @@ const getStudentsForClass = (classId) => {
     { icon: BarChart3, value: stats.completedClasses, label: 'Completed', color: 'purple' },
     { icon: Users, value: stats.totalStudents, label: 'Students', color: 'yellow' },
     { icon: FileText, value: stats.totalAssignments, label: 'Assignments', color: 'indigo' },
+    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Grading', color: 'orange',highlight: stats.pendingSubmissions > 0 },
     { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending', color: 'orange' }
   ];
 
@@ -612,6 +613,23 @@ const getStudentsForClass = (classId) => {
   />
 )}
 
+          // In your main content section, add the new tab:
+{activeTab === 'grading' && (
+  <GradingTab 
+    submissions={submissions}
+    pendingSubmissions={pendingSubmissions}
+    onGradeAssignment={gradeAssignment}
+    onStartGrading={(submission) => {
+      setGradingSubmission(submission);
+      setGradeData({ 
+        score: '', 
+        feedback: '' 
+      });
+    }}
+    activeTab={activeGradingTab}
+    setActiveTab={setActiveGradingTab}
+  />
+)}
           {activeTab === 'upcoming' && (
             <UpcomingTab classes={upcomingClasses} formatDateTime={formatDateTime} />
           )}
