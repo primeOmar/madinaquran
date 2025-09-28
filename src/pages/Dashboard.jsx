@@ -822,27 +822,65 @@ export default function Dashboard() {
     }
   };
 
-  const handleSubmitAssignment = async (submissionData) => {
-    try {
-      const response = await makeApiRequest('/api/student/submit-assignment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(submissionData),
-      });
-
-      if (response.success) {
-        toast.success('Assignment submitted successfully!');
-        fetchAssignments();
-        fetchStatsData();
-      } else {
-        throw new Error(response.error || 'Failed to submit assignment');
-      }
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-      toast.error(`Failed to submit assignment: ${error.message}`);
-      throw error;
+ const handleSubmitAssignment = async (submissionData) => {
+  try {
+    console.log('🎯 [Assignment] Starting submission process...');
+    
+    // Validate submission data
+    if (!submissionData.assignment_id) {
+      throw new Error('Assignment ID is required');
     }
-  };
+
+    console.log('📝 [Assignment] Submission data:', {
+      assignment_id: submissionData.assignment_id,
+      has_audio: !!submissionData.audio_data,
+      audio_length: submissionData.audio_data?.length || 0,
+      has_text: !!submissionData.submission_text,
+      text_length: submissionData.submission_text?.length || 0
+    });
+
+    // Make the API request
+    const response = await makeApiRequest('/api/student/submit-assignment', {
+      method: 'POST',
+      body: submissionData
+    });
+
+    if (response.success) {
+      console.log('✅ [Assignment] Submission successful!', response);
+      toast.success('Assignment submitted successfully!');
+      
+      // Refresh the data
+      await Promise.all([
+        fetchAssignments(),
+        fetchStatsData()
+      ]);
+      
+      return response;
+    } else {
+      throw new Error(response.error || 'Failed to submit assignment');
+    }
+
+  } catch (error) {
+    console.error('❌ [Assignment] Submission failed:', error);
+    
+    // Handle specific error cases
+    if (error.message.includes('Authentication') || 
+        error.message.includes('session') || 
+        error.message.includes('token')) {
+      toast.error('Your session has expired. Please login again.');
+      await supabase.auth.signOut();
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 2000);
+    } else if (error.message.includes('Network error')) {
+      toast.error('Network error. Please check your internet connection.');
+    } else {
+      toast.error(`Failed to submit assignment: ${error.message}`);
+    }
+    
+    throw error;
+  }
+};
 
   // Effects
   useEffect(() => {
