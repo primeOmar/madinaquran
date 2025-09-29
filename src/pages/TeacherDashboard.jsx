@@ -114,23 +114,38 @@ useEffect(() => {
   }, [user]);
 
   const loadSubmissions = async () => {
-    try {
-      const submissionsData = await teacherApi.getAssignmentsWithSubmissions();
-      const pendingData = await teacherApi.getPendingSubmissions();
-      
-      setSubmissions(submissionsData);
-      setPendingSubmissions(pendingData);
-      
-      // Update stats with pending submissions count
-      setStats(prev => ({
-        ...prev,
-        pendingSubmissions: pendingData.length
-      }));
-    } catch (error) {
-      console.error('Error loading submissions:', error);
-      toast.error('Failed to load submissions');
-    }
-  };
+  try {
+    // Use the existing getMyAssignments function
+    const assignmentsData = await teacherApi.getMyAssignments();
+    
+    // Extract and flatten all submissions from assignments
+    const allSubmissions = assignmentsData.flatMap(assignment => 
+      (assignment.submissions || []).map(submission => ({
+        ...submission,
+        assignment_title: assignment.title,
+        assignment_max_score: assignment.max_score,
+        assignment_due_date: assignment.due_date
+      }))
+    );
+    
+    // Filter pending submissions (not graded yet)
+    const pendingData = allSubmissions.filter(submission => 
+      submission.grade === null || submission.grade === undefined
+    );
+    
+    setSubmissions(allSubmissions);
+    setPendingSubmissions(pendingData);
+    
+    // Update stats with pending submissions count
+    setStats(prev => ({
+      ...prev,
+      pendingSubmissions: pendingData.length
+    }));
+  } catch (error) {
+    console.error('Error loading submissions:', error);
+    toast.error('Failed to load submissions');
+  }
+};
 
 
   // Filter classes based on filters
@@ -409,8 +424,7 @@ const getStudentsForClass = (classId) => {
     { icon: BarChart3, value: stats.completedClasses, label: 'Completed', color: 'purple' },
     { icon: Users, value: stats.totalStudents, label: 'Students', color: 'yellow' },
     { icon: FileText, value: stats.totalAssignments, label: 'Assignments', color: 'indigo' },
-    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Grading', color: 'orange',highlight: stats.pendingSubmissions > 0 },
-    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending', color: 'orange' }
+    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Grading', color: 'orange',highlight: stats.pendingSubmissions > 0 }
   ];
 
   // Navigation tabs
@@ -617,11 +631,10 @@ const getStudentsForClass = (classId) => {
   />
 )}
 
-// In your main content section, add this case:
 {activeTab === 'grading' && (
   <GradingDashboard 
-    submissions={assignmentsWithSubmissions}
-    pendingSubmissions={myPendingSubmissions}
+    submissions={submissions}
+    pendingSubmissions={pendingSubmissions}
     onGradeAssignment={gradeAssignment}
     onStartGrading={(submission) => {
       setGradingSubmission(submission);
@@ -868,9 +881,9 @@ const getStudentsForClass = (classId) => {
             )}
             <button
               onClick={() => {
-                setAssignmentCreated(false);
-                setShowCreateModal(false);
-              }}
+  setAssignmentCreated(false);
+  setShowCreateAssignment(false); 
+}}
               className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
             >
               Close
@@ -1232,6 +1245,11 @@ const AssignmentsTab = ({
   );
 };
 const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
+  // Calculate submission stats
+  const totalSubmissions = assignment.submissions?.length || 0;
+  const gradedSubmissions = assignment.submissions?.filter(s => s.grade !== null && s.grade !== undefined).length || 0;
+  const pendingSubmissions = totalSubmissions - gradedSubmissions;
+
   return (
     <div className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
       <div className="flex flex-col md:flex-row justify-between items-start gap-4">
@@ -1250,7 +1268,7 @@ const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
             </span>
             <span className="flex items-center">
               <Users size={14} className="mr-1" />
-              Assigned to: {assignment.student_count} student{assignment.student_count !== 1 ? 's' : ''}
+              Students: {assignment.student_count || 0}
             </span>
             {assignment.class?.title && (  
               <span className="flex items-center">
@@ -1262,11 +1280,11 @@ const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
         </div>
         <div className="flex items-center space-x-2 self-end md:self-auto">
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            new Date(assignment.due_date) < new Date() && assignment.pending_count > 0
+            new Date(assignment.due_date) < new Date() && pendingSubmissions > 0
               ? "bg-red-500/20 text-red-300"
               : "bg-green-500/20 text-green-300"
           }`}>
-            {new Date(assignment.due_date) < new Date() && assignment.pending_count > 0
+            {new Date(assignment.due_date) < new Date() && pendingSubmissions > 0
               ? "OVERDUE"
               : "ON TIME"
             }
@@ -1277,37 +1295,57 @@ const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
       {/* Submission stats */}
       <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
         <div className="text-center">
-          <p className="text-2xl font-bold text-green-400">{assignment.submission_count || 0}</p>
+          <p className="text-2xl font-bold text-green-400">{totalSubmissions}</p>
           <p className="text-blue-300">Submitted</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-bold text-yellow-400">{assignment.graded_count || 0}</p>
+          <p className="text-2xl font-bold text-yellow-400">{gradedSubmissions}</p>
           <p className="text-blue-300">Graded</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-bold text-red-400">{assignment.pending_count || 0}</p>
+          <p className="text-2xl font-bold text-red-400">{pendingSubmissions}</p>
           <p className="text-blue-300">Pending</p>
         </div>
       </div>
 
-      {/* Student info */}
-      {assignment.student && (
-        <div className="mt-4 p-3 bg-white/5 rounded-lg">
-          <p className="text-blue-200 text-sm">
-            <User size={14} className="inline mr-2" />
-            Student: {assignment.student.name}
-          </p>
-          {assignment.class && (
-            <p className="text-blue-300 text-xs mt-1">
-              <BookOpen size={12} className="inline mr-1" />
-              Class: {assignment.class.title}
-            </p>
-          )}
+      {/* Submissions list */}
+      {assignment.submissions && assignment.submissions.length > 0 && (
+        <div className="mt-4">
+          <h5 className="font-semibold text-blue-200 mb-2">Submissions:</h5>
+          <div className="space-y-2">
+            {assignment.submissions.map((submission) => (
+              <div key={submission.id} className="flex flex-col md:flex-row justify-between items-start md:items-center p-2 bg-white/5 rounded gap-2">
+                <div>
+                  <p className="text-white text-sm">{submission.student_name}</p>
+                  <p className="text-blue-300 text-xs">
+                    {submission.submitted_at 
+                      ? `Submitted: ${new Date(submission.submitted_at).toLocaleDateString()}`
+                      : 'Not submitted'
+                    }
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {submission.grade !== null ? (
+                    <span className="text-green-400 text-sm">
+                      Score: {submission.grade}/{assignment.max_score}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onStartGrading(submission)}
+                      className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-sm text-white"
+                    >
+                      Grade
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
-
+};
   // Get unique student count for this assignment
   const studentCount = new Set(assignment.submissions?.map(s => s.student_id)).size;
   
