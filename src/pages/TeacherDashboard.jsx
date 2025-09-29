@@ -319,32 +319,39 @@ export default function TeacherDashboard() {
     });
   };
 
-  const gradeAssignment = async (submissionId, score, feedback) => {
-    try {
-      if (!score || isNaN(score) || score < 0) {
-        toast.error('Please enter a valid score');
-        return;
-      }
-      
-      await teacherApi.gradeAssignment(submissionId, score, feedback);
-      
-      const submission = submissions.find(s => s.id === submissionId) || 
-                        pendingSubmissions.find(s => s.id === submissionId);
-      if (submission) {
-        await teacherApi.updateStudentProgress(submission.student_id);
-      }
-      
-      toast.success('Assignment graded successfully!');
-      setGradingSubmission(null);
-      setSelectedSubmission(null);
-      setGradeData({ score: '', feedback: '' });
-      
-      loadSubmissions();
-      loadTeacherData();
-    } catch (error) {
-      toast.error(`Failed to grade assignment: ${error.message}`);
+  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl = '') => {
+  try {
+    if (!score || isNaN(score) || score < 0) {
+      toast.error('Please enter a valid score');
+      return;
     }
-  };
+    
+    // Ensure score is a number
+    const numericScore = parseInt(score);
+    
+    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackUrl);
+    
+    // Find the submission to update progress
+    const submission = submissions.find(s => s.id === submissionId) || 
+                      pendingSubmissions.find(s => s.id === submissionId);
+    
+    if (submission && submission.student_id) {
+      await teacherApi.updateStudentProgress(submission.student_id);
+    }
+    
+    toast.success('Assignment graded successfully!');
+    setGradingSubmission(null);
+    setSelectedSubmission(null);
+    setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
+    
+    // Reload data
+    await loadSubmissions();
+    await loadTeacherData();
+  } catch (error) {
+    console.error('Grading error:', error);
+    toast.error(`Failed to grade assignment: ${error.message}`);
+  }
+};
 
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
@@ -856,48 +863,70 @@ export default function TeacherDashboard() {
     );
   };
 
-  const GradedSubmissions = ({ submissions, onViewSubmission }) => {
-    if (submissions.length === 0) {
-      return (
-        <div className="text-center py-12">
-          <Award size={48} className="mx-auto text-blue-400 mb-3" />
-          <p className="text-blue-200">No graded submissions yet</p>
-        </div>
-      );
-    }
+ const GradedSubmissions = ({ submissions, onViewSubmission }) => {
+  // Filter only graded submissions and ensure they have valid data
+  const gradedSubmissions = submissions.filter(sub => 
+    sub.grade !== null && sub.grade !== undefined
+  );
 
+  if (gradedSubmissions.length === 0) {
     return (
-      <div className="space-y-4">
-        {submissions.map((submission) => (
+      <div className="text-center py-12">
+        <Award size={48} className="mx-auto text-blue-400 mb-3" />
+        <p className="text-blue-200">No graded submissions yet</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {gradedSubmissions.map((submission) => {
+        // Fix student name access - try multiple possible paths
+        const studentName = submission.student?.name || 
+                           submission.student_name || 
+                           submission.students?.name || 
+                           'Unknown Student';
+        
+        const assignmentTitle = submission.assignment?.title || 
+                               submission.assignment_title || 
+                               'Unknown Assignment';
+        
+        const maxScore = submission.assignment?.max_score || 
+                        submission.assignment_max_score || 
+                        100;
+        
+        const submittedDate = submission.submitted_at ? 
+          new Date(submission.submitted_at).toLocaleDateString() : 
+          'Not submitted';
+        
+        const gradedDate = submission.graded_at ? 
+          new Date(submission.graded_at).toLocaleDateString() : 
+          'Not graded';
+
+        return (
           <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
             <div className="flex flex-col md:flex-row justify-between items-start gap-4">
               <div className="flex-1">
                 <div className="flex items-center mb-2">
                   <User size={16} className="text-green-400 mr-2" />
-                  <h4 className="font-semibold text-white">
-                    {submission.student?.name || 'Unknown Student'}
-                  </h4>
+                  <h4 className="font-semibold text-white">{studentName}</h4>
                   <div className="ml-3 flex items-center space-x-2">
                     <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
-                      Score: {submission.grade}/{submission.assignment?.max_score || 100}
+                      Score: {submission.grade}/{maxScore}
                     </span>
                     <span className="text-blue-300 text-sm">
-                      {Math.round((submission.grade / (submission.assignment?.max_score || 100)) * 100)}%
+                      {Math.round((submission.grade / maxScore) * 100)}%
                     </span>
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                   <div>
-                    <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
-                    <p className="text-blue-200">Graded on: <span className="text-white">
-                      {submission.graded_at ? new Date(submission.graded_at).toLocaleDateString() : 'Not graded'}
-                    </span></p>
+                    <p className="text-blue-200">Assignment: <span className="text-white">{assignmentTitle}</span></p>
+                    <p className="text-blue-200">Graded on: <span className="text-white">{gradedDate}</span></p>
                   </div>
                   <div>
-                    <p className="text-blue-200">Submitted: <span className="text-white">
-                      {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
-                    </span></p>
+                    <p className="text-blue-200">Submitted: <span className="text-white">{submittedDate}</span></p>
                     <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
                   </div>
                 </div>
@@ -924,117 +953,124 @@ export default function TeacherDashboard() {
               </div>
             </div>
           </div>
-        ))}
-      </div>
-    );
-  };
+        );
+      })}
+    </div>
+  );
+};
 
   const GradingTab = ({ 
-    submissions, 
-    pendingSubmissions, 
-    onGradeAssignment, 
-    onStartGrading,
-    activeTab,
-    setActiveTab 
-  }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedSubmission, setSelectedSubmission] = useState(null);
+  submissions, 
+  pendingSubmissions, 
+  onGradeAssignment, 
+  onStartGrading,
+  activeTab,
+  setActiveTab 
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
 
-    const filteredPendingSubmissions = pendingSubmissions.filter(sub => 
-      sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sub.assignment?.title?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+  // Fix pending submissions filtering
+  const filteredPendingSubmissions = pendingSubmissions.filter(sub => {
+    const studentName = sub.student?.name || sub.student_name || sub.students?.name || '';
+    const assignmentTitle = sub.assignment?.title || sub.assignment_title || '';
+    
+    return studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           assignmentTitle.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
-    const filteredGradedSubmissions = submissions.flatMap(assignment => 
-      assignment.submissions?.filter(sub => 
-        sub.grade !== null && (
-          sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          assignment.title?.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      ) || []
-    );
+  // Fix graded submissions filtering - only show actually graded ones
+  const filteredGradedSubmissions = submissions.filter(sub => 
+    sub.grade !== null && sub.grade !== undefined
+  ).filter(sub => {
+    const studentName = sub.student?.name || sub.student_name || sub.students?.name || '';
+    const assignmentTitle = sub.assignment?.title || sub.assignment_title || '';
+    
+    return studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           assignmentTitle.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
-    const loadSubmissionDetails = async (submissionId) => {
-      try {
-        const submission = await teacherApi.getSubmissionDetails(submissionId);
-        setSelectedSubmission(submission);
-      } catch (error) {
-        console.error('Error loading submission details:', error);
-        toast.error('Failed to load submission details');
-      }
-    };
+  const loadSubmissionDetails = async (submissionId) => {
+    try {
+      const submission = await teacherApi.getSubmissionDetails(submissionId);
+      setSelectedSubmission(submission);
+    } catch (error) {
+      console.error('Error loading submission details:', error);
+      toast.error('Failed to load submission details');
+    }
+  };
 
-    return (
-      <div className="flex flex-col lg:flex-row gap-6">
-        <div className="flex-1">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
-              <p className="text-blue-300 text-sm">
-                {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
-              </p>
-            </div>
-            
-            <div className="flex items-center space-x-4 w-full md:w-auto">
-              <div className="relative flex-1 md:flex-none">
-                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
-                <input
-                  type="text"
-                  placeholder="Search students or assignments..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
+  return (
+    <div className="flex flex-col lg:flex-row gap-6">
+      <div className="flex-1">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
+            <p className="text-blue-300 text-sm">
+              {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+          
+          <div className="flex items-center space-x-4 w-full md:w-auto">
+            <div className="relative flex-1 md:flex-none">
+              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
+              <input
+                type="text"
+                placeholder="Search students or assignments..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
             </div>
           </div>
-
-          <div className="flex space-x-4 mb-6 border-b border-white/20">
-            <button
-              onClick={() => setActiveTab('pending')}
-              className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-                activeTab === 'pending'
-                  ? 'border-yellow-400 text-yellow-400'
-                  : 'border-transparent text-blue-300 hover:text-white'
-              }`}
-            >
-              Pending Grading
-              {pendingSubmissions.length > 0 && (
-                <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
-                  {pendingSubmissions.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('graded')}
-              className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-                activeTab === 'graded'
-                  ? 'border-green-400 text-green-400'
-                  : 'border-transparent text-blue-300 hover:text-white'
-              }`}
-            >
-              Graded Work
-              <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
-                {filteredGradedSubmissions.length}
-              </span>
-            </button>
-          </div>
-
-          {activeTab === 'pending' && (
-            <PendingSubmissions 
-              submissions={filteredPendingSubmissions}
-              onStartGrading={onStartGrading}
-              onViewSubmission={loadSubmissionDetails}
-            />
-          )}
-
-          {activeTab === 'graded' && (
-            <GradedSubmissions 
-              submissions={filteredGradedSubmissions}
-              onViewSubmission={loadSubmissionDetails}
-            />
-          )}
         </div>
+
+        <div className="flex space-x-4 mb-6 border-b border-white/20">
+          <button
+            onClick={() => setActiveTab('pending')}
+            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'pending'
+                ? 'border-yellow-400 text-yellow-400'
+                : 'border-transparent text-blue-300 hover:text-white'
+            }`}
+          >
+            Pending Grading
+            {pendingSubmissions.length > 0 && (
+              <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
+                {pendingSubmissions.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('graded')}
+            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'graded'
+                ? 'border-green-400 text-green-400'
+                : 'border-transparent text-blue-300 hover:text-white'
+            }`}
+          >
+            Graded Work
+            <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
+              {filteredGradedSubmissions.length}
+            </span>
+          </button>
+        </div>
+
+        {activeTab === 'pending' && (
+          <PendingSubmissions 
+            submissions={filteredPendingSubmissions}
+            onStartGrading={onStartGrading}
+            onViewSubmission={loadSubmissionDetails}
+          />
+        )}
+
+        {activeTab === 'graded' && (
+          <GradedSubmissions 
+            submissions={filteredGradedSubmissions}
+            onViewSubmission={loadSubmissionDetails}
+          />
+        )}
+      </div>
 
         {selectedSubmission && (
           <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
@@ -1072,18 +1108,28 @@ export default function TeacherDashboard() {
                 </div>
               )}
 
-              {selectedSubmission.audio_url && (
-                <div>
-                  <p className="text-blue-200 text-sm">Audio Submission</p>
-                  <audio 
-                    controls 
-                    className="w-full mt-2 rounded-lg"
-                    src={selectedSubmission.audio_url}
-                  >
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
-              )}
+           {/* Audio Submission */}
+{submission.audio_url && (
+  <div className="mt-2">
+    <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
+    <audio 
+      controls 
+      className="w-full max-w-md rounded-lg"
+      onError={(e) => {
+        console.error('Audio loading error:', e);
+        toast.error('Failed to load audio file');
+      }}
+    >
+      <source src={submission.audio_url} type="audio/webm" />
+      <source src={submission.audio_url} type="audio/mpeg" />
+      <source src={submission.audio_url} type="audio/wav" />
+      Your browser does not support the audio element.
+    </audio>
+    <p className="text-blue-300 text-xs mt-1">
+      If audio doesn't play, the file format may not be supported.
+    </p>
+  </div>
+)}
 
               {selectedSubmission.submitted_at && (
                 <div>
