@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo react} from 'react';
 import { 
   BookOpen, Calendar, Clock, User, Video, Play, Eye, 
   Users, BarChart3, Home, Settings, LogOut, Bell,
@@ -919,8 +919,7 @@ export default function TeacherDashboard() {
         Download Audio File
       </a>
     </div>
-  </div>
-)}
+
 
 <div className="flex space-x-2 self-end md:self-auto">
   <button
@@ -938,7 +937,9 @@ export default function TeacherDashboard() {
     Grade Now
   </button>
 </div>
- const GradedSubmissions = ({ submissions, onViewSubmission }) => {
+  </div>
+            )}
+const GradedSubmissions = ({ submissions, onViewSubmission }) => {
   // Filter only graded submissions and ensure they have valid data
   const gradedSubmissions = submissions.filter(sub => 
     sub.grade !== null && sub.grade !== undefined
