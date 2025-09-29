@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FileCheck, User, CheckCircle, Loader, AlertCircle } from "lucide-react";
-import { useAuth } from './AuthContext';
+import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 
