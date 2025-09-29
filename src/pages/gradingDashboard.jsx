@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FileCheck, User, CheckCircle, Loader } from "lucide-react";
-import { useAuth } from '../components/AuthContext';
+import { FileCheck, User, CheckCircle, Loader, AlertCircle } from "lucide-react";
+import { useAuth } from './AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 
@@ -22,19 +22,13 @@ export default function GradingDashboard() {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 Loading submissions...');
+      console.log('🔄 Loading submissions for grading...');
       
-      // Test if the methods exist
-      if (!teacherApi.getPendingSubmissions || !teacherApi.getGradedSubmissions) {
-        throw new Error('Grading methods not available');
-      }
-
-      const [pendingData, gradedData] = await Promise.all([
-        teacherApi.getPendingSubmissions(),
-        teacherApi.getGradedSubmissions()
-      ]);
+      // Use the methods we know exist
+      const pendingData = await teacherApi.getPendingSubmissions();
+      const gradedData = await teacherApi.getGradedSubmissions();
       
-      console.log('✅ Submissions loaded:', {
+      console.log('✅ Grading data loaded:', {
         pending: pendingData?.length,
         graded: gradedData?.length
       });
@@ -42,9 +36,9 @@ export default function GradingDashboard() {
       setPendingSubmissions(pendingData || []);
       setGradedSubmissions(gradedData || []);
     } catch (error) {
-      console.error('❌ Error loading submissions:', error);
+      console.error('❌ Error loading submissions for grading:', error);
       setError(error.message);
-      toast.error('Failed to load submissions');
+      toast.error('Failed to load submissions for grading');
     } finally {
       setLoading(false);
     }
@@ -54,7 +48,7 @@ export default function GradingDashboard() {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <div className="text-center">
-          <FileCheck size={48} className="mx-auto text-red-400 mb-3" />
+          <AlertCircle size={48} className="mx-auto text-red-400 mb-3" />
           <p className="text-red-400 text-lg mb-2">Error Loading Grading Dashboard</p>
           <p className="text-blue-200 mb-4">{error}</p>
           <button
@@ -73,7 +67,7 @@ export default function GradingDashboard() {
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <Loader className="animate-spin h-8 w-8 text-blue-400 mx-auto mb-4" />
-          <p className="text-blue-200">Loading submissions...</p>
+          <p className="text-blue-200">Loading submissions for grading...</p>
         </div>
       </div>
     );
@@ -113,11 +107,6 @@ export default function GradingDashboard() {
           >
             <FileCheck size={16} className="mr-2" />
             Pending Grading
-            {pendingSubmissions.length > 0 && (
-              <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
-                {pendingSubmissions.length}
-              </span>
-            )}
           </button>
           <button
             onClick={() => setActiveTab('graded')}
@@ -163,77 +152,19 @@ const PendingSubmissions = ({ submissions }) => {
     <div className="space-y-4">
       {submissions.map((submission) => (
         <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
-          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+          <div className="flex justify-between items-start">
             <div className="flex-1">
-              <div className="flex items-center mb-3">
-                <User size={20} className="text-yellow-400 mr-3" />
-                <div>
-                  <h4 className="font-semibold text-white text-lg">
-                    {submission.student?.name || 'Unknown Student'}
-                  </h4>
-                  <p className="text-yellow-300 text-sm">
-                    {submission.student?.email || 'No email'}
-                  </p>
-                </div>
+              <div className="flex items-center mb-2">
+                <User size={16} className="text-yellow-400 mr-2" />
+                <h4 className="font-semibold text-white">{submission.student?.name || 'Unknown Student'}</h4>
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                <div>
-                  <p className="text-blue-200 text-sm">Assignment</p>
-                  <p className="text-white font-medium">
-                    {submission.assignment?.title || 'Unknown Assignment'}
-                  </p>
-                  {submission.assignment?.description && (
-                    <p className="text-blue-300 text-sm mt-1">
-                      {submission.assignment.description}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Details</p>
-                  <div className="flex items-center space-x-4 text-sm">
-                    <span className="text-white">
-                      Max Score: {submission.assignment?.max_score || 'N/A'}
-                    </span>
-                    <span className="text-blue-300">
-                      Due: {submission.assignment?.due_date ? 
-                        new Date(submission.assignment.due_date).toLocaleDateString() : 
-                        'No due date'
-                      }
-                    </span>
-                  </div>
-                  <div className="flex items-center mt-1">
-                    <span className="text-blue-300 text-sm">
-                      Submitted: {new Date(submission.submitted_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Submission Content */}
+              <p className="text-blue-200 text-sm">Assignment: {submission.assignment?.title}</p>
+              <p className="text-blue-300 text-sm">
+                Submitted: {new Date(submission.submitted_at).toLocaleDateString()}
+              </p>
               {submission.submission_text && (
-                <div className="mt-3 p-3 bg-black/20 rounded">
-                  <p className="text-blue-200 text-sm font-medium mb-2">Student's Submission:</p>
-                  <p className="text-white text-sm">{submission.submission_text}</p>
-                </div>
+                <p className="text-white text-sm mt-2 line-clamp-2">{submission.submission_text}</p>
               )}
-
-              {submission.audio_url && (
-                <div className="mt-3">
-                  <p className="text-blue-200 text-sm font-medium mb-2">Audio Submission:</p>
-                  <audio controls className="w-full max-w-md">
-                    <source src={submission.audio_url} type="audio/webm" />
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
-              )}
-            </div>
-
-            <div className="flex space-x-2 self-end md:self-auto">
-              <button className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center">
-                <FileCheck size={16} className="mr-2" />
-                Grade Now
-              </button>
             </div>
           </div>
         </div>
@@ -257,64 +188,18 @@ const GradedSubmissions = ({ submissions }) => {
     <div className="space-y-4">
       {submissions.map((submission) => (
         <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+          <div className="flex justify-between items-start">
             <div className="flex-1">
-              <div className="flex items-center mb-3">
-                <User size={20} className="text-green-400 mr-3" />
-                <div>
-                  <h4 className="font-semibold text-white text-lg">
-                    {submission.student?.name || 'Unknown Student'}
-                  </h4>
-                  <p className="text-green-300 text-sm">
-                    {submission.student?.email || 'No email'}
-                  </p>
-                </div>
-                <div className="ml-4 bg-green-500/20 px-3 py-1 rounded-full">
-                  <span className="text-green-300 text-sm">
-                    Score: {submission.grade}/{submission.assignment?.max_score || 'N/A'}
-                  </span>
-                </div>
+              <div className="flex items-center mb-2">
+                <User size={16} className="text-green-400 mr-2" />
+                <h4 className="font-semibold text-white">{submission.student?.name || 'Unknown Student'}</h4>
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                <div>
-                  <p className="text-blue-200 text-sm">Assignment</p>
-                  <p className="text-white font-medium">
-                    {submission.assignment?.title || 'Unknown Assignment'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Grading Details</p>
-                  <div className="flex items-center space-x-4 text-sm">
-                    <span className="text-green-400">
-                      {Math.round((submission.grade / (submission.assignment?.max_score || 100)) * 100)}%
-                    </span>
-                    <span className="text-blue-300">
-                      Graded: {submission.graded_at ? 
-                        new Date(submission.graded_at).toLocaleDateString() : 
-                        'Unknown date'
-                      }
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Feedback */}
+              <p className="text-blue-200 text-sm">Assignment: {submission.assignment?.title}</p>
+              <p className="text-green-400 text-sm">
+                Score: {submission.grade}/{submission.assignment?.max_score}
+              </p>
               {submission.feedback && (
-                <div className="mt-3 p-3 bg-black/20 rounded">
-                  <p className="text-blue-200 text-sm font-medium mb-2">Your Feedback:</p>
-                  <p className="text-white text-sm">{submission.feedback}</p>
-                </div>
-              )}
-
-              {submission.audio_feedback_url && (
-                <div className="mt-3">
-                  <p className="text-blue-200 text-sm font-medium mb-2">Audio Feedback:</p>
-                  <audio controls className="w-full max-w-md">
-                    <source src={submission.audio_feedback_url} type="audio/webm" />
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
+                <p className="text-white text-sm mt-2 line-clamp-2">{submission.feedback}</p>
               )}
             </div>
           </div>
