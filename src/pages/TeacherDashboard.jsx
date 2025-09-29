@@ -779,46 +779,52 @@ export default function TeacherDashboard() {
   };
 
   const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) => {
-    if (submissions.length === 0) {
-      return (
-        <div className="text-center py-12">
-          <FileCheck size={48} className="mx-auto text-green-400 mb-3" />
-          <p className="text-blue-200">No pending submissions to grade</p>
-          <p className="text-blue-300 text-sm mt-1">All caught up!</p>
-        </div>
-      );
-    }
-
+  if (submissions.length === 0) {
     return (
-      <div className="space-y-4">
-        {submissions.map((submission) => (
+      <div className="text-center py-12">
+        <FileCheck size={48} className="mx-auto text-green-400 mb-3" />
+        <p className="text-blue-200">No pending submissions to grade</p>
+        <p className="text-blue-300 text-sm mt-1">All caught up!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {submissions.map((submission) => {
+        // Safely get student name with multiple fallbacks
+        const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
+        const studentEmail = submission.student?.email || submission.student_email || '';
+        const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
+        const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
+        const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
+
+        return (
           <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 hover:bg-yellow-500/15 transition-colors">
             <div className="flex flex-col md:flex-row justify-between items-start gap-4">
               <div className="flex-1">
                 <div className="flex items-center mb-2">
                   <User size={16} className="text-yellow-400 mr-2" />
-                  <h4 className="font-semibold text-white">
-                    {submission.student?.name || 'Unknown Student'}
-                  </h4>
-                  {submission.student?.email && (
+                  <h4 className="font-semibold text-white">{studentName}</h4>
+                  {studentEmail && (
                     <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
-                      {submission.student.email}
+                      {studentEmail}
                     </span>
                   )}
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                   <div>
-                    <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
+                    <p className="text-blue-200">Assignment: <span className="text-white">{assignmentTitle}</span></p>
                     <p className="text-blue-200">Due: <span className="text-white">
-                      {submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date'}
+                      {dueDate ? new Date(dueDate).toLocaleDateString() : 'No due date'}
                     </span></p>
                   </div>
                   <div>
                     <p className="text-blue-200">Submitted: <span className="text-white">
                       {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
                     </span></p>
-                    <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment?.max_score || 100}</span></p>
+                    <p className="text-blue-200">Max Score: <span className="text-white">{maxScore}</span></p>
                   </div>
                 </div>
 
@@ -832,8 +838,17 @@ export default function TeacherDashboard() {
                 {submission.audio_url && (
                   <div className="mt-2">
                     <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
-                    <audio controls className="w-full max-w-md">
+                    <audio 
+                      controls 
+                      className="w-full max-w-md rounded-lg"
+                      onError={(e) => {
+                        console.error('Audio loading error:', e);
+                        toast.error('Failed to load audio file');
+                      }}
+                    >
                       <source src={submission.audio_url} type="audio/webm" />
+                      <source src={submission.audio_url} type="audio/mpeg" />
+                      <source src={submission.audio_url} type="audio/wav" />
                       Your browser does not support the audio element.
                     </audio>
                   </div>
@@ -858,11 +873,11 @@ export default function TeacherDashboard() {
               </div>
             </div>
           </div>
-        ))}
-      </div>
-    );
-  };
-
+        );
+      })}
+    </div>
+  );
+};
  const GradedSubmissions = ({ submissions, onViewSubmission }) => {
   // Filter only graded submissions and ensure they have valid data
   const gradedSubmissions = submissions.filter(sub => 
@@ -970,7 +985,7 @@ export default function TeacherDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubmission, setSelectedSubmission] = useState(null);
 
-  // Fix pending submissions filtering
+  // Fix the filtered submissions logic
   const filteredPendingSubmissions = pendingSubmissions.filter(sub => {
     const studentName = sub.student?.name || sub.student_name || sub.students?.name || '';
     const assignmentTitle = sub.assignment?.title || sub.assignment_title || '';
@@ -979,7 +994,6 @@ export default function TeacherDashboard() {
            assignmentTitle.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  // Fix graded submissions filtering - only show actually graded ones
   const filteredGradedSubmissions = submissions.filter(sub => 
     sub.grade !== null && sub.grade !== undefined
   ).filter(sub => {
@@ -998,6 +1012,102 @@ export default function TeacherDashboard() {
       console.error('Error loading submission details:', error);
       toast.error('Failed to load submission details');
     }
+  };
+
+  // Fix the submission details panel
+  const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
+    if (!submission) return null;
+
+    // Safely get submission data with fallbacks
+    const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
+    const studentEmail = submission.student?.email || submission.student_email || '';
+    const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
+    const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
+    const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
+
+    return (
+      <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
+        <div className="flex justify-between items-center mb-4">
+          <h4 className="text-lg font-semibold text-white">Submission Details</h4>
+          <button
+            onClick={onClose}
+            className="text-blue-300 hover:text-white"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-blue-200 text-sm">Student</p>
+            <p className="text-white font-medium">{studentName}</p>
+            {studentEmail && (
+              <p className="text-blue-300 text-xs">{studentEmail}</p>
+            )}
+          </div>
+
+          <div>
+            <p className="text-blue-200 text-sm">Assignment</p>
+            <p className="text-white font-medium">{assignmentTitle}</p>
+            {dueDate && (
+              <p className="text-blue-300 text-xs">
+                Due: {new Date(dueDate).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+
+          {submission.submission_text && (
+            <div>
+              <p className="text-blue-200 text-sm">Written Submission</p>
+              <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
+                {submission.submission_text}
+              </p>
+            </div>
+          )}
+
+          {submission.audio_url && (
+            <div>
+              <p className="text-blue-200 text-sm">Audio Submission</p>
+              <audio 
+                controls 
+                className="w-full mt-2 rounded-lg"
+                src={submission.audio_url}
+                onError={(e) => {
+                  console.error('Audio loading error:', e);
+                  toast.error('Failed to load audio file');
+                }}
+              >
+                <source src={submission.audio_url} type="audio/webm" />
+                <source src={submission.audio_url} type="audio/mpeg" />
+                <source src={submission.audio_url} type="audio/wav" />
+                Your browser does not support the audio element.
+              </audio>
+            </div>
+          )}
+
+          {submission.submitted_at && (
+            <div>
+              <p className="text-blue-200 text-sm">Submitted</p>
+              <p className="text-white text-sm">
+                {new Date(submission.submitted_at).toLocaleString()}
+              </p>
+            </div>
+          )}
+
+          {(!submission.grade || submission.grade === null) && (
+            <button
+              onClick={() => {
+                onStartGrading(submission);
+                onClose();
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
+            >
+              Grade This Submission
+            </button>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1072,91 +1182,17 @@ export default function TeacherDashboard() {
         )}
       </div>
 
-        {selectedSubmission && (
-          <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
-            <div className="flex justify-between items-center mb-4">
-              <h4 className="text-lg font-semibold text-white">Submission Details</h4>
-              <button
-                onClick={() => setSelectedSubmission(null)}
-                className="text-blue-300 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <p className="text-blue-200 text-sm">Student</p>
-                <p className="text-white font-medium">{selectedSubmission.student?.name || 'Unknown Student'}</p>
-                <p className="text-blue-300 text-xs">{selectedSubmission.student?.email}</p>
-              </div>
-
-              <div>
-                <p className="text-blue-200 text-sm">Assignment</p>
-                <p className="text-white font-medium">{selectedSubmission.assignment?.title}</p>
-                <p className="text-blue-300 text-xs">
-                  Due: {new Date(selectedSubmission.assignment?.due_date).toLocaleDateString()}
-                </p>
-              </div>
-
-              {selectedSubmission.submission_text && (
-                <div>
-                  <p className="text-blue-200 text-sm">Written Submission</p>
-                  <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
-                    {selectedSubmission.submission_text}
-                  </p>
-                </div>
-              )}
-
-           {/* Audio Submission */}
-{submission.audio_url && (
-  <div className="mt-2">
-    <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
-    <audio 
-      controls 
-      className="w-full max-w-md rounded-lg"
-      onError={(e) => {
-        console.error('Audio loading error:', e);
-        toast.error('Failed to load audio file');
-      }}
-    >
-      <source src={submission.audio_url} type="audio/webm" />
-      <source src={submission.audio_url} type="audio/mpeg" />
-      <source src={submission.audio_url} type="audio/wav" />
-      Your browser does not support the audio element.
-    </audio>
-    <p className="text-blue-300 text-xs mt-1">
-      If audio doesn't play, the file format may not be supported.
-    </p>
-  </div>
-)}
-
-              {selectedSubmission.submitted_at && (
-                <div>
-                  <p className="text-blue-200 text-sm">Submitted</p>
-                  <p className="text-white text-sm">
-                    {new Date(selectedSubmission.submitted_at).toLocaleString()}
-                  </p>
-                </div>
-              )}
-
-              {(!selectedSubmission.grade || selectedSubmission.grade === null) && (
-                <button
-                  onClick={() => {
-                    onStartGrading(selectedSubmission);
-                    setSelectedSubmission(null);
-                  }}
-                  className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
-                >
-                  Grade This Submission
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
+      {/* Use the fixed SubmissionDetailsPanel component */}
+      {selectedSubmission && (
+        <SubmissionDetailsPanel 
+          submission={selectedSubmission}
+          onClose={() => setSelectedSubmission(null)}
+          onStartGrading={onStartGrading}
+        />
+      )}
+    </div>
+  );
+};
 
   const UpcomingTab = ({ classes, formatDateTime }) => (
     <div>
