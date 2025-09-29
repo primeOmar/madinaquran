@@ -928,7 +928,7 @@ export default function TeacherDashboard() {
       })}
     </div>
   );
-};
+
  const GradedSubmissions = ({ submissions, onViewSubmission }) => {
   // Filter only graded submissions and ensure they have valid data
   const gradedSubmissions = submissions.filter(sub => 
