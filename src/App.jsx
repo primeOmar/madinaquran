@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Routes, Route, useLocation } from "react-router-dom";
 
 // ✅ Components
@@ -14,8 +15,10 @@ import Footer from "./components/Footer";
 import { useAuth } from "./components/AuthContext"; // ✅ Pull auth state
 import ConnectionTest from './pages/ConnectionTest';
 
-// ✅ Pages
+// ✅ Storage initialization
+import { initializeStorage } from "./lib/supabase"; // Add this import
 
+// ✅ Pages
 import Register from "./pages/Register";
 import VerifyEmail from "./pages/VerifyEmail";
 import Congratulations from "./pages/Congratulations"; 
@@ -28,18 +31,39 @@ import TeacherLogin from "./pages/TeacherLogin";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import AuthCallback from './pages/AuthCallback';
 import EmailConfirmationHandler from './pages/EmailConfirmationHandler';
-// import TeacherDashboard from ".pages/TeacherDashboard";
 
 function App() {
   const location = useLocation();
-  const { user } = useAuth(); // ✅ get auth stat
+  const { user } = useAuth(); // ✅ get auth state
+  
+  // ✅ Initialize storage when app starts
+  useEffect(() => {
+    const initApp = async () => {
+      try {
+        console.log('🚀 App starting - initializing storage...');
+        
+        // Initialize Supabase storage configuration
+        const storageResult = await initializeStorage();
+        console.log('📦 Storage initialization completed:', storageResult);
+        
+        if (storageResult.success) {
+          console.log('✅ Storage is ready for audio operations');
+        } else {
+          console.warn('⚠️ Storage initialization had issues:', storageResult.error);
+        }
+      } catch (error) {
+        console.error('💥 App initialization error:', error);
+      }
+    };
+
+    initApp();
+  }, []); // Run once when app mounts
+
   // ✅ Check if we are on dashboard route
   const isDashboard = location.pathname.startsWith("/dashboard");
 
   return (
     <>
-        
-
       <Routes>
         {/* Homepage */}
         <Route
@@ -75,7 +99,6 @@ function App() {
         <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
         <Route path="/auth-callback" element={<AuthCallback />} />
         <Route path="/email-confirmation" element={<EmailConfirmationHandler />} />
-        {/*<Route path="/TeacherDashboard" element={<TeacherDashboard/>} />*/}
         <Route path="/debug-connection" element={<ConnectionTest />} />
       </Routes>
     </>
