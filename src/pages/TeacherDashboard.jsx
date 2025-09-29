@@ -632,17 +632,20 @@ const getStudentsForClass = (classId) => {
 )}
 
 {activeTab === 'grading' && (
-  <GradingDashboard 
-    submissions={submissions}
+  <GradingTab 
+    submissions={assignments} // This contains assignments with submissions
     pendingSubmissions={pendingSubmissions}
     onGradeAssignment={gradeAssignment}
     onStartGrading={(submission) => {
       setGradingSubmission(submission);
       setGradeData({ 
         score: submission.grade || '', 
-        feedback: submission.feedback || '' 
+        feedback: submission.feedback || '',
+        audioFeedbackUrl: submission.audio_feedback_url || ''
       });
     }}
+    activeTab={activeGradingTab}
+    setActiveTab={setActiveGradingTab}
   />
 )}
           {activeTab === 'upcoming' && (
