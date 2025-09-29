@@ -904,10 +904,10 @@ export default function TeacherDashboard() {
         Download Audio File
       </a>
     </div>
-  </div>
-                         </div>
+                </div>
+            </div>
 
-              <div className="flex space-x-2 self-end md:self-auto">
+            <div className="flex space-x-2 self-end md:self-auto">
                 <button
                   onClick={() => onViewSubmission(submission.id)}
                   className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
