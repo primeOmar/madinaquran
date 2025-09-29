@@ -836,86 +836,104 @@ export default function TeacherDashboard() {
                 )}
 
                {submission.audio_url && (
-  <div className="mt-2">
-    <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
+  <div>
+    <p className="text-blue-200 text-sm mb-2">Audio Submission</p>
     
-    {/* Debug info */}
-   <div className="bg-yellow-500/20 p-2 rounded mb-2">
-  <p className="text-yellow-300 text-xs break-all">Audio URL: {submission.audio_url}</p>
-  <button
-    onClick={() => {
-      console.log('Full audio URL details:', {
-        url: submission.audio_url,
-        submissionId: submission.id,
-        student: submission.student?.name
-      });
-      fetch(submission.audio_url)
-        .then(response => {
-          console.log('Audio fetch response:', {
-            status: response.status,
-            statusText: response.statusText,
-            ok: response.ok,
-            headers: Object.fromEntries(response.headers.entries())
-          });
-          return response.blob();
-        })
-        .then(blob => {
-          console.log('Audio blob info:', {
-            size: blob.size,
-            type: blob.type,
-            blobUrl: URL.createObjectURL(blob)
-          });
-        })
-        .catch(error => {
-          console.error('Audio fetch failed:', error);
-        });
-    }}
-    className="text-yellow-400 hover:text-yellow-300 text-xs underline mt-1"
-  >
-    Test Audio URL
-  </button>
-</div>
+    {/* Debug Info */}
+    <div className="bg-blue-800/30 p-3 rounded mb-3 text-xs">
+      <p className="text-blue-300 mb-1">Debug Info:</p>
+      <p className="text-white break-all mb-2">URL: {submission.audio_url}</p>
+      <button
+        onClick={async () => {
+          console.log('Testing audio URL:', submission.audio_url);
+          try {
+            const response = await fetch(submission.audio_url);
+            console.log('Fetch response:', {
+              status: response.status,
+              statusText: response.statusText,
+              ok: response.ok,
+              headers: Object.fromEntries(response.headers.entries()),
+              url: response.url
+            });
+            
+            if (!response.ok) {
+              toast.error(`Audio fetch failed: ${response.status} ${response.statusText}`);
+              return;
+            }
+            
+            const blob = await response.blob();
+            console.log('Audio blob:', {
+              size: blob.size,
+              type: blob.type
+            });
+            
+            if (blob.size === 0) {
+              toast.error('Audio file is empty (0 bytes)');
+            } else {
+              toast.success(`Audio file accessible: ${blob.size} bytes, type: ${blob.type}`);
+            }
+          } catch (error) {
+            console.error('Audio test failed:', error);
+            toast.error(`Audio test failed: ${error.message}`);
+          }
+        }}
+        className="bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white"
+      >
+        Test Audio Access
+      </button>
+    </div>
     
-   <audio 
+    <audio 
       controls 
-      className="w-full max-w-md rounded-lg"
+      className="w-full mt-2 rounded-lg"
       onError={(e) => {
-        const audioEl = e.target;
-        console.error('Audio loading failed:', {
-          error: audioEl.error,
-          networkState: audioEl.networkState,
-          readyState: audioEl.readyState,
-          src: audioEl.src,
-          currentSrc: audioEl.currentSrc,
-          errorCode: audioEl.error?.code,
-          errorMessage: audioEl.error?.message
+        const audio = e.target;
+        console.error('Audio error details:', {
+          error: audio.error,
+          errorCode: audio.error?.code,
+          errorMessage: audio.error?.message,
+          src: audio.src,
+          currentSrc: audio.currentSrc,
+          networkState: audio.networkState,
+          readyState: audio.readyState
         });
-        console.log('Check Network tab in DevTools for detailed request info');
+        
+        const errorMessages = {
+          1: 'MEDIA_ERR_ABORTED - Playback aborted',
+          2: 'MEDIA_ERR_NETWORK - Network error',
+          3: 'MEDIA_ERR_DECODE - Decoding error',
+          4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - Format not supported or file not found'
+        };
+        
+        const errorMsg = errorMessages[audio.error?.code] || 'Unknown error';
+        toast.error(`Audio error: ${errorMsg}`);
       }}
-      onLoadStart={() => console.log('Audio load started')}
-      onProgress={() => console.log('Audio progress')}
-      onStalled={() => console.log('Audio stalled')}
+      onLoadStart={() => console.log('Audio loading started')}
+      onLoadedMetadata={(e) => console.log('Audio metadata loaded:', {
+        duration: e.target.duration,
+        currentSrc: e.target.currentSrc
+      })}
+      onCanPlay={() => {
+        console.log('Audio can play');
+        toast.success('Audio loaded successfully');
+      }}
     >
       <source src={submission.audio_url} type="audio/webm" />
       <source src={submission.audio_url} type="audio/mpeg" />
       <source src={submission.audio_url} type="audio/wav" />
       <source src={submission.audio_url} type="audio/ogg" />
-      <source src={submission.audio_url} type="audio/mp4" />
       Your browser does not support the audio element.
     </audio>
     
-    {/* Direct download link */}
-    <div className="mt-2">
-      <a 
-        href={submission.audio_url} 
-        download 
-        className="text-blue-400 hover:text-blue-300 text-sm underline"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Download Audio File
-      </a>
-    </div>
+    <a 
+      href={submission.audio_url} 
+      download 
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-400 hover:text-blue-300 text-sm underline mt-2 inline-block"
+    >
+      Download Audio File
+    </a>
   </div>
 )}
               </div>
