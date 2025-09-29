@@ -1619,23 +1619,25 @@ const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) =
                 <h4 className="font-semibold text-white">
                   {submission.student?.name || 'Unknown Student'}
                 </h4>
-                <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
-                  {submission.student?.email || 'No email'}
-                </span>
+                {submission.student?.email && (
+                  <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
+                    {submission.student.email}
+                  </span>
+                )}
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                 <div>
                   <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
                   <p className="text-blue-200">Due: <span className="text-white">
-                    {new Date(submission.assignment?.due_date).toLocaleDateString()}
+                    {submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date'}
                   </span></p>
                 </div>
                 <div>
                   <p className="text-blue-200">Submitted: <span className="text-white">
                     {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
                   </span></p>
-                  <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment?.max_score}</span></p>
+                  <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment?.max_score || 100}</span></p>
                 </div>
               </div>
 
@@ -1679,8 +1681,8 @@ const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) =
     </div>
   );
 };
-// Graded Submissions Component
-const GradedSubmissions = ({ submissions }) => {
+    // Graded Submissions Component
+const GradedSubmissions = ({ submissions, onViewSubmission }) => {
   if (submissions.length === 0) {
     return (
       <div className="text-center py-12">
@@ -1698,7 +1700,9 @@ const GradedSubmissions = ({ submissions }) => {
             <div className="flex-1">
               <div className="flex items-center mb-2">
                 <User size={16} className="text-green-400 mr-2" />
-                <h4 className="font-semibold text-white">{submission.student.name}</h4>
+                <h4 className="font-semibold text-white">
+                  {submission.student?.name || 'Unknown Student'}
+                </h4>
                 <div className="ml-3 flex items-center space-x-2">
                   <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
                     Score: {submission.grade}/{submission.assignment?.max_score || 100}
@@ -1713,12 +1717,12 @@ const GradedSubmissions = ({ submissions }) => {
                 <div>
                   <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
                   <p className="text-blue-200">Graded on: <span className="text-white">
-                    {new Date(submission.graded_at).toLocaleDateString()}
+                    {submission.graded_at ? new Date(submission.graded_at).toLocaleDateString() : 'Not graded'}
                   </span></p>
                 </div>
                 <div>
                   <p className="text-blue-200">Submitted: <span className="text-white">
-                    {new Date(submission.submitted_at).toLocaleDateString()}
+                    {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
                   </span></p>
                   <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
                 </div>
@@ -1733,6 +1737,13 @@ const GradedSubmissions = ({ submissions }) => {
             </div>
 
             <div className="flex space-x-2 self-end md:self-auto">
+              <button
+                onClick={() => onViewSubmission(submission.id)}
+                className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+              >
+                <Eye size={16} className="mr-2" />
+                View Details
+              </button>
               <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
                 GRADED
               </span>
@@ -1743,6 +1754,8 @@ const GradedSubmissions = ({ submissions }) => {
     </div>
   );
 };
+
+    
 const UpcomingTab = ({ classes, formatDateTime }) => (
   <div>
     <h3 className="text-lg font-semibold text-white mb-4">Upcoming Classes ({classes.length})</h3>
