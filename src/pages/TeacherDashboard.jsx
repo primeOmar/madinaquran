@@ -840,14 +840,68 @@ export default function TeacherDashboard() {
     <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
     
     {/* Debug info */}
-    <div className="bg-yellow-500/20 p-2 rounded mb-2">
-      {/* ... debug code ... */}
-    </div>
+   <div className="bg-yellow-500/20 p-2 rounded mb-2">
+  <p className="text-yellow-300 text-xs break-all">Audio URL: {submission.audio_url}</p>
+  <button
+    onClick={() => {
+      console.log('Full audio URL details:', {
+        url: submission.audio_url,
+        submissionId: submission.id,
+        student: submission.student?.name
+      });
+      fetch(submission.audio_url)
+        .then(response => {
+          console.log('Audio fetch response:', {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            headers: Object.fromEntries(response.headers.entries())
+          });
+          return response.blob();
+        })
+        .then(blob => {
+          console.log('Audio blob info:', {
+            size: blob.size,
+            type: blob.type,
+            blobUrl: URL.createObjectURL(blob)
+          });
+        })
+        .catch(error => {
+          console.error('Audio fetch failed:', error);
+        });
+    }}
+    className="text-yellow-400 hover:text-yellow-300 text-xs underline mt-1"
+  >
+    Test Audio URL
+  </button>
+</div>
     
-    <audio 
+   <audio 
       controls 
       className="w-full max-w-md rounded-lg"
-      {/* ... audio element ... */}
+      onError={(e) => {
+        const audioEl = e.target;
+        console.error('Audio loading failed:', {
+          error: audioEl.error,
+          networkState: audioEl.networkState,
+          readyState: audioEl.readyState,
+          src: audioEl.src,
+          currentSrc: audioEl.currentSrc,
+          errorCode: audioEl.error?.code,
+          errorMessage: audioEl.error?.message
+        });
+        console.log('Check Network tab in DevTools for detailed request info');
+      }}
+      onLoadStart={() => console.log('Audio load started')}
+      onProgress={() => console.log('Audio progress')}
+      onStalled={() => console.log('Audio stalled')}
+    >
+      <source src={submission.audio_url} type="audio/webm" />
+      <source src={submission.audio_url} type="audio/mpeg" />
+      <source src={submission.audio_url} type="audio/wav" />
+      <source src={submission.audio_url} type="audio/ogg" />
+      <source src={submission.audio_url} type="audio/mp4" />
+      Your browser does not support the audio element.
     </audio>
     
     {/* Direct download link */}
