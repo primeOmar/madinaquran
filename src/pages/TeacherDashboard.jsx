@@ -920,7 +920,7 @@ export default function TeacherDashboard() {
       </a>
     </div>
   </div>
-)}
+
               <div className="flex space-x-2 self-end md:self-auto">
                 <button
                   onClick={() => onViewSubmission(submission.id)}
