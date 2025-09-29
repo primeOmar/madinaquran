@@ -1144,7 +1144,7 @@ const StudentsTab = ({ students, loading }) => (
     )}
   </div>
 );
-const AssignmentsTab = ({ 
+    const AssignmentsTab = ({ 
   assignments, 
   classes, 
   onCreateAssignment, 
@@ -1285,8 +1285,7 @@ const AssignmentsTab = ({
       )}
     </div>
   );
-};
-
+}; 
     
 const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
   // Calculate submission stats
