@@ -841,70 +841,13 @@ export default function TeacherDashboard() {
     
     {/* Debug info */}
     <div className="bg-yellow-500/20 p-2 rounded mb-2">
-      <p className="text-yellow-300 text-xs break-all">Audio URL: {submission.audio_url}</p>
-      <button
-        onClick={() => {
-          console.log('Full audio URL details:', {
-            url: submission.audio_url,
-            submissionId: submission.id,
-            student: submission.student?.name
-          });
-          // Test if URL is accessible
-          fetch(submission.audio_url)
-            .then(response => {
-              console.log('Audio fetch response:', {
-                status: response.status,
-                statusText: response.statusText,
-                ok: response.ok,
-                headers: Object.fromEntries(response.headers.entries())
-              });
-              return response.blob();
-            })
-            .then(blob => {
-              console.log('Audio blob info:', {
-                size: blob.size,
-                type: blob.type,
-                blobUrl: URL.createObjectURL(blob)
-              });
-            })
-            .catch(error => {
-              console.error('Audio fetch failed:', error);
-            });
-        }}
-        className="text-yellow-400 hover:text-yellow-300 text-xs underline mt-1"
-      >
-        Test Audio URL
-      </button>
+      {/* ... debug code ... */}
     </div>
     
     <audio 
       controls 
       className="w-full max-w-md rounded-lg"
-      onError={(e) => {
-        const audioEl = e.target;
-        console.error('Audio loading failed:', {
-          error: audioEl.error,
-          networkState: audioEl.networkState,
-          readyState: audioEl.readyState,
-          src: audioEl.src,
-          currentSrc: audioEl.currentSrc,
-          errorCode: audioEl.error?.code,
-          errorMessage: audioEl.error?.message
-        });
-        
-        // Check network tab for more details
-        console.log('Check Network tab in DevTools for detailed request info');
-      }}
-      onLoadStart={() => console.log('Audio load started')}
-      onProgress={() => console.log('Audio progress')}
-      onStalled={() => console.log('Audio stalled')}
-    >
-      <source src={submission.audio_url} type="audio/webm" />
-      <source src={submission.audio_url} type="audio/mpeg" />
-      <source src={submission.audio_url} type="audio/wav" />
-      <source src={submission.audio_url} type="audio/ogg" />
-      <source src={submission.audio_url} type="audio/mp4" />
-      Your browser does not support the audio element.
+      {/* ... audio element ... */}
     </audio>
     
     {/* Direct download link */}
@@ -919,26 +862,34 @@ export default function TeacherDashboard() {
         Download Audio File
       </a>
     </div>
-
-
-<div className="flex space-x-2 self-end md:self-auto">
-  <button
-    onClick={() => onViewSubmission(submission.id)}
-    className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
-  >
-    <Eye size={16} className="mr-2" />
-    View Details
-  </button>
-  <button
-    onClick={() => onStartGrading(submission)}
-    className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
-  >
-    <FileCheck size={16} className="mr-2" />
-    Grade Now
-  </button>
-</div>
   </div>
-            )}
+)}
+              </div>
+
+              <div className="flex space-x-2 self-end md:self-auto">
+                <button
+                  onClick={() => onViewSubmission(submission.id)}
+                  className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+                >
+                  <Eye size={16} className="mr-2" />
+                  View Details
+                </button>
+                <button
+                  onClick={() => onStartGrading(submission)}
+                  className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
+                >
+                  <FileCheck size={16} className="mr-2" />
+                  Grade Now
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const GradedSubmissions = ({ submissions, onViewSubmission }) => {
   // Filter only graded submissions and ensure they have valid data
   const gradedSubmissions = submissions.filter(sub => 
