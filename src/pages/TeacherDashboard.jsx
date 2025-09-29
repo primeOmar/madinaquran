@@ -896,59 +896,115 @@ const getStudentsForClass = (classId) => {
 )}
 
       {/* Grade Assignment Modal */}
-      {gradingSubmission && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
-            <p className="text-blue-200 mb-4">Student: {gradingSubmission.student_name}</p>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-1">Score *</label>
-                <input
-                  type="number"
-                  value={gradeData.score}
-                  onChange={(e) => setGradeData({...gradeData, score: e.target.value})}
-                  className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-                  min="0"
-                  max="100"
-                  placeholder="Enter score"
-                  required
-                />
-              </div>
+   
+{gradingSubmission && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+    <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
+      
+      {/* Student and Assignment Info */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-blue-800/30 rounded-lg">
+        <div>
+          <p className="text-blue-200 text-sm">Student</p>
+          <p className="text-white font-medium">{gradingSubmission.student?.name || 'Unknown Student'}</p>
+          <p className="text-blue-300 text-xs">{gradingSubmission.student?.email}</p>
+        </div>
+        <div>
+          <p className="text-blue-200 text-sm">Assignment</p>
+          <p className="text-white font-medium">{gradingSubmission.assignment?.title}</p>
+          <p className="text-blue-300 text-xs">
+            Max Score: {gradingSubmission.assignment?.max_score}
+          </p>
+        </div>
+      </div>
 
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-1">Feedback</label>
-                <textarea
-                  value={gradeData.feedback}
-                  onChange={(e) => setGradeData({...gradeData, feedback: e.target.value})}
-                  className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-                  rows="4"
-                  placeholder="Provide feedback..."
-                />
-              </div>
-            </div>
+      {/* Audio Submission Preview */}
+      {gradingSubmission.audio_url && (
+        <div className="mb-6">
+          <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
+          <audio controls className="w-full rounded-lg">
+            <source src={gradingSubmission.audio_url} type="audio/webm" />
+            Your browser does not support the audio element.
+          </audio>
+        </div>
+      )}
 
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setGradingSubmission(null)}
-                className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => gradeAssignment(gradingSubmission.id, parseInt(gradeData.score), gradeData.feedback)}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
-              >
-                Submit Grade
-              </button>
-            </div>
+      {/* Written Submission Preview */}
+      {gradingSubmission.submission_text && (
+        <div className="mb-6">
+          <p className="text-blue-200 text-sm font-medium mb-2">Written Submission:</p>
+          <div className="bg-blue-800/30 p-4 rounded-lg max-h-32 overflow-y-auto">
+            <p className="text-white text-sm">{gradingSubmission.submission_text}</p>
           </div>
         </div>
       )}
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-blue-200 mb-1">
+            Score * (Max: {gradingSubmission.assignment?.max_score || 100})
+          </label>
+          <input
+            type="number"
+            value={gradeData.score}
+            onChange={(e) => setGradeData({...gradeData, score: e.target.value})}
+            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+            min="0"
+            max={gradingSubmission.assignment?.max_score || 100}
+            placeholder="Enter score"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-blue-200 mb-1">Feedback</label>
+          <textarea
+            value={gradeData.feedback}
+            onChange={(e) => setGradeData({...gradeData, feedback: e.target.value})}
+            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+            rows="4"
+            placeholder="Provide feedback to the student..."
+          />
+        </div>
+
+        {/* Audio Feedback Option */}
+        <div>
+          <label className="block text-sm font-medium text-blue-200 mb-1">
+            Audio Feedback URL (Optional)
+          </label>
+          <input
+            type="text"
+            value={gradeData.audioFeedbackUrl || ''}
+            onChange={(e) => setGradeData({...gradeData, audioFeedbackUrl: e.target.value})}
+            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+            placeholder="https://example.com/audio-feedback.mp3"
+          />
+          <p className="text-blue-300 text-xs mt-1">Optional: Provide audio feedback to the student</p>
+        </div>
+      </div>
+
+      <div className="flex justify-end space-x-3 mt-6">
+        <button
+          onClick={() => setGradingSubmission(null)}
+          className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => gradeAssignment(
+            gradingSubmission.id, 
+            parseInt(gradeData.score), 
+            gradeData.feedback,
+            gradeData.audioFeedbackUrl
+          )}
+          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+        >
+          Submit Grade
+        </button>
+      </div>
     </div>
-  );
-}
+  </div>
+)}
 
 // Tab Components
 const ClassesTab = ({ classes, onStartSession, onJoinSession, formatDateTime }) => (
@@ -1348,6 +1404,7 @@ const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
 };
  
 // GRading tab component
+// Enhanced GradingTab component
 const GradingTab = ({ 
   submissions, 
   pendingSubmissions, 
@@ -1357,96 +1414,187 @@ const GradingTab = ({
   setActiveTab 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
 
   const filteredPendingSubmissions = pendingSubmissions.filter(sub => 
-    sub.student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sub.assignment.title.toLowerCase().includes(searchTerm.toLowerCase())
+    sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    sub.assignment?.title?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const filteredGradedSubmissions = submissions.flatMap(assignment => 
-    assignment.assignment_submissions.filter(sub => 
+    assignment.submissions?.filter(sub => 
       sub.grade !== null && (
-        sub.student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        assignment.title.toLowerCase().includes(searchTerm.toLowerCase())
+        sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        assignment.title?.toLowerCase().includes(searchTerm.toLowerCase())
       )
-    )
+    ) || []
   );
 
+  const loadSubmissionDetails = async (submissionId) => {
+    try {
+      const submission = await teacherApi.getSubmissionDetails(submissionId);
+      setSelectedSubmission(submission);
+    } catch (error) {
+      console.error('Error loading submission details:', error);
+      toast.error('Failed to load submission details');
+    }
+  };
+
   return (
-    <div>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
-          <p className="text-blue-300 text-sm">
-            {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-        
-        <div className="flex items-center space-x-4 w-full md:w-auto">
-          <div className="relative flex-1 md:flex-none">
-            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
-            <input
-              type="text"
-              placeholder="Search students or assignments..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+    <div className="flex flex-col lg:flex-row gap-6">
+      {/* Submissions List */}
+      <div className="flex-1">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
+            <p className="text-blue-300 text-sm">
+              {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+          
+          <div className="flex items-center space-x-4 w-full md:w-auto">
+            <div className="relative flex-1 md:flex-none">
+              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
+              <input
+                type="text"
+                placeholder="Search students or assignments..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Grading Tabs */}
-      <div className="flex space-x-4 mb-6 border-b border-white/20">
-        <button
-          onClick={() => setActiveTab('pending')}
-          className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'pending'
-              ? 'border-yellow-400 text-yellow-400'
-              : 'border-transparent text-blue-300 hover:text-white'
-          }`}
-        >
-          Pending Grading
-          {pendingSubmissions.length > 0 && (
-            <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
-              {pendingSubmissions.length}
+        {/* Grading Tabs */}
+        <div className="flex space-x-4 mb-6 border-b border-white/20">
+          <button
+            onClick={() => setActiveTab('pending')}
+            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'pending'
+                ? 'border-yellow-400 text-yellow-400'
+                : 'border-transparent text-blue-300 hover:text-white'
+            }`}
+          >
+            Pending Grading
+            {pendingSubmissions.length > 0 && (
+              <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
+                {pendingSubmissions.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('graded')}
+            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'graded'
+                ? 'border-green-400 text-green-400'
+                : 'border-transparent text-blue-300 hover:text-white'
+            }`}
+          >
+            Graded Work
+            <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
+              {filteredGradedSubmissions.length}
             </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('graded')}
-          className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'graded'
-              ? 'border-green-400 text-green-400'
-              : 'border-transparent text-blue-300 hover:text-white'
-          }`}
-        >
-          Graded Work
-          <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
-            {filteredGradedSubmissions.length}
-          </span>
-        </button>
+          </button>
+        </div>
+
+        {/* Content based on active grading tab */}
+        {activeTab === 'pending' && (
+          <PendingSubmissions 
+            submissions={filteredPendingSubmissions}
+            onStartGrading={onStartGrading}
+            onViewSubmission={loadSubmissionDetails}
+          />
+        )}
+
+        {activeTab === 'graded' && (
+          <GradedSubmissions 
+            submissions={filteredGradedSubmissions}
+            onViewSubmission={loadSubmissionDetails}
+          />
+        )}
       </div>
 
-      {/* Content based on active grading tab */}
-      {activeTab === 'pending' && (
-        <PendingSubmissions 
-          submissions={filteredPendingSubmissions}
-          onStartGrading={onStartGrading}
-        />
-      )}
+      {/* Submission Details Panel */}
+      {selectedSubmission && (
+        <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
+          <div className="flex justify-between items-center mb-4">
+            <h4 className="text-lg font-semibold text-white">Submission Details</h4>
+            <button
+              onClick={() => setSelectedSubmission(null)}
+              className="text-blue-300 hover:text-white"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
-      {activeTab === 'graded' && (
-        <GradedSubmissions 
-          submissions={filteredGradedSubmissions}
-        />
+          <div className="space-y-4">
+            <div>
+              <p className="text-blue-200 text-sm">Student</p>
+              <p className="text-white font-medium">{selectedSubmission.student?.name || 'Unknown Student'}</p>
+              <p className="text-blue-300 text-xs">{selectedSubmission.student?.email}</p>
+            </div>
+
+            <div>
+              <p className="text-blue-200 text-sm">Assignment</p>
+              <p className="text-white font-medium">{selectedSubmission.assignment?.title}</p>
+              <p className="text-blue-300 text-xs">
+                Due: {new Date(selectedSubmission.assignment?.due_date).toLocaleDateString()}
+              </p>
+            </div>
+
+            {selectedSubmission.submission_text && (
+              <div>
+                <p className="text-blue-200 text-sm">Written Submission</p>
+                <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
+                  {selectedSubmission.submission_text}
+                </p>
+              </div>
+            )}
+
+            {selectedSubmission.audio_url && (
+              <div>
+                <p className="text-blue-200 text-sm">Audio Submission</p>
+                <audio 
+                  controls 
+                  className="w-full mt-2 rounded-lg"
+                  src={selectedSubmission.audio_url}
+                >
+                  Your browser does not support the audio element.
+                </audio>
+              </div>
+            )}
+
+            {selectedSubmission.submitted_at && (
+              <div>
+                <p className="text-blue-200 text-sm">Submitted</p>
+                <p className="text-white text-sm">
+                  {new Date(selectedSubmission.submitted_at).toLocaleString()}
+                </p>
+              </div>
+            )}
+
+            {/* Grade Action for Pending Submissions */}
+            {(!selectedSubmission.grade || selectedSubmission.grade === null) && (
+              <button
+                onClick={() => {
+                  onStartGrading(selectedSubmission);
+                  setSelectedSubmission(null);
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
+              >
+                Grade This Submission
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 };
 
 // Pending Submissions Component
-const PendingSubmissions = ({ submissions, onStartGrading }) => {
+const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) => {
   if (submissions.length === 0) {
     return (
       <div className="text-center py-12">
@@ -1460,36 +1608,38 @@ const PendingSubmissions = ({ submissions, onStartGrading }) => {
   return (
     <div className="space-y-4">
       {submissions.map((submission) => (
-        <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+        <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 hover:bg-yellow-500/15 transition-colors">
           <div className="flex flex-col md:flex-row justify-between items-start gap-4">
             <div className="flex-1">
               <div className="flex items-center mb-2">
                 <User size={16} className="text-yellow-400 mr-2" />
-                <h4 className="font-semibold text-white">{submission.student.name}</h4>
+                <h4 className="font-semibold text-white">
+                  {submission.student?.name || 'Unknown Student'}
+                </h4>
                 <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
-                  {submission.student.email}
+                  {submission.student?.email || 'No email'}
                 </span>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                 <div>
-                  <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment.title}</span></p>
+                  <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
                   <p className="text-blue-200">Due: <span className="text-white">
-                    {new Date(submission.assignment.due_date).toLocaleDateString()}
+                    {new Date(submission.assignment?.due_date).toLocaleDateString()}
                   </span></p>
                 </div>
                 <div>
                   <p className="text-blue-200">Submitted: <span className="text-white">
-                    {new Date(submission.submitted_at).toLocaleDateString()}
+                    {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
                   </span></p>
-                  <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment.max_score}</span></p>
+                  <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment?.max_score}</span></p>
                 </div>
               </div>
 
               {submission.submission_text && (
                 <div className="mt-3 p-3 bg-black/20 rounded">
                   <p className="text-blue-200 text-sm font-medium mb-1">Submission:</p>
-                  <p className="text-white text-sm">{submission.submission_text}</p>
+                  <p className="text-white text-sm line-clamp-2">{submission.submission_text}</p>
                 </div>
               )}
 
@@ -1506,6 +1656,13 @@ const PendingSubmissions = ({ submissions, onStartGrading }) => {
 
             <div className="flex space-x-2 self-end md:self-auto">
               <button
+                onClick={() => onViewSubmission(submission.id)}
+                className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+              >
+                <Eye size={16} className="mr-2" />
+                View Details
+              </button>
+              <button
                 onClick={() => onStartGrading(submission)}
                 className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
               >
@@ -1519,7 +1676,6 @@ const PendingSubmissions = ({ submissions, onStartGrading }) => {
     </div>
   );
 };
-
 // Graded Submissions Component
 const GradedSubmissions = ({ submissions }) => {
   if (submissions.length === 0) {
