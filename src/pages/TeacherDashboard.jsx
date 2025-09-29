@@ -163,52 +163,55 @@ useEffect(() => {
   }, [user]);
 
   const loadTeacherData = async () => {
-    try {
-      setLoading({ classes: true, students: true, assignments: true });
-      
-      // Load classes taught by this teacher
-      const classesData = await teacherApi.getMyClasses();
-      setClasses(classesData);
-      
-      // Load students for this teacher
-      const studentsData = await teacherApi.getMyStudents();
-      setStudents(studentsData);
-      
-      // Load assignments
-      const assignmentsData = await teacherApi.getMyAssignments();
-      setAssignments(assignmentsData);
-      
-      // Filter upcoming and completed classes
-      const now = new Date();
-      const upcoming = classesData.filter(cls => 
-        new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
-      );
-      const completed = classesData.filter(cls => 
-        cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
-      );
-      
-      setUpcomingClasses(upcoming);
-      setCompletedClasses(completed);
-      
-      // Update stats with real data
-      setStats({
-        totalClasses: classesData.length,
-        upcomingClasses: upcoming.length,
-        completedClasses: completed.length,
-        totalStudents: studentsData.length,
-        totalAssignments: assignmentsData.length,
-        pendingSubmissions: assignmentsData.reduce((sum, assignment) => 
-          sum + (assignment.pending_count || 0), 0
-        )
-      });
-      
-    } catch (error) {
-      console.error('Error loading teacher data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading({ classes: false, students: false, assignments: false });
-    }
-  };
+  try {
+    setLoading({ classes: true, students: true, assignments: true });
+    
+    // Load classes taught by this teacher
+    const classesData = await teacherApi.getMyClasses();
+    setClasses(classesData);
+    
+    // Load students for this teacher
+    const studentsData = await teacherApi.getMyStudents();
+    setStudents(studentsData);
+    
+    // Load assignments - use ONLY getMyAssignments
+    const assignmentsData = await teacherApi.getMyAssignments();
+    setAssignments(assignmentsData);
+    
+    // Calculate pending submissions count from assignments
+    const pendingSubmissionsCount = assignmentsData.reduce((sum, assignment) => 
+      sum + (assignment.pending_count || 0), 0
+    );
+    
+    // Filter upcoming and completed classes
+    const now = new Date();
+    const upcoming = classesData.filter(cls => 
+      new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
+    );
+    const completed = classesData.filter(cls => 
+      cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
+    );
+    
+    setUpcomingClasses(upcoming);
+    setCompletedClasses(completed);
+    
+    // Update stats with real data
+    setStats({
+      totalClasses: classesData.length,
+      upcomingClasses: upcoming.length,
+      completedClasses: completed.length,
+      totalStudents: studentsData.length,
+      totalAssignments: assignmentsData.length,
+      pendingSubmissions: pendingSubmissionsCount
+    });
+    
+  } catch (error) {
+    console.error('Error loading teacher data:', error);
+    toast.error('Failed to load dashboard data');
+  } finally {
+    setLoading({ classes: false, students: false, assignments: false });
+  }
+};
 
   const startVideoSession = async (classId) => {
     try {
