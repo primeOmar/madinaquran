@@ -30,6 +30,193 @@ const apiBaseUrl = window._env_?.REACT_APP_API_BASE_URL ||
                   process.env.REACT_APP_API_BASE_URL || 
                   'https://madina-quran-backend.onrender.com';
 
+// ============================================================================
+// STORAGE & BUCKET CONFIGURATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Configure storage bucket for audio submissions with proper CORS settings
+ */
+export const configureAudioBucket = async () => {
+  try {
+    if (!supabaseAdmin) {
+      console.warn('Admin client not available - using regular client for bucket configuration');
+      // Try with regular client (might work if user has sufficient permissions)
+      const client = supabase;
+      
+      const { data, error } = await client.storage.updateBucket('assignment-audio', {
+        public: false, // Keep private for security
+        fileSizeLimit: 52428800, // 50MB in bytes
+        allowedMimeTypes: ['audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/*']
+      });
+
+      if (error) {
+        console.warn('Bucket configuration failed:', error.message);
+        return { success: false, error: error.message };
+      }
+
+      console.log('✅ Audio bucket configured successfully with regular client');
+      return { success: true, data };
+    }
+
+    // Use admin client for configuration
+    const { data, error } = await supabaseAdmin.storage.updateBucket('assignment-audio', {
+      public: false, // Keep private for security
+      fileSizeLimit: 52428800, // 50MB in bytes
+      allowedMimeTypes: ['audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/*']
+    });
+
+    if (error) {
+      console.error('❌ Bucket configuration failed:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log('✅ Audio bucket configured successfully with admin client');
+    return { success: true, data };
+  } catch (error) {
+    console.error('💥 Error configuring audio bucket:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get a signed URL for secure audio file access (for private buckets)
+ */
+export const getSecureAudioUrl = async (filePath, expiresIn = 3600) => {
+  try {
+    const { data, error } = await supabase.storage
+      .from('assignment-audio')
+      .createSignedUrl(filePath, expiresIn);
+
+    if (error) {
+      console.error('❌ Error creating signed URL:', error);
+      return null;
+    }
+
+    return data.signedUrl;
+  } catch (error) {
+    console.error('💥 Error generating secure audio URL:', error);
+    return null;
+  }
+};
+
+/**
+ * Upload audio file to storage with progress tracking
+ */
+export const uploadAudioFile = async (file, bucketName = 'assignment-audio', onProgress = null) => {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    console.log('📤 Uploading audio file:', { name: file.name, size: file.size, path: filePath });
+
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        // Note: Progress tracking might not be available in all Supabase versions
+      });
+
+    if (error) {
+      console.error('❌ Audio upload failed:', error);
+      throw error;
+    }
+
+    console.log('✅ Audio uploaded successfully:', data);
+
+    // Get public URL (if bucket is public) or signed URL (if private)
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+
+    return {
+      path: filePath,
+      fullPath: data.path,
+      publicUrl: urlData.publicUrl,
+      signedUrl: await getSecureAudioUrl(filePath)
+    };
+  } catch (error) {
+    console.error('💥 Audio upload error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check if storage bucket exists and is accessible
+ */
+export const checkStorageBucket = async (bucketName = 'assignment-audio') => {
+  try {
+    const { data, error } = await supabase.storage.getBucket(bucketName);
+    
+    if (error) {
+      console.warn(`Bucket "${bucketName}" check failed:`, error.message);
+      return { exists: false, error: error.message };
+    }
+
+    console.log(`✅ Bucket "${bucketName}" is accessible:`, data);
+    return { exists: true, data };
+  } catch (error) {
+    console.error(`💥 Error checking bucket "${bucketName}":`, error);
+    return { exists: false, error: error.message };
+  }
+};
+
+/**
+ * Initialize storage configuration - call this when app starts
+ */
+export const initializeStorage = async () => {
+  try {
+    console.log('🔄 Initializing storage configuration...');
+    
+    // Check if bucket exists
+    const bucketCheck = await checkStorageBucket('assignment-audio');
+    
+    if (!bucketCheck.exists) {
+      console.log('📦 Audio bucket not found, attempting configuration...');
+      const configResult = await configureAudioBucket();
+      
+      if (!configResult.success) {
+        console.warn('⚠️ Bucket configuration may need admin privileges');
+      }
+    } else {
+      console.log('✅ Audio bucket is ready');
+    }
+
+    return { success: true, bucketCheck };
+  } catch (error) {
+    console.error('💥 Storage initialization failed:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Delete audio file from storage
+ */
+export const deleteAudioFile = async (filePath, bucketName = 'assignment-audio') => {
+  try {
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .remove([filePath]);
+
+    if (error) {
+      console.error('❌ Error deleting audio file:', error);
+      throw error;
+    }
+
+    console.log('✅ Audio file deleted successfully:', data);
+    return { success: true, data };
+  } catch (error) {
+    console.error('💥 Error deleting audio file:', error);
+    throw error;
+  }
+};
+
+// ============================================================================
+// EXISTING API FUNCTIONS (Keep all your existing code below)
+// ============================================================================
+
 // API request helper
 export const makeApiRequest = async (endpoint, options = {}) => {
   try {
@@ -952,5 +1139,12 @@ export default {
   checkServerHealth,
   getAuthToken,
   adminApi,
-  teacherApi
+  teacherApi,
+  // New storage functions
+  configureAudioBucket,
+  getSecureAudioUrl,
+  uploadAudioFile,
+  checkStorageBucket,
+  initializeStorage,
+  deleteAudioFile
 };
