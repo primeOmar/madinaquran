@@ -388,39 +388,14 @@ export const teacherApi = {
   },
 
   // Get pending submissions for grading
- getPendingSubmissions: async () => {
-  try {
-    const { data, error } = await supabase
-      .from('assignment_submissions')
-      .select(`
-        *,
-        student:profiles!assignment_submissions_student_id_fkey(name, email),
-        assignment:assignments!assignment_submissions_assignment_id_fkey(
-          title, 
-          max_score, 
-          due_date,
-          class:classes(title)
-        )
-      `)
-      .is('grade', null)
-      .order('submitted_at', { ascending: true });
-
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error fetching pending submissions:', error);
-    throw error;
-  }
-},
-  
- getPendingSubmissions: async () => {
+  getPendingSubmissions: async () => {
     try {
       const { data, error } = await supabase
         .from('assignment_submissions')
         .select(`
           *,
-          student:student_id(name, email),
-          assignment:assignment_id(
+          student:profiles!assignment_submissions_student_id_fkey(name, email),
+          assignment:assignments!assignment_submissions_assignment_id_fkey(
             title, 
             max_score, 
             due_date,
@@ -438,27 +413,28 @@ export const teacherApi = {
     }
   },
 
-   getAssignmentsWithSubmissions: async () => {
-  try {
-    const { data, error } = await supabase
-      .from('assignments')
-      .select(`
-        *,
-        class:classes(title),
-        submissions:assignment_submissions(
+  // Get assignments with submissions
+  getAssignmentsWithSubmissions: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('assignments')
+        .select(`
           *,
-          student:profiles!assignment_submissions_student_id_fkey(name, email)
-        )
-      `)
-      .order('created_at', { ascending: false });
+          class:classes(title),
+          submissions:assignment_submissions(
+            *,
+            student:profiles!assignment_submissions_student_id_fkey(name, email)
+          )
+        `)
+        .order('created_at', { ascending: false });
 
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error fetching assignments with submissions:', error);
-    throw error;
-  }
-},
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching assignments with submissions:', error);
+      throw error;
+    }
+  },
 
   // Get graded submissions history
   getGradedSubmissions: async () => {
@@ -509,8 +485,14 @@ export const teacherApi = {
   },
 
   // Grade assignment
- gradeAssignment: async (submissionId, score, feedback, audioFeedbackUrl = null) => {
+  gradeAssignment: async (submissionId, score, feedback, audioFeedbackUrl = null) => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
       const { data, error } = await supabase
         .from('assignment_submissions')
         .update({
@@ -536,7 +518,7 @@ export const teacherApi = {
     }
   },
 
- // Get submission with full details for grading
+  // Get submission with full details for grading
   getSubmissionDetails: async (submissionId) => {
     try {
       const { data, error } = await supabase
@@ -561,8 +543,8 @@ export const teacherApi = {
       console.error('Error fetching submission details:', error);
       throw error;
     }
-  }
-};
+  },
+
   // Update student progress after grading
   updateStudentProgress: async (studentId) => {
     try {
@@ -666,7 +648,6 @@ export const teacherApi = {
     }
   }
 };
-
 
 // Admin API functions (keep existing)
 const adminApi = {
