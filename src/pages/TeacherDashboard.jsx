@@ -835,7 +835,7 @@ export default function TeacherDashboard() {
                   </div>
                 )}
 
-                {submission.audio_url && (
+               {submission.audio_url && (
   <div className="mt-2">
     <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
     
@@ -920,30 +920,24 @@ export default function TeacherDashboard() {
       </a>
     </div>
   </div>
+)}
 
-              <div className="flex space-x-2 self-end md:self-auto">
-                <button
-                  onClick={() => onViewSubmission(submission.id)}
-                  className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
-                >
-                  <Eye size={16} className="mr-2" />
-                  View Details
-                </button>
-                <button
-                  onClick={() => onStartGrading(submission)}
-                  className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
-                >
-                  <FileCheck size={16} className="mr-2" />
-                  Grade Now
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+<div className="flex space-x-2 self-end md:self-auto">
+  <button
+    onClick={() => onViewSubmission(submission.id)}
+    className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+  >
+    <Eye size={16} className="mr-2" />
+    View Details
+  </button>
+  <button
+    onClick={() => onStartGrading(submission)}
+    className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
+  >
+    <FileCheck size={16} className="mr-2" />
+    Grade Now
+  </button>
+</div>
  const GradedSubmissions = ({ submissions, onViewSubmission }) => {
   // Filter only graded submissions and ensure they have valid data
   const gradedSubmissions = submissions.filter(sub => 
