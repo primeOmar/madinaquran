@@ -1144,7 +1144,6 @@ const StudentsTab = ({ students, loading }) => (
     )}
   </div>
 );
-    };
 const AssignmentsTab = ({ 
   assignments, 
   classes, 
@@ -1271,22 +1270,6 @@ const AssignmentsTab = ({
               </span>
             </div>
           )}
-
-         
-          {/* <div className="flex overflow-x-auto space-x-4 pb-4 -mx-4 px-4">
-            {assignments.map((assignment) => (
-              <div key={assignment.id} className="min-w-[300px] max-w-md flex-shrink-0">
-                <AssignmentCard 
-                  assignment={assignment} 
-                  onGrade={onGradeAssignment}
-                  onStartGrading={(submission) => {
-                    setGradingSubmission(submission);
-                    setGradeData({ score: submission.score || '', feedback: submission.feedback || '' });
-                  }}
-                />
-              </div>
-            ))}
-          </div> */}
         </div>
       ) : (
         <div className="text-center py-12">
@@ -1303,6 +1286,7 @@ const AssignmentsTab = ({
     </div>
   );
 };
+
     
 const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
   // Calculate submission stats
