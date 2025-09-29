@@ -11,11 +11,10 @@ import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
-import GradingDashboard from './gradingDashboard';
 
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
-  const navigate = useNavigate(); // Add navigate hook
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('classes');
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
@@ -36,7 +35,7 @@ export default function TeacherDashboard() {
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [gradingSubmission, setGradingSubmission] = useState(null);
   const [isCreatingAssignment, setIsCreatingAssignment] = useState(false);
-const [assignmentCreated, setAssignmentCreated] = useState(false);
+  const [assignmentCreated, setAssignmentCreated] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [stats, setStats] = useState({
     totalClasses: 0,
@@ -47,51 +46,19 @@ const [assignmentCreated, setAssignmentCreated] = useState(false);
     pendingSubmissions: 0
   });
   const [newAssignment, setNewAssignment] = useState({
-  title: '',
-  description: '',
-  due_date: '',
-  max_score: 100,
-  class_id: '',
-  for_all_students: true,
-  selected_students: [] 
-});
-
-
- const getAllStudentsForTeacher = () => {
-    return students.map(student => {
-      const studentClasses = classes.filter(cls => 
-        cls.students_classes?.some(sc => sc.student_id === student.id)
-      );
-      
-      return {
-        id: student.id,
-        name: student.name,
-        classes: studentClasses,
-        class_name: studentClasses.length > 0 
-          ? studentClasses.map(c => c.title).join(', ') 
-          : 'Not assigned to any class'
-      };
-    });
-  };
-
-  const getFilteredStudents = () => {
-    const allStudents = getAllStudentsForTeacher();
-    
-    if (!newAssignment.class_filter) {
-      return allStudents;
-    }
-    
-    return allStudents.filter(student => 
-      student.classes.some(cls => cls.id === newAssignment.class_filter)
-    );
-  };
-
+    title: '',
+    description: '',
+    due_date: '',
+    max_score: 100,
+    class_id: '',
+    for_all_students: true,
+    selected_students: [] 
+  });
   const [gradeData, setGradeData] = useState({ score: '', feedback: '' });
 
   // Monitor authentication state
   useEffect(() => {
     if (!user) {
-      // Redirect to login if user is not authenticated
       navigate('/teacher-login');
     }
   }, [user, navigate]);
@@ -107,46 +74,42 @@ const [assignmentCreated, setAssignmentCreated] = useState(false);
       toast.error('Failed to log out');
     }
   };
-useEffect(() => {
+
+  useEffect(() => {
     if (user) {
       loadSubmissions();
     }
   }, [user]);
 
   const loadSubmissions = async () => {
-  try {
-    // Use the existing getMyAssignments function
-    const assignmentsData = await teacherApi.getMyAssignments();
-    
-    // Extract and flatten all submissions from assignments
-    const allSubmissions = assignmentsData.flatMap(assignment => 
-      (assignment.submissions || []).map(submission => ({
-        ...submission,
-        assignment_title: assignment.title,
-        assignment_max_score: assignment.max_score,
-        assignment_due_date: assignment.due_date
-      }))
-    );
-    
-    // Filter pending submissions (not graded yet)
-    const pendingData = allSubmissions.filter(submission => 
-      submission.grade === null || submission.grade === undefined
-    );
-    
-    setSubmissions(allSubmissions);
-    setPendingSubmissions(pendingData);
-    
-    // Update stats with pending submissions count
-    setStats(prev => ({
-      ...prev,
-      pendingSubmissions: pendingData.length
-    }));
-  } catch (error) {
-    console.error('Error loading submissions:', error);
-    toast.error('Failed to load submissions');
-  }
-};
-
+    try {
+      const assignmentsData = await teacherApi.getMyAssignments();
+      
+      const allSubmissions = assignmentsData.flatMap(assignment => 
+        (assignment.submissions || []).map(submission => ({
+          ...submission,
+          assignment_title: assignment.title,
+          assignment_max_score: assignment.max_score,
+          assignment_due_date: assignment.due_date
+        }))
+      );
+      
+      const pendingData = allSubmissions.filter(submission => 
+        submission.grade === null || submission.grade === undefined
+      );
+      
+      setSubmissions(allSubmissions);
+      setPendingSubmissions(pendingData);
+      
+      setStats(prev => ({
+        ...prev,
+        pendingSubmissions: pendingData.length
+      }));
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      toast.error('Failed to load submissions');
+    }
+  };
 
   // Filter classes based on filters
   const filteredClasses = useMemo(() => {
@@ -178,55 +141,49 @@ useEffect(() => {
   }, [user]);
 
   const loadTeacherData = async () => {
-  try {
-    setLoading({ classes: true, students: true, assignments: true });
-    
-    // Load classes taught by this teacher
-    const classesData = await teacherApi.getMyClasses();
-    setClasses(classesData);
-    
-    // Load students for this teacher
-    const studentsData = await teacherApi.getMyStudents();
-    setStudents(studentsData);
-    
-    // Load assignments - use ONLY getMyAssignments
-    const assignmentsData = await teacherApi.getMyAssignments();
-    setAssignments(assignmentsData);
-    
-    // Calculate pending submissions count from assignments
-    const pendingSubmissionsCount = assignmentsData.reduce((sum, assignment) => 
-      sum + (assignment.pending_count || 0), 0
-    );
-    
-    // Filter upcoming and completed classes
-    const now = new Date();
-    const upcoming = classesData.filter(cls => 
-      new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
-    );
-    const completed = classesData.filter(cls => 
-      cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
-    );
-    
-    setUpcomingClasses(upcoming);
-    setCompletedClasses(completed);
-    
-    // Update stats with real data
-    setStats({
-      totalClasses: classesData.length,
-      upcomingClasses: upcoming.length,
-      completedClasses: completed.length,
-      totalStudents: studentsData.length,
-      totalAssignments: assignmentsData.length,
-      pendingSubmissions: pendingSubmissionsCount
-    });
-    
-  } catch (error) {
-    console.error('Error loading teacher data:', error);
-    toast.error('Failed to load dashboard data');
-  } finally {
-    setLoading({ classes: false, students: false, assignments: false });
-  }
-};
+    try {
+      setLoading({ classes: true, students: true, assignments: true });
+      
+      const classesData = await teacherApi.getMyClasses();
+      setClasses(classesData);
+      
+      const studentsData = await teacherApi.getMyStudents();
+      setStudents(studentsData);
+      
+      const assignmentsData = await teacherApi.getMyAssignments();
+      setAssignments(assignmentsData);
+      
+      const pendingSubmissionsCount = assignmentsData.reduce((sum, assignment) => 
+        sum + (assignment.pending_count || 0), 0
+      );
+      
+      const now = new Date();
+      const upcoming = classesData.filter(cls => 
+        new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
+      );
+      const completed = classesData.filter(cls => 
+        cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
+      );
+      
+      setUpcomingClasses(upcoming);
+      setCompletedClasses(completed);
+      
+      setStats({
+        totalClasses: classesData.length,
+        upcomingClasses: upcoming.length,
+        completedClasses: completed.length,
+        totalStudents: studentsData.length,
+        totalAssignments: assignmentsData.length,
+        pendingSubmissions: pendingSubmissionsCount
+      });
+      
+    } catch (error) {
+      console.error('Error loading teacher data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading({ classes: false, students: false, assignments: false });
+    }
+  };
 
   const startVideoSession = async (classId) => {
     try {
@@ -242,96 +199,115 @@ useEffect(() => {
     window.open(`/video-call/${meetingId}`, '_blank');
   };
 
-const createAssignment = async () => {
-  try {
-    setIsCreatingAssignment(true);
-    
-    if (!newAssignment.title.trim()) {
-      toast.error('Please provide a title for the assignment');
-      setIsCreatingAssignment(false);
-      return;
-    }
-    
-    if (!newAssignment.due_date) {
-      toast.error('Please set a due date for the assignment');
-      setIsCreatingAssignment(false);
-      return;
-    }
+  const createAssignment = async () => {
+    try {
+      setIsCreatingAssignment(true);
+      
+      if (!newAssignment.title.trim()) {
+        toast.error('Please provide a title for the assignment');
+        setIsCreatingAssignment(false);
+        return;
+      }
+      
+      if (!newAssignment.due_date) {
+        toast.error('Please set a due date for the assignment');
+        setIsCreatingAssignment(false);
+        return;
+      }
 
-    // REMOVED: Class is no longer required for "all students" mode
-    // Class is now optional for categorization only
+      if (!newAssignment.for_all_students && newAssignment.selected_students.length === 0) {
+        toast.error('Please select at least one student');
+        setIsCreatingAssignment(false);
+        return;
+      }
 
-    // For specific students mode, at least one student must be selected
-    if (!newAssignment.for_all_students && newAssignment.selected_students.length === 0) {
-      toast.error('Please select at least one student');
-      setIsCreatingAssignment(false);
-      return;
-    }
+      const assignmentData = {
+        title: newAssignment.title,
+        description: newAssignment.description,
+        due_date: newAssignment.due_date,
+        max_score: newAssignment.max_score,
+        class_id: newAssignment.class_id || null,
+        for_all_students: newAssignment.for_all_students,
+        student_ids: newAssignment.for_all_students ? 'all' : newAssignment.selected_students
+      };
 
-    // Prepare data for API
-    const assignmentData = {
-      title: newAssignment.title,
-      description: newAssignment.description,
-      due_date: newAssignment.due_date,
-      max_score: newAssignment.max_score,
-      class_id: newAssignment.class_id || null, // Can be null for categorization
-      for_all_students: newAssignment.for_all_students,
-      student_ids: newAssignment.for_all_students ? 'all' : newAssignment.selected_students
-    };
+      await teacherApi.createAssignment(assignmentData);
+      
+      setAssignmentCreated(true);
+      
+      setTimeout(() => {
+        setShowCreateAssignment(false);
+        setAssignmentCreated(false);
+        setIsCreatingAssignment(false);
+        
+        setNewAssignment({
+          title: '',
+          description: '',
+          due_date: '',
+          max_score: 100,
+          class_id: '',
+          class_filter: '',
+          for_all_students: true,
+          selected_students: []
+        });
+        
+        loadAssignments();
+        
+      }, 2000);
 
-    await teacherApi.createAssignment(assignmentData);
-    
-    // Show success animation
-    setAssignmentCreated(true);
-    
-    // Wait for animation to complete before closing
-    setTimeout(() => {
-      setShowCreateAssignment(false);
-      setAssignmentCreated(false);
+    } catch (error) {
       setIsCreatingAssignment(false);
       
-      // Reset form
-      setNewAssignment({
-        title: '',
-        description: '',
-        due_date: '',
-        max_score: 100,
-        class_id: '',
-        class_filter: '',
-        for_all_students: true,
-        selected_students: []
-      });
-      
-      // Refresh assignments
-      loadAssignments();
-      
-    }, 2000);
-
-  } catch (error) {
-    setIsCreatingAssignment(false);
-    
-    // Handle specific error messages
-    if (error.message.includes('No valid students')) {
-      toast.error('No students are assigned to you yet. Please contact administration to assign students to your account.');
-    } else if (error.message.includes('token') || error.message.includes('Unauthorized')) {
-      toast.error('Session expired. Please log in again.');
-      // Optional: redirect to login after a delay
-      setTimeout(() => navigate('/teacher-login'), 2000);
-    } else {
-      toast.error(`Failed to create assignment: ${error.message}`);
+      if (error.message.includes('No valid students')) {
+        toast.error('No students are assigned to you yet. Please contact administration to assign students to your account.');
+      } else if (error.message.includes('token') || error.message.includes('Unauthorized')) {
+        toast.error('Session expired. Please log in again.');
+        setTimeout(() => navigate('/teacher-login'), 2000);
+      } else {
+        toast.error(`Failed to create assignment: ${error.message}`);
+      }
     }
-  }
-};
-const loadAssignments = async () => {
-  try {
-    const assignmentsData = await teacherApi.getMyAssignments();
-    setAssignments(assignmentsData);
-  } catch (error) {
-    console.error('Error loading assignments:', error);
-  }
-};
+  };
 
-const handleStudentSelection = (studentId) => {
+  const loadAssignments = async () => {
+    try {
+      const assignmentsData = await teacherApi.getMyAssignments();
+      setAssignments(assignmentsData);
+    } catch (error) {
+      console.error('Error loading assignments:', error);
+    }
+  };
+
+  const getAllStudentsForTeacher = () => {
+    return students.map(student => {
+      const studentClasses = classes.filter(cls => 
+        cls.students_classes?.some(sc => sc.student_id === student.id)
+      );
+      
+      return {
+        id: student.id,
+        name: student.name,
+        classes: studentClasses,
+        class_name: studentClasses.length > 0 
+          ? studentClasses.map(c => c.title).join(', ') 
+          : 'Not assigned to any class'
+      };
+    });
+  };
+
+  const getFilteredStudents = () => {
+    const allStudents = getAllStudentsForTeacher();
+    
+    if (!newAssignment.class_filter) {
+      return allStudents;
+    }
+    
+    return allStudents.filter(student => 
+      student.classes.some(cls => cls.id === newAssignment.class_filter)
+    );
+  };
+
+  const handleStudentSelection = (studentId) => {
     setNewAssignment(prev => {
       const isSelected = prev.selected_students.includes(studentId);
       return {
@@ -343,20 +319,6 @@ const handleStudentSelection = (studentId) => {
     });
   };
 
-
-const getStudentsForClass = (classId) => {
-  if (!classId) return [];
-  
-  const classItem = classes.find(c => c.id === classId);
-  if (!classItem || !classItem.students_classes) return [];
-  
-  // Return only student names (no email/contact information)
-  return classItem.students_classes.map(sc => ({
-    id: sc.student_id,
-    name: sc.profiles?.name || 'Unknown Student'
-  }));
-};
-
   const gradeAssignment = async (submissionId, score, feedback) => {
     try {
       if (!score || isNaN(score) || score < 0) {
@@ -366,7 +328,6 @@ const getStudentsForClass = (classId) => {
       
       await teacherApi.gradeAssignment(submissionId, score, feedback);
       
-      // Update student progress
       const submission = submissions.find(s => s.id === submissionId) || 
                         pendingSubmissions.find(s => s.id === submissionId);
       if (submission) {
@@ -378,14 +339,12 @@ const getStudentsForClass = (classId) => {
       setSelectedSubmission(null);
       setGradeData({ score: '', feedback: '' });
       
-      // Refresh data
       loadSubmissions();
-      loadTeacherData(); // Refresh assignments list
+      loadTeacherData();
     } catch (error) {
       toast.error(`Failed to grade assignment: ${error.message}`);
     }
   };
-
 
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
@@ -424,7 +383,7 @@ const getStudentsForClass = (classId) => {
     { icon: BarChart3, value: stats.completedClasses, label: 'Completed', color: 'purple' },
     { icon: Users, value: stats.totalStudents, label: 'Students', color: 'yellow' },
     { icon: FileText, value: stats.totalAssignments, label: 'Assignments', color: 'indigo' },
-    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Grading', color: 'orange',highlight: stats.pendingSubmissions > 0 }
+    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Grading', color: 'orange', highlight: stats.pendingSubmissions > 0 }
   ];
 
   // Navigation tabs
@@ -432,13 +391,778 @@ const getStudentsForClass = (classId) => {
     { id: 'classes', label: 'My Classes', icon: BookOpen },
     { id: 'students', label: 'Students', icon: Users },
     { id: 'assignments', label: 'Assignments', icon: FileText },
-     { id: 'grading', label: 'Grade Work', icon: FileCheck, badge: pendingSubmissions.length },
+    { id: 'grading', label: 'Grade Work', icon: FileCheck, badge: pendingSubmissions.length },
     { id: 'upcoming', label: 'Upcoming', icon: Calendar },
     { id: 'completed', label: 'Completed', icon: BarChart3 }
   ];
 
-      {/* Header */}
+  // Tab Components
+  const ClassesTab = ({ classes, onStartSession, onJoinSession, formatDateTime }) => (
+    <div>
+      <h3 className="text-lg font-semibold text-white mb-4">My Classes</h3>
+      {classes.length > 0 ? (
+        <div className="grid gap-4">
+          {classes.map((classItem) => (
+            <ClassCard 
+              key={classItem.id} 
+              classItem={classItem} 
+              onStartSession={onStartSession}
+              onJoinSession={onJoinSession}
+              formatDateTime={formatDateTime}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <BookOpen size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No classes found</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const ClassCard = ({ classItem, onStartSession, onJoinSession, formatDateTime }) => (
+    <div className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
+      <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+        <div className="flex-1">
+          <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
+          <div className="flex flex-col md:flex-row flex-wrap items-start md:items-center mt-2 text-sm text-blue-200 space-y-2 md:space-y-0 md:space-x-4">
+            <span className="flex items-center">
+              <Calendar size={14} className="mr-1" />
+              {formatDateTime(classItem.scheduled_date)}
+            </span>
+            {classItem.duration && (
+              <span className="flex items-center">
+                <Clock size={14} className="mr-1" />
+                {classItem.duration} minutes
+              </span>
+            )}
+            {classItem.course?.name && (
+              <span className="flex items-center">
+                <BookOpen size={14} className="mr-1" />
+                {classItem.course.name}
+              </span>
+            )}
+          </div>
+          {classItem.description && (
+            <p className="text-blue-300 text-sm mt-2">{classItem.description}</p>
+          )}
+        </div>
+        <div className="flex space-x-2 self-end md:self-auto">
+          {classItem.status === 'scheduled' && (
+            <button
+              onClick={() => onStartSession(classItem.id)}
+              className="p-2 rounded-lg bg-green-600 hover:bg-green-500 flex items-center text-white"
+              title="Start Video Session"
+            >
+              <Play size={16} />
+            </button>
+          )}
+          {classItem.status === 'active' && classItem.video_sessions?.[0] && (
+            <button
+              onClick={() => onJoinSession(classItem.video_sessions[0].meeting_id)}
+              className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 flex items-center text-white"
+              title="Join Video Session"
+            >
+              <Eye size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+        <span className="text-sm text-blue-300">
+          Students: {classItem.students_classes?.length || 0}
+          {classItem.max_students && ` / ${classItem.max_students}`}
+        </span>
+        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+          classItem.status === "scheduled" 
+            ? "bg-yellow-500/20 text-yellow-300" 
+            : classItem.status === "active"
+            ? "bg-green-500/20 text-green-300"
+            : classItem.status === "completed"
+            ? "bg-blue-500/20 text-blue-300"
+            : "bg-red-500/20 text-red-300"
+        }`}>
+          {classItem.status?.toUpperCase()}
+        </span>
+      </div>
+    </div>
+  );
+
+  const StudentsTab = ({ students, loading }) => (
+    <div>
+      <h3 className="text-lg font-semibold text-white mb-4">My Students ({students.length})</h3>
+      {loading ? (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto"></div>
+          <p className="text-blue-200 mt-2">Loading students...</p>
+        </div>
+      ) : students.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {students.map((student) => (
+            <div key={student.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
+              <div className="flex items-center">
+                <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                  <User size={16} />
+                </div>
+                <div>
+                  <p className="font-medium text-white">{student.name}</p>
+                  <p className="text-blue-400 text-xs">Joined: {new Date(student.created_at).toLocaleDateString()}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex space-x-2">
+                <button className="flex-1 bg-blue-600 hover:bg-blue-500 py-1 px-2 rounded text-sm text-white">
+                  <MessageCircle size={14} className="inline mr-1" />
+                  Message
+                </button>
+                <button className="flex-1 bg-green-600 hover:bg-green-500 py-1 px-2 rounded text-sm text-white">
+                  <FileText size={14} className="inline mr-1" />
+                  Progress
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <Users size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No students enrolled yet</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
+    const totalSubmissions = assignment.submissions?.length || 0;
+    const gradedSubmissions = assignment.submissions?.filter(s => s.grade !== null && s.grade !== undefined).length || 0;
+    const pendingSubmissions = totalSubmissions - gradedSubmissions;
+
+    return (
+      <div className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
+        <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+          <div className="flex-1">
+            <h4 className="font-bold text-lg text-white">{assignment.title}</h4>
+            <p className="text-blue-300 text-sm mt-1">{assignment.description}</p>
+            
+            <div className="flex flex-wrap items-center mt-3 text-sm text-blue-200 gap-4">
+              <span className="flex items-center">
+                <Calendar size={14} className="mr-1" />
+                Due: {new Date(assignment.due_date).toLocaleDateString()}
+              </span>
+              <span className="flex items-center">
+                <Award size={14} className="mr-1" />
+                Max Score: {assignment.max_score}
+              </span>
+              <span className="flex items-center">
+                <Users size={14} className="mr-1" />
+                Students: {assignment.student_count || 0}
+              </span>
+              {assignment.class?.title && (  
+                <span className="flex items-center">
+                  <BookOpen size={14} className="mr-1" />
+                  Class: {assignment.class.title}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 self-end md:self-auto">
+            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+              new Date(assignment.due_date) < new Date() && pendingSubmissions > 0
+                ? "bg-red-500/20 text-red-300"
+                : "bg-green-500/20 text-green-300"
+            }`}>
+              {new Date(assignment.due_date) < new Date() && pendingSubmissions > 0
+                ? "OVERDUE"
+                : "ON TIME"
+              }
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-green-400">{totalSubmissions}</p>
+            <p className="text-blue-300">Submitted</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-yellow-400">{gradedSubmissions}</p>
+            <p className="text-blue-300">Graded</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-red-400">{pendingSubmissions}</p>
+            <p className="text-blue-300">Pending</p>
+          </div>
+        </div>
+
+        {assignment.submissions && assignment.submissions.length > 0 && (
+          <div className="mt-4">
+            <h5 className="font-semibold text-blue-200 mb-2">Submissions:</h5>
+            <div className="space-y-2">
+              {assignment.submissions.map((submission) => (
+                <div key={submission.id} className="flex flex-col md:flex-row justify-between items-start md:items-center p-2 bg-white/5 rounded gap-2">
+                  <div>
+                    <p className="text-white text-sm">{submission.student_name}</p>
+                    <p className="text-blue-300 text-xs">
+                      {submission.submitted_at 
+                        ? `Submitted: ${new Date(submission.submitted_at).toLocaleDateString()}`
+                        : 'Not submitted'
+                      }
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {submission.grade !== null ? (
+                      <span className="text-green-400 text-sm">
+                        Score: {submission.grade}/{assignment.max_score}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onStartGrading(submission)}
+                        className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-sm text-white"
+                      >
+                        Grade
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const AssignmentsTab = ({ 
+    assignments, 
+    classes, 
+    onCreateAssignment, 
+    onGradeAssignment, 
+    showCreateModal, 
+    setShowCreateModal, 
+    newAssignment, 
+    setNewAssignment,
+    loading,
+    gradingSubmission,
+    setGradingSubmission,
+    gradeData,
+    setGradeData
+  }) => {
+    const [currentAssignmentIndex, setCurrentAssignmentIndex] = useState(0);
+
+    const nextAssignment = () => {
+      setCurrentAssignmentIndex(prev => 
+        prev < assignments.length - 1 ? prev + 1 : 0
+      );
+    };
+
+    const prevAssignment = () => {
+      setCurrentAssignmentIndex(prev => 
+        prev > 0 ? prev - 1 : assignments.length - 1
+      );
+    };
+
+    if (loading) {
       return (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto"></div>
+          <p className="text-blue-200 mt-2">Loading assignments...</p>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <h3 className="text-lg font-semibold text-white">Assignments ({assignments.length})</h3>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center text-white w-full md:w-auto justify-center"
+          >
+            <Plus size={16} className="mr-2" />
+            New Assignment
+          </button>
+        </div>
+
+        {assignments.length > 0 ? (
+          <div className="relative">
+            {assignments.length > 1 && (
+              <>
+                <button
+                  onClick={prevAssignment}
+                  className="hidden md:flex absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-6 bg-blue-600 hover:bg-blue-500 p-3 rounded-full text-white z-10"
+                  aria-label="Previous assignment"
+                >
+                  <ChevronDown size={20} className="transform rotate-90" />
+                </button>
+                <button
+                  onClick={nextAssignment}
+                  className="hidden md:flex absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-6 bg-blue-600 hover:bg-blue-500 p-3 rounded-full text-white z-10"
+                  aria-label="Next assignment"
+                >
+                  <ChevronDown size={20} className="transform -rotate-90" />
+                </button>
+              </>
+            )}
+
+            <div className="bg-white/10 border border-white/20 rounded-lg p-6 mb-4">
+              <AssignmentCard 
+                key={assignments[currentAssignmentIndex].id} 
+                assignment={assignments[currentAssignmentIndex]} 
+                onGrade={onGradeAssignment}
+                onStartGrading={(submission) => {
+                  setGradingSubmission(submission);
+                  setGradeData({ score: submission.score || '', feedback: submission.feedback || '' });
+                }}
+              />
+            </div>
+
+            {assignments.length > 1 && (
+              <div className="flex items-center justify-center space-x-4 mt-4">
+                <button
+                  onClick={prevAssignment}
+                  className="md:hidden bg-blue-600 hover:bg-blue-500 p-2 rounded-full text-white"
+                  aria-label="Previous assignment"
+                >
+                  <ChevronDown size={16} className="transform rotate-90" />
+                </button>
+                
+                <div className="flex space-x-2">
+                  {assignments.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentAssignmentIndex(index)}
+                      className={`w-3 h-3 rounded-full ${
+                        index === currentAssignmentIndex 
+                          ? 'bg-blue-400' 
+                          : 'bg-blue-600/50 hover:bg-blue-500'
+                      }`}
+                      aria-label={`Go to assignment ${index + 1}`}
+                    />
+                  ))}
+                </div>
+
+                <button
+                  onClick={nextAssignment}
+                  className="md:hidden bg-blue-600 hover:bg-blue-500 p-2 rounded-full text-white"
+                  aria-label="Next assignment"
+                >
+                  <ChevronDown size={16} className="transform -rotate-90" />
+                </button>
+
+                <span className="text-blue-300 text-sm ml-4">
+                  {currentAssignmentIndex + 1} of {assignments.length}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <FileText size={48} className="mx-auto text-blue-400 mb-3" />
+            <p className="text-blue-200">No assignments created yet</p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="mt-4 bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white"
+            >
+              Create Your First Assignment
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) => {
+    if (submissions.length === 0) {
+      return (
+        <div className="text-center py-12">
+          <FileCheck size={48} className="mx-auto text-green-400 mb-3" />
+          <p className="text-blue-200">No pending submissions to grade</p>
+          <p className="text-blue-300 text-sm mt-1">All caught up!</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {submissions.map((submission) => (
+          <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 hover:bg-yellow-500/15 transition-colors">
+            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+              <div className="flex-1">
+                <div className="flex items-center mb-2">
+                  <User size={16} className="text-yellow-400 mr-2" />
+                  <h4 className="font-semibold text-white">
+                    {submission.student?.name || 'Unknown Student'}
+                  </h4>
+                  {submission.student?.email && (
+                    <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
+                      {submission.student.email}
+                    </span>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
+                    <p className="text-blue-200">Due: <span className="text-white">
+                      {submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date'}
+                    </span></p>
+                  </div>
+                  <div>
+                    <p className="text-blue-200">Submitted: <span className="text-white">
+                      {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
+                    </span></p>
+                    <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment?.max_score || 100}</span></p>
+                  </div>
+                </div>
+
+                {submission.submission_text && (
+                  <div className="mt-3 p-3 bg-black/20 rounded">
+                    <p className="text-blue-200 text-sm font-medium mb-1">Submission:</p>
+                    <p className="text-white text-sm line-clamp-2">{submission.submission_text}</p>
+                  </div>
+                )}
+
+                {submission.audio_url && (
+                  <div className="mt-2">
+                    <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
+                    <audio controls className="w-full max-w-md">
+                      <source src={submission.audio_url} type="audio/webm" />
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex space-x-2 self-end md:self-auto">
+                <button
+                  onClick={() => onViewSubmission(submission.id)}
+                  className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+                >
+                  <Eye size={16} className="mr-2" />
+                  View Details
+                </button>
+                <button
+                  onClick={() => onStartGrading(submission)}
+                  className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
+                >
+                  <FileCheck size={16} className="mr-2" />
+                  Grade Now
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const GradedSubmissions = ({ submissions, onViewSubmission }) => {
+    if (submissions.length === 0) {
+      return (
+        <div className="text-center py-12">
+          <Award size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No graded submissions yet</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {submissions.map((submission) => (
+          <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+              <div className="flex-1">
+                <div className="flex items-center mb-2">
+                  <User size={16} className="text-green-400 mr-2" />
+                  <h4 className="font-semibold text-white">
+                    {submission.student?.name || 'Unknown Student'}
+                  </h4>
+                  <div className="ml-3 flex items-center space-x-2">
+                    <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
+                      Score: {submission.grade}/{submission.assignment?.max_score || 100}
+                    </span>
+                    <span className="text-blue-300 text-sm">
+                      {Math.round((submission.grade / (submission.assignment?.max_score || 100)) * 100)}%
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
+                    <p className="text-blue-200">Graded on: <span className="text-white">
+                      {submission.graded_at ? new Date(submission.graded_at).toLocaleDateString() : 'Not graded'}
+                    </span></p>
+                  </div>
+                  <div>
+                    <p className="text-blue-200">Submitted: <span className="text-white">
+                      {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
+                    </span></p>
+                    <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
+                  </div>
+                </div>
+
+                {submission.feedback && (
+                  <div className="mt-3 p-3 bg-black/20 rounded">
+                    <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
+                    <p className="text-white text-sm">{submission.feedback}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex space-x-2 self-end md:self-auto">
+                <button
+                  onClick={() => onViewSubmission(submission.id)}
+                  className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+                >
+                  <Eye size={16} className="mr-2" />
+                  View Details
+                </button>
+                <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
+                  GRADED
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const GradingTab = ({ 
+    submissions, 
+    pendingSubmissions, 
+    onGradeAssignment, 
+    onStartGrading,
+    activeTab,
+    setActiveTab 
+  }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedSubmission, setSelectedSubmission] = useState(null);
+
+    const filteredPendingSubmissions = pendingSubmissions.filter(sub => 
+      sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      sub.assignment?.title?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const filteredGradedSubmissions = submissions.flatMap(assignment => 
+      assignment.submissions?.filter(sub => 
+        sub.grade !== null && (
+          sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          assignment.title?.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      ) || []
+    );
+
+    const loadSubmissionDetails = async (submissionId) => {
+      try {
+        const submission = await teacherApi.getSubmissionDetails(submissionId);
+        setSelectedSubmission(submission);
+      } catch (error) {
+        console.error('Error loading submission details:', error);
+        toast.error('Failed to load submission details');
+      }
+    };
+
+    return (
+      <div className="flex flex-col lg:flex-row gap-6">
+        <div className="flex-1">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
+              <p className="text-blue-300 text-sm">
+                {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            
+            <div className="flex items-center space-x-4 w-full md:w-auto">
+              <div className="relative flex-1 md:flex-none">
+                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
+                <input
+                  type="text"
+                  placeholder="Search students or assignments..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex space-x-4 mb-6 border-b border-white/20">
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'pending'
+                  ? 'border-yellow-400 text-yellow-400'
+                  : 'border-transparent text-blue-300 hover:text-white'
+              }`}
+            >
+              Pending Grading
+              {pendingSubmissions.length > 0 && (
+                <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
+                  {pendingSubmissions.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('graded')}
+              className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'graded'
+                  ? 'border-green-400 text-green-400'
+                  : 'border-transparent text-blue-300 hover:text-white'
+              }`}
+            >
+              Graded Work
+              <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
+                {filteredGradedSubmissions.length}
+              </span>
+            </button>
+          </div>
+
+          {activeTab === 'pending' && (
+            <PendingSubmissions 
+              submissions={filteredPendingSubmissions}
+              onStartGrading={onStartGrading}
+              onViewSubmission={loadSubmissionDetails}
+            />
+          )}
+
+          {activeTab === 'graded' && (
+            <GradedSubmissions 
+              submissions={filteredGradedSubmissions}
+              onViewSubmission={loadSubmissionDetails}
+            />
+          )}
+        </div>
+
+        {selectedSubmission && (
+          <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
+            <div className="flex justify-between items-center mb-4">
+              <h4 className="text-lg font-semibold text-white">Submission Details</h4>
+              <button
+                onClick={() => setSelectedSubmission(null)}
+                className="text-blue-300 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-blue-200 text-sm">Student</p>
+                <p className="text-white font-medium">{selectedSubmission.student?.name || 'Unknown Student'}</p>
+                <p className="text-blue-300 text-xs">{selectedSubmission.student?.email}</p>
+              </div>
+
+              <div>
+                <p className="text-blue-200 text-sm">Assignment</p>
+                <p className="text-white font-medium">{selectedSubmission.assignment?.title}</p>
+                <p className="text-blue-300 text-xs">
+                  Due: {new Date(selectedSubmission.assignment?.due_date).toLocaleDateString()}
+                </p>
+              </div>
+
+              {selectedSubmission.submission_text && (
+                <div>
+                  <p className="text-blue-200 text-sm">Written Submission</p>
+                  <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
+                    {selectedSubmission.submission_text}
+                  </p>
+                </div>
+              )}
+
+              {selectedSubmission.audio_url && (
+                <div>
+                  <p className="text-blue-200 text-sm">Audio Submission</p>
+                  <audio 
+                    controls 
+                    className="w-full mt-2 rounded-lg"
+                    src={selectedSubmission.audio_url}
+                  >
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
+
+              {selectedSubmission.submitted_at && (
+                <div>
+                  <p className="text-blue-200 text-sm">Submitted</p>
+                  <p className="text-white text-sm">
+                    {new Date(selectedSubmission.submitted_at).toLocaleString()}
+                  </p>
+                </div>
+              )}
+
+              {(!selectedSubmission.grade || selectedSubmission.grade === null) && (
+                <button
+                  onClick={() => {
+                    onStartGrading(selectedSubmission);
+                    setSelectedSubmission(null);
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
+                >
+                  Grade This Submission
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const UpcomingTab = ({ classes, formatDateTime }) => (
+    <div>
+      <h3 className="text-lg font-semibold text-white mb-4">Upcoming Classes ({classes.length})</h3>
+      {classes.length > 0 ? (
+        <div className="grid gap-4">
+          {classes.map((classItem) => (
+            <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
+              <h4 className="font-bold text-white">{classItem.title}</h4>
+              <p className="text-blue-300 text-sm mt-1">{formatDateTime(classItem.scheduled_date)}</p>
+              <p className="text-blue-200 text-sm">Duration: {classItem.duration} minutes</p>
+              <div className="mt-3 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-full text-xs inline-block">
+                UPCOMING
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <Calendar size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No upcoming classes</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const CompletedTab = ({ classes, formatDateTime }) => (
+    <div>
+      <h3 className="text-lg font-semibold text-white mb-4">Completed Classes ({classes.length})</h3>
+      {classes.length > 0 ? (
+        <div className="grid gap-4">
+          {classes.map((classItem) => (
+            <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
+              <h4 className="font-bold text-white">{classItem.title}</h4>
+              <p className="text-blue-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
+              <p className="text-blue-200 text-sm">Students: {classItem.students_classes?.length || 0}</p>
+              <div className="mt-3 bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs inline-block">
+                COMPLETED
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <BarChart3 size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No completed classes yet</p>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
   <div className="min-h-screen bg-gradient-to-br from-blue-900 to-purple-900 relative">
     {/* Header */}
     <header className="bg-white/10 backdrop-blur-lg border-b border-white/20 relative z-[10000]">
@@ -494,54 +1218,33 @@ const getStudentsForClass = (classId) => {
       </div>
     </header>
 
-       <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          {statsGrid.map((stat, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
-              <div className="flex items-center">
-                <stat.icon className={`h-6 w-6 text-${stat.color}-400 mr-3`} />
-                <div>
-                  <p className="text-xl font-bold text-white">{stat.value}</p>
-                  <p className="text-blue-200 text-sm">{stat.label}</p>
-                </div>
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
+      {/* Quick Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        {statsGrid.map((stat, index) => (
+          <div key={index} className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
+            <div className="flex items-center">
+              <stat.icon className={`h-6 w-6 text-${stat.color}-400 mr-3`} />
+              <div>
+                <p className="text-xl font-bold text-white">{stat.value}</p>
+                <p className="text-blue-200 text-sm">{stat.label}</p>
               </div>
             </div>
-          ))}
-        </div>
-
-        {/* Mobile Navigation Tabs */}
-        {mobileMenuOpen && (
-          <div className="md:hidden bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-6 border border-white/20">
-            <nav className="flex flex-col space-y-2">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? 'bg-blue-600 text-white'
-                      : 'text-blue-200 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <tab.icon size={16} className="mr-2" />
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
           </div>
-        )}
+        ))}
+      </div>
 
-        {/* Desktop Navigation Tabs */}
-        <div className="hidden md:block bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-6 border border-white/20">
-          <nav className="flex space-x-4 overflow-x-auto">
+      {/* Mobile Navigation Tabs */}
+      {mobileMenuOpen && (
+        <div className="md:hidden bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-6 border border-white/20">
+          <nav className="flex flex-col space-y-2">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setMobileMenuOpen(false);
+                }}
                 className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'bg-blue-600 text-white'
@@ -554,1237 +1257,477 @@ const getStudentsForClass = (classId) => {
             ))}
           </nav>
         </div>
+      )}
 
-        {/* Main Content */}
-        <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 md:p-6 border border-white/20">
-          {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-1">Search</label>
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={filters.search}
-                  onChange={(e) => updateFilter('search', e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-1">Status</label>
-              <select
-                value={filters.status}
-                onChange={(e) => updateFilter('status', e.target.value)}
-                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">All Status</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-
-            <div className="flex items-end">
-              <button
-                onClick={() => setFilters({ status: '', search: '' })}
-                className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center justify-center text-white"
-              >
-                <Filter size={16} className="mr-2" />
-                Clear Filters
-              </button>
-            </div>
-          </div>
-
-          {/* Content based on active tab */}
-          {activeTab === 'classes' && (
-            <ClassesTab 
-              classes={filteredClasses} 
-              onStartSession={startVideoSession}
-              onJoinSession={joinVideoSession}
-              formatDateTime={formatDateTime}
-            />
-          )}
-
-          {activeTab === 'students' && (
-            <StudentsTab students={students} loading={loading.students} />
-          )}
-
-{activeTab === 'assignments' && (
-  <AssignmentsTab 
-    assignments={assignments} 
-    classes={classes}
-    onCreateAssignment={createAssignment}
-    onGradeAssignment={gradeAssignment}
-    showCreateModal={showCreateAssignment}
-    setShowCreateModal={setShowCreateAssignment}
-    newAssignment={newAssignment}
-    setNewAssignment={setNewAssignment}
-    loading={loading.assignments}
-    gradingSubmission={gradingSubmission}
-    setGradingSubmission={setGradingSubmission}
-    gradeData={gradeData}
-    setGradeData={setGradeData}
-  />
-)}
-
-{activeTab === 'grading' && (
-  <GradingTab 
-    submissions={assignments} // This contains assignments with submissions
-    pendingSubmissions={pendingSubmissions}
-    onGradeAssignment={gradeAssignment}
-    onStartGrading={(submission) => {
-      setGradingSubmission(submission);
-      setGradeData({ 
-        score: submission.grade || '', 
-        feedback: submission.feedback || '',
-        audioFeedbackUrl: submission.audio_feedback_url || ''
-      });
-    }}
-    activeTab={activeGradingTab}
-    setActiveTab={setActiveGradingTab}
-  />
-)}
-          {activeTab === 'upcoming' && (
-            <UpcomingTab classes={upcomingClasses} formatDateTime={formatDateTime} />
-          )}
-
-          {activeTab === 'completed' && (
-            <CompletedTab classes={completedClasses} formatDateTime={formatDateTime} />
-          )}
-        </div>
-      </div>
-
-      {/* Create Assignment Modal */}
-{showCreateAssignment && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-    <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-      <h3 className="text-xl font-bold mb-4 text-white">Create New Assignment</h3>
-      
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">Title *</label>
-          <input
-            type="text"
-            value={newAssignment.title}
-            onChange={(e) => setNewAssignment({...newAssignment, title: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            placeholder="Assignment title"
-            required
-            disabled={isCreatingAssignment}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">Description</label>
-          <textarea
-            value={newAssignment.description}
-            onChange={(e) => setNewAssignment({...newAssignment, description: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            rows="3"
-            placeholder="Assignment description"
-            disabled={isCreatingAssignment}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">Due Date *</label>
-          <input
-            type="datetime-local"
-            value={newAssignment.due_date}
-            onChange={(e) => setNewAssignment({...newAssignment, due_date: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            required
-            disabled={isCreatingAssignment}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">Max Score</label>
-          <input
-            type="number"
-            value={newAssignment.max_score}
-            onChange={(e) => setNewAssignment({...newAssignment, max_score: parseInt(e.target.value) || 100})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            min="1"
-            max="100"
-            disabled={isCreatingAssignment}
-          />
-        </div>
-
-        {/* Class field (optional for categorization) */}
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">
-            Class (Optional)
-          </label>
-          <select
-            value={newAssignment.class_id}
-            onChange={(e) => setNewAssignment({...newAssignment, class_id: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            disabled={isCreatingAssignment}
-          >
-            <option value="">Select Class (Optional)</option>
-            {classes.map(cls => (
-              <option key={cls.id} value={cls.id}>{cls.title}</option>
-            ))}
-          </select>
-          <p className="text-blue-300 text-xs mt-1">Optional: Categorize assignment by class</p>
-        </div>
-
-        {/* Default Quran Subject */}
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">Subject</label>
-          <input
-            type="text"
-            value="Quran"
-            readOnly
-            className="w-full p-2 rounded-lg bg-blue-800/30 border border-blue-700/30 text-blue-300 cursor-not-allowed"
-          />
-          <p className="text-blue-300 text-xs mt-1">Subject is automatically set to Quran</p>
-        </div>
-
-        <div className="flex items-center">
-          <input
-            type="checkbox"
-            checked={newAssignment.for_all_students}
-            onChange={(e) => {
-              setNewAssignment({
-                ...newAssignment, 
-                for_all_students: e.target.checked,
-                // Clear selected students when switching to "all students" mode
-                selected_students: e.target.checked ? [] : newAssignment.selected_students
-              });
-            }}
-            className="mr-2"
-            disabled={isCreatingAssignment}
-          />
-          <span className="text-blue-200 text-sm">Assign to all my students</span>
-        </div>
-
-        {/* Student Selection (only show when not assigning to all students) */}
-        {!newAssignment.for_all_students && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-blue-200 mb-2">
-              Select Students *
-            </label>
-            
-            {/* Class filter for students */}
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-blue-200 mb-1">Filter by Class (Optional)</label>
-              <select
-                value={newAssignment.class_filter || ""}
-                onChange={(e) => setNewAssignment({...newAssignment, class_filter: e.target.value})}
-                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-                disabled={isCreatingAssignment}
-              >
-                <option value="">All Classes</option>
-                {classes.map(cls => (
-                  <option key={cls.id} value={cls.id}>{cls.title}</option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="max-h-48 overflow-y-auto bg-blue-800/30 rounded-lg p-2 border border-blue-700/30">
-              {getFilteredStudents().length > 0 ? (
-                <>
-                  <div className="text-blue-300 text-xs mb-2">
-                    Showing {getFilteredStudents().length} student(s)
-                    {newAssignment.class_filter && ` in selected class`}
-                  </div>
-                  
-                  {getFilteredStudents().map(student => (
-                    <label key={student.id} className="flex items-center p-2 hover:bg-blue-700/30 rounded cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newAssignment.selected_students.includes(student.id)}
-                        onChange={() => handleStudentSelection(student.id)}
-                        className="mr-3 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
-                        disabled={isCreatingAssignment}
-                      />
-                      <div>
-                        <span className="text-blue-200 block">{student.name}</span>
-                        <span className="text-blue-400 text-xs block">
-                          Class: {student.class_name || 'Not assigned'}
-                        </span>
-                      </div>
-                    </label>
-                  ))}
-                </>
-              ) : (
-                <p className="text-blue-300 text-sm p-2">
-                  {students.length === 0 
-                    ? 'No students assigned to you yet' 
-                    : 'No students match the current filter'
-                  }
-                </p>
-              )}
-            </div>
-            
-            {newAssignment.selected_students.length === 0 && (
-              <p className="text-red-300 text-xs mt-1">Please select at least one student</p>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="flex justify-end space-x-3 mt-6">
-        <button
-          onClick={() => setShowCreateAssignment(false)}
-          className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white transition-colors disabled:opacity-50"
-          disabled={isCreatingAssignment}
-        >
-          Cancel
-        </button>
-        <button
-          onClick={createAssignment}
-          disabled={
-            // Only require student selection for specific students mode
-            (!newAssignment.for_all_students && newAssignment.selected_students.length === 0) ||
-            isCreatingAssignment
-          }
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed transition-colors flex items-center justify-center min-w-[80px]"
-        >
-          {isCreatingAssignment ? (
-            <div className="flex items-center">
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Creating...
-            </div>
-          ) : (
-            'Create'
-          )}
-        </button>
-      </div>
-
-      {/* Success Animation */}
-      {assignmentCreated && (
-        <div className="absolute inset-0 bg-green-900/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
-          <div className="text-center p-6">
-            <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-              </svg>
-            </div>
-            <h4 className="text-lg font-semibold text-white mb-2">Assignment Created!</h4>
-            <p className="text-green-200">
-              {newAssignment.for_all_students 
-                ? `Sent to all ${students.length} students assigned to you` 
-                : `Sent to ${newAssignment.selected_students.length} student(s)`
-              }
-            </p>
-            {newAssignment.class_id && (
-              <p className="text-green-300 text-sm mt-1">
-                Categorized under: {classes.find(c => c.id === newAssignment.class_id)?.title}
-              </p>
-            )}
+      {/* Desktop Navigation Tabs */}
+      <div className="hidden md:block bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-6 border border-white/20">
+        <nav className="flex space-x-4 overflow-x-auto">
+          {tabs.map((tab) => (
             <button
-              onClick={() => {
-  setAssignmentCreated(false);
-  setShowCreateAssignment(false); 
-}}
-              className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'bg-blue-600 text-white'
+                  : 'text-blue-200 hover:text-white hover:bg-white/10'
+              }`}
             >
-              Close
+              <tab.icon size={16} className="mr-2" />
+              {tab.label}
             </button>
-          </div>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-
-      {/* Grade Assignment Modal */}
-   
-{gradingSubmission && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-    <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-      <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
-      
-      {/* Student and Assignment Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-blue-800/30 rounded-lg">
-        <div>
-          <p className="text-blue-200 text-sm">Student</p>
-          <p className="text-white font-medium">{gradingSubmission.student?.name || 'Unknown Student'}</p>
-          <p className="text-blue-300 text-xs">{gradingSubmission.student?.email}</p>
-        </div>
-        <div>
-          <p className="text-blue-200 text-sm">Assignment</p>
-          <p className="text-white font-medium">{gradingSubmission.assignment?.title}</p>
-          <p className="text-blue-300 text-xs">
-            Max Score: {gradingSubmission.assignment?.max_score}
-          </p>
-        </div>
+          ))}
+        </nav>
       </div>
 
-      {/* Audio Submission Preview */}
-      {gradingSubmission.audio_url && (
-        <div className="mb-6">
-          <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
-          <audio controls className="w-full rounded-lg">
-            <source src={gradingSubmission.audio_url} type="audio/webm" />
-            Your browser does not support the audio element.
-          </audio>
-        </div>
-      )}
-
-      {/* Written Submission Preview */}
-      {gradingSubmission.submission_text && (
-        <div className="mb-6">
-          <p className="text-blue-200 text-sm font-medium mb-2">Written Submission:</p>
-          <div className="bg-blue-800/30 p-4 rounded-lg max-h-32 overflow-y-auto">
-            <p className="text-white text-sm">{gradingSubmission.submission_text}</p>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">
-            Score * (Max: {gradingSubmission.assignment?.max_score || 100})
-          </label>
-          <input
-            type="number"
-            value={gradeData.score}
-            onChange={(e) => setGradeData({...gradeData, score: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            min="0"
-            max={gradingSubmission.assignment?.max_score || 100}
-            placeholder="Enter score"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">Feedback</label>
-          <textarea
-            value={gradeData.feedback}
-            onChange={(e) => setGradeData({...gradeData, feedback: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            rows="4"
-            placeholder="Provide feedback to the student..."
-          />
-        </div>
-
-        {/* Audio Feedback Option */}
-        <div>
-          <label className="block text-sm font-medium text-blue-200 mb-1">
-            Audio Feedback URL (Optional)
-          </label>
-          <input
-            type="text"
-            value={gradeData.audioFeedbackUrl || ''}
-            onChange={(e) => setGradeData({...gradeData, audioFeedbackUrl: e.target.value})}
-            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-            placeholder="https://example.com/audio-feedback.mp3"
-          />
-          <p className="text-blue-300 text-xs mt-1">Optional: Provide audio feedback to the student</p>
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-3 mt-6">
-        <button
-          onClick={() => setGradingSubmission(null)}
-          className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={() => gradeAssignment(
-            gradingSubmission.id, 
-            parseInt(gradeData.score), 
-            gradeData.feedback,
-            gradeData.audioFeedbackUrl
-          )}
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
-        >
-          Submit Grade
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-// Tab Components
-const ClassesTab = ({ classes, onStartSession, onJoinSession, formatDateTime }) => (
-  <div>
-    <h3 className="text-lg font-semibold text-white mb-4">My Classes</h3>
-    {classes.length > 0 ? (
-      <div className="grid gap-4">
-        {classes.map((classItem) => (
-          <ClassCard 
-            key={classItem.id} 
-            classItem={classItem} 
-            onStartSession={onStartSession}
-            onJoinSession={onJoinSession}
-            formatDateTime={formatDateTime}
-          />
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-12">
-        <BookOpen size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No classes found</p>
-      </div>
-    )}
-  </div>
-);
-
-const ClassCard = ({ classItem, onStartSession, onJoinSession, formatDateTime }) => (
-  <div className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
-    <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-      <div className="flex-1">
-        <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
-        <div className="flex flex-col md:flex-row flex-wrap items-start md:items-center mt-2 text-sm text-blue-200 space-y-2 md:space-y-0 md:space-x-4">
-          <span className="flex items-center">
-            <Calendar size={14} className="mr-1" />
-            {formatDateTime(classItem.scheduled_date)}
-          </span>
-          {classItem.duration && (
-            <span className="flex items-center">
-              <Clock size={14} className="mr-1" />
-              {classItem.duration} minutes
-            </span>
-          )}
-          {classItem.course?.name && (
-            <span className="flex items-center">
-              <BookOpen size={14} className="mr-1" />
-              {classItem.course.name}
-            </span>
-          )}
-        </div>
-        {classItem.description && (
-          <p className="text-blue-300 text-sm mt-2">{classItem.description}</p>
-        )}
-      </div>
-      <div className="flex space-x-2 self-end md:self-auto">
-        {classItem.status === 'scheduled' && (
-          <button
-            onClick={() => onStartSession(classItem.id)}
-            className="p-2 rounded-lg bg-green-600 hover:bg-green-500 flex items-center text-white"
-            title="Start Video Session"
-          >
-            <Play size={16} />
-          </button>
-        )}
-        {classItem.status === 'active' && classItem.video_sessions?.[0] && (
-          <button
-            onClick={() => onJoinSession(classItem.video_sessions[0].meeting_id)}
-            className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 flex items-center text-white"
-            title="Join Video Session"
-          >
-            <Eye size={16} />
-          </button>
-        )}
-      </div>
-    </div>
-    <div className="mt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-      <span className="text-sm text-blue-300">
-        Students: {classItem.students_classes?.length || 0}
-        {classItem.max_students && ` / ${classItem.max_students}`}
-      </span>
-      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-        classItem.status === "scheduled" 
-          ? "bg-yellow-500/20 text-yellow-300" 
-          : classItem.status === "active"
-          ? "bg-green-500/20 text-green-300"
-          : classItem.status === "completed"
-          ? "bg-blue-500/20 text-blue-300"
-          : "bg-red-500/20 text-red-300"
-      }`}>
-        {classItem.status?.toUpperCase()}
-      </span>
-    </div>
-  </div>
-);
-
-const StudentsTab = ({ students, loading }) => (
-  <div>
-    <h3 className="text-lg font-semibold text-white mb-4">My Students ({students.length})</h3>
-    {loading ? (
-      <div className="text-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto"></div>
-        <p className="text-blue-200 mt-2">Loading students...</p>
-      </div>
-    ) : students.length > 0 ? (
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {students.map((student) => (
-          <div key={student.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
-            <div className="flex items-center">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                <User size={16} />
-              </div>
-              <div>
-                <p className="font-medium text-white">{student.name}</p>
-                <p className="text-blue-400 text-xs">Joined: {new Date(student.created_at).toLocaleDateString()}</p>
-              </div>
-            </div>
-            <div className="mt-3 flex space-x-2">
-              <button className="flex-1 bg-blue-600 hover:bg-blue-500 py-1 px-2 rounded text-sm text-white">
-                <MessageCircle size={14} className="inline mr-1" />
-                Message
-              </button>
-              <button className="flex-1 bg-green-600 hover:bg-green-500 py-1 px-2 rounded text-sm text-white">
-                <FileText size={14} className="inline mr-1" />
-                Progress
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-12">
-        <Users size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No students enrolled yet</p>
-      </div>
-    )}
-  </div>
-);
-    const AssignmentsTab = ({ 
-  assignments, 
-  classes, 
-  onCreateAssignment, 
-  onGradeAssignment, 
-  showCreateModal, 
-  setShowCreateModal, 
-  newAssignment, 
-  setNewAssignment,
-  loading,
-  gradingSubmission,
-  setGradingSubmission,
-  gradeData,
-  setGradeData
-}) => {
-  const [currentAssignmentIndex, setCurrentAssignmentIndex] = useState(0);
-
-  // Navigation functions for scrolling through assignments
-  const nextAssignment = () => {
-    setCurrentAssignmentIndex(prev => 
-      prev < assignments.length - 1 ? prev + 1 : 0
-    );
-  };
-
-  const prevAssignment = () => {
-    setCurrentAssignmentIndex(prev => 
-      prev > 0 ? prev - 1 : assignments.length - 1
-    );
-  };
-
-  if (loading) {
-    return (
-      <div className="text-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto"></div>
-        <p className="text-blue-200 mt-2">Loading assignments...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h3 className="text-lg font-semibold text-white">Assignments ({assignments.length})</h3>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center text-white w-full md:w-auto justify-center"
-        >
-          <Plus size={16} className="mr-2" />
-          New Assignment
-        </button>
-      </div>
-
-      {assignments.length > 0 ? (
-        <div className="relative">
-          {/* Navigation arrows for larger screens */}
-          {assignments.length > 1 && (
-            <>
-              <button
-                onClick={prevAssignment}
-                className="hidden md:flex absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-6 bg-blue-600 hover:bg-blue-500 p-3 rounded-full text-white z-10"
-                aria-label="Previous assignment"
-              >
-                <ChevronDown size={20} className="transform rotate-90" />
-              </button>
-              <button
-                onClick={nextAssignment}
-                className="hidden md:flex absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-6 bg-blue-600 hover:bg-blue-500 p-3 rounded-full text-white z-10"
-                aria-label="Next assignment"
-              >
-                <ChevronDown size={20} className="transform -rotate-90" />
-              </button>
-            </>
-          )}
-
-          {/* Current assignment display */}
-          <div className="bg-white/10 border border-white/20 rounded-lg p-6 mb-4">
-            <AssignmentCard 
-              key={assignments[currentAssignmentIndex].id} 
-              assignment={assignments[currentAssignmentIndex]} 
-              onGrade={onGradeAssignment}
-              onStartGrading={(submission) => {
-                setGradingSubmission(submission);
-                setGradeData({ score: submission.score || '', feedback: submission.feedback || '' });
-              }}
-            />
-          </div>
-
-          {/* Navigation for mobile and pagination indicators */}
-          {assignments.length > 1 && (
-            <div className="flex items-center justify-center space-x-4 mt-4">
-              <button
-                onClick={prevAssignment}
-                className="md:hidden bg-blue-600 hover:bg-blue-500 p-2 rounded-full text-white"
-                aria-label="Previous assignment"
-              >
-                <ChevronDown size={16} className="transform rotate-90" />
-              </button>
-              
-              <div className="flex space-x-2">
-                {assignments.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setCurrentAssignmentIndex(index)}
-                    className={`w-3 h-3 rounded-full ${
-                      index === currentAssignmentIndex 
-                        ? 'bg-blue-400' 
-                        : 'bg-blue-600/50 hover:bg-blue-500'
-                    }`}
-                    aria-label={`Go to assignment ${index + 1}`}
-                  />
-                ))}
-              </div>
-
-              <button
-                onClick={nextAssignment}
-                className="md:hidden bg-blue-600 hover:bg-blue-500 p-2 rounded-full text-white"
-                aria-label="Next assignment"
-              >
-                <ChevronDown size={16} className="transform -rotate-90" />
-              </button>
-
-              <span className="text-blue-300 text-sm ml-4">
-                {currentAssignmentIndex + 1} of {assignments.length}
-              </span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="text-center py-12">
-          <FileText size={48} className="mx-auto text-blue-400 mb-3" />
-          <p className="text-blue-200">No assignments created yet</p>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="mt-4 bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white"
-          >
-            Create Your First Assignment
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}; 
-    
-const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
-  // Calculate submission stats
-  const totalSubmissions = assignment.submissions?.length || 0;
-  const gradedSubmissions = assignment.submissions?.filter(s => s.grade !== null && s.grade !== undefined).length || 0;
-  const pendingSubmissions = totalSubmissions - gradedSubmissions;
-
-  return (
-    <div className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
-      <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-        <div className="flex-1">
-          <h4 className="font-bold text-lg text-white">{assignment.title}</h4>
-          <p className="text-blue-300 text-sm mt-1">{assignment.description}</p>
-          
-          <div className="flex flex-wrap items-center mt-3 text-sm text-blue-200 gap-4">
-            <span className="flex items-center">
-              <Calendar size={14} className="mr-1" />
-              Due: {new Date(assignment.due_date).toLocaleDateString()}
-            </span>
-            <span className="flex items-center">
-              <Award size={14} className="mr-1" />
-              Max Score: {assignment.max_score}
-            </span>
-            <span className="flex items-center">
-              <Users size={14} className="mr-1" />
-              Students: {assignment.student_count || 0}
-            </span>
-            {assignment.class?.title && (  
-              <span className="flex items-center">
-                <BookOpen size={14} className="mr-1" />
-                Class: {assignment.class.title}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center space-x-2 self-end md:self-auto">
-          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            new Date(assignment.due_date) < new Date() && pendingSubmissions > 0
-              ? "bg-red-500/20 text-red-300"
-              : "bg-green-500/20 text-green-300"
-          }`}>
-            {new Date(assignment.due_date) < new Date() && pendingSubmissions > 0
-              ? "OVERDUE"
-              : "ON TIME"
-            }
-          </span>
-        </div>
-      </div>
-
-      {/* Submission stats */}
-      <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
-        <div className="text-center">
-          <p className="text-2xl font-bold text-green-400">{totalSubmissions}</p>
-          <p className="text-blue-300">Submitted</p>
-        </div>
-        <div className="text-center">
-          <p className="text-2xl font-bold text-yellow-400">{gradedSubmissions}</p>
-          <p className="text-blue-300">Graded</p>
-        </div>
-        <div className="text-center">
-          <p className="text-2xl font-bold text-red-400">{pendingSubmissions}</p>
-          <p className="text-blue-300">Pending</p>
-        </div>
-      </div>
-
-      {/* Submissions list */}
-      {assignment.submissions && assignment.submissions.length > 0 && (
-        <div className="mt-4">
-          <h5 className="font-semibold text-blue-200 mb-2">Submissions:</h5>
-          <div className="space-y-2">
-            {assignment.submissions.map((submission) => (
-              <div key={submission.id} className="flex flex-col md:flex-row justify-between items-start md:items-center p-2 bg-white/5 rounded gap-2">
-                <div>
-                  <p className="text-white text-sm">{submission.student_name}</p>
-                  <p className="text-blue-300 text-xs">
-                    {submission.submitted_at 
-                      ? `Submitted: ${new Date(submission.submitted_at).toLocaleDateString()}`
-                      : 'Not submitted'
-                    }
-                  </p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  {submission.grade !== null ? (
-                    <span className="text-green-400 text-sm">
-                      Score: {submission.grade}/{assignment.max_score}
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => onStartGrading(submission)}
-                      className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-sm text-white"
-                    >
-                      Grade
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
- 
-// GRading tab component
-// Enhanced GradingTab component
-const GradingTab = ({ 
-  submissions, 
-  pendingSubmissions, 
-  onGradeAssignment, 
-  onStartGrading,
-  activeTab,
-  setActiveTab 
-}) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedSubmission, setSelectedSubmission] = useState(null);
-
-  const filteredPendingSubmissions = pendingSubmissions.filter(sub => 
-    sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sub.assignment?.title?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const filteredGradedSubmissions = submissions.flatMap(assignment => 
-    assignment.submissions?.filter(sub => 
-      sub.grade !== null && (
-        sub.student?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        assignment.title?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    ) || []
-  );
-
-  const loadSubmissionDetails = async (submissionId) => {
-    try {
-      const submission = await teacherApi.getSubmissionDetails(submissionId);
-      setSelectedSubmission(submission);
-    } catch (error) {
-      console.error('Error loading submission details:', error);
-      toast.error('Failed to load submission details');
-    }
-  };
-
-  return (
-    <div className="flex flex-col lg:flex-row gap-6">
-      {/* Submissions List */}
-      <div className="flex-1">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+      {/* Main Content */}
+      <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 md:p-6 border border-white/20">
+        {/* Filters */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div>
-            <h3 className="text-lg font-semibold text-white">Grade Student Work</h3>
-            <p className="text-blue-300 text-sm">
-              {pendingSubmissions.length} pending submission{pendingSubmissions.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          
-          <div className="flex items-center space-x-4 w-full md:w-auto">
-            <div className="relative flex-1 md:flex-none">
+            <label className="block text-sm font-medium text-blue-200 mb-1">Search</label>
+            <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-300" />
               <input
                 type="text"
-                placeholder="Search students or assignments..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search..."
+                value={filters.search}
+                onChange={(e) => updateFilter('search', e.target.value)}
                 className="w-full pl-10 pr-4 py-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-blue-200 mb-1">Status</label>
+            <select
+              value={filters.status}
+              onChange={(e) => updateFilter('status', e.target.value)}
+              className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">All Status</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={() => setFilters({ status: '', search: '' })}
+              className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center justify-center text-white"
+            >
+              <Filter size={16} className="mr-2" />
+              Clear Filters
+            </button>
+          </div>
         </div>
 
-        {/* Grading Tabs */}
-        <div className="flex space-x-4 mb-6 border-b border-white/20">
-          <button
-            onClick={() => setActiveTab('pending')}
-            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-              activeTab === 'pending'
-                ? 'border-yellow-400 text-yellow-400'
-                : 'border-transparent text-blue-300 hover:text-white'
-            }`}
-          >
-            Pending Grading
-            {pendingSubmissions.length > 0 && (
-              <span className="ml-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs">
-                {pendingSubmissions.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('graded')}
-            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-              activeTab === 'graded'
-                ? 'border-green-400 text-green-400'
-                : 'border-transparent text-blue-300 hover:text-white'
-            }`}
-          >
-            Graded Work
-            <span className="ml-2 bg-green-500 text-green-900 px-2 py-1 rounded-full text-xs">
-              {filteredGradedSubmissions.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Content based on active grading tab */}
-        {activeTab === 'pending' && (
-          <PendingSubmissions 
-            submissions={filteredPendingSubmissions}
-            onStartGrading={onStartGrading}
-            onViewSubmission={loadSubmissionDetails}
+        {/* Content based on active tab */}
+        {activeTab === 'classes' && (
+          <ClassesTab 
+            classes={filteredClasses} 
+            onStartSession={startVideoSession}
+            onJoinSession={joinVideoSession}
+            formatDateTime={formatDateTime}
           />
         )}
 
-        {activeTab === 'graded' && (
-          <GradedSubmissions 
-            submissions={filteredGradedSubmissions}
-            onViewSubmission={loadSubmissionDetails}
+        {activeTab === 'students' && (
+          <StudentsTab students={students} loading={loading.students} />
+        )}
+
+        {activeTab === 'assignments' && (
+          <AssignmentsTab 
+            assignments={assignments} 
+            classes={classes}
+            onCreateAssignment={createAssignment}
+            onGradeAssignment={gradeAssignment}
+            showCreateModal={showCreateAssignment}
+            setShowCreateModal={setShowCreateAssignment}
+            newAssignment={newAssignment}
+            setNewAssignment={setNewAssignment}
+            loading={loading.assignments}
+            gradingSubmission={gradingSubmission}
+            setGradingSubmission={setGradingSubmission}
+            gradeData={gradeData}
+            setGradeData={setGradeData}
           />
+        )}
+
+        {activeTab === 'grading' && (
+          <GradingTab 
+            submissions={assignments}
+            pendingSubmissions={pendingSubmissions}
+            onGradeAssignment={gradeAssignment}
+            onStartGrading={(submission) => {
+              setGradingSubmission(submission);
+              setGradeData({ 
+                score: submission.grade || '', 
+                feedback: submission.feedback || '',
+                audioFeedbackUrl: submission.audio_feedback_url || ''
+              });
+            }}
+            activeTab={activeGradingTab}
+            setActiveTab={setActiveGradingTab}
+          />
+        )}
+
+        {activeTab === 'upcoming' && (
+          <UpcomingTab classes={upcomingClasses} formatDateTime={formatDateTime} />
+        )}
+
+        {activeTab === 'completed' && (
+          <CompletedTab classes={completedClasses} formatDateTime={formatDateTime} />
         )}
       </div>
+    </div>
 
-      {/* Submission Details Panel */}
-      {selectedSubmission && (
-        <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="text-lg font-semibold text-white">Submission Details</h4>
+    {/* Create Assignment Modal */}
+    {showCreateAssignment && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+          <h3 className="text-xl font-bold mb-4 text-white">Create New Assignment</h3>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Title *</label>
+              <input
+                type="text"
+                value={newAssignment.title}
+                onChange={(e) => setNewAssignment({...newAssignment, title: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                placeholder="Assignment title"
+                required
+                disabled={isCreatingAssignment}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Description</label>
+              <textarea
+                value={newAssignment.description}
+                onChange={(e) => setNewAssignment({...newAssignment, description: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                rows="3"
+                placeholder="Assignment description"
+                disabled={isCreatingAssignment}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Due Date *</label>
+              <input
+                type="datetime-local"
+                value={newAssignment.due_date}
+                onChange={(e) => setNewAssignment({...newAssignment, due_date: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                required
+                disabled={isCreatingAssignment}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Max Score</label>
+              <input
+                type="number"
+                value={newAssignment.max_score}
+                onChange={(e) => setNewAssignment({...newAssignment, max_score: parseInt(e.target.value) || 100})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                min="1"
+                max="100"
+                disabled={isCreatingAssignment}
+              />
+            </div>
+
+            {/* Class field (optional for categorization) */}
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">
+                Class (Optional)
+              </label>
+              <select
+                value={newAssignment.class_id}
+                onChange={(e) => setNewAssignment({...newAssignment, class_id: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                disabled={isCreatingAssignment}
+              >
+                <option value="">Select Class (Optional)</option>
+                {classes.map(cls => (
+                  <option key={cls.id} value={cls.id}>{cls.title}</option>
+                ))}
+              </select>
+              <p className="text-blue-300 text-xs mt-1">Optional: Categorize assignment by class</p>
+            </div>
+
+            {/* Default Quran Subject */}
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Subject</label>
+              <input
+                type="text"
+                value="Quran"
+                readOnly
+                className="w-full p-2 rounded-lg bg-blue-800/30 border border-blue-700/30 text-blue-300 cursor-not-allowed"
+              />
+              <p className="text-blue-300 text-xs mt-1">Subject is automatically set to Quran</p>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                checked={newAssignment.for_all_students}
+                onChange={(e) => {
+                  setNewAssignment({
+                    ...newAssignment, 
+                    for_all_students: e.target.checked,
+                    selected_students: e.target.checked ? [] : newAssignment.selected_students
+                  });
+                }}
+                className="mr-2"
+                disabled={isCreatingAssignment}
+              />
+              <span className="text-blue-200 text-sm">Assign to all my students</span>
+            </div>
+
+            {/* Student Selection (only show when not assigning to all students) */}
+            {!newAssignment.for_all_students && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  Select Students *
+                </label>
+                
+                {/* Class filter for students */}
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-blue-200 mb-1">Filter by Class (Optional)</label>
+                  <select
+                    value={newAssignment.class_filter || ""}
+                    onChange={(e) => setNewAssignment({...newAssignment, class_filter: e.target.value})}
+                    className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                    disabled={isCreatingAssignment}
+                  >
+                    <option value="">All Classes</option>
+                    {classes.map(cls => (
+                      <option key={cls.id} value={cls.id}>{cls.title}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="max-h-48 overflow-y-auto bg-blue-800/30 rounded-lg p-2 border border-blue-700/30">
+                  {getFilteredStudents().length > 0 ? (
+                    <>
+                      <div className="text-blue-300 text-xs mb-2">
+                        Showing {getFilteredStudents().length} student(s)
+                        {newAssignment.class_filter && ` in selected class`}
+                      </div>
+                      
+                      {getFilteredStudents().map(student => (
+                        <label key={student.id} className="flex items-center p-2 hover:bg-blue-700/30 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newAssignment.selected_students.includes(student.id)}
+                            onChange={() => handleStudentSelection(student.id)}
+                            className="mr-3 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                            disabled={isCreatingAssignment}
+                          />
+                          <div>
+                            <span className="text-blue-200 block">{student.name}</span>
+                            <span className="text-blue-400 text-xs block">
+                              Class: {student.class_name || 'Not assigned'}
+                            </span>
+                          </div>
+                        </label>
+                      ))}
+                    </>
+                  ) : (
+                    <p className="text-blue-300 text-sm p-2">
+                      {students.length === 0 
+                        ? 'No students assigned to you yet' 
+                        : 'No students match the current filter'
+                      }
+                    </p>
+                  )}
+                </div>
+                
+                {newAssignment.selected_students.length === 0 && (
+                  <p className="text-red-300 text-xs mt-1">Please select at least one student</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-3 mt-6">
             <button
-              onClick={() => setSelectedSubmission(null)}
-              className="text-blue-300 hover:text-white"
+              onClick={() => setShowCreateAssignment(false)}
+              className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white transition-colors disabled:opacity-50"
+              disabled={isCreatingAssignment}
             >
-              <X size={20} />
+              Cancel
+            </button>
+            <button
+              onClick={createAssignment}
+              disabled={
+                (!newAssignment.for_all_students && newAssignment.selected_students.length === 0) ||
+                isCreatingAssignment
+              }
+              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed transition-colors flex items-center justify-center min-w-[80px]"
+            >
+              {isCreatingAssignment ? (
+                <div className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Creating...
+                </div>
+              ) : (
+                'Create'
+              )}
             </button>
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <p className="text-blue-200 text-sm">Student</p>
-              <p className="text-white font-medium">{selectedSubmission.student?.name || 'Unknown Student'}</p>
-              <p className="text-blue-300 text-xs">{selectedSubmission.student?.email}</p>
-            </div>
-
-            <div>
-              <p className="text-blue-200 text-sm">Assignment</p>
-              <p className="text-white font-medium">{selectedSubmission.assignment?.title}</p>
-              <p className="text-blue-300 text-xs">
-                Due: {new Date(selectedSubmission.assignment?.due_date).toLocaleDateString()}
-              </p>
-            </div>
-
-            {selectedSubmission.submission_text && (
-              <div>
-                <p className="text-blue-200 text-sm">Written Submission</p>
-                <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
-                  {selectedSubmission.submission_text}
+          {/* Success Animation */}
+          {assignmentCreated && (
+            <div className="absolute inset-0 bg-green-900/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
+              <div className="text-center p-6">
+                <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </div>
+                <h4 className="text-lg font-semibold text-white mb-2">Assignment Created!</h4>
+                <p className="text-green-200">
+                  {newAssignment.for_all_students 
+                    ? `Sent to all ${students.length} students assigned to you` 
+                    : `Sent to ${newAssignment.selected_students.length} student(s)`
+                  }
                 </p>
-              </div>
-            )}
-
-            {selectedSubmission.audio_url && (
-              <div>
-                <p className="text-blue-200 text-sm">Audio Submission</p>
-                <audio 
-                  controls 
-                  className="w-full mt-2 rounded-lg"
-                  src={selectedSubmission.audio_url}
-                >
-                  Your browser does not support the audio element.
-                </audio>
-              </div>
-            )}
-
-            {selectedSubmission.submitted_at && (
-              <div>
-                <p className="text-blue-200 text-sm">Submitted</p>
-                <p className="text-white text-sm">
-                  {new Date(selectedSubmission.submitted_at).toLocaleString()}
-                </p>
-              </div>
-            )}
-
-            {/* Grade Action for Pending Submissions */}
-            {(!selectedSubmission.grade || selectedSubmission.grade === null) && (
-              <button
-                onClick={() => {
-                  onStartGrading(selectedSubmission);
-                  setSelectedSubmission(null);
-                }}
-                className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
-              >
-                Grade This Submission
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Pending Submissions Component
-const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) => {
-  if (submissions.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <FileCheck size={48} className="mx-auto text-green-400 mb-3" />
-        <p className="text-blue-200">No pending submissions to grade</p>
-        <p className="text-blue-300 text-sm mt-1">All caught up!</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {submissions.map((submission) => (
-        <div key={submission.id} className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 hover:bg-yellow-500/15 transition-colors">
-          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-            <div className="flex-1">
-              <div className="flex items-center mb-2">
-                <User size={16} className="text-yellow-400 mr-2" />
-                <h4 className="font-semibold text-white">
-                  {submission.student?.name || 'Unknown Student'}
-                </h4>
-                {submission.student?.email && (
-                  <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
-                    {submission.student.email}
-                  </span>
+                {newAssignment.class_id && (
+                  <p className="text-green-300 text-sm mt-1">
+                    Categorized under: {classes.find(c => c.id === newAssignment.class_id)?.title}
+                  </p>
                 )}
+                <button
+                  onClick={() => {
+                    setAssignmentCreated(false);
+                    setShowCreateAssignment(false); 
+                  }}
+                  className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
+                >
+                  Close
+                </button>
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                <div>
-                  <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
-                  <p className="text-blue-200">Due: <span className="text-white">
-                    {submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date'}
-                  </span></p>
-                </div>
-                <div>
-                  <p className="text-blue-200">Submitted: <span className="text-white">
-                    {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
-                  </span></p>
-                  <p className="text-blue-200">Max Score: <span className="text-white">{submission.assignment?.max_score || 100}</span></p>
-                </div>
-              </div>
-
-              {submission.submission_text && (
-                <div className="mt-3 p-3 bg-black/20 rounded">
-                  <p className="text-blue-200 text-sm font-medium mb-1">Submission:</p>
-                  <p className="text-white text-sm line-clamp-2">{submission.submission_text}</p>
-                </div>
-              )}
-
-              {submission.audio_url && (
-                <div className="mt-2">
-                  <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
-                  <audio controls className="w-full max-w-md">
-                    <source src={submission.audio_url} type="audio/webm" />
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
-              )}
             </div>
-
-            <div className="flex space-x-2 self-end md:self-auto">
-              <button
-                onClick={() => onViewSubmission(submission.id)}
-                className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
-              >
-                <Eye size={16} className="mr-2" />
-                View Details
-              </button>
-              <button
-                onClick={() => onStartGrading(submission)}
-                className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white flex items-center"
-              >
-                <FileCheck size={16} className="mr-2" />
-                Grade Now
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      ))}
-    </div>
-  );
-};
-    // Graded Submissions Component
-const GradedSubmissions = ({ submissions, onViewSubmission }) => {
-  if (submissions.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <Award size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No graded submissions yet</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {submissions.map((submission) => (
-        <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-            <div className="flex-1">
-              <div className="flex items-center mb-2">
-                <User size={16} className="text-green-400 mr-2" />
-                <h4 className="font-semibold text-white">
-                  {submission.student?.name || 'Unknown Student'}
-                </h4>
-                <div className="ml-3 flex items-center space-x-2">
-                  <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
-                    Score: {submission.grade}/{submission.assignment?.max_score || 100}
-                  </span>
-                  <span className="text-blue-300 text-sm">
-                    {Math.round((submission.grade / (submission.assignment?.max_score || 100)) * 100)}%
-                  </span>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                <div>
-                  <p className="text-blue-200">Assignment: <span className="text-white">{submission.assignment?.title}</span></p>
-                  <p className="text-blue-200">Graded on: <span className="text-white">
-                    {submission.graded_at ? new Date(submission.graded_at).toLocaleDateString() : 'Not graded'}
-                  </span></p>
-                </div>
-                <div>
-                  <p className="text-blue-200">Submitted: <span className="text-white">
-                    {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Not submitted'}
-                  </span></p>
-                  <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
-                </div>
-              </div>
-
-              {submission.feedback && (
-                <div className="mt-3 p-3 bg-black/20 rounded">
-                  <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
-                  <p className="text-white text-sm">{submission.feedback}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex space-x-2 self-end md:self-auto">
-              <button
-                onClick={() => onViewSubmission(submission.id)}
-                className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
-              >
-                <Eye size={16} className="mr-2" />
-                View Details
-              </button>
-              <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
-                GRADED
-              </span>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-    
-const UpcomingTab = ({ classes, formatDateTime }) => (
-  <div>
-    <h3 className="text-lg font-semibold text-white mb-4">Upcoming Classes ({classes.length})</h3>
-    {classes.length > 0 ? (
-      <div className="grid gap-4">
-        {classes.map((classItem) => (
-          <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
-            <h4 className="font-bold text-white">{classItem.title}</h4>
-            <p className="text-blue-300 text-sm mt-1">{formatDateTime(classItem.scheduled_date)}</p>
-            <p className="text-blue-200 text-sm">Duration: {classItem.duration} minutes</p>
-            <div className="mt-3 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-full text-xs inline-block">
-              UPCOMING
-            </div>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-12">
-        <Calendar size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No upcoming classes</p>
       </div>
     )}
-  </div>
-);
 
-const CompletedTab = ({ classes, formatDateTime }) => (
-  <div>
-    <h3 className="text-lg font-semibold text-white mb-4">Completed Classes ({classes.length})</h3>
-    {classes.length > 0 ? (
-      <div className="grid gap-4">
-        {classes.map((classItem) => (
-          <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
-            <h4 className="font-bold text-white">{classItem.title}</h4>
-            <p className="text-blue-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
-            <p className="text-blue-200 text-sm">Students: {classItem.students_classes?.length || 0}</p>
-            <div className="mt-3 bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs inline-block">
-              COMPLETED
+    {/* Grade Assignment Modal */}
+    {gradingSubmission && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
+          
+          {/* Student and Assignment Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-blue-800/30 rounded-lg">
+            <div>
+              <p className="text-blue-200 text-sm">Student</p>
+              <p className="text-white font-medium">{gradingSubmission.student?.name || 'Unknown Student'}</p>
+              <p className="text-blue-300 text-xs">{gradingSubmission.student?.email}</p>
+            </div>
+            <div>
+              <p className="text-blue-200 text-sm">Assignment</p>
+              <p className="text-white font-medium">{gradingSubmission.assignment?.title}</p>
+              <p className="text-blue-300 text-xs">
+                Max Score: {gradingSubmission.assignment?.max_score}
+              </p>
             </div>
           </div>
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-12">
-        <BarChart3 size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No completed classes yet</p>
+
+          {/* Audio Submission Preview */}
+          {gradingSubmission.audio_url && (
+            <div className="mb-6">
+              <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
+              <audio controls className="w-full rounded-lg">
+                <source src={gradingSubmission.audio_url} type="audio/webm" />
+                Your browser does not support the audio element.
+              </audio>
+            </div>
+          )}
+
+          {/* Written Submission Preview */}
+          {gradingSubmission.submission_text && (
+            <div className="mb-6">
+              <p className="text-blue-200 text-sm font-medium mb-2">Written Submission:</p>
+              <div className="bg-blue-800/30 p-4 rounded-lg max-h-32 overflow-y-auto">
+                <p className="text-white text-sm">{gradingSubmission.submission_text}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">
+                Score * (Max: {gradingSubmission.assignment?.max_score || 100})
+              </label>
+              <input
+                type="number"
+                value={gradeData.score}
+                onChange={(e) => setGradeData({...gradeData, score: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                min="0"
+                max={gradingSubmission.assignment?.max_score || 100}
+                placeholder="Enter score"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Feedback</label>
+              <textarea
+                value={gradeData.feedback}
+                onChange={(e) => setGradeData({...gradeData, feedback: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                rows="4"
+                placeholder="Provide feedback to the student..."
+              />
+            </div>
+
+            {/* Audio Feedback Option */}
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">
+                Audio Feedback URL (Optional)
+              </label>
+              <input
+                type="text"
+                value={gradeData.audioFeedbackUrl || ''}
+                onChange={(e) => setGradeData({...gradeData, audioFeedbackUrl: e.target.value})}
+                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+                placeholder="https://example.com/audio-feedback.mp3"
+              />
+              <p className="text-blue-300 text-xs mt-1">Optional: Provide audio feedback to the student</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 mt-6">
+            <button
+              onClick={() => setGradingSubmission(null)}
+              className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => gradeAssignment(
+                gradingSubmission.id, 
+                parseInt(gradeData.score), 
+                gradeData.feedback,
+                gradeData.audioFeedbackUrl
+              )}
+              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+            >
+              Submit Grade
+            </button>
+          </div>
+        </div>
       </div>
     )}
   </div>
