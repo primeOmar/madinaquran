@@ -778,7 +778,7 @@ export default function TeacherDashboard() {
     );
   };
 
-  cconst PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) => {
+  const PendingSubmissions = ({ submissions, onStartGrading, onViewSubmission }) => {
   if (submissions.length === 0) {
     return (
       <div className="text-center py-12">
