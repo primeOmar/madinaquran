@@ -835,26 +835,77 @@ export default function TeacherDashboard() {
                   </div>
                 )}
 
-                {submission.audio_url && (
-                  <div className="mt-2">
-                    <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
-                    <audio 
-                      controls 
-                      className="w-full max-w-md rounded-lg"
-                      onError={(e) => {
-                        console.error('Audio loading error:', e);
-                        toast.error('Failed to load audio file');
-                      }}
-                    >
-                      <source src={submission.audio_url} type="audio/webm" />
-                      <source src={submission.audio_url} type="audio/mpeg" />
-                      <source src={submission.audio_url} type="audio/wav" />
-                      Your browser does not support the audio element.
-                    </audio>
-                  </div>
-                )}
-              </div>
-
+              {submission.audio_url && (
+  <div className="mt-2">
+    <p className="text-blue-200 text-sm font-medium mb-1">Audio Submission:</p>
+    <audio 
+      controls 
+      className="w-full max-w-md rounded-lg"
+      onError={(e) => {
+        console.error('Audio loading error details:', {
+          error: e,
+          audioUrl: submission.audio_url,
+          audioElement: e.target,
+          errorEvent: e.nativeEvent,
+          networkState: e.target.networkState,
+          errorCode: e.target.error
+        });
+        
+        // Check what kind of error occurred
+        if (e.target.error) {
+          switch(e.target.error.code) {
+            case e.target.error.MEDIA_ERR_ABORTED:
+              console.error('Audio loading was aborted');
+              break;
+            case e.target.error.MEDIA_ERR_NETWORK:
+              console.error('Network error while loading audio');
+              break;
+            case e.target.error.MEDIA_ERR_DECODE:
+              console.error('Audio format not supported or corrupted');
+              break;
+            case e.target.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+              console.error('Audio format not supported by browser');
+              break;
+            default:
+              console.error('Unknown audio error:', e.target.error);
+          }
+        }
+        
+        toast.error('Failed to load audio file. Check console for details.');
+      }}
+      onLoadStart={() => {
+        console.log('Audio loading started:', submission.audio_url);
+      }}
+      onCanPlay={() => {
+        console.log('Audio can play:', submission.audio_url);
+      }}
+      onCanPlayThrough={() => {
+        console.log('Audio can play through:', submission.audio_url);
+      }}
+    >
+      <source src={submission.audio_url} type="audio/webm" />
+      <source src={submission.audio_url} type="audio/mpeg" />
+      <source src={submission.audio_url} type="audio/wav" />
+      <source src={submission.audio_url} type="audio/ogg" />
+      <source src={submission.audio_url} type="audio/mp4" />
+      Your browser does not support the audio element.
+    </audio>
+    
+    {/* Add a direct download link as fallback */}
+    <div className="mt-2">
+      <a 
+        href={submission.audio_url} 
+        download 
+        className="text-blue-400 hover:text-blue-300 text-sm underline"
+        onClick={(e) => {
+          console.log('Download link clicked, URL:', submission.audio_url);
+        }}
+      >
+        Download Audio File
+      </a>
+    </div>
+  </div>
+)}
               <div className="flex space-x-2 self-end md:self-auto">
                 <button
                   onClick={() => onViewSubmission(submission.id)}
