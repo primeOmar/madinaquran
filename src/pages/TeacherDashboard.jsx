@@ -887,27 +887,46 @@ export default function TeacherDashboard() {
       controls 
       className="w-full mt-2 rounded-lg"
       onError={(e) => {
-        const audio = e.target;
-        console.error('Audio error details:', {
-          error: audio.error,
-          errorCode: audio.error?.code,
-          errorMessage: audio.error?.message,
-          src: audio.src,
-          currentSrc: audio.currentSrc,
-          networkState: audio.networkState,
-          readyState: audio.readyState
-        });
-        
-        const errorMessages = {
-          1: 'MEDIA_ERR_ABORTED - Playback aborted',
-          2: 'MEDIA_ERR_NETWORK - Network error',
-          3: 'MEDIA_ERR_DECODE - Decoding error',
-          4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - Format not supported or file not found'
-        };
-        
-        const errorMsg = errorMessages[audio.error?.code] || 'Unknown error';
-        toast.error(`Audio error: ${errorMsg}`);
-      }}
+  const audio = e.target;
+  const errorDetails = {
+    errorCode: audio.error?.code,
+    errorMessage: audio.error?.message,
+    src: audio.src,
+    currentSrc: audio.currentSrc,
+    networkState: audio.networkState,
+    readyState: audio.readyState,
+    url: submission.audio_url
+  };
+  
+  console.error('=== AUDIO ERROR DETAILS ===');
+  console.error('Error Code:', errorDetails.errorCode);
+  console.error('Full Details:', errorDetails);
+  console.error('========================');
+  
+  const errorMessages = {
+    1: 'MEDIA_ERR_ABORTED - Playback aborted by user',
+    2: 'MEDIA_ERR_NETWORK - Network error while loading',
+    3: 'MEDIA_ERR_DECODE - Audio format cannot be decoded',
+    4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - Audio format not supported or URL invalid'
+  };
+  
+  const errorMsg = errorMessages[audio.error?.code] || `Unknown error (code: ${audio.error?.code})`;
+  console.error('Error Message:', errorMsg);
+  toast.error(`Audio error: ${errorMsg}`);
+  
+  // Try to fetch the URL directly to see what's wrong
+  fetch(submission.audio_url, { method: 'HEAD' })
+    .then(response => {
+      console.log('Direct fetch test:', {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        contentLength: response.headers.get('content-length')
+      });
+    })
+    .catch(err => {
+      console.error('Direct fetch failed:', err);
+    });
+}}
       onLoadStart={() => console.log('Audio loading started')}
       onLoadedMetadata={(e) => console.log('Audio metadata loaded:', {
         duration: e.target.duration,
