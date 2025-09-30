@@ -560,7 +560,7 @@ getMyAssignments: async () => {
         submissions: submissions.map(sub => ({
           id: sub.id,
           student_id: sub.student_id,
-          student_name: sub.student?.name 
+          student_name: sub.student?.name, 
           submitted_at: sub.submitted_at,
           grade: sub.grade,                    
           feedback: sub.feedback,
