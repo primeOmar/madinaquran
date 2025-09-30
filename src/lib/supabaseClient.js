@@ -514,7 +514,6 @@ getMyAssignments: async () => {
       throw new Error('User not authenticated');
     }
 
-    // DEBUG: First let's see the raw structure
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
     const { data, error } = await supabase
@@ -555,14 +554,16 @@ getMyAssignments: async () => {
       throw error;
     }
 
-    // DEBUG: Check raw data structure
-    console.log('📊 RAW DATA FROM SUPABASE:', data);
+    // DEEP DEBUG: Check the exact structure
+    console.log('📊 RAW DATA FROM SUPABASE:', JSON.stringify(data, null, 2));
     
     if (data && data.length > 0) {
       console.log('📄 First assignment:', data[0]);
       if (data[0].assignment_submissions && data[0].assignment_submissions.length > 0) {
-        console.log('👤 First submission student data:', data[0].assignment_submissions[0]);
-        console.log('🎯 Student profiles data:', data[0].assignment_submissions[0]?.profiles);
+        const firstSubmission = data[0].assignment_submissions[0];
+        console.log('👤 First submission FULL structure:', firstSubmission);
+        console.log('🎯 Student profiles data:', firstSubmission?.profiles);
+        console.log('🔍 Available keys in submission:', Object.keys(firstSubmission));
       }
     }
 
@@ -575,7 +576,11 @@ getMyAssignments: async () => {
         const studentProfile = sub.profiles;
         console.log(`📝 Transforming submission ${sub.id}:`, {
           studentProfile,
-          rawSubmission: sub
+          hasProfiles: !!sub.profiles,
+          profilesType: typeof sub.profiles,
+          profilesKeys: sub.profiles ? Object.keys(sub.profiles) : 'none',
+          studentNameFromProfiles: sub.profiles?.name,
+          rawSubmissionKeys: Object.keys(sub)
         });
 
         return {
