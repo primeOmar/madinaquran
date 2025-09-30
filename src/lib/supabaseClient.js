@@ -506,7 +506,6 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
- // Get teacher's assignments
 getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -530,7 +529,7 @@ getMyAssignments: async () => {
           id,
           student_id,
           submitted_at,
-          grade,                    // ← CHANGED from score to grade
+          grade,                   
           feedback,
           status,
           students:student_id (name)
@@ -558,13 +557,13 @@ getMyAssignments: async () => {
           student_id: sub.student_id,
           student_name: sub.students?.name,
           submitted_at: sub.submitted_at,
-          grade: sub.grade,          // ← CHANGED from score to grade
+          grade: sub.grade,      
           feedback: sub.feedback,
           status: sub.status
         })),
         submitted_count: submissions.length,
-        graded_count: submissions.filter(s => s.grade !== null).length,  // ← CHANGED
-        pending_count: submissions.filter(s => s.grade === null).length  // ← CHANGED
+        graded_count: submissions.filter(s => s.grade !== null).length,  
+        pending_count: submissions.filter(s => s.grade === null).length  
       };
     });
 
