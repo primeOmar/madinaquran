@@ -618,7 +618,7 @@ getMyAssignments: async () => {
     console.error('❌ Error fetching assignments:', error);
     throw error;
   }
-};
+},
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
     try {
