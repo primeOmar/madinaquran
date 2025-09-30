@@ -104,7 +104,59 @@ const useAudioRecorder = () => {
       URL.revokeObjectURL(audioUrl);
     }
   };
+const uploadAudioToSupabase = async (audioBlob, fileName) => {
+  try {
+    console.log('🎯 [Upload] Starting audio upload...', {
+      blob_size: audioBlob.size,
+      blob_type: audioBlob.type,
+      file_name: fileName
+    });
 
+    // Convert blob to File object for better handling
+    const audioFile = new File([audioBlob], fileName, { 
+      type: 'audio/wav',
+      lastModified: Date.now()
+    });
+
+    console.log('📁 [Upload] File created:', {
+      name: audioFile.name,
+      size: audioFile.size,
+      type: audioFile.type
+    });
+
+    // Upload to Supabase storage
+    const { data, error } = await supabase.storage
+      .from('assignment-audio') 
+      .upload(fileName, audioFile, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: 'audio/wav'
+      });
+
+    if (error) {
+      console.error('❌ [Upload] Supabase storage error:', error);
+      throw new Error(`Upload failed: ${error.message}`);
+    }
+
+    console.log('✅ [Upload] Upload successful:', data);
+
+    // Get public URL for the uploaded file
+    const { data: urlData } = supabase.storage
+      .from('assignment-audio')
+      .getPublicUrl(fileName);
+
+    console.log('🔗 [Upload] Public URL:', urlData.publicUrl);
+
+    return {
+      storagePath: data.path,
+      publicUrl: urlData.publicUrl
+    };
+
+  } catch (error) {
+    console.error('❌ [Upload] Upload process failed:', error);
+    throw error;
+  }
+};
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -235,23 +287,22 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
 
     setSubmitting(true);
     try {
-      let audioBase64 = null;
-      
-      if (audioBlob) {
-        audioBase64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(audioBlob);
-        });
-      }
+      let audioUrl = null;
 
-      const submissionData = {
-        assignment_id: assignment.id,
-        submission_text: submissionText,
-        audio_data: audioBase64
-      };
+if (audioBlob) {
+  // Generate unique filename
+  const fileName = `assignment-${assignment.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.webm`;
+  
+  // Upload to Supabase storage and get URL
+  const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
+  audioUrl = uploadResult.publicUrl;
+}
 
+const submissionData = {
+  assignment_id: assignment.id,
+  submission_text: submissionText,
+  audio_url: audioUrl  
+};
       await onSubmit(submissionData);
       onClose();
     } catch (error) {
