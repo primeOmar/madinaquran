@@ -304,7 +304,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
       const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
       
       // Upload to Supabase storage using your client function
-      const uploadResult = await uploadAudioFile(audioBlob, 'assignment-audio');
+      const uploadResult = await uploadAudioToSupabase(audioBlob, 'assignment-audio');
       audioUrl = uploadResult.publicUrl;
       
       console.log('✅ [Upload] Audio uploaded successfully:', audioUrl);
