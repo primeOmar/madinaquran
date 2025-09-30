@@ -506,6 +506,7 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
+// Alternative: Direct join approach
 getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -514,9 +515,8 @@ getMyAssignments: async () => {
       throw new Error('User not authenticated');
     }
 
-    console.log('🔍 Fetching assignments for teacher:', user.id);
+    console.log('🔍 Fetching assignments with direct join...');
 
-    // Try alternative relationship syntax
     const { data, error } = await supabase
       .from('assignments')
       .select(`
@@ -551,15 +551,9 @@ getMyAssignments: async () => {
       throw error;
     }
 
-    console.log('📊 RAW DATA WITH INNER JOIN:', JSON.stringify(data, null, 2));
+    console.log('📊 RAW DATA WITH DIRECT JOIN:', JSON.stringify(data, null, 2));
 
-    // If still no data, use the separate query approach
-    if (!data || data.length === 0 || !data.some(a => a.assignment_submissions?.some(s => s.profiles))) {
-      console.log('🔄 No student data from join, using separate query approach...');
-      return await getAssignmentsWithSeparateStudentQuery(user.id);
-    }
-
-    // Rest of your transformation code...
+    // Transform data
     const transformed = data.map(assignment => {
       const submissions = assignment.assignment_submissions || [];
       
