@@ -104,6 +104,37 @@ const useAudioRecorder = () => {
       URL.revokeObjectURL(audioUrl);
     }
   };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [audioUrl]);
+
+  return {
+    isRecording,
+    audioBlob,
+    audioUrl,
+    recordingTime: formatTime(recordingTime),
+    startRecording,
+    stopRecording,
+    clearRecording,
+    hasRecording: !!audioBlob
+  };
+};
+
+// Audio upload function
 const uploadAudioToSupabase = async (audioBlob, fileName) => {
   try {
     console.log('🎯 [Upload] Starting audio upload...', {
@@ -157,34 +188,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     throw error;
   }
 };
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  useEffect(() => {
-    return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [audioUrl]);
-
-  return {
-    isRecording,
-    audioBlob,
-    audioUrl,
-    recordingTime: formatTime(recordingTime),
-    startRecording,
-    stopRecording,
-    clearRecording,
-    hasRecording: !!audioBlob
-  };
-};
 
 // Audio Player Component
 const AudioPlayer = ({ audioUrl, onDelete }) => {
@@ -231,15 +234,18 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
 
   return (
     <div className="flex items-center space-x-3 p-3 bg-green-900/30 rounded-lg">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" crossOrigin="anonymous" onError={(e) => {
-      console.error('Audio loading error:', e);
-    // Fallback to signed URL if public URL fails
-    if (audioUrl?.includes('supabase.in')) {
-      // You might want to fetch a signed URL here
-      console.log('Audio CORS issue detected');
-    }
-  }}
-/>
+      <audio 
+        ref={audioRef} 
+        src={audioUrl} 
+        preload="metadata" 
+        crossOrigin="anonymous" 
+        onError={(e) => {
+          console.error('Audio loading error:', e);
+          if (audioUrl?.includes('supabase.in')) {
+            console.log('Audio CORS issue detected');
+          }
+        }}
+      />
       
       <button
         onClick={togglePlay}
@@ -287,45 +293,51 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     hasRecording
   } = useAudioRecorder();
 
- const handleSubmit = async () => {
-  if (!hasRecording && !submissionText.trim()) {
-    toast.error('Please either record audio or add text comments before submitting.');
-    return;
-  }
-
-  setSubmitting(true);
-  try {
-    let audioUrl = null;
-    
-    if (audioBlob) {
-      console.log('🎯 [Upload] Starting audio upload...');
-      
-      // Generate unique filename
-      const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
-      
-      // Upload to Supabase storage using your client function
-      const uploadResult = await uploadAudioToSupabase(audioBlob, 'assignment-audio');
-      audioUrl = uploadResult.publicUrl;
-      
-      console.log('✅ [Upload] Audio uploaded successfully:', audioUrl);
+  const handleSubmit = async () => {
+    if (!hasRecording && !submissionText.trim()) {
+      toast.error('Please either record audio or add text comments before submitting.');
+      return;
     }
 
-    const submissionData = {
-      assignment_id: assignment.id,
-      submission_text: submissionText,
-      audio_url: audioUrl  // Now sending URL instead of base64
-    };
+    setSubmitting(true);
+    try {
+      let audioUrl = null;
+      
+      if (audioBlob) {
+        console.log('🎯 [Upload] Starting audio upload...');
+        
+        try {
+          // Generate unique filename
+          const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
+          
+          // Upload to Supabase storage
+          const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
+          audioUrl = uploadResult.publicUrl;
+          
+          console.log('✅ [Upload] Audio uploaded successfully:', audioUrl);
+        } catch (uploadError) {
+          console.error('❌ [Upload] Audio upload failed:', uploadError);
+          toast.error('Failed to upload audio. Please try again.');
+          return;
+        }
+      }
 
-    console.log('📦 [Submission] Sending data:', submissionData);
-    await onSubmit(submissionData);
-    onClose();
-  } catch (error) {
-    console.error('❌ [Submission] Failed:', error);
-    toast.error('Failed to submit assignment: ' + error.message);
-  } finally {
-    setSubmitting(false);
-  }
-};
+      const submissionData = {
+        assignment_id: assignment.id,
+        submission_text: submissionText,
+        audio_url: audioUrl
+      };
+
+      console.log('📦 [Submission] Sending data:', submissionData);
+      await onSubmit(submissionData);
+      onClose();
+    } catch (error) {
+      console.error('❌ [Submission] Failed:', error);
+      toast.error('Failed to submit assignment: ' + error.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -887,65 +899,65 @@ export default function Dashboard() {
     }
   };
 
- const handleSubmitAssignment = async (submissionData) => {
-  try {
-    console.log('🎯 [Assignment] Starting submission process...');
-    
-    // Validate submission data
-    if (!submissionData.assignment_id) {
-      throw new Error('Assignment ID is required');
-    }
-
-    console.log('📝 [Assignment] Submission data:', {
-      assignment_id: submissionData.assignment_id,
-      has_audio: !!submissionData.audio_data,
-      audio_length: submissionData.audio_data?.length || 0,
-      has_text: !!submissionData.submission_text,
-      text_length: submissionData.submission_text?.length || 0
-    });
-
-    // Make the API request
-    const response = await makeApiRequest('/api/student/submit-assignment', {
-      method: 'POST',
-      body: submissionData
-    });
-
-    if (response.success) {
-      console.log('✅ [Assignment] Submission successful!', response);
-      toast.success('Assignment submitted successfully!');
+  const handleSubmitAssignment = async (submissionData) => {
+    try {
+      console.log('🎯 [Assignment] Starting submission process...');
       
-      // Refresh the data
-      await Promise.all([
-        fetchAssignments(),
-        fetchStatsData()
-      ]);
-      
-      return response;
-    } else {
-      throw new Error(response.error || 'Failed to submit assignment');
-    }
+      // Validate submission data
+      if (!submissionData.assignment_id) {
+        throw new Error('Assignment ID is required');
+      }
 
-  } catch (error) {
-    console.error('❌ [Assignment] Submission failed:', error);
-    
-    // Handle specific error cases
-    if (error.message.includes('Authentication') || 
-        error.message.includes('session') || 
-        error.message.includes('token')) {
-      toast.error('Your session has expired. Please login again.');
-      await supabase.auth.signOut();
-      setTimeout(() => {
-        window.location.href = '/login';
-      }, 2000);
-    } else if (error.message.includes('Network error')) {
-      toast.error('Network error. Please check your internet connection.');
-    } else {
-      toast.error(`Failed to submit assignment: ${error.message}`);
+      console.log('📝 [Assignment] Submission data:', {
+        assignment_id: submissionData.assignment_id,
+        has_audio: !!submissionData.audio_url,
+        audio_url: submissionData.audio_url,
+        has_text: !!submissionData.submission_text,
+        text_length: submissionData.submission_text?.length || 0
+      });
+
+      // Make the API request
+      const response = await makeApiRequest('/api/student/submit-assignment', {
+        method: 'POST',
+        body: submissionData
+      });
+
+      if (response.success) {
+        console.log('✅ [Assignment] Submission successful!', response);
+        toast.success('Assignment submitted successfully!');
+        
+        // Refresh the data
+        await Promise.all([
+          fetchAssignments(),
+          fetchStatsData()
+        ]);
+        
+        return response;
+      } else {
+        throw new Error(response.error || 'Failed to submit assignment');
+      }
+
+    } catch (error) {
+      console.error('❌ [Assignment] Submission failed:', error);
+      
+      // Handle specific error cases
+      if (error.message.includes('Authentication') || 
+          error.message.includes('session') || 
+          error.message.includes('token')) {
+        toast.error('Your session has expired. Please login again.');
+        await supabase.auth.signOut();
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 2000);
+      } else if (error.message.includes('Network error')) {
+        toast.error('Network error. Please check your internet connection.');
+      } else {
+        toast.error(`Failed to submit assignment: ${error.message}`);
+      }
+      
+      throw error;
     }
-    
-    throw error;
-  }
-};
+  };
 
   // Effects
   useEffect(() => {
@@ -1284,7 +1296,7 @@ export default function Dashboard() {
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-green-500 to-teal-400 flex items-center justify-center">
                 <User size={16} />
               </div>
-              <span className="hidden sm:block font-medium">{name}</span>
+              <span className="hidden sm:block font-medium">{studentName}</span>
               <ChevronDown size={16} className={`transition-transform duration-200 ${userMenuOpen ? 'rotate-180' : ''}`} />
             </button>
             
@@ -1297,7 +1309,7 @@ export default function Dashboard() {
                   className="absolute right-0 mt-2 w-48 bg-green-900 rounded-lg shadow-xl py-1 z-50 border border-green-700/30"
                 >
                   <div className="px-4 py-2 border-b border-green-700/30">
-                    <p className="text-sm font-medium">{name}</p>
+                    <p className="text-sm font-medium">{studentName}</p>
                     <p className="text-xs text-green-300">Student</p>
                   </div>
                   <button className="w-full text-left px-4 py-2 hover:bg-green-800 bg-black flex items-center transition-all duration-200">
@@ -1348,7 +1360,7 @@ export default function Dashboard() {
                   <User size={20} />
                 </div>
                 <div>
-                  <h2 className="font-bold text-green-100">{name}</h2>
+                  <h2 className="font-bold text-green-100">{studentName}</h2>
                   <p className="text-green-300 text-sm">Level {progressStats.level}</p>
                 </div>
               </div>
