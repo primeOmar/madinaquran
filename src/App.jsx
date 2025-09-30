@@ -16,7 +16,7 @@ import { useAuth } from "./components/AuthContext"; // ✅ Pull auth state
 import ConnectionTest from './pages/ConnectionTest';
 
 // ✅ Storage initialization
-import { initializeStorage } from "./lib/supabase"; // Add this import
+import { initializeStorage } from "./lib/supabaseClient";
 
 // ✅ Pages
 import Register from "./pages/Register";
