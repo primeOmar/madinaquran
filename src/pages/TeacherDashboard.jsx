@@ -2112,10 +2112,11 @@ const GradedSubmissions = ({ submissions, onViewSubmission }) => {
 
   {/* Instructions */}
   <div className="mt-2 text-blue-300 text-xs">
-    💡 <strong>Perfect for:</strong> Pronunciation corrections, detailed explanations, 
+    💡 <strong>Perfect for:</strong> Tajweed corrections, detailed explanations, 
     Quranic recitation feedback, or personalized encouragement
   </div>
 </div>
+        
       <div className="flex justify-end space-x-3 mt-6">
         <button
           onClick={() => {
@@ -2140,5 +2141,4 @@ const GradedSubmissions = ({ submissions, onViewSubmission }) => {
         </button>
       </div>
     </div>
-  </div>
 )}
