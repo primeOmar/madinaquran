@@ -446,8 +446,14 @@ export default function TeacherDashboard() {
     });
   };
 
- const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, score, maxScore) => {
+const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, score, maxScore) => {
   try {
+    // Check if sendNotification method exists
+    if (!teacherApi.sendNotification || typeof teacherApi.sendNotification !== 'function') {
+      console.warn('sendNotification method not available in teacherApi. Available methods:', Object.keys(teacherApi));
+      return; // Silently fail if method doesn't exist
+    }
+    
     // Send notification to student
     await teacherApi.sendNotification(studentId, {
       type: 'assignment_graded',
@@ -465,8 +471,7 @@ export default function TeacherDashboard() {
     // Don't show error toast as grading was still successful
   }
 };
-
-// REPLACE the existing gradeAssignment function with this updated version:
+  //grade assingment
 const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl = '') => {
   setIsGrading(true);
   try {
