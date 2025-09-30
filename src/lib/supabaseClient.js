@@ -506,7 +506,7 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
-const getMyAssignments: async () => {
+getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
