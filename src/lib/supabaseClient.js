@@ -516,8 +516,8 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
-    // Try this exact query - removing the relationship name entirely
-    const { data, error } = await supabase
+    // Get assignments without joins first
+    const { data: assignmentsData, error } = await supabase
       .from('assignments')
       .select(`
         id,
@@ -527,49 +527,79 @@ getMyAssignments: async () => {
         max_score,
         class_id,
         created_at,
-        classes (title),
-        assignment_submissions (
-          id,
-          student_id,
-          submitted_at,
-          grade,                   
-          feedback,
-          status,
-          audio_url,
-          submission_text,
-          audio_feedback_url,
-          graded_at,
-          graded_by,
-          profiles (id, name, email)
-        )
+        classes (title)
       `)
       .eq('teacher_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      throw error;
+    if (error) throw error;
+
+    console.log('📊 Assignments fetched:', assignmentsData?.length || 0);
+
+    // Get submissions separately
+    const assignmentIds = assignmentsData.map(a => a.id);
+    const { data: submissionsData, error: submissionsError } = await supabase
+      .from('assignment_submissions')
+      .select(`
+        id,
+        assignment_id,
+        student_id,
+        submitted_at,
+        grade,
+        feedback,
+        status,
+        audio_url,
+        submission_text,
+        audio_feedback_url,
+        graded_at,
+        graded_by
+      `)
+      .in('assignment_id', assignmentIds);
+
+    if (submissionsError) throw submissionsError;
+
+    console.log('📝 Submissions fetched:', submissionsData?.length || 0);
+
+    // Get student profiles
+    const studentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
+    console.log('👥 Student IDs to fetch:', studentIds);
+
+    let studentMap = {};
+    if (studentIds.length > 0) {
+      const { data: studentProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .in('id', studentIds);
+
+      if (profilesError) {
+        console.error('❌ Error fetching profiles:', profilesError);
+      } else {
+        console.log('✅ Profiles found:', studentProfiles);
+        studentMap = studentProfiles.reduce((acc, profile) => {
+          acc[profile.id] = profile;
+          return acc;
+        }, {});
+      }
     }
 
-    console.log('📊 RAW DATA WITH SIMPLE JOIN:', JSON.stringify(data, null, 2));
-
-    // Transform data
-    const transformed = data.map(assignment => {
-      const submissions = assignment.assignment_submissions || [];
+    // Combine the data
+    const transformed = assignmentsData.map(assignment => {
+      const submissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
       
       const transformedSubmissions = submissions.map(sub => {
-        const studentProfile = sub.profiles;
-        console.log(`📝 Transforming submission ${sub.id}:`, {
-          studentProfile,
-          hasProfiles: !!sub.profiles,
-          studentName: studentProfile?.name
+        const studentInfo = studentMap[sub.student_id] || {};
+        
+        console.log(`🎯 Mapping student ${sub.student_id}:`, {
+          studentInfo,
+          found: !!studentMap[sub.student_id],
+          studentName: studentInfo.name || 'Not Found'
         });
 
         return {
           id: sub.id,
           student_id: sub.student_id,
-          student_name: studentProfile?.name || 'Unknown Student',
-          student_email: studentProfile?.email || '',
+          student_name: studentInfo.name || 'Unknown Student',
+          student_email: studentInfo.email || '',
           submitted_at: sub.submitted_at,
           grade: sub.grade,                    
           feedback: sub.feedback,
