@@ -516,6 +516,7 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
+    // Try alternative relationship syntax
     const { data, error } = await supabase
       .from('assignments')
       .select(`
@@ -539,11 +540,7 @@ getMyAssignments: async () => {
           audio_feedback_url,
           graded_at,
           graded_by,
-          profiles!assignment_submissions_student_id_fkey (
-            id,
-            name,
-            email
-          )
+          profiles!inner (id, name, email)
         )
       `)
       .eq('teacher_id', user.id)
@@ -554,39 +551,28 @@ getMyAssignments: async () => {
       throw error;
     }
 
-    // DEEP DEBUG: Check the exact structure
-    console.log('📊 RAW DATA FROM SUPABASE:', JSON.stringify(data, null, 2));
-    
-    if (data && data.length > 0) {
-      console.log('📄 First assignment:', data[0]);
-      if (data[0].assignment_submissions && data[0].assignment_submissions.length > 0) {
-        const firstSubmission = data[0].assignment_submissions[0];
-        console.log('👤 First submission FULL structure:', firstSubmission);
-        console.log('🎯 Student profiles data:', firstSubmission?.profiles);
-        console.log('🔍 Available keys in submission:', Object.keys(firstSubmission));
-      }
+    console.log('📊 RAW DATA WITH INNER JOIN:', JSON.stringify(data, null, 2));
+
+    // If still no data, use the separate query approach
+    if (!data || data.length === 0 || !data.some(a => a.assignment_submissions?.some(s => s.profiles))) {
+      console.log('🔄 No student data from join, using separate query approach...');
+      return await getAssignmentsWithSeparateStudentQuery(user.id);
     }
 
-    // Transform data
+    // Rest of your transformation code...
     const transformed = data.map(assignment => {
       const submissions = assignment.assignment_submissions || [];
       
       const transformedSubmissions = submissions.map(sub => {
-        // The student data is in the 'profiles' field due to the join
         const studentProfile = sub.profiles;
         console.log(`📝 Transforming submission ${sub.id}:`, {
           studentProfile,
-          hasProfiles: !!sub.profiles,
-          profilesType: typeof sub.profiles,
-          profilesKeys: sub.profiles ? Object.keys(sub.profiles) : 'none',
-          studentNameFromProfiles: sub.profiles?.name,
-          rawSubmissionKeys: Object.keys(sub)
+          hasProfiles: !!sub.profiles
         });
 
         return {
           id: sub.id,
           student_id: sub.student_id,
-          // Student name comes from the joined profiles table
           student_name: studentProfile?.name || 'Unknown Student',
           student_email: studentProfile?.email || '',
           submitted_at: sub.submitted_at,
@@ -619,6 +605,7 @@ getMyAssignments: async () => {
 
     console.log('✅ FINAL TRANSFORMED DATA:', transformed);
     return transformed;
+
   } catch (error) {
     console.error('❌ Error fetching assignments:', error);
     throw error;
