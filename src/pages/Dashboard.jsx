@@ -279,39 +279,45 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
     hasRecording
   } = useAudioRecorder();
 
-  const handleSubmit = async () => {
-    if (!hasRecording && !submissionText.trim()) {
-      toast.error('Please either record audio or add text comments before submitting.');
-      return;
+ const handleSubmit = async () => {
+  if (!hasRecording && !submissionText.trim()) {
+    toast.error('Please either record audio or add text comments before submitting.');
+    return;
+  }
+
+  setSubmitting(true);
+  try {
+    let audioUrl = null;
+    
+    if (audioBlob) {
+      console.log('🎯 [Upload] Starting audio upload...');
+      
+      // Generate unique filename
+      const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
+      
+      // Upload to Supabase storage using your client function
+      const uploadResult = await uploadAudioFile(audioBlob, 'assignment-audio');
+      audioUrl = uploadResult.publicUrl;
+      
+      console.log('✅ [Upload] Audio uploaded successfully:', audioUrl);
     }
 
-    setSubmitting(true);
-    try {
-      let audioUrl = null;
+    const submissionData = {
+      assignment_id: assignment.id,
+      submission_text: submissionText,
+      audio_url: audioUrl  // Now sending URL instead of base64
+    };
 
-if (audioBlob) {
-  // Generate unique filename
-  const fileName = `assignment-${assignment.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.webm`;
-  
-  // Upload to Supabase storage and get URL
-  const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
-  audioUrl = uploadResult.publicUrl;
-}
-
-const submissionData = {
-  assignment_id: assignment.id,
-  submission_text: submissionText,
-  audio_url: audioUrl  
+    console.log('📦 [Submission] Sending data:', submissionData);
+    await onSubmit(submissionData);
+    onClose();
+  } catch (error) {
+    console.error('❌ [Submission] Failed:', error);
+    toast.error('Failed to submit assignment: ' + error.message);
+  } finally {
+    setSubmitting(false);
+  }
 };
-      await onSubmit(submissionData);
-      onClose();
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-      toast.error('Failed to submit assignment');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   if (!isOpen) return null;
 
