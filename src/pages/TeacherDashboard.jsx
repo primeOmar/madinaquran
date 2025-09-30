@@ -1,16 +1,104 @@
-import { useState, useEffect, useMemo, react} from 'react';
+import { useState, useEffect, useMemo, react, useRef} from 'react';
 import { 
   BookOpen, Calendar, Clock, User, Video, Play, Eye, 
   Users, BarChart3, Home, Settings, LogOut, Bell,
   Search, Filter, Plus, MessageCircle, FileText, 
   FileCheck, FileEdit, GraduationCap, Award, CheckCircle, 
   XCircle, Edit, Trash2, Download, Upload, Send,
-  ChevronDown, Menu, X
+  ChevronDown, Menu, X, Mic, Square
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
+// Audio recording hook for teacher feedback
+const useAudioRecorder = () => {
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState('');
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      alert('Microphone access denied. Please allow microphone access to record audio feedback.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
+  };
+
+  const clearRecording = () => {
+    setAudioBlob(null);
+    setAudioUrl('');
+    setRecordingTime(0);
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [audioUrl]);
+
+  return {
+    isRecording,
+    audioBlob,
+    audioUrl,
+    recordingTime: formatTime(recordingTime),
+    startRecording,
+    stopRecording,
+    clearRecording,
+    hasRecording: !!audioBlob
+  };
+};
+
 
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
@@ -54,8 +142,7 @@ export default function TeacherDashboard() {
     for_all_students: true,
     selected_students: [] 
   });
-  const [gradeData, setGradeData] = useState({ score: '', feedback: '' });
-
+  
   // Monitor authentication state
   useEffect(() => {
     if (!user) {
@@ -111,6 +198,29 @@ export default function TeacherDashboard() {
     }
   };
 
+const [gradeData, setGradeData] = useState({ 
+  score: '', 
+  feedback: '', 
+  audioFeedbackUrl: '',
+  isRecording: false,
+  recordingTime: 0,
+  audioBlob: null
+});
+
+// audio recorder hook
+const {
+  isRecording: audioIsRecording,
+  audioBlob,
+  audioUrl,
+  recordingTime: audioRecordingTime,
+  startRecording,
+  stopRecording,
+  clearRecording,
+  hasRecording
+} = useAudioRecorder();
+
+const [recordingInterval, setRecordingInterval] = useState(null);
+  
   // Filter classes based on filters
   const filteredClasses = useMemo(() => {
     if (!classes || classes.length === 0) return [];
@@ -184,7 +294,6 @@ export default function TeacherDashboard() {
       setLoading({ classes: false, students: false, assignments: false });
     }
   };
-
   const startVideoSession = async (classId) => {
     try {
       const session = await teacherApi.startVideoSession(classId);
@@ -1809,114 +1918,227 @@ const GradedSubmissions = ({ submissions, onViewSubmission }) => {
     )}
 
     {/* Grade Assignment Modal */}
-    {gradingSubmission && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-        <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-          <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
-          
-          {/* Student and Assignment Info */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-blue-800/30 rounded-lg">
-            <div>
-              <p className="text-blue-200 text-sm">Student</p>
-              <p className="text-white font-medium">{gradingSubmission.student?.name || 'Unknown Student'}</p>
-              <p className="text-blue-300 text-xs">{gradingSubmission.student?.email}</p>
-            </div>
-            <div>
-              <p className="text-blue-200 text-sm">Assignment</p>
-              <p className="text-white font-medium">{gradingSubmission.assignment?.title}</p>
-              <p className="text-blue-300 text-xs">
-                Max Score: {gradingSubmission.assignment?.max_score}
-              </p>
-            </div>
+   {/* Grade Assignment Modal with Audio Recording */}
+{gradingSubmission && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+    <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
+      
+      {/* Student and Assignment Info */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-blue-800/30 rounded-lg">
+        <div>
+          <p className="text-blue-200 text-sm">Student</p>
+          <p className="text-white font-medium">{gradingSubmission.student?.name || 'Unknown Student'}</p>
+          <p className="text-blue-300 text-xs">{gradingSubmission.student?.email}</p>
+        </div>
+        <div>
+          <p className="text-blue-200 text-sm">Assignment</p>
+          <p className="text-white font-medium">{gradingSubmission.assignment?.title}</p>
+          <p className="text-blue-300 text-xs">
+            Max Score: {gradingSubmission.assignment?.max_score}
+          </p>
+        </div>
+      </div>
+
+      {/* Student's Audio Submission */}
+      {gradingSubmission.audio_url && (
+        <div className="mb-6">
+          <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
+          <audio controls className="w-full rounded-lg">
+            <source src={gradingSubmission.audio_url} type="audio/webm" />
+            Your browser does not support the audio element.
+          </audio>
+        </div>
+      )}
+
+      {/* Student's Written Submission */}
+      {gradingSubmission.submission_text && (
+        <div className="mb-6">
+          <p className="text-blue-200 text-sm font-medium mb-2">Written Submission:</p>
+          <div className="bg-blue-800/30 p-4 rounded-lg max-h-32 overflow-y-auto">
+            <p className="text-white text-sm">{gradingSubmission.submission_text}</p>
           </div>
+        </div>
+      )}
 
-          {/* Audio Submission Preview */}
-          {gradingSubmission.audio_url && (
-            <div className="mb-6">
-              <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
-              <audio controls className="w-full rounded-lg">
-                <source src={gradingSubmission.audio_url} type="audio/webm" />
-                Your browser does not support the audio element.
-              </audio>
-            </div>
-          )}
+      <div className="space-y-4">
+        {/* Score Input */}
+        <div>
+          <label className="block text-sm font-medium text-blue-200 mb-1">
+            Score * (Max: {gradingSubmission.assignment?.max_score || 100})
+          </label>
+          <input
+            type="number"
+            value={gradeData.score}
+            onChange={(e) => setGradeData({...gradeData, score: e.target.value})}
+            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+            min="0"
+            max={gradingSubmission.assignment?.max_score || 100}
+            placeholder="Enter score"
+            required
+          />
+        </div>
 
-          {/* Written Submission Preview */}
-          {gradingSubmission.submission_text && (
-            <div className="mb-6">
-              <p className="text-blue-200 text-sm font-medium mb-2">Written Submission:</p>
-              <div className="bg-blue-800/30 p-4 rounded-lg max-h-32 overflow-y-auto">
-                <p className="text-white text-sm">{gradingSubmission.submission_text}</p>
+        {/* Written Feedback */}
+        <div>
+          <label className="block text-sm font-medium text-blue-200 mb-1">Written Feedback</label>
+          <textarea
+            value={gradeData.feedback}
+            onChange={(e) => setGradeData({...gradeData, feedback: e.target.value})}
+            className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
+            rows="4"
+            placeholder="Provide written feedback to the student..."
+          />
+        </div>
+
+       {/* Audio Feedback Recording Section */}
+<div className="border-t border-blue-700/30 pt-4">
+  <label className="block text-sm font-medium text-blue-200 mb-3">
+    Audio Feedback (Record corrections or detailed feedback)
+  </label>
+  
+  {/* Audio Recorder Component */}
+  <div className="bg-blue-800/30 rounded-lg p-4 border border-blue-700/30">
+    {!gradeData.audioFeedbackUrl && !audioUrl ? (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={async () => {
+                if (audioIsRecording) {
+                  // Stop recording
+                  stopRecording();
+                  setGradeData(prev => ({
+                    ...prev, 
+                    isRecording: false,
+                    audioFeedbackUrl: audioUrl // Use the URL from the recording hook
+                  }));
+                  
+                  // Clear the interval
+                  if (recordingInterval) {
+                    clearInterval(recordingInterval);
+                    setRecordingInterval(null);
+                  }
+                } else {
+                  // Start recording
+                  await startRecording();
+                  setGradeData(prev => ({...prev, isRecording: true}));
+                  
+                  // Update recording time every second
+                  const interval = setInterval(() => {
+                    setGradeData(prev => ({
+                      ...prev, 
+                      recordingTime: prev.recordingTime + 1
+                    }));
+                  }, 1000);
+                  
+                  // Store interval ID to clear later
+                  setRecordingInterval(interval);
+                }
+              }}
+              className={`p-3 rounded-full transition-all duration-200 ${
+                audioIsRecording 
+                  ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
+                  : 'bg-green-600 hover:bg-green-500'
+              }`}
+            >
+              {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
+            </button>
+            
+            <div>
+              <div className="text-sm text-blue-300">
+                {audioIsRecording ? `Recording... ${audioRecordingTime}` : 'Click to record audio feedback'}
+              </div>
+              <div className="text-xs text-blue-400">
+                {audioIsRecording ? 'Click stop when finished' : 'Record pronunciation corrections or detailed feedback'}
               </div>
             </div>
+          </div>
+          
+          {audioIsRecording && (
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+              <span className="text-red-300 text-sm">Recording</span>
+            </div>
           )}
+        </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-1">
-                Score * (Max: {gradingSubmission.assignment?.max_score || 100})
-              </label>
-              <input
-                type="number"
-                value={gradeData.score}
-                onChange={(e) => setGradeData({...gradeData, score: e.target.value})}
-                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-                min="0"
-                max={gradingSubmission.assignment?.max_score || 100}
-                placeholder="Enter score"
-                required
+        {/* Recording Visualization */}
+        {audioIsRecording && (
+          <div className="flex items-center space-x-1 h-4">
+            {[...Array(10)].map((_, i) => (
+              <div
+                key={i}
+                className="flex-1 bg-green-500/30 rounded-full animate-pulse"
+                style={{
+                  height: `${Math.random() * 12 + 4}px`,
+                  animationDelay: `${i * 0.1}s`
+                }}
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-1">Feedback</label>
-              <textarea
-                value={gradeData.feedback}
-                onChange={(e) => setGradeData({...gradeData, feedback: e.target.value})}
-                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-                rows="4"
-                placeholder="Provide feedback to the student..."
-              />
-            </div>
-
-            {/* Audio Feedback Option */}
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-1">
-                Audio Feedback URL (Optional)
-              </label>
-              <input
-                type="text"
-                value={gradeData.audioFeedbackUrl || ''}
-                onChange={(e) => setGradeData({...gradeData, audioFeedbackUrl: e.target.value})}
-                className="w-full p-2 rounded-lg bg-blue-800/50 border border-blue-700/30 text-white"
-                placeholder="https://example.com/audio-feedback.mp3"
-              />
-              <p className="text-blue-300 text-xs mt-1">Optional: Provide audio feedback to the student</p>
-            </div>
+            ))}
           </div>
-
-          <div className="flex justify-end space-x-3 mt-6">
-            <button
-              onClick={() => setGradingSubmission(null)}
-              className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => gradeAssignment(
-                gradingSubmission.id, 
-                parseInt(gradeData.score), 
-                gradeData.feedback,
-                gradeData.audioFeedbackUrl
-              )}
-              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
-            >
-              Submit Grade
-            </button>
-          </div>
+        )}
+      </div>
+    ) : (
+      /* Audio Preview after Recording */
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-green-400 text-sm font-medium">✅ Audio feedback recorded</span>
+          <button
+            onClick={() => {
+              clearRecording();
+              setGradeData(prev => ({...prev, audioFeedbackUrl: ''}));
+            }}
+            className="text-red-400 hover:text-red-300 text-sm"
+          >
+            Re-record
+          </button>
+        </div>
+        
+        <audio 
+          controls 
+          className="w-full rounded-lg"
+          src={gradeData.audioFeedbackUrl || audioUrl}
+        >
+          Your browser does not support the audio element.
+        </audio>
+        
+        <div className="text-blue-300 text-xs">
+          Students will be able to listen to this audio feedback in their dashboard
         </div>
       </div>
     )}
   </div>
-);
-};
+
+  {/* Instructions */}
+  <div className="mt-2 text-blue-300 text-xs">
+    💡 <strong>Perfect for:</strong> Pronunciation corrections, detailed explanations, 
+    Quranic recitation feedback, or personalized encouragement
+  </div>
+</div>
+      <div className="flex justify-end space-x-3 mt-6">
+        <button
+          onClick={() => {
+            setGradingSubmission(null);
+            setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
+          }}
+          className="px-4 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/50 text-white"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => gradeAssignment(
+            gradingSubmission.id, 
+            parseInt(gradeData.score), 
+            gradeData.feedback,
+            gradeData.audioFeedbackUrl
+          )}
+          disabled={!gradeData.score || isNaN(parseInt(gradeData.score))}
+          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed"
+        >
+          Submit Grade & Feedback
+        </button>
+      </div>
+    </div>
+  </div>
+)}
