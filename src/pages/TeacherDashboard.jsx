@@ -216,44 +216,62 @@ export default function TeacherDashboard() {
       }))
     );
     
-    console.log('🔍 All submissions loaded:', allSubmissions);
-    
-    // More robust grading status check
+    console.log('🔍 Raw submissions data structure:', allSubmissions);
+
+    // SIMPLIFIED FILTERING - Let's see what's actually happening
     const pendingData = allSubmissions.filter(submission => {
       const grade = submission.grade;
-      // A submission is pending if grade is null, undefined, empty string, or not a valid number
-      return grade === null || 
-             grade === undefined || 
-             grade === '' || 
-             isNaN(Number(grade)) ||
-             (typeof grade === 'number' && grade < 0);
+      console.log(`Checking submission ${submission.id}:`, {
+        grade,
+        type: typeof grade,
+        isNull: grade === null,
+        isUndefined: grade === undefined,
+        parsed: Number(grade)
+      });
+      
+      // If grade is explicitly null or undefined, it's pending
+      if (grade === null || grade === undefined) return true;
+      
+      // If grade is empty string, it's pending
+      if (grade === '') return true;
+      
+      // If grade can't be converted to a number, it's pending
+      if (isNaN(Number(grade))) return true;
+      
+      // If grade is a valid number, it's graded
+      return false;
     });
     
     const gradedData = allSubmissions.filter(submission => {
       const grade = submission.grade;
-      // A submission is graded if grade is a valid number >= 0
-      return grade !== null && 
-             grade !== undefined && 
-             grade !== '' && 
-             !isNaN(Number(grade)) &&
-             Number(grade) >= 0;
+      
+      // If grade is explicitly null or undefined, it's NOT graded
+      if (grade === null || grade === undefined) return false;
+      
+      // If grade is empty string, it's NOT graded
+      if (grade === '') return false;
+      
+      // If grade can't be converted to a number, it's NOT graded
+      if (isNaN(Number(grade))) return false;
+      
+      // If we get here, it's a valid number and therefore graded
+      return true;
     });
     
-    console.log('📊 Pending submissions:', pendingData.length, pendingData);
-    console.log('✅ Graded submissions:', gradedData.length, gradedData);
+    console.log('📊 Pending submissions:', pendingData.length);
+    console.log('✅ Graded submissions:', gradedData.length);
+    console.log('📝 Sample graded submission:', gradedData[0]);
     
     setSubmissions(allSubmissions);
     setPendingSubmissions(pendingData);
     
-    // Update stats with the correct pending count
     setStats(prev => ({
       ...prev,
-      pendingSubmissions: pendingData.length,
-      totalAssignments: assignmentsData.length
+      pendingSubmissions: pendingData.length
     }));
     
   } catch (error) {
-    console.error('❌ Error loading submissions:', error);
+    console.error('Error loading submissions:', error);
     toast.error('Failed to load submissions');
   }
 };
