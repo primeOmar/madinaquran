@@ -202,35 +202,41 @@ export default function TeacherDashboard() {
   }, [user]);
 
   const loadSubmissions = async () => {
-    try {
-      const assignmentsData = await teacherApi.getMyAssignments();
-      
-      const allSubmissions = assignmentsData.flatMap(assignment => 
-        (assignment.submissions || []).map(submission => ({
-          ...submission,
-          assignment_title: assignment.title,
-          assignment_max_score: assignment.max_score,
-          assignment_due_date: assignment.due_date
-        }))
-      );
-      
-      const pendingData = allSubmissions.filter(submission => 
-        submission.grade === null || submission.grade === undefined
-      );
-      
-      setSubmissions(allSubmissions);
-      setPendingSubmissions(pendingData);
-      
-      setStats(prev => ({
-        ...prev,
-        pendingSubmissions: pendingData.length
-      }));
-    } catch (error) {
-      console.error('Error loading submissions:', error);
-      toast.error('Failed to load submissions');
-    }
-  };
-
+  try {
+    const assignmentsData = await teacherApi.getMyAssignments();
+    
+    const allSubmissions = assignmentsData.flatMap(assignment => 
+      (assignment.submissions || []).map(submission => ({
+        ...submission,
+        assignment_title: assignment.title,
+        assignment_max_score: assignment.max_score,
+        assignment_due_date: assignment.due_date,
+        assignment: assignment 
+      }))
+    );
+    
+    // Separate pending and graded submissions more clearly
+    const pendingData = allSubmissions.filter(submission => 
+      submission.grade === null || submission.grade === undefined
+    );
+    
+    const gradedData = allSubmissions.filter(submission => 
+      submission.grade !== null && submission.grade !== undefined
+    );
+    
+    setSubmissions(allSubmissions);
+    setPendingSubmissions(pendingData);
+    
+    setStats(prev => ({
+      ...prev,
+      pendingSubmissions: pendingData.length
+    }));
+    
+  } catch (error) {
+    console.error('Error loading submissions:', error);
+    toast.error('Failed to load submissions');
+  }
+};
   // Filter classes based on filters
   const filteredClasses = useMemo(() => {
     if (!classes || classes.length === 0) return [];
@@ -439,40 +445,85 @@ export default function TeacherDashboard() {
     });
   };
 
-  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl = '') => {
-    try {
-      if (!score || isNaN(score) || score < 0) {
-        toast.error('Please enter a valid score');
-        return;
-      }
-      
-      // Ensure score is a number
-      const numericScore = parseInt(score);
-      
-      await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackUrl);
-      
-      // Find the submission to update progress
-      const submission = submissions.find(s => s.id === submissionId) || 
-                        pendingSubmissions.find(s => s.id === submissionId);
-      
-      if (submission && submission.student_id) {
-        await teacherApi.updateStudentProgress(submission.student_id);
-      }
-      
-      toast.success('Assignment graded successfully!');
-      setGradingSubmission(null);
-      setSelectedSubmission(null);
-      setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
-      clearRecording();
-      
-      // Reload data
-      await loadSubmissions();
-      await loadTeacherData();
-    } catch (error) {
-      console.error('Grading error:', error);
-      toast.error(`Failed to grade assignment: ${error.message}`);
+ const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, score, maxScore) => {
+  try {
+    // Send notification to student
+    await teacherApi.sendNotification(studentId, {
+      type: 'assignment_graded',
+      title: 'Assignment Graded',
+      message: `Your assignment "${assignmentTitle}" has been graded. Score: ${score}/${maxScore}`,
+      submission_id: submissionId,
+      assignment_title: assignmentTitle,
+      score: score,
+      max_score: maxScore
+    });
+    
+    console.log('Student notified about their grade');
+  } catch (error) {
+    console.error('Error notifying student:', error);
+    // Don't show error toast as grading was still successful
+  }
+};
+
+// REPLACE the existing gradeAssignment function with this updated version:
+const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl = '') => {
+  setIsGrading(true);
+  try {
+    if (!score || isNaN(score) || score < 0) {
+      toast.error('Please enter a valid score');
+      setIsGrading(false);
+      return;
     }
-  };
+    
+    // Ensure score is a number
+    const numericScore = parseInt(score);
+    
+    // Get submission details before grading for notification
+    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
+                             pendingSubmissions.find(s => s.id === submissionId);
+    
+    if (!submissionToGrade) {
+      toast.error('Submission not found');
+      setIsGrading(false);
+      return;
+    }
+    
+    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackUrl);
+    
+    // Find the submission to update progress
+    if (submissionToGrade && submissionToGrade.student_id) {
+      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
+    }
+    
+    // Notify the student
+    const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
+    const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+    
+    await notifyStudentGraded(
+      submissionId,
+      submissionToGrade.student_id,
+      assignmentTitle,
+      numericScore,
+      maxScore
+    );
+    
+    toast.success('Assignment graded successfully and student notified!');
+    setGradingSubmission(null);
+    setSelectedSubmission(null);
+    setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
+    clearRecording();
+    
+    // Reload data to refresh the lists
+    await loadSubmissions();
+    await loadTeacherData();
+    
+  } catch (error) {
+    console.error('Grading error:', error);
+    toast.error(`Failed to grade assignment: ${error.message}`);
+  } finally {
+    setIsGrading(false);
+  }
+};
 
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
@@ -1549,23 +1600,24 @@ export default function TeacherDashboard() {
             />
           )}
 
-          {activeTab === 'grading' && (
-            <GradingTab 
-              submissions={assignments}
-              pendingSubmissions={pendingSubmissions}
-              onGradeAssignment={gradeAssignment}
-              onStartGrading={(submission) => {
-                setGradingSubmission(submission);
-                setGradeData({ 
-                  score: submission.grade || '', 
-                  feedback: submission.feedback || '',
-                  audioFeedbackUrl: submission.audio_feedback_url || ''
-                });
-              }}
-              activeTab={activeGradingTab}
-              setActiveTab={setActiveGradingTab}
-            />
-          )}
+         {activeTab === 'grading' && (
+  <GradingTab 
+    submissions={submissions}
+    pendingSubmissions={pendingSubmissions}
+    onGradeAssignment={gradeAssignment}
+    onStartGrading={(submission) => {
+      setGradingSubmission(submission);
+      setGradeData({ 
+        score: submission.grade || '', 
+        feedback: submission.feedback || '',
+        audioFeedbackUrl: submission.audio_feedback_url || ''
+      });
+    }}
+    activeTab={activeGradingTab}
+    setActiveTab={setActiveGradingTab}
+    isGrading={isGrading}
+  />
+)}
 
           {activeTab === 'upcoming' && (
             <UpcomingTab classes={upcomingClasses} formatDateTime={formatDateTime} />
@@ -2031,17 +2083,24 @@ export default function TeacherDashboard() {
                 Cancel
               </button>
               <button
-                onClick={() => gradeAssignment(
-                  gradingSubmission.id, 
-                  parseInt(gradeData.score), 
-                  gradeData.feedback,
-                  gradeData.audioFeedbackUrl || audioUrl
-                )}
-                disabled={!gradeData.score || isNaN(parseInt(gradeData.score))}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed"
-              >
-                Submit Grade & Feedback
-              </button>
+  onClick={() => gradeAssignment(
+    gradingSubmission.id, 
+    parseInt(gradeData.score), 
+    gradeData.feedback,
+    gradeData.audioFeedbackUrl || audioUrl
+  )}
+  disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
+  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed flex items-center justify-center"
+>
+  {isGrading ? (
+    <>
+      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+      Grading...
+    </>
+  ) : (
+    'Submit Grade & Feedback'
+  )}
+</button>
             </div>
           </div>
         </div>
