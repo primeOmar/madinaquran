@@ -1032,7 +1032,10 @@ setPendingSubmissions(updatedPending);
     return (
       <div className="space-y-4">
         {submissions.map((submission) => {
-          const studentName = submission.student_name ;
+          const studentName = submission.student?.name || 
+                           submission.student_name || 
+                           submission.students?.name ||
+                           'Unknown Student';
           const studentEmail = submission.student?.email || submission.student_email || '';
           const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
           const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
@@ -1148,7 +1151,10 @@ setPendingSubmissions(updatedPending);
   return (
     <div className="space-y-4">
       {gradedSubmissions.map((submission) => {
-        const studentName = submission.student_name;
+        const studentName = submission.student?.name || 
+                           submission.student_name || 
+                           submission.students?.name ||
+                           'Unknown Student';
         const assignmentTitle = submission.assignment?.title || 
                               submission.assignment_title || 
                               'Unknown Assignment';
