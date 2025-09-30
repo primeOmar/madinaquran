@@ -532,7 +532,8 @@ getMyAssignments: async () => {
           grade,                   
           feedback,
           status,
-          students:student_id (name)
+          student:profiles!student_id (name),      
+          students:profiles!assignment_submissions_student_id_fkey (name)
         )
       `)
       .eq('teacher_id', user.id)
