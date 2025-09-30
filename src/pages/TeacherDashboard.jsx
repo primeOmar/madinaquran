@@ -590,18 +590,18 @@ setPendingSubmissions(updatedPending);
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
-  if (loading.classes) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 to-purple-900 p-4">
-        <div className="flex justify-center items-center min-h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-            <p className="text-blue-200">Loading your dashboard...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // if (loading.classes) {
+  //   return (
+  //     <div className="min-h-screen bg-gradient-to-br from-blue-900 to-purple-900 p-4">
+  //       <div className="flex justify-center items-center min-h-screen">
+  //         <div className="text-center">
+  //           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+  //           <p className="text-blue-200">Loading your dashboard...</p>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   // Stats grid data
   const statsGrid = [
