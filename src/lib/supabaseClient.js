@@ -506,7 +506,6 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
-// Alternative: Direct join approach
 getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -515,8 +514,9 @@ getMyAssignments: async () => {
       throw new Error('User not authenticated');
     }
 
-    console.log('🔍 Fetching assignments with direct join...');
+    console.log('🔍 Fetching assignments for teacher:', user.id);
 
+    // Use the correct relationship name for student profiles
     const { data, error } = await supabase
       .from('assignments')
       .select(`
@@ -540,7 +540,7 @@ getMyAssignments: async () => {
           audio_feedback_url,
           graded_at,
           graded_by,
-          profiles!inner (id, name, email)
+          profiles!assignment_submissions_student_id_fkey (id, name, email)
         )
       `)
       .eq('teacher_id', user.id)
@@ -551,7 +551,7 @@ getMyAssignments: async () => {
       throw error;
     }
 
-    console.log('📊 RAW DATA WITH DIRECT JOIN:', JSON.stringify(data, null, 2));
+    console.log('📊 RAW DATA WITH CORRECT RELATIONSHIP:', JSON.stringify(data, null, 2));
 
     // Transform data
     const transformed = data.map(assignment => {
@@ -561,7 +561,8 @@ getMyAssignments: async () => {
         const studentProfile = sub.profiles;
         console.log(`📝 Transforming submission ${sub.id}:`, {
           studentProfile,
-          hasProfiles: !!sub.profiles
+          hasProfiles: !!sub.profiles,
+          studentName: studentProfile?.name
         });
 
         return {
