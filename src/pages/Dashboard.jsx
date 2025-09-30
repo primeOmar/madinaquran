@@ -155,7 +155,17 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
       type: audioFile.type
     });
 
-    // Upload to Supabase storage
+    // Get current session to ensure authenticated
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError || !session) {
+      console.error('❌ [Upload] No authenticated session:', sessionError);
+      throw new Error('User not authenticated. Please login again.');
+    }
+
+    console.log('🔐 [Upload] User authenticated:', session.user.email);
+
+    // Upload to Supabase storage with explicit error handling
     const { data, error } = await supabase.storage
       .from('assignment-audio') 
       .upload(fileName, audioFile, {
@@ -166,6 +176,12 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 
     if (error) {
       console.error('❌ [Upload] Supabase storage error:', error);
+      
+      // Specific RLS error handling
+      if (error.message.includes('row-level security policy')) {
+        throw new Error('Storage permissions issue. Please contact admin to configure bucket policies.');
+      }
+      
       throw new Error(`Upload failed: ${error.message}`);
     }
 
@@ -187,9 +203,7 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     console.error('❌ [Upload] Upload process failed:', error);
     throw error;
   }
-};
-
-// Audio Player Component
+};// Audio Player Component
 const AudioPlayer = ({ audioUrl, onDelete }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
