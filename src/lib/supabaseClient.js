@@ -765,6 +765,28 @@ export const teacherApi = {
       throw error;
     }
   },
+sendNotification: async (studentId, notificationData) => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: studentId,
+        type: notificationData.type,
+        title: notificationData.title,
+        message: notificationData.message,
+        data: {
+          submission_id: notificationData.submission_id,
+          assignment_title: notificationData.assignment_title,
+          score: notificationData.score,
+          max_score: notificationData.max_score
+        },
+        read: false
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
 
   // Create a new assignment
   createAssignment: async (assignmentData) => {
