@@ -516,7 +516,7 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
-    // Use the correct relationship name for student profiles
+    // Try this exact query - removing the relationship name entirely
     const { data, error } = await supabase
       .from('assignments')
       .select(`
@@ -540,7 +540,7 @@ getMyAssignments: async () => {
           audio_feedback_url,
           graded_at,
           graded_by,
-          profiles!assignment_submissions_student_id_fkey (id, name, email)
+          profiles (id, name, email)
         )
       `)
       .eq('teacher_id', user.id)
@@ -551,7 +551,7 @@ getMyAssignments: async () => {
       throw error;
     }
 
-    console.log('📊 RAW DATA WITH CORRECT RELATIONSHIP:', JSON.stringify(data, null, 2));
+    console.log('📊 RAW DATA WITH SIMPLE JOIN:', JSON.stringify(data, null, 2));
 
     // Transform data
     const transformed = data.map(assignment => {
