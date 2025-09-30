@@ -523,19 +523,24 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
       await teacherApi.updateStudentProgress(submissionToGrade.student_id);
     }
     
-    // Notify the student
-    const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
-    const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+    // Try to notify student (but don't fail grading if notification fails)
+    try {
+      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
+      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+      
+      await notifyStudentGraded(
+        submissionId,
+        submissionToGrade.student_id,
+        assignmentTitle,
+        numericScore,
+        maxScore
+      );
+    } catch (notificationError) {
+      console.warn('Notification failed, but grading was successful:', notificationError);
+      // Continue with success - notification failure shouldn't fail the entire grading process
+    }
     
-    await notifyStudentGraded(
-      submissionId,
-      submissionToGrade.student_id,
-      assignmentTitle,
-      numericScore,
-      maxScore
-    );
-    
-    toast.success('Assignment graded successfully and student notified!');
+    toast.success('Assignment graded successfully!');
     setGradingSubmission(null);
     setSelectedSubmission(null);
     setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
