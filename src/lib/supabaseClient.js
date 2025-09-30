@@ -536,8 +536,8 @@ getMyAssignments: async () => {
           submission_text,
           audio_feedback_url,
           graded_at,
-          student:profiles!assignment_submissions_student_id_fkey (name, email),
-          graded_by:profiles!assignment_submissions_graded_by_fkey (name, email)
+          student:profiles!assignment_submissions_student_id_fkey (name),
+          graded_by:profiles!assignment_submissions_graded_by_fkey (name)
         )
       `)
       .eq('teacher_id', user.id)
@@ -561,7 +561,6 @@ getMyAssignments: async () => {
           id: sub.id,
           student_id: sub.student_id,
           student_name: sub.student?.name 
-          student_email: sub.student?.email,
           submitted_at: sub.submitted_at,
           grade: sub.grade,                    
           feedback: sub.feedback,
