@@ -606,6 +606,7 @@ getMyAssignments: async () => {
     throw error;
   }
 },
+  
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
     try {
