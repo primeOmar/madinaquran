@@ -506,73 +506,74 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
-  getMyAssignments: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('assignments')
-        .select(`
-          id,
-          title,
-          description,
-          due_date,
-          max_score,
-          class_id,
-          created_at,
-          classes (title),
-          assignment_submissions (
-            id,
-            student_id,
-            submitted_at,
-            score,
-            feedback,
-            status,
-            students:student_id (name)
-          )
-        `)
-        .eq('teacher_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      
-      // Transform data with submission counts
-      const transformed = data.map(assignment => {
-        const submissions = assignment.assignment_submissions || [];
-        return {
-          id: assignment.id,
-          title: assignment.title,
-          description: assignment.description,
-          due_date: assignment.due_date,
-          max_score: assignment.max_score,
-          class_id: assignment.class_id,
-          class_title: assignment.classes?.title,
-          created_at: assignment.created_at,
-          submissions: submissions.map(sub => ({
-            id: sub.id,
-            student_id: sub.student_id,
-            student_name: sub.students?.name,
-            submitted_at: sub.submitted_at,
-            score: sub.score,
-            feedback: sub.feedback,
-            status: sub.status
-          })),
-          submitted_count: submissions.length,
-          graded_count: submissions.filter(s => s.score !== null).length,
-          pending_count: submissions.filter(s => s.score === null).length
-        };
-      });
-
-      return transformed;
-    } catch (error) {
-      console.error('Error fetching assignments:', error);
-      throw error;
+ // Get teacher's assignments
+getMyAssignments: async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
     }
-  },
+
+    const { data, error } = await supabase
+      .from('assignments')
+      .select(`
+        id,
+        title,
+        description,
+        due_date,
+        max_score,
+        class_id,
+        created_at,
+        classes (title),
+        assignment_submissions (
+          id,
+          student_id,
+          submitted_at,
+          grade,                    // ← CHANGED from score to grade
+          feedback,
+          status,
+          students:student_id (name)
+        )
+      `)
+      .eq('teacher_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    
+    // Transform data with submission counts
+    const transformed = data.map(assignment => {
+      const submissions = assignment.assignment_submissions || [];
+      return {
+        id: assignment.id,
+        title: assignment.title,
+        description: assignment.description,
+        due_date: assignment.due_date,
+        max_score: assignment.max_score,
+        class_id: assignment.class_id,
+        class_title: assignment.classes?.title,
+        created_at: assignment.created_at,
+        submissions: submissions.map(sub => ({
+          id: sub.id,
+          student_id: sub.student_id,
+          student_name: sub.students?.name,
+          submitted_at: sub.submitted_at,
+          grade: sub.grade,          // ← CHANGED from score to grade
+          feedback: sub.feedback,
+          status: sub.status
+        })),
+        submitted_count: submissions.length,
+        graded_count: submissions.filter(s => s.grade !== null).length,  // ← CHANGED
+        pending_count: submissions.filter(s => s.grade === null).length  // ← CHANGED
+      };
+    });
+
+    return transformed;
+  } catch (error) {
+    console.error('Error fetching assignments:', error);
+    throw error;
+  }
+},
 
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
