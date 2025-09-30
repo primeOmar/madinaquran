@@ -216,14 +216,30 @@ export default function TeacherDashboard() {
       }))
     );
     
-    // Separate pending and graded submissions more clearly
-    const pendingData = allSubmissions.filter(submission => 
-      submission.grade === null || submission.grade === undefined
-    );
+    // Debug: Log submissions to see what's happening
+    console.log('All submissions:', allSubmissions);
     
-    const gradedData = allSubmissions.filter(submission => 
-      submission.grade !== null && submission.grade !== undefined
-    );
+    // More robust grading status check
+    const pendingData = allSubmissions.filter(submission => {
+      // Check if grade is null, undefined, empty string, or not a number
+      const grade = submission.grade;
+      return grade === null || 
+             grade === undefined || 
+             grade === '' || 
+             isNaN(Number(grade));
+    });
+    
+    const gradedData = allSubmissions.filter(submission => {
+      const grade = submission.grade;
+      return grade !== null && 
+             grade !== undefined && 
+             grade !== '' && 
+             !isNaN(Number(grade));
+    });
+    
+    console.log('Pending submissions:', pendingData.length);
+    console.log('Graded submissions:', gradedData.length);
+    console.log('Sample graded submission:', gradedData[0]);
     
     setSubmissions(allSubmissions);
     setPendingSubmissions(pendingData);
@@ -492,22 +508,22 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
     }
     
     // Update local state IMMEDIATELY - no waiting for API
-    const updatedSubmissions = submissions.map(sub => 
-      sub.id === submissionId 
-        ? { 
-            ...sub, 
-            grade: numericScore, 
-            feedback, 
-            audio_feedback_url: audioFeedbackUrl,
-            graded_at: new Date().toISOString()
-          }
-        : sub
-    );
-    
-    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-    
-    setSubmissions(updatedSubmissions);
-    setPendingSubmissions(updatedPending);
+const updatedSubmissions = submissions.map(sub => 
+  sub.id === submissionId 
+    ? { 
+        ...sub, 
+        grade: numericScore, 
+        feedback, 
+        audio_feedback_url: audioFeedbackUrl,
+        graded_at: new Date().toISOString()
+      }
+    : sub
+);
+
+const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+setSubmissions(updatedSubmissions);
+setPendingSubmissions(updatedPending);
     
     // Update stats
     setStats(prev => ({
