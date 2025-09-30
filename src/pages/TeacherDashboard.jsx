@@ -109,6 +109,7 @@ export default function TeacherDashboard() {
   const [assignments, setAssignments] = useState([]);
   const [upcomingClasses, setUpcomingClasses] = useState([]);
   const [completedClasses, setCompletedClasses] = useState([]);
+  const [isGrading, setIsGrading] = useState(false);
   const [loading, setLoading] = useState({ 
     classes: true, 
     students: true, 
@@ -1146,13 +1147,13 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
   };
 
   const GradingTab = ({ 
-    submissions, 
-    pendingSubmissions, 
-    onGradeAssignment, 
-    onStartGrading,
-    activeTab,
-    setActiveTab 
-  }) => {
+  submissions, 
+  pendingSubmissions, 
+  onGradeAssignment, 
+  onStartGrading,
+  activeTab,
+  setActiveTab 
+}) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSubmission, setSelectedSubmission] = useState(null);
 
@@ -1600,7 +1601,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
             />
           )}
 
-         {activeTab === 'grading' && (
+        {activeTab === 'grading' && (
   <GradingTab 
     submissions={submissions}
     pendingSubmissions={pendingSubmissions}
@@ -1613,6 +1614,10 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
         audioFeedbackUrl: submission.audio_feedback_url || ''
       });
     }}
+    activeTab={activeGradingTab}
+    setActiveTab={setActiveGradingTab}
+  />
+)}
     activeTab={activeGradingTab}
     setActiveTab={setActiveGradingTab}
     isGrading={isGrading}
