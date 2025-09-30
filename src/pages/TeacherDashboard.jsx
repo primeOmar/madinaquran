@@ -206,53 +206,61 @@ export default function TeacherDashboard() {
   try {
     const assignmentsData = await teacherApi.getMyAssignments();
     
-    console.log('🔍 RAW assignmentsData from API:', assignmentsData);
-    
-    const allSubmissions = assignmentsData.flatMap(assignment => {
-      console.log(`📝 Assignment "${assignment.title}" submissions:`, assignment.submissions);
-      return (assignment.submissions || []).map(submission => ({
+    const allSubmissions = assignmentsData.flatMap(assignment => 
+      (assignment.submissions || []).map(submission => ({
         ...submission,
         assignment_title: assignment.title,
         assignment_max_score: assignment.max_score,
         assignment_due_date: assignment.due_date,
         assignment: assignment 
-      }));
-    });
+      }))
+    );
     
-    console.log('🔍 ALL SUBMISSIONS after mapping:', allSubmissions);
-    
-    // SIMPLE DEBUGGING - Check each submission's grade status
-    allSubmissions.forEach((sub, index) => {
-      console.log(`Submission ${index + 1}:`, {
-        id: sub.id,
-        grade: sub.grade,
-        gradeType: typeof sub.grade,
-        isNull: sub.grade === null,
-        isUndefined: sub.grade === undefined,
-        isZero: sub.grade === 0,
-        isNumber: typeof sub.grade === 'number',
-        student: sub.student?.name || sub.student_name,
-        assignment: sub.assignment_title
-      });
-    });
+    console.log('🔍 Raw submissions data structure:', allSubmissions);
 
-    // SIMPLIFIED FILTERING - Use the most basic logic
+    // SIMPLIFIED FILTERING - Let's see what's actually happening
     const pendingData = allSubmissions.filter(submission => {
       const grade = submission.grade;
-      return grade === null || grade === undefined;
+      console.log(`Checking submission ${submission.id}:`, {
+        grade,
+        type: typeof grade,
+        isNull: grade === null,
+        isUndefined: grade === undefined,
+        parsed: Number(grade)
+      });
+      
+      // If grade is explicitly null or undefined, it's pending
+      if (grade === null || grade === undefined) return true;
+      
+      // If grade is empty string, it's pending
+      if (grade === '') return true;
+      
+      // If grade can't be converted to a number, it's pending
+      if (isNaN(Number(grade))) return true;
+      
+      // If grade is a valid number, it's graded
+      return false;
     });
     
     const gradedData = allSubmissions.filter(submission => {
       const grade = submission.grade;
-      return grade !== null && grade !== undefined;
+      
+      // If grade is explicitly null or undefined, it's NOT graded
+      if (grade === null || grade === undefined) return false;
+      
+      // If grade is empty string, it's NOT graded
+      if (grade === '') return false;
+      
+      // If grade can't be converted to a number, it's NOT graded
+      if (isNaN(Number(grade))) return false;
+      
+      // If we get here, it's a valid number and therefore graded
+      return true;
     });
     
-    console.log('📊 Pending submissions (simple filter):', pendingData.length);
-    console.log('✅ Graded submissions (simple filter):', gradedData.length);
-    
-    if (gradedData.length > 0) {
-      console.log('🎯 First graded submission details:', gradedData[0]);
-    }
+    console.log('📊 Pending submissions:', pendingData.length);
+    console.log('✅ Graded submissions:', gradedData.length);
+    console.log('📝 Sample graded submission:', gradedData[0]);
     
     setSubmissions(allSubmissions);
     setPendingSubmissions(pendingData);
@@ -1024,7 +1032,7 @@ setPendingSubmissions(updatedPending);
     return (
       <div className="space-y-4">
         {submissions.map((submission) => {
-          const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
+          const studentName = submission.student_name ;
           const studentEmail = submission.student?.email || submission.student_email || '';
           const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
           const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
@@ -1140,11 +1148,7 @@ setPendingSubmissions(updatedPending);
   return (
     <div className="space-y-4">
       {gradedSubmissions.map((submission) => {
-        const studentName = submission.student?.name || 
-                          submission.student_name || 
-                          submission.students?.name || 
-                          'Unknown Student';
-        
+        const studentName = submission.student_name;
         const assignmentTitle = submission.assignment?.title || 
                               submission.assignment_title || 
                               'Unknown Assignment';
