@@ -506,13 +506,16 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
-getMyAssignments: async () => {
+const getMyAssignments = async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
     if (!user) {
       throw new Error('User not authenticated');
     }
+
+    // DEBUG: First let's see the raw structure
+    console.log('🔍 Fetching assignments for teacher:', user.id);
 
     const { data, error } = await supabase
       .from('assignments')
@@ -536,18 +539,63 @@ getMyAssignments: async () => {
           submission_text,
           audio_feedback_url,
           graded_at,
-          student:profiles!assignment_submissions_student_id_fkey (name),
-          graded_by:profiles!assignment_submissions_graded_by_fkey (name)
+          graded_by,
+          profiles!assignment_submissions_student_id_fkey (
+            id,
+            name,
+            email
+          )
         )
       `)
       .eq('teacher_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Supabase error:', error);
+      throw error;
+    }
+
+    // DEBUG: Check raw data structure
+    console.log('📊 RAW DATA FROM SUPABASE:', data);
     
-    // Transform data with submission counts
+    if (data && data.length > 0) {
+      console.log('📄 First assignment:', data[0]);
+      if (data[0].assignment_submissions && data[0].assignment_submissions.length > 0) {
+        console.log('👤 First submission student data:', data[0].assignment_submissions[0]);
+        console.log('🎯 Student profiles data:', data[0].assignment_submissions[0]?.profiles);
+      }
+    }
+
+    // Transform data
     const transformed = data.map(assignment => {
       const submissions = assignment.assignment_submissions || [];
+      
+      const transformedSubmissions = submissions.map(sub => {
+        // The student data is in the 'profiles' field due to the join
+        const studentProfile = sub.profiles;
+        console.log(`📝 Transforming submission ${sub.id}:`, {
+          studentProfile,
+          rawSubmission: sub
+        });
+
+        return {
+          id: sub.id,
+          student_id: sub.student_id,
+          // Student name comes from the joined profiles table
+          student_name: studentProfile?.name || 'Unknown Student',
+          student_email: studentProfile?.email || '',
+          submitted_at: sub.submitted_at,
+          grade: sub.grade,                    
+          feedback: sub.feedback,
+          status: sub.status,
+          audio_url: sub.audio_url,
+          submission_text: sub.submission_text,
+          audio_feedback_url: sub.audio_feedback_url,
+          graded_at: sub.graded_at,
+          graded_by: sub.graded_by
+        };
+      });
+
       return {
         id: assignment.id,
         title: assignment.title,
@@ -557,33 +605,20 @@ getMyAssignments: async () => {
         class_id: assignment.class_id,
         class_title: assignment.classes?.title,
         created_at: assignment.created_at,
-        submissions: submissions.map(sub => ({
-          id: sub.id,
-          student_id: sub.student_id,
-          student_name: sub.student?.name, 
-          submitted_at: sub.submitted_at,
-          grade: sub.grade,                    
-          feedback: sub.feedback,
-          status: sub.status,
-          audio_url: sub.audio_url,
-          submission_text: sub.submission_text,
-          audio_feedback_url: sub.audio_feedback_url,
-          graded_at: sub.graded_at,
-          graded_by: sub.graded_by?.name
-        })),
+        submissions: transformedSubmissions,
         submitted_count: submissions.length,
         graded_count: submissions.filter(s => s.grade !== null).length, 
         pending_count: submissions.filter(s => s.grade === null).length 
       };
     });
 
-    console.log('✅ Fixed assignments using GRADE field:', transformed);
+    console.log('✅ FINAL TRANSFORMED DATA:', transformed);
     return transformed;
   } catch (error) {
-    console.error('Error fetching assignments:', error);
+    console.error('❌ Error fetching assignments:', error);
     throw error;
   }
-},
+};
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
     try {
