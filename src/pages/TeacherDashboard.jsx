@@ -476,10 +476,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
       return;
     }
     
-    // Ensure score is a number
     const numericScore = parseInt(score);
-    
-    // Get submission details before grading for notification
     const submissionToGrade = submissions.find(s => s.id === submissionId) || 
                              pendingSubmissions.find(s => s.id === submissionId);
     
@@ -489,10 +486,35 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
       return;
     }
     
+    // Update local state IMMEDIATELY - no waiting for API
+    const updatedSubmissions = submissions.map(sub => 
+      sub.id === submissionId 
+        ? { 
+            ...sub, 
+            grade: numericScore, 
+            feedback, 
+            audio_feedback_url: audioFeedbackUrl,
+            graded_at: new Date().toISOString()
+          }
+        : sub
+    );
+    
+    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+    
+    setSubmissions(updatedSubmissions);
+    setPendingSubmissions(updatedPending);
+    
+    // Update stats
+    setStats(prev => ({
+      ...prev,
+      pendingSubmissions: updatedPending.length
+    }));
+    
+    // Then call the API in the background
     await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackUrl);
     
-    // Find the submission to update progress
-    if (submissionToGrade && submissionToGrade.student_id) {
+    // Update student progress
+    if (submissionToGrade.student_id) {
       await teacherApi.updateStudentProgress(submissionToGrade.student_id);
     }
     
@@ -514,13 +536,12 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
     setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
     clearRecording();
     
-    // Reload data to refresh the lists
-    await loadSubmissions();
-    await loadTeacherData();
-    
   } catch (error) {
     console.error('Grading error:', error);
     toast.error(`Failed to grade assignment: ${error.message}`);
+    
+    // If API call fails, reload data to reset to correct state
+    await loadSubmissions();
   } finally {
     setIsGrading(false);
   }
@@ -1616,11 +1637,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
     }}
     activeTab={activeGradingTab}
     setActiveTab={setActiveGradingTab}
-  />
-)}
-    activeTab={activeGradingTab}
-    setActiveTab={setActiveGradingTab}
-    isGrading={isGrading}
   />
 )}
 
