@@ -532,8 +532,12 @@ getMyAssignments: async () => {
           grade,                   
           feedback,
           status,
-          student:profiles!id (name),      
-          students:profiles!assignment_submissions_id_fkey (name)
+          audio_url,
+          submission_text,
+          audio_feedback_url,
+          graded_at,
+          student:profiles!assignment_submissions_student_id_fkey (name, email),
+          graded_by:profiles!assignment_submissions_graded_by_fkey (name, email)
         )
       `)
       .eq('teacher_id', user.id)
@@ -556,25 +560,31 @@ getMyAssignments: async () => {
         submissions: submissions.map(sub => ({
           id: sub.id,
           student_id: sub.student_id,
-          student_name: sub.students?.name,
+          student_name: sub.student?.name 
+          student_email: sub.student?.email,
           submitted_at: sub.submitted_at,
-          grade: sub.grade,      
+          grade: sub.grade,                    
           feedback: sub.feedback,
-          status: sub.status
+          status: sub.status,
+          audio_url: sub.audio_url,
+          submission_text: sub.submission_text,
+          audio_feedback_url: sub.audio_feedback_url,
+          graded_at: sub.graded_at,
+          graded_by: sub.graded_by?.name
         })),
         submitted_count: submissions.length,
-        graded_count: submissions.filter(s => s.grade !== null).length,  
-        pending_count: submissions.filter(s => s.grade === null).length  
+        graded_count: submissions.filter(s => s.grade !== null).length, 
+        pending_count: submissions.filter(s => s.grade === null).length 
       };
     });
 
+    console.log('✅ Fixed assignments using GRADE field:', transformed);
     return transformed;
   } catch (error) {
     console.error('Error fetching assignments:', error);
     throw error;
   }
 },
-
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
     try {
