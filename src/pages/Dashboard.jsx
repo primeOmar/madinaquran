@@ -231,7 +231,15 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
 
   return (
     <div className="flex items-center space-x-3 p-3 bg-green-900/30 rounded-lg">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={audioUrl} preload="metadata" crossOrigin="anonymous" onError={(e) => {
+      console.error('Audio loading error:', e);
+    // Fallback to signed URL if public URL fails
+    if (audioUrl?.includes('supabase.in')) {
+      // You might want to fetch a signed URL here
+      console.log('Audio CORS issue detected');
+    }
+  }}
+/>
       
       <button
         onClick={togglePlay}
