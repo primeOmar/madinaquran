@@ -836,123 +836,125 @@ export default function TeacherDashboard() {
                 )}
 
                {submission.audio_url && (
-  <div>
-    <p className="text-blue-200 text-sm mb-2">Audio Submission</p>
+  <div className="mt-4">
+    <p className="text-blue-200 text-sm font-medium mb-2">Audio Submission:</p>
     
     {/* Debug Info */}
     <div className="bg-blue-800/30 p-3 rounded mb-3 text-xs">
-      <p className="text-blue-300 mb-1">Debug Info:</p>
+      <p className="text-blue-300 mb-1">Audio File Info:</p>
       <p className="text-white break-all mb-2">URL: {submission.audio_url}</p>
-      <button
-        onClick={async () => {
-          console.log('Testing audio URL:', submission.audio_url);
-          try {
-            const response = await fetch(submission.audio_url);
-            console.log('Fetch response:', {
-              status: response.status,
-              statusText: response.statusText,
-              ok: response.ok,
-              headers: Object.fromEntries(response.headers.entries()),
-              url: response.url
-            });
-            
-            if (!response.ok) {
-              toast.error(`Audio fetch failed: ${response.status} ${response.statusText}`);
-              return;
+      
+      <div className="flex space-x-2">
+        <button
+          onClick={async () => {
+            console.log('🔍 Testing audio URL access:', submission.audio_url);
+            try {
+              // Test with HEAD request first
+              const headResponse = await fetch(submission.audio_url, { 
+                method: 'HEAD',
+                mode: 'no-cors'
+              });
+              
+              console.log('📡 HEAD request completed');
+              
+              // Then try GET request
+              const getResponse = await fetch(submission.audio_url);
+              console.log('✅ GET request status:', getResponse.status, getResponse.statusText);
+              
+              if (!getResponse.ok) {
+                throw new Error(`HTTP ${getResponse.status}: ${getResponse.statusText}`);
+              }
+              
+              const blob = await getResponse.blob();
+              console.log('🎵 Audio blob details:', {
+                size: blob.size,
+                type: blob.type,
+                url: URL.createObjectURL(blob)
+              });
+              
+              if (blob.size === 0) {
+                toast.error('Audio file is empty (0 bytes)');
+              } else {
+                toast.success(`✅ Audio accessible: ${(blob.size / 1024).toFixed(1)}KB`);
+                
+                // Test playback
+                const testAudio = new Audio(URL.createObjectURL(blob));
+                testAudio.oncanplay = () => {
+                  console.log('🔊 Audio can play successfully');
+                  toast.success('Audio playback test passed!');
+                };
+                testAudio.onerror = (e) => {
+                  console.error('🔇 Audio playback failed:', e);
+                  toast.error('Audio playback failed');
+                };
+              }
+            } catch (error) {
+              console.error('❌ Audio test failed:', error);
+              toast.error(`Audio access failed: ${error.message}`);
             }
-            
-            const blob = await response.blob();
-            console.log('Audio blob:', {
-              size: blob.size,
-              type: blob.type
-            });
-            
-            if (blob.size === 0) {
-              toast.error('Audio file is empty (0 bytes)');
-            } else {
-              toast.success(`Audio file accessible: ${blob.size} bytes, type: ${blob.type}`);
-            }
-          } catch (error) {
-            console.error('Audio test failed:', error);
-            toast.error(`Audio test failed: ${error.message}`);
-          }
-        }}
-        className="bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white"
-      >
-        Test Audio Access
-      </button>
+          }}
+          className="bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white text-xs"
+        >
+          Test Audio Access
+        </button>
+        
+        <a 
+          href={submission.audio_url} 
+          download 
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-green-600 hover:bg-green-500 px-2 py-1 rounded text-white text-xs"
+        >
+          Download Audio
+        </a>
+      </div>
     </div>
     
-    <audio 
-      controls 
-      className="w-full mt-2 rounded-lg"
-      onError={(e) => {
-  const audio = e.target;
-  const errorDetails = {
-    errorCode: audio.error?.code,
-    errorMessage: audio.error?.message,
-    src: audio.src,
-    currentSrc: audio.currentSrc,
-    networkState: audio.networkState,
-    readyState: audio.readyState,
-    url: submission.audio_url
-  };
-  
-  console.error('=== AUDIO ERROR DETAILS ===');
-  console.error('Error Code:', errorDetails.errorCode);
-  console.error('Full Details:', errorDetails);
-  console.error('========================');
-  
-  const errorMessages = {
-    1: 'MEDIA_ERR_ABORTED - Playback aborted by user',
-    2: 'MEDIA_ERR_NETWORK - Network error while loading',
-    3: 'MEDIA_ERR_DECODE - Audio format cannot be decoded',
-    4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - Audio format not supported or URL invalid'
-  };
-  
-  const errorMsg = errorMessages[audio.error?.code] || `Unknown error (code: ${audio.error?.code})`;
-  console.error('Error Message:', errorMsg);
-  toast.error(`Audio error: ${errorMsg}`);
-  
-  // Try to fetch the URL directly to see what's wrong
-  fetch(submission.audio_url, { method: 'HEAD' })
-    .then(response => {
-      console.log('Direct fetch test:', {
-        status: response.status,
-        contentType: response.headers.get('content-type'),
-        contentLength: response.headers.get('content-length')
-      });
-    })
-    .catch(err => {
-      console.error('Direct fetch failed:', err);
-    });
-}}
-      onLoadStart={() => console.log('Audio loading started')}
-      onLoadedMetadata={(e) => console.log('Audio metadata loaded:', {
-        duration: e.target.duration,
-        currentSrc: e.target.currentSrc
-      })}
-      onCanPlay={() => {
-        console.log('Audio can play');
-        toast.success('Audio loaded successfully');
-      }}
-    >
-      <source src={submission.audio_url} type="audio/webm" />
-      <source src={submission.audio_url} type="audio/mpeg" />
-      <source src={submission.audio_url} type="audio/wav" />
-      <source src={submission.audio_url} type="audio/ogg" />
-      Your browser does not support the audio element.
-    </audio>
-    
-    <a 
-      href={submission.audio_url} 
-      download 
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-400 hover:text-blue-300 text-sm underline mt-2 inline-block"
-    >
-      Download Audio File
-    </a>
+    {/* Audio Player with Better Error Handling */}
+    <div className="bg-black/30 p-3 rounded-lg">
+      <audio 
+        controls 
+        className="w-full rounded-lg"
+        preload="metadata"
+        crossOrigin="anonymous"
+        onError={(e) => {
+          const audio = e.target;
+          console.error('🎵 Audio Player Error:', {
+            errorCode: audio.error?.code,
+            errorMessage: audio.error?.message,
+            networkState: audio.networkState,
+            readyState: audio.readyState,
+            src: audio.src
+          });
+          
+          const errorMessages = {
+            1: 'Playback was aborted',
+            2: 'Network error while loading audio',
+            3: 'Audio format cannot be decoded',
+            4: 'Audio source not supported or URL invalid'
+          };
+          
+          const errorMsg = errorMessages[audio.error?.code] || `Error code: ${audio.error?.code}`;
+          toast.error(`Audio playback error: ${errorMsg}`);
+        }}
+        onLoadStart={() => console.log('🔄 Audio loading started')}
+        onLoadedMetadata={(e) => {
+          console.log('✅ Audio metadata loaded:', {
+            duration: e.target.duration,
+            currentSrc: e.target.currentSrc
+          });
+          toast.success('Audio loaded successfully');
+        }}
+        onCanPlay={() => console.log('🔊 Audio ready to play')}
+        onPlaying={() => console.log('▶️ Audio playback started')}
+      >
+        <source src={submission.audio_url} type="audio/webm" />
+        <source src={submission.audio_url} type="audio/mpeg" />
+        <source src={submission.audio_url} type="audio/wav" />
+        <source src={submission.audio_url} type="audio/ogg" />
+        Your browser does not support the audio element.
+      </audio>
+    </div>
   </div>
 )}
               </div>
