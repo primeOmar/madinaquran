@@ -19,119 +19,78 @@ const formatTime = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Grade assignment - FIXED VERSION
-const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
-  setIsGrading(true);
-  try {
-    if (!score || isNaN(score) || score < 0) {
-      toast.error('Please enter a valid score');
-      setIsGrading(false);
-      return;
-    }
-    
-    const numericScore = parseInt(score);
-    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
-                             pendingSubmissions.find(s => s.id === submissionId);
-    
-    if (!submissionToGrade) {
-      toast.error('Submission not found');
-      setIsGrading(false);
-      return;
-    }
+// Safe Audio Player Component
+const SafeAudioPlayer = ({ src, className = "" }) => {
+  const [error, setError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-    let finalAudioFeedbackUrl = '';
+  const getAudioSource = () => {
+    if (!src) return null;
     
-    // Handle audio feedback - now using base64 data
-    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
-      try {
-        // If it's base64 data, we can upload it directly
-        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-          console.warn('uploadAudioFeedback method not available, storing base64 data directly');
-          finalAudioFeedbackUrl = audioFeedbackData;
-        } else {
-          // Convert base64 to blob for upload
-          const response = await fetch(audioFeedbackData);
-          const audioBlob = await response.blob();
-          const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
-            type: 'audio/webm'
-          });
-          
-          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
-        }
-      } catch (uploadError) {
-        console.error('Failed to upload audio feedback:', uploadError);
-        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-        finalAudioFeedbackUrl = '';
-      }
+    if (src.startsWith('data:') || src.startsWith('http') || src.startsWith('/')) {
+      return src;
     }
+    
+    if (src.startsWith('blob:')) {
+      console.warn('Blob URL detected, this may cause security errors:', src);
+      return null;
+    }
+    
+    return src;
+  };
 
-    // Update local state
-    const updatedSubmissions = submissions.map(sub => 
-      sub.id === submissionId 
-        ? { 
-            ...sub, 
-            grade: numericScore, 
-            feedback, 
-            audio_feedback_url: finalAudioFeedbackUrl,
-            graded_at: new Date().toISOString()
+  const audioSource = getAudioSource();
+
+  useEffect(() => {
+    setIsLoading(true);
+    setError(false);
+  }, [src]);
+
+  if (error || !audioSource) {
+    return (
+      <div className={`bg-red-500/20 border border-red-500/30 rounded-lg p-4 text-center ${className}`}>
+        <p className="text-red-300 text-sm">Audio unavailable</p>
+        <p className="text-red-400 text-xs">
+          {src?.startsWith('blob:') 
+            ? 'Audio recording cannot be played due to security restrictions' 
+            : 'The audio file could not be loaded'
           }
-        : sub
+        </p>
+      </div>
     );
-
-    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
-    setSubmissions(updatedSubmissions);
-    setPendingSubmissions(updatedPending);
-    
-    // Update stats
-    setStats(prev => ({
-      ...prev,
-      pendingSubmissions: updatedPending.length
-    }));
-    
-    // Call API
-    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
-    
-    // Update student progress
-    if (submissionToGrade.student_id) {
-      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
-    }
-    
-    // Notify student
-    try {
-      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
-      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
-      
-      await notifyStudentGraded(
-        submissionId,
-        submissionToGrade.student_id,
-        assignmentTitle,
-        numericScore,
-        maxScore
-      );
-    } catch (notificationError) {
-      console.warn('Notification failed:', notificationError);
-    }
-    
-    toast.success('Assignment graded successfully!');
-    setGradingSubmission(null);
-    setSelectedSubmission(null);
-    setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
-    clearRecording();
-    
-  } catch (error) {
-    console.error('Grading error:', error);
-    toast.error(`Failed to grade assignment: ${error.message}`);
-    await loadSubmissions();
-  } finally {
-    setIsGrading(false);
   }
+
+  return (
+    <div className={`relative ${className}`}>
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-blue-800/20 rounded-lg">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+        </div>
+      )}
+      <audio
+        controls
+        className="w-full rounded-lg"
+        crossOrigin="anonymous"
+        preload="metadata"
+        onError={() => {
+          setError(true);
+          setIsLoading(false);
+        }}
+        onCanPlay={() => setIsLoading(false)}
+        onLoadStart={() => setIsLoading(true)}
+        src={audioSource}
+      >
+        Your browser does not support the audio element.
+      </audio>
+    </div>
+  );
 };
-// Audio recording hook for teacher feedback - FIXED VERSION
+
+// Audio recording hook for teacher feedback
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
-  const [audioData, setAudioData] = useState(null); // Store as base64 data instead of blob URL
+  const [audioData, setAudioData] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -165,7 +124,7 @@ const useAudioRecorder = () => {
             type: 'audio/webm;codecs=opus' 
           });
           
-          // Convert blob to base64 data URL instead of blob URL
+          // Convert blob to base64 data URL
           const dataUrl = await new Promise((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result);
@@ -173,9 +132,8 @@ const useAudioRecorder = () => {
           });
           
           setAudioBlob(blob);
-          setAudioData(dataUrl); // Store as base64 data URL
+          setAudioData(dataUrl);
           
-          // Stop all tracks
           stream.getTracks().forEach(track => track.stop());
         } catch (error) {
           console.error('Error processing recording:', error);
@@ -212,7 +170,6 @@ const useAudioRecorder = () => {
     setRecordingTime(0);
   };
 
-  // Cleanup effect
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -224,7 +181,7 @@ const useAudioRecorder = () => {
   return {
     isRecording,
     audioBlob,
-    audioData, // Return base64 data instead of blob URL
+    audioData,
     recordingTime: formatTime(recordingTime),
     startRecording,
     stopRecording,
@@ -232,6 +189,7 @@ const useAudioRecorder = () => {
     hasRecording: !!audioData
   };
 };
+
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
@@ -282,8 +240,7 @@ export default function TeacherDashboard() {
     feedback: '', 
     audioFeedbackData: '',
     isRecording: false,
-    recordingTime: 0,
-    audioBlob: null
+    recordingTime: 0
   });
 
   // Audio recorder hook
@@ -316,7 +273,7 @@ export default function TeacherDashboard() {
     }
   }, [user, navigate]);
 
-  // Add logout function
+  // Logout function
   const handleLogout = async () => {
     try {
       await signOut();
@@ -328,85 +285,51 @@ export default function TeacherDashboard() {
     }
   };
 
+  // Load submissions
+  const loadSubmissions = async () => {
+    try {
+      const assignmentsData = await teacherApi.getMyAssignments();
+      
+      const allSubmissions = assignmentsData.flatMap(assignment => 
+        (assignment.submissions || []).map(submission => ({
+          ...submission,
+          assignment_title: assignment.title,
+          assignment_max_score: assignment.max_score,
+          assignment_due_date: assignment.due_date,
+          assignment: assignment 
+        }))
+      );
+      
+      const pendingData = allSubmissions.filter(submission => {
+        const grade = submission.grade;
+        return grade === null || grade === undefined || grade === '' || isNaN(Number(grade));
+      });
+      
+      const gradedData = allSubmissions.filter(submission => {
+        const grade = submission.grade;
+        return grade !== null && grade !== undefined && grade !== '' && !isNaN(Number(grade)) && Number(grade) >= 0;
+      });
+      
+      setSubmissions(allSubmissions);
+      setPendingSubmissions(pendingData);
+      
+      setStats(prev => ({
+        ...prev,
+        pendingSubmissions: pendingData.length
+      }));
+      
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      toast.error('Failed to load submissions');
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadSubmissions();
     }
   }, [user]);
 
-  const loadSubmissions = async () => {
-  try {
-    const assignmentsData = await teacherApi.getMyAssignments();
-    
-    const allSubmissions = assignmentsData.flatMap(assignment => 
-      (assignment.submissions || []).map(submission => ({
-        ...submission,
-        assignment_title: assignment.title,
-        assignment_max_score: assignment.max_score,
-        assignment_due_date: assignment.due_date,
-        assignment: assignment 
-      }))
-    );
-    
-    console.log('🔍 Raw submissions data structure:', allSubmissions);
-
-    // SIMPLIFIED FILTERING - Let's see what's actually happening
-    const pendingData = allSubmissions.filter(submission => {
-      const grade = submission.grade;
-      console.log(`Checking submission ${submission.id}:`, {
-        grade,
-        type: typeof grade,
-        isNull: grade === null,
-        isUndefined: grade === undefined,
-        parsed: Number(grade)
-      });
-      
-      // If grade is explicitly null or undefined, it's pending
-      if (grade === null || grade === undefined) return true;
-      
-      // If grade is empty string, it's pending
-      if (grade === '') return true;
-      
-      // If grade can't be converted to a number, it's pending
-      if (isNaN(Number(grade))) return true;
-      
-      // If grade is a valid number, it's graded
-      return false;
-    });
-    
-    const gradedData = allSubmissions.filter(submission => {
-      const grade = submission.grade;
-      
-      // If grade is explicitly null or undefined, it's NOT graded
-      if (grade === null || grade === undefined) return false;
-      
-      // If grade is empty string, it's NOT graded
-      if (grade === '') return false;
-      
-      // If grade can't be converted to a number, it's NOT graded
-      if (isNaN(Number(grade))) return false;
-      
-      // If we get here, it's a valid number and therefore graded
-      return true;
-    });
-    
-    console.log('📊 Pending submissions:', pendingData.length);
-    console.log('✅ Graded submissions:', gradedData.length);
-    console.log('📝 Sample graded submission:', gradedData[0]);
-    
-    setSubmissions(allSubmissions);
-    setPendingSubmissions(pendingData);
-    
-    setStats(prev => ({
-      ...prev,
-      pendingSubmissions: pendingData.length
-    }));
-    
-  } catch (error) {
-    console.error('Error loading submissions:', error);
-    toast.error('Failed to load submissions');
-  }
-};
   // Filter classes based on filters
   const filteredClasses = useMemo(() => {
     if (!classes || classes.length === 0) return [];
@@ -430,56 +353,56 @@ export default function TeacherDashboard() {
   }, [classes, filters]);
 
   // Load teacher data
+  const loadTeacherData = async () => {
+    try {
+      setLoading({ classes: true, students: true, assignments: true });
+      
+      const classesData = await teacherApi.getMyClasses();
+      setClasses(classesData);
+      
+      const studentsData = await teacherApi.getMyStudents();
+      setStudents(studentsData);
+      
+      const assignmentsData = await teacherApi.getMyAssignments();
+      setAssignments(assignmentsData);
+      
+      await loadSubmissions();
+      
+      const now = new Date();
+      const upcoming = classesData.filter(cls => 
+        new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
+      );
+      const completed = classesData.filter(cls => 
+        cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
+      );
+      
+      setUpcomingClasses(upcoming);
+      setCompletedClasses(completed);
+      
+      setStats({
+        totalClasses: classesData.length,
+        upcomingClasses: upcoming.length,
+        completedClasses: completed.length,
+        totalStudents: studentsData.length,
+        totalAssignments: assignmentsData.length,
+        pendingSubmissions: pendingSubmissions.length
+      });
+      
+    } catch (error) {
+      console.error('Error loading teacher data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading({ classes: false, students: false, assignments: false });
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadTeacherData();
     }
   }, [user]);
 
-  const loadTeacherData = async () => {
-  try {
-    setLoading({ classes: true, students: true, assignments: true });
-    
-    const classesData = await teacherApi.getMyClasses();
-    setClasses(classesData);
-    
-    const studentsData = await teacherApi.getMyStudents();
-    setStudents(studentsData);
-    
-    const assignmentsData = await teacherApi.getMyAssignments();
-    setAssignments(assignmentsData);
-    
-    // Load submissions after assignments are loaded
-    await loadSubmissions();
-    
-    const now = new Date();
-    const upcoming = classesData.filter(cls => 
-      new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
-    );
-    const completed = classesData.filter(cls => 
-      cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
-    );
-    
-    setUpcomingClasses(upcoming);
-    setCompletedClasses(completed);
-    
-    setStats({
-      totalClasses: classesData.length,
-      upcomingClasses: upcoming.length,
-      completedClasses: completed.length,
-      totalStudents: studentsData.length,
-      totalAssignments: assignmentsData.length,
-      pendingSubmissions: pendingSubmissions.length // Use the actual pending count
-    });
-    
-  } catch (error) {
-    console.error('Error loading teacher data:', error);
-    toast.error('Failed to load dashboard data');
-  } finally {
-    setLoading({ classes: false, students: false, assignments: false });
-  }
-};
-  
+  // Video session functions
   const startVideoSession = async (classId) => {
     try {
       const session = await teacherApi.startVideoSession(classId);
@@ -494,6 +417,7 @@ export default function TeacherDashboard() {
     window.open(`/video-call/${meetingId}`, '_blank');
   };
 
+  // Assignment functions
   const createAssignment = async () => {
     try {
       setIsCreatingAssignment(true);
@@ -614,141 +538,136 @@ export default function TeacherDashboard() {
     });
   };
 
-const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, score, maxScore) => {
-  try {
-    // Check if sendNotification method exists
-    if (!teacherApi.sendNotification || typeof teacherApi.sendNotification !== 'function') {
-      console.warn('sendNotification method not available in teacherApi. Available methods:', Object.keys(teacherApi));
-      return; // Silently fail if method doesn't exist
-    }
-    
-    // Send notification to student
-    await teacherApi.sendNotification(studentId, {
-      type: 'assignment_graded',
-      title: 'Assignment Graded',
-      message: `Your assignment "${assignmentTitle}" has been graded. Score: ${score}/${maxScore}`,
-      submission_id: submissionId,
-      assignment_title: assignmentTitle,
-      score: score,
-      max_score: maxScore
-    });
-    
-    console.log('Student notified about their grade');
-  } catch (error) {
-    console.error('Error notifying student:', error);
-    // Don't show error toast as grading was still successful
-  }
-};
-
-// Grade assignment
-// Grade assignment - FIXED VERSION
-const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
-  setIsGrading(true);
-  try {
-    if (!score || isNaN(score) || score < 0) {
-      toast.error('Please enter a valid score');
-      setIsGrading(false);
-      return;
-    }
-    
-    const numericScore = parseInt(score);
-    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
-                             pendingSubmissions.find(s => s.id === submissionId);
-    
-    if (!submissionToGrade) {
-      toast.error('Submission not found');
-      setIsGrading(false);
-      return;
-    }
-
-    let finalAudioFeedbackUrl = '';
-    
-    // Handle audio feedback - now using base64 data
-    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
-      try {
-        // If it's base64 data, we can upload it directly
-        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-          console.warn('uploadAudioFeedback method not available, storing base64 data directly');
-          finalAudioFeedbackUrl = audioFeedbackData;
-        } else {
-          // Convert base64 to blob for upload
-          const response = await fetch(audioFeedbackData);
-          const audioBlob = await response.blob();
-          const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
-            type: 'audio/webm'
-          });
-          
-          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
-        }
-      } catch (uploadError) {
-        console.error('Failed to upload audio feedback:', uploadError);
-        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-        finalAudioFeedbackUrl = '';
-      }
-    }
-
-    // Update local state
-    const updatedSubmissions = submissions.map(sub => 
-      sub.id === submissionId 
-        ? { 
-            ...sub, 
-            grade: numericScore, 
-            feedback, 
-            audio_feedback_url: finalAudioFeedbackUrl,
-            graded_at: new Date().toISOString()
-          }
-        : sub
-    );
-
-    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
-    setSubmissions(updatedSubmissions);
-    setPendingSubmissions(updatedPending);
-    
-    // Update stats
-    setStats(prev => ({
-      ...prev,
-      pendingSubmissions: updatedPending.length
-    }));
-    
-    // Call API
-    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
-    
-    // Update student progress
-    if (submissionToGrade.student_id) {
-      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
-    }
-    
-    // Notify student
+  // Notification function
+  const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, score, maxScore) => {
     try {
-      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
-      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+      if (!teacherApi.sendNotification || typeof teacherApi.sendNotification !== 'function') {
+        console.warn('sendNotification method not available');
+        return;
+      }
       
-      await notifyStudentGraded(
-        submissionId,
-        submissionToGrade.student_id,
-        assignmentTitle,
-        numericScore,
-        maxScore
-      );
-    } catch (notificationError) {
-      console.warn('Notification failed:', notificationError);
+      await teacherApi.sendNotification(studentId, {
+        type: 'assignment_graded',
+        title: 'Assignment Graded',
+        message: `Your assignment "${assignmentTitle}" has been graded. Score: ${score}/${maxScore}`,
+        submission_id: submissionId,
+        assignment_title: assignmentTitle,
+        score: score,
+        max_score: maxScore
+      });
+      
+    } catch (error) {
+      console.error('Error notifying student:', error);
     }
-    
-    toast.success('Assignment graded successfully!');
-    setGradingSubmission(null);
-    setSelectedSubmission(null);
-    setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
-    clearRecording();
-    
-  } catch (error) {
-    console.error('Grading error:', error);
-    toast.error(`Failed to grade assignment: ${error.message}`);
-    await loadSubmissions();
-  } finally {
-    setIsGrading(false);
-  }
-};
+  };
+
+  // Grade assignment function
+  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
+    setIsGrading(true);
+    try {
+      if (!score || isNaN(score) || score < 0) {
+        toast.error('Please enter a valid score');
+        setIsGrading(false);
+        return;
+      }
+      
+      const numericScore = parseInt(score);
+      const submissionToGrade = submissions.find(s => s.id === submissionId) || 
+                              pendingSubmissions.find(s => s.id === submissionId);
+      
+      if (!submissionToGrade) {
+        toast.error('Submission not found');
+        setIsGrading(false);
+        return;
+      }
+
+      let finalAudioFeedbackUrl = '';
+      
+      // Handle audio feedback
+      if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
+        try {
+          if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+            console.warn('uploadAudioFeedback method not available, storing base64 data directly');
+            finalAudioFeedbackUrl = audioFeedbackData;
+          } else {
+            const response = await fetch(audioFeedbackData);
+            const audioBlob = await response.blob();
+            const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
+              type: 'audio/webm'
+            });
+            
+            finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload audio feedback:', uploadError);
+          toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+          finalAudioFeedbackUrl = '';
+        }
+      }
+
+      // Update local state
+      const updatedSubmissions = submissions.map(sub => 
+        sub.id === submissionId 
+          ? { 
+              ...sub, 
+              grade: numericScore, 
+              feedback, 
+              audio_feedback_url: finalAudioFeedbackUrl,
+              graded_at: new Date().toISOString()
+            }
+          : sub
+      );
+
+      const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+      setSubmissions(updatedSubmissions);
+      setPendingSubmissions(updatedPending);
+      
+      setStats(prev => ({
+        ...prev,
+        pendingSubmissions: updatedPending.length
+      }));
+      
+      // Call API
+      await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
+      
+      // Update student progress
+      if (submissionToGrade.student_id) {
+        await teacherApi.updateStudentProgress(submissionToGrade.student_id);
+      }
+      
+      // Notify student
+      try {
+        const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
+        const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+        
+        await notifyStudentGraded(
+          submissionId,
+          submissionToGrade.student_id,
+          assignmentTitle,
+          numericScore,
+          maxScore
+        );
+      } catch (notificationError) {
+        console.warn('Notification failed:', notificationError);
+      }
+      
+      toast.success('Assignment graded successfully!');
+      setGradingSubmission(null);
+      setSelectedSubmission(null);
+      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
+      clearRecording();
+      
+    } catch (error) {
+      console.error('Grading error:', error);
+      toast.error(`Failed to grade assignment: ${error.message}`);
+      await loadSubmissions();
+    } finally {
+      setIsGrading(false);
+    }
+  };
+
+  // Utility functions
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
     
@@ -793,13 +712,71 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
       {classes.length > 0 ? (
         <div className="grid gap-4">
           {classes.map((classItem) => (
-            <ClassCard 
-              key={classItem.id} 
-              classItem={classItem} 
-              onStartSession={onStartSession}
-              onJoinSession={onJoinSession}
-              formatDateTime={formatDateTime}
-            />
+            <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
+              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                <div className="flex-1">
+                  <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
+                  <div className="flex flex-col md:flex-row flex-wrap items-start md:items-center mt-2 text-sm text-blue-200 space-y-2 md:space-y-0 md:space-x-4">
+                    <span className="flex items-center">
+                      <Calendar size={14} className="mr-1" />
+                      {formatDateTime(classItem.scheduled_date)}
+                    </span>
+                    {classItem.duration && (
+                      <span className="flex items-center">
+                        <Clock size={14} className="mr-1" />
+                        {classItem.duration} minutes
+                      </span>
+                    )}
+                    {classItem.course?.name && (
+                      <span className="flex items-center">
+                        <BookOpen size={14} className="mr-1" />
+                        {classItem.course.name}
+                      </span>
+                    )}
+                  </div>
+                  {classItem.description && (
+                    <p className="text-blue-300 text-sm mt-2">{classItem.description}</p>
+                  )}
+                </div>
+                <div className="flex space-x-2 self-end md:self-auto">
+                  {classItem.status === 'scheduled' && (
+                    <button
+                      onClick={() => onStartSession(classItem.id)}
+                      className="p-2 rounded-lg bg-green-600 hover:bg-green-500 flex items-center text-white"
+                      title="Start Video Session"
+                    >
+                      <Play size={16} />
+                    </button>
+                  )}
+                  {classItem.status === 'active' && classItem.video_sessions?.[0] && (
+                    <button
+                      onClick={() => onJoinSession(classItem.video_sessions[0].meeting_id)}
+                      className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 flex items-center text-white"
+                      title="Join Video Session"
+                    >
+                      <Eye size={16} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="mt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                <span className="text-sm text-blue-300">
+                  Students: {classItem.students_classes?.length || 0}
+                  {classItem.max_students && ` / ${classItem.max_students}`}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  classItem.status === "scheduled" 
+                    ? "bg-yellow-500/20 text-yellow-300" 
+                    : classItem.status === "active"
+                    ? "bg-green-500/20 text-green-300"
+                    : classItem.status === "completed"
+                    ? "bg-blue-500/20 text-blue-300"
+                    : "bg-red-500/20 text-red-300"
+                }`}>
+                  {classItem.status?.toUpperCase()}
+                </span>
+              </div>
+            </div>
           ))}
         </div>
       ) : (
@@ -808,74 +785,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
           <p className="text-blue-200">No classes found</p>
         </div>
       )}
-    </div>
-  );
-
-  const ClassCard = ({ classItem, onStartSession, onJoinSession, formatDateTime }) => (
-    <div className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
-      <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-        <div className="flex-1">
-          <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
-          <div className="flex flex-col md:flex-row flex-wrap items-start md:items-center mt-2 text-sm text-blue-200 space-y-2 md:space-y-0 md:space-x-4">
-            <span className="flex items-center">
-              <Calendar size={14} className="mr-1" />
-              {formatDateTime(classItem.scheduled_date)}
-            </span>
-            {classItem.duration && (
-              <span className="flex items-center">
-                <Clock size={14} className="mr-1" />
-                {classItem.duration} minutes
-              </span>
-            )}
-            {classItem.course?.name && (
-              <span className="flex items-center">
-                <BookOpen size={14} className="mr-1" />
-                {classItem.course.name}
-              </span>
-            )}
-          </div>
-          {classItem.description && (
-            <p className="text-blue-300 text-sm mt-2">{classItem.description}</p>
-          )}
-        </div>
-        <div className="flex space-x-2 self-end md:self-auto">
-          {classItem.status === 'scheduled' && (
-            <button
-              onClick={() => onStartSession(classItem.id)}
-              className="p-2 rounded-lg bg-green-600 hover:bg-green-500 flex items-center text-white"
-              title="Start Video Session"
-            >
-              <Play size={16} />
-            </button>
-          )}
-          {classItem.status === 'active' && classItem.video_sessions?.[0] && (
-            <button
-              onClick={() => onJoinSession(classItem.video_sessions[0].meeting_id)}
-              className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 flex items-center text-white"
-              title="Join Video Session"
-            >
-              <Eye size={16} />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="mt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-        <span className="text-sm text-blue-300">
-          Students: {classItem.students_classes?.length || 0}
-          {classItem.max_students && ` / ${classItem.max_students}`}
-        </span>
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-          classItem.status === "scheduled" 
-            ? "bg-yellow-500/20 text-yellow-300" 
-            : classItem.status === "active"
-            ? "bg-green-500/20 text-green-300"
-            : classItem.status === "completed"
-            ? "bg-blue-500/20 text-blue-300"
-            : "bg-red-500/20 text-red-300"
-        }`}>
-          {classItem.status?.toUpperCase()}
-        </span>
-      </div>
     </div>
   );
 
@@ -922,7 +831,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
     </div>
   );
 
-  const AssignmentCard = ({ assignment, onGrade, onStartGrading }) => {
+  const AssignmentCard = ({ assignment, onStartGrading }) => {
     const totalSubmissions = assignment.submissions?.length || 0;
     const gradedSubmissions = assignment.submissions?.filter(s => s.grade !== null && s.grade !== undefined).length || 0;
     const pendingSubmissions = totalSubmissions - gradedSubmissions;
@@ -1024,18 +933,9 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
 
   const AssignmentsTab = ({ 
     assignments, 
-    classes, 
-    onCreateAssignment, 
-    onGradeAssignment, 
     showCreateModal, 
-    setShowCreateModal, 
-    newAssignment, 
-    setNewAssignment,
-    loading,
-    gradingSubmission,
-    setGradingSubmission,
-    gradeData,
-    setGradeData
+    setShowCreateModal,
+    loading
   }) => {
     const [currentAssignmentIndex, setCurrentAssignmentIndex] = useState(0);
 
@@ -1098,10 +998,13 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
               <AssignmentCard 
                 key={assignments[currentAssignmentIndex].id} 
                 assignment={assignments[currentAssignmentIndex]} 
-                onGrade={onGradeAssignment}
                 onStartGrading={(submission) => {
                   setGradingSubmission(submission);
-                  setGradeData({ score: submission.score || '', feedback: submission.feedback || '' });
+                  setGradeData({ 
+                    score: submission.score || '', 
+                    feedback: submission.feedback || '',
+                    audioFeedbackData: submission.audio_feedback_url || ''
+                  });
                 }}
               />
             </div>
@@ -1248,126 +1151,122 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
     );
   };
 
- const GradedSubmissions = ({ submissions, onViewSubmission }) => {
-  // More robust filtering for graded submissions
-  const gradedSubmissions = submissions.filter(sub => {
-    const grade = sub.grade;
-    return grade !== null && 
-           grade !== undefined && 
-           grade !== '' && 
-           !isNaN(Number(grade)) &&
-           Number(grade) >= 0;
-  });
+  const GradedSubmissions = ({ submissions, onViewSubmission }) => {
+    const gradedSubmissions = submissions.filter(sub => {
+      const grade = sub.grade;
+      return grade !== null && 
+             grade !== undefined && 
+             grade !== '' && 
+             !isNaN(Number(grade)) &&
+             Number(grade) >= 0;
+    });
 
-  console.log('📝 GradedSubmissions component - filtered count:', gradedSubmissions.length);
-  console.log('📝 Graded submissions data:', gradedSubmissions);
+    if (gradedSubmissions.length === 0) {
+      return (
+        <div className="text-center py-12">
+          <Award size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No graded submissions yet</p>
+          <p className="text-blue-300 text-sm mt-1">
+            {submissions.length > 0 ? `${submissions.length} submissions need grading` : 'All caught up!'}
+          </p>
+        </div>
+      );
+    }
 
-  if (gradedSubmissions.length === 0) {
     return (
-      <div className="text-center py-12">
-        <Award size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No graded submissions yet</p>
-        <p className="text-blue-300 text-sm mt-1">
-          {submissions.length > 0 ? `${submissions.length} submissions need grading` : 'All caught up!'}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {gradedSubmissions.map((submission) => {
-        const studentName = submission.student?.name || 
+      <div className="space-y-4">
+        {gradedSubmissions.map((submission) => {
+          const studentName = submission.student?.name || 
                            submission.student_name || 
                            submission.students?.name ||
                            'Unknown Student';
-        const assignmentTitle = submission.assignment?.title || 
-                              submission.assignment_title || 
-                              'Unknown Assignment';
-        
-        const maxScore = submission.assignment?.max_score || 
-                        submission.assignment_max_score || 
-                        100;
-        
-        const submittedDate = submission.submitted_at ? 
-          new Date(submission.submitted_at).toLocaleDateString() : 
-          'Not submitted';
-        
-        const gradedDate = submission.graded_at ? 
-          new Date(submission.graded_at).toLocaleDateString() : 
-          'Recently graded';
+          const assignmentTitle = submission.assignment?.title || 
+                                submission.assignment_title || 
+                                'Unknown Assignment';
+          
+          const maxScore = submission.assignment?.max_score || 
+                          submission.assignment_max_score || 
+                          100;
+          
+          const submittedDate = submission.submitted_at ? 
+            new Date(submission.submitted_at).toLocaleDateString() : 
+            'Not submitted';
+          
+          const gradedDate = submission.graded_at ? 
+            new Date(submission.graded_at).toLocaleDateString() : 
+            'Recently graded';
 
-        return (
-          <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-              <div className="flex-1">
-                <div className="flex items-center mb-2">
-                  <User size={16} className="text-green-400 mr-2" />
-                  <h4 className="font-semibold text-white">{studentName}</h4>
-                  <div className="ml-3 flex items-center space-x-2">
-                    <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
-                      Score: {submission.grade}/{maxScore}
-                    </span>
-                    <span className="text-blue-300 text-sm">
-                      {Math.round((submission.grade / maxScore) * 100)}%
-                    </span>
+          return (
+            <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center mb-2">
+                    <User size={16} className="text-green-400 mr-2" />
+                    <h4 className="font-semibold text-white">{studentName}</h4>
+                    <div className="ml-3 flex items-center space-x-2">
+                      <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
+                        Score: {submission.grade}/{maxScore}
+                      </span>
+                      <span className="text-blue-300 text-sm">
+                        {Math.round((submission.grade / maxScore) * 100)}%
+                      </span>
+                    </div>
                   </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-blue-200">Assignment: <span className="text-white">{assignmentTitle}</span></p>
+                      <p className="text-blue-200">Graded on: <span className="text-white">{gradedDate}</span></p>
+                    </div>
+                    <div>
+                      <p className="text-blue-200">Submitted: <span className="text-white">{submittedDate}</span></p>
+                      <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
+                    </div>
+                  </div>
+
+                  {submission.feedback && (
+                    <div className="mt-3 p-3 bg-black/20 rounded">
+                      <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
+                      <p className="text-white text-sm">{submission.feedback}</p>
+                    </div>
+                  )}
+
+                  {submission.audio_feedback_url && (
+                    <div className="mt-3">
+                      <p className="text-blue-200 text-sm font-medium mb-1">Audio Feedback:</p>
+                      <SafeAudioPlayer src={submission.audio_feedback_url} />
+                    </div>
+                  )}
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <p className="text-blue-200">Assignment: <span className="text-white">{assignmentTitle}</span></p>
-                    <p className="text-blue-200">Graded on: <span className="text-white">{gradedDate}</span></p>
-                  </div>
-                  <div>
-                    <p className="text-blue-200">Submitted: <span className="text-white">{submittedDate}</span></p>
-                    <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
-                  </div>
+
+                <div className="flex space-x-2 self-end md:self-auto">
+                  <button
+                    onClick={() => onViewSubmission(submission.id)}
+                    className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+                  >
+                    <Eye size={16} className="mr-2" />
+                    View Details
+                  </button>
+                  <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
+                    GRADED
+                  </span>
                 </div>
-
-                {submission.feedback && (
-                  <div className="mt-3 p-3 bg-black/20 rounded">
-                    <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
-                    <p className="text-white text-sm">{submission.feedback}</p>
-                  </div>
-                )}
-
-                {submission.audio_feedback_url && (
-                  <div className="mt-3">
-                    <p className="text-blue-200 text-sm font-medium mb-1">Audio Feedback:</p>
-                    <SafeAudioPlayer src={submission.audio_feedback_url} />
-                  </div>
-                )}
-              </div>
-
-              <div className="flex space-x-2 self-end md:self-auto">
-                <button
-                  onClick={() => onViewSubmission(submission.id)}
-                  className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
-                >
-                  <Eye size={16} className="mr-2" />
-                  View Details
-                </button>
-                <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
-                  GRADED
-                </span>
               </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+          );
+        })}
+      </div>
+    );
+  };
 
   const GradingTab = ({ 
-  submissions, 
-  pendingSubmissions, 
-  onGradeAssignment, 
-  onStartGrading,
-  activeTab,
-  setActiveTab 
-}) => {
+    submissions, 
+    pendingSubmissions, 
+    onGradeAssignment, 
+    onStartGrading,
+    activeTab,
+    setActiveTab 
+  }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSubmission, setSelectedSubmission] = useState(null);
 
@@ -1403,7 +1302,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
       if (!submission) return null;
 
       const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
-     
       const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
       const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
       const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
@@ -1424,7 +1322,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
             <div>
               <p className="text-blue-200 text-sm">Student</p>
               <p className="text-white font-medium">{studentName}</p>
-             
             </div>
 
             <div>
@@ -1633,7 +1530,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
                 <Bell size={20} />
               </button>
               
-              {/* User dropdown with logout option */}
               <div className="relative group" style={{ isolation: 'isolate', zIndex: 10000 }}>
                 <div className="flex items-center cursor-pointer">
                   <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-2">
@@ -1643,7 +1539,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
                   <ChevronDown size={16} className="ml-1 text-blue-200" />
                 </div>
                 
-                {/* Dropdown menu - Fixed z-index and positioning */}
                 <div 
                   className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200"
                   style={{ zIndex: 10001 }}
@@ -1789,38 +1684,29 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
           {activeTab === 'assignments' && (
             <AssignmentsTab 
               assignments={assignments} 
-              classes={classes}
-              onCreateAssignment={createAssignment}
-              onGradeAssignment={gradeAssignment}
               showCreateModal={showCreateAssignment}
               setShowCreateModal={setShowCreateAssignment}
-              newAssignment={newAssignment}
-              setNewAssignment={setNewAssignment}
               loading={loading.assignments}
-              gradingSubmission={gradingSubmission}
-              setGradingSubmission={setGradingSubmission}
-              gradeData={gradeData}
-              setGradeData={setGradeData}
             />
           )}
 
-        {activeTab === 'grading' && (
-  <GradingTab 
-    submissions={submissions}
-    pendingSubmissions={pendingSubmissions}
-    onGradeAssignment={gradeAssignment}
-    onStartGrading={(submission) => {
-      setGradingSubmission(submission);
-      setGradeData({ 
-        score: submission.grade || '', 
-        feedback: submission.feedback || '',
-        audioFeedbackUrl: submission.audio_feedback_url || ''
-      });
-    }}
-    activeTab={activeGradingTab}
-    setActiveTab={setActiveGradingTab}
-  />
-)}
+          {activeTab === 'grading' && (
+            <GradingTab 
+              submissions={submissions}
+              pendingSubmissions={pendingSubmissions}
+              onGradeAssignment={gradeAssignment}
+              onStartGrading={(submission) => {
+                setGradingSubmission(submission);
+                setGradeData({ 
+                  score: submission.grade || '', 
+                  feedback: submission.feedback || '',
+                  audioFeedbackData: submission.audio_feedback_url || ''
+                });
+              }}
+              activeTab={activeGradingTab}
+              setActiveTab={setActiveGradingTab}
+            />
+          )}
 
           {activeTab === 'upcoming' && (
             <UpcomingTab classes={upcomingClasses} formatDateTime={formatDateTime} />
@@ -2148,50 +2034,46 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
                 
                 {/* Audio Recorder Component */}
                 <div className="bg-blue-800/30 rounded-lg p-4 border border-blue-700/30">
-                  {!gradeData.audioFeedbackUrl && !audioUrl ? (
+                  {!gradeData.audioFeedbackData && !audioData ? (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <button
-  onClick={async () => {
-    if (audioIsRecording) {
-      // Stop recording
-      stopRecording();
-      setGradeData(prev => ({
-        ...prev, 
-        isRecording: false,
-        audioFeedbackData: audioData // Store base64 data
-      }));
-      
-      // Clear the interval
-      if (recordingInterval) {
-        clearInterval(recordingInterval);
-        setRecordingInterval(null);
-      }
-    } else {
-      // Start recording
-      await startRecording();
-      setGradeData(prev => ({...prev, isRecording: true}));
-      
-      // Update recording time every second
-      const interval = setInterval(() => {
-        setGradeData(prev => ({
-          ...prev, 
-          recordingTime: prev.recordingTime + 1
-        }));
-      }, 1000);
-      
-      setRecordingInterval(interval);
-    }
-  }}
-  className={`p-3 rounded-full transition-all duration-200 ${
-    audioIsRecording 
-      ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
-      : 'bg-green-600 hover:bg-green-500'
-  }`}
->
-  {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
-</button>
+                            onClick={async () => {
+                              if (audioIsRecording) {
+                                stopRecording();
+                                setGradeData(prev => ({
+                                  ...prev, 
+                                  isRecording: false,
+                                  audioFeedbackData: audioData
+                                }));
+                                
+                                if (recordingInterval) {
+                                  clearInterval(recordingInterval);
+                                  setRecordingInterval(null);
+                                }
+                              } else {
+                                await startRecording();
+                                setGradeData(prev => ({...prev, isRecording: true}));
+                                
+                                const interval = setInterval(() => {
+                                  setGradeData(prev => ({
+                                    ...prev, 
+                                    recordingTime: prev.recordingTime + 1
+                                  }));
+                                }, 1000);
+                                
+                                setRecordingInterval(interval);
+                              }
+                            }}
+                            className={`p-3 rounded-full transition-all duration-200 ${
+                              audioIsRecording 
+                                ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
+                                : 'bg-green-600 hover:bg-green-500'
+                            }`}
+                          >
+                            {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
+                          </button>
                           
                           <div>
                             <div className="text-sm text-blue-300">
@@ -2235,7 +2117,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
                         <button
                           onClick={() => {
                             clearRecording();
-                            setGradeData(prev => ({...prev, audioFeedbackUrl: ''}));
+                            setGradeData(prev => ({...prev, audioFeedbackData: ''}));
                           }}
                           className="text-red-400 hover:text-red-300 text-sm"
                         >
@@ -2264,7 +2146,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
               <button
                 onClick={() => {
                   setGradingSubmission(null);
-                  setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
+                  setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
                   clearRecording();
                   if (recordingInterval) {
                     clearInterval(recordingInterval);
@@ -2275,25 +2157,25 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
               >
                 Cancel
               </button>
-             <button
-  onClick={() => gradeAssignment(
-    gradingSubmission.id, 
-    parseInt(gradeData.score), 
-    gradeData.feedback,
-    gradeData.audioFeedbackData || audioData // Pass base64 data instead of blob URL
-  )}
-  disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
-  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed flex items-center justify-center"
->
-  {isGrading ? (
-    <>
-      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-      Grading...
-    </>
-  ) : (
-    'Submit Grade & Feedback'
-  )}
-</button>
+              <button
+                onClick={() => gradeAssignment(
+                  gradingSubmission.id, 
+                  parseInt(gradeData.score), 
+                  gradeData.feedback,
+                  gradeData.audioFeedbackData || audioData
+                )}
+                disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed flex items-center justify-center"
+              >
+                {isGrading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Grading...
+                  </>
+                ) : (
+                  'Submit Grade & Feedback'
+                )}
+              </button>
             </div>
           </div>
         </div>
