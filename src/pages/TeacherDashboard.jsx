@@ -24,23 +24,45 @@ const useAudioRecorder = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+        } 
+      });
+      
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+      
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const blob = new Blob(audioChunksRef.current, { 
+          type: 'audio/webm;codecs=opus' 
+        });
+        
+        // Clean up previous URL to prevent memory leaks
+        if (audioUrl) {
+          URL.revokeObjectURL(audioUrl);
+        }
+        
         const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
         setAudioUrl(url);
+        
+        // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
       };
 
-      mediaRecorderRef.current.start();
+      mediaRecorderRef.current.start(1000); // Collect data every 1s
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -58,25 +80,22 @@ const useAudioRecorder = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
     }
   };
 
   const clearRecording = () => {
-    setAudioBlob(null);
-    setAudioUrl('');
-    setRecordingTime(0);
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
     }
+    setAudioBlob(null);
+    setAudioUrl('');
+    setRecordingTime(0);
   };
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
+  // Cleanup effect
   useEffect(() => {
     return () => {
       if (audioUrl) {
@@ -99,7 +118,6 @@ const useAudioRecorder = () => {
     hasRecording: !!audioBlob
   };
 };
-
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
@@ -526,24 +544,46 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
       setIsGrading(false);
       return;
     }
+
+    // Handle audio feedback - convert blob URL to file if needed
+    let finalAudioFeedbackUrl = audioFeedbackUrl;
     
-    // Update local state IMMEDIATELY - no waiting for API
-const updatedSubmissions = submissions.map(sub => 
-  sub.id === submissionId 
-    ? { 
-        ...sub, 
-        grade: numericScore, 
-        feedback, 
-        audio_feedback_url: audioFeedbackUrl,
-        graded_at: new Date().toISOString()
+    // If it's a blob URL, we need to upload it first
+    if (audioFeedbackUrl && audioFeedbackUrl.startsWith('blob:')) {
+      try {
+        // Convert blob URL to file and upload
+        const response = await fetch(audioFeedbackUrl);
+        const audioBlob = await response.blob();
+        const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
+          type: 'audio/webm'
+        });
+        
+        // Upload audio file and get permanent URL
+        finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+      } catch (uploadError) {
+        console.error('Failed to upload audio feedback:', uploadError);
+        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+        finalAudioFeedbackUrl = ''; // Continue without audio
       }
-    : sub
-);
+    }
 
-const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+    // Update local state
+    const updatedSubmissions = submissions.map(sub => 
+      sub.id === submissionId 
+        ? { 
+            ...sub, 
+            grade: numericScore, 
+            feedback, 
+            audio_feedback_url: finalAudioFeedbackUrl,
+            graded_at: new Date().toISOString()
+          }
+        : sub
+    );
 
-setSubmissions(updatedSubmissions);
-setPendingSubmissions(updatedPending);
+    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+    setSubmissions(updatedSubmissions);
+    setPendingSubmissions(updatedPending);
     
     // Update stats
     setStats(prev => ({
@@ -551,15 +591,15 @@ setPendingSubmissions(updatedPending);
       pendingSubmissions: updatedPending.length
     }));
     
-    // Then call the API in the background
-    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackUrl);
+    // Call API
+    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
     
     // Update student progress
     if (submissionToGrade.student_id) {
       await teacherApi.updateStudentProgress(submissionToGrade.student_id);
     }
     
-    // Try to notify student (but don't fail grading if notification fails)
+    // Notify student
     try {
       const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
       const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
@@ -572,8 +612,7 @@ setPendingSubmissions(updatedPending);
         maxScore
       );
     } catch (notificationError) {
-      console.warn('Notification failed, but grading was successful:', notificationError);
-      // Continue with success - notification failure shouldn't fail the entire grading process
+      console.warn('Notification failed:', notificationError);
     }
     
     toast.success('Assignment graded successfully!');
@@ -585,14 +624,11 @@ setPendingSubmissions(updatedPending);
   } catch (error) {
     console.error('Grading error:', error);
     toast.error(`Failed to grade assignment: ${error.message}`);
-    
-    // If API call fails, reload data to reset to correct state
     await loadSubmissions();
   } finally {
     setIsGrading(false);
   }
 };
-
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
     
@@ -1203,10 +1239,20 @@ setPendingSubmissions(updatedPending);
                 {submission.audio_feedback_url && (
                   <div className="mt-3">
                     <p className="text-blue-200 text-sm font-medium mb-1">Audio Feedback:</p>
-                    <audio controls className="w-full rounded-lg">
-                      <source src={submission.audio_feedback_url} type="audio/wav" />
-                      Your browser does not support the audio element.
-                    </audio>
+                    <audio 
+  controls 
+  className="w-full rounded-lg"
+  crossOrigin="anonymous"
+  preload="metadata"
+  onError={(e) => {
+    console.error('Audio loading error:', e);
+
+  }}
+>
+  <source src={submission.audio_url} type="audio/webm" />
+  <source src={submission.audio_url} type="audio/mpeg" />
+  Your browser does not support the audio element.
+</audio>
                   </div>
                 )}
               </div>
@@ -1975,10 +2021,23 @@ setPendingSubmissions(updatedPending);
             {gradingSubmission.audio_url && (
               <div className="mb-6">
                 <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
-                <audio controls className="w-full rounded-lg">
-                  <source src={gradingSubmission.audio_url} type="audio/webm" />
-                  Your browser does not support the audio element.
-                </audio>
+                
+<audio controls 
+  className="w-full rounded-lg"
+  crossOrigin="anonymous"
+  preload="metadata"
+  onError={(e) => {
+    console.error('Audio loading failed:', e);
+    // You can add a fallback message here
+  }}
+  onLoadStart={() => console.log('Audio loading started')}
+  onCanPlay={() => console.log('Audio can play')}
+>
+  <source src={submission.audio_url} type="audio/webm" />
+  <source src={submission.audio_url} type="audio/mpeg" />
+  <source src={submission.audio_url} type="audio/wav" />
+  Your browser does not support the audio element.
+</audio>
               </div>
             )}
 
@@ -2126,11 +2185,22 @@ setPendingSubmissions(updatedPending);
                         </button>
                       </div>
                       
-                      <audio 
-                        controls 
-                        className="w-full rounded-lg"
-                        src={gradeData.audioFeedbackUrl || audioUrl}
-                      >
+                     <audio controls 
+  className="w-full rounded-lg"
+  crossOrigin="anonymous"
+  preload="metadata"
+  onError={(e) => {
+    console.error('Audio loading failed:', e);
+    // You can add a fallback message here
+  }}
+  onLoadStart={() => console.log('Audio loading started')}
+  onCanPlay={() => console.log('Audio can play')}
+>
+  <source src={submission.audio_url} type="audio/webm" />
+  <source src={submission.audio_url} type="audio/mpeg" />
+  <source src={submission.audio_url} type="audio/wav" />
+  Your browser does not support the audio element.
+</audio>
                         Your browser does not support the audio element.
                       </audio>
                       
