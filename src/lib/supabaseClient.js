@@ -506,6 +506,7 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
+// Get teacher's assignments
 getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -516,7 +517,7 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
-    // Get assignments without joins first
+    // Get assignments with direct join to submissions and student profiles
     const { data: assignmentsData, error } = await supabase
       .from('assignments')
       .select(`
@@ -527,115 +528,39 @@ getMyAssignments: async () => {
         max_score,
         class_id,
         created_at,
-        classes (title)
+        classes (title),
+        assignment_submissions (
+          id,
+          assignment_id,
+          student_id,
+          submitted_at,
+          grade,
+          feedback,
+          status,
+          audio_url,
+          submission_text,
+          audio_feedback_url,
+          graded_at,
+          graded_by,
+          profiles:student_id (
+            id,
+            name,
+            email
+          )
+        )
       `)
       .eq('teacher_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Error fetching assignments:', error);
+      throw error;
+    }
 
     console.log('📊 Assignments fetched:', assignmentsData?.length || 0);
 
-    // Get submissions separately
-    const assignmentIds = assignmentsData.map(a => a.id);
-    const { data: submissionsData, error: submissionsError } = await supabase
-      .from('assignment_submissions')
-      .select(`
-        id,
-        assignment_id,
-        student_id,
-        submitted_at,
-        grade,
-        feedback,
-        status,
-        audio_url,
-        submission_text,
-        audio_feedback_url,
-        graded_at,
-        graded_by
-      `)
-      .in('assignment_id', assignmentIds);
-
-    if (submissionsError) throw submissionsError;
-
-    console.log('📝 Submissions fetched:', submissionsData?.length || 0);
-
-    // Get student profiles
-    const studentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
-    console.log('👥 Student IDs to fetch:', studentIds);
-
-    let studentMap = {};
-    if (studentIds.length > 0) {
-      const { data: studentProfiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, name, email')
-        .in('id', studentIds);
-
-      if (profilesError) {
-        console.error('❌ Error fetching profiles:', profilesError);
-      } else {
-        console.log('✅ Profiles found:', studentProfiles);
-        studentMap = studentProfiles.reduce((acc, profile) => {
-          acc[profile.id] = profile;
-          return acc;
-        }, {});
-      }
-    }
-
-    // Combine the data
-    const transformed = assignmentsData.map(assignment => {
-      const submissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
-      
-      const transformedSubmissions = submissions.map(sub => {
-        const studentInfo = studentMap[sub.student_id] || {};
-        
-        console.log(`🎯 Mapping student ${sub.student_id}:`, {
-          studentInfo,
-          found: !!studentMap[sub.student_id],
-          studentName: studentInfo.name || 'Not Found'
-        });
-
-        return {
-          id: sub.id,
-          student_id: sub.student_id,
-          student_name: studentInfo.name || 'Unknown Student',
-          student_email: studentInfo.email || '',
-          submitted_at: sub.submitted_at,
-          grade: sub.grade,                    
-          feedback: sub.feedback,
-          status: sub.status,
-          audio_url: sub.audio_url,
-          submission_text: sub.submission_text,
-          audio_feedback_url: sub.audio_feedback_url,
-          graded_at: sub.graded_at,
-          graded_by: sub.graded_by
-        };
-      });
-
-      return {
-        id: assignment.id,
-        title: assignment.title,
-        description: assignment.description,
-        due_date: assignment.due_date,
-        max_score: assignment.max_score,
-        class_id: assignment.class_id,
-        class_title: assignment.classes?.title,
-        created_at: assignment.created_at,
-        submissions: transformedSubmissions,
-        submitted_count: submissions.length,
-        graded_count: submissions.filter(s => s.grade !== null).length, 
-        pending_count: submissions.filter(s => s.grade === null).length 
-      };
-    });
-
-    console.log('✅ FINAL TRANSFORMED DATA:', transformed);
-    return transformed;
-
-  } catch (error) {
-    console.error('❌ Error fetching assignments:', error);
-    throw error;
-  }
-},
+    // No need for separate student fetch - data is already joined
+    const studentMap = {};
   
   // Get pending submissions for grading
   getPendingSubmissions: async () => {
