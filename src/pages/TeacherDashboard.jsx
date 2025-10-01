@@ -1047,8 +1047,6 @@ setPendingSubmissions(updatedPending);
                   <div className="flex items-center mb-2">
                     <User size={16} className="text-yellow-400 mr-2" />
                     <h4 className="font-semibold text-white">{studentName}</h4>
-                   
-                    )}
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
