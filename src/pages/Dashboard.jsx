@@ -1,7 +1,6 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect, useRef } from "react";
 import { makeApiRequest } from "../lib/supabaseClient";
-import StudentNotificationBell from '../components/StudentNotificationBell';
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -33,17 +32,15 @@ import {
   Pause,
   Trash2,
   Loader2,
-  Star,
   TrendingUp,
-  Users,
-  Target,
   Video,
   MessageCircle,
-  FileCheck,
   ShieldCheck
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
+
+// === COMPONENTS MOVED OUTSIDE DASHBOARD ===
 
 // Audio recording hook
 const useAudioRecorder = () => {
@@ -142,29 +139,17 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
       file_name: fileName
     });
 
-    // Convert blob to File object for better handling
     const audioFile = new File([audioBlob], fileName, { 
       type: 'audio/wav',
       lastModified: Date.now()
     });
 
-    console.log('📁 [Upload] File created:', {
-      name: audioFile.name,
-      size: audioFile.size,
-      type: audioFile.type
-    });
-
-    // Get current session to ensure authenticated
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     
     if (sessionError || !session) {
-      console.error('❌ [Upload] No authenticated session:', sessionError);
       throw new Error('User not authenticated. Please login again.');
     }
 
-    console.log('🔐 [Upload] User authenticated:', session.user.email);
-
-    // Upload to Supabase storage with explicit error handling
     const { data, error } = await supabase.storage
       .from('assignment-audio') 
       .upload(fileName, audioFile, {
@@ -174,24 +159,15 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
       });
 
     if (error) {
-      console.error('❌ [Upload] Supabase storage error:', error);
-      
-      // Specific RLS error handling
       if (error.message.includes('row-level security policy')) {
         throw new Error('Storage permissions issue. Please contact admin to configure bucket policies.');
       }
-      
       throw new Error(`Upload failed: ${error.message}`);
     }
 
-    console.log('✅ [Upload] Upload successful:', data);
-
-    // Get public URL for the uploaded file
     const { data: urlData } = supabase.storage
       .from('assignment-audio')
       .getPublicUrl(fileName);
-
-    console.log('🔗 [Upload] Public URL:', urlData.publicUrl);
 
     return {
       storagePath: data.path,
@@ -202,7 +178,9 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     console.error('❌ [Upload] Upload process failed:', error);
     throw error;
   }
-};// Audio Player Component
+};
+
+// Audio Player Component
 const AudioPlayer = ({ audioUrl, onDelete }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -254,9 +232,6 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
         crossOrigin="anonymous" 
         onError={(e) => {
           console.error('Audio loading error:', e);
-          if (audioUrl?.includes('supabase.in')) {
-            console.log('Audio CORS issue detected');
-          }
         }}
       />
       
@@ -317,22 +292,9 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
       let audioUrl = null;
       
       if (audioBlob) {
-        console.log('🎯 [Upload] Starting audio upload...');
-        
-        try {
-          // Generate unique filename
-          const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
-          
-          // Upload to Supabase storage
-          const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
-          audioUrl = uploadResult.publicUrl;
-          
-          console.log('✅ [Upload] Audio uploaded successfully:', audioUrl);
-        } catch (uploadError) {
-          console.error('❌ [Upload] Audio upload failed:', uploadError);
-          toast.error('Failed to upload audio. Please try again.');
-          return;
-        }
+        const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
+        const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
+        audioUrl = uploadResult.publicUrl;
       }
 
       const submissionData = {
@@ -341,7 +303,6 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
         audio_url: audioUrl
       };
 
-      console.log('📦 [Submission] Sending data:', submissionData);
       await onSubmit(submissionData);
       onClose();
     } catch (error) {
@@ -694,36 +655,6 @@ const DollarSign = ({ size = 16, className = "" }) => (
   </svg>
 );
 
-// Add to state declarations in Dashboard component
-const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-
-// Add these handler functions to Dashboard component
-const handleMarkAllAsRead = () => {
-  setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
-  toast.success('All notifications marked as read');
-};
-
-const handleNotificationClick = (notification) => {
-  setNotifications(prev => 
-    prev.map(n => 
-      n.id === notification.id ? { ...n, read: true } : n
-    )
-  );
-  setIsNotificationsOpen(false);
-  
-  // Handle navigation based on notification type
-  if (notification.data?.assignment_id) {
-    setActiveSection('assignments');
-  } else if (notification.data?.class_id) {
-    setActiveSection('classes');
-  }
-};
-
-const handleClearAllNotifications = () => {
-  setNotifications([]);
-  toast.success('All notifications cleared');
-};
-
 // === MAIN DASHBOARD COMPONENT ===
 export default function Dashboard() {
   // State declarations
@@ -731,7 +662,6 @@ export default function Dashboard() {
   const [assignments, setAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
   const [exams, setExams] = useState([]);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [stats, setStats] = useState([
     { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
     { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
@@ -756,6 +686,7 @@ export default function Dashboard() {
   const [resendingEmail, setResendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [progressStats, setProgressStats] = useState({
     completionRate: 0,
     streak: 0,
@@ -763,6 +694,32 @@ export default function Dashboard() {
     points: 0,
     nextLevel: 100
   });
+
+  // Notification handlers
+  const handleMarkAllAsRead = () => {
+    setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
+    toast.success('All notifications marked as read');
+  };
+
+  const handleNotificationClick = (notification) => {
+    setNotifications(prev => 
+      prev.map(n => 
+        n.id === notification.id ? { ...n, read: true } : n
+      )
+    );
+    setIsNotificationsOpen(false);
+    
+    if (notification.data?.assignment_id) {
+      setActiveSection('assignments');
+    } else if (notification.data?.class_id) {
+      setActiveSection('classes');
+    }
+  };
+
+  const handleClearAllNotifications = () => {
+    setNotifications([]);
+    toast.success('All notifications cleared');
+  };
 
   // API fetch functions
   const fetchStatsData = async () => {
@@ -905,15 +862,8 @@ export default function Dashboard() {
     }
   };
 
- const fetchNotifications = async () => {
-  try {
-    // Replace with actual API call
-    const notificationsData = await makeApiRequest('/api/student/notifications');
-    
-    if (Array.isArray(notificationsData)) {
-      setNotifications(notificationsData);
-    } else {
-      // Fallback mock data
+  const fetchNotifications = async () => {
+    try {
       setNotifications([
         { 
           id: 1, 
@@ -936,41 +886,10 @@ export default function Dashboard() {
           data: { class_id: '1', class_title: 'Arabic Grammar' }
         },
       ]);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
     }
-  } catch (error) {
-    console.error('Error fetching notifications:', error);
-    // Fallback to empty array
-    setNotifications([]);
-  }
-};
-
-  const handleMarkAllAsRead = () => {
-  setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
-  toast.success('All notifications marked as read');
-};
-
-const handleNotificationClick = (notification) => {
-  setNotifications(prev => 
-    prev.map(n => 
-      n.id === notification.id ? { ...n, read: true } : n
-    )
-  );
-  setIsNotificationsOpen(false);
-  
-  // Handle navigation based on notification type
-  if (notification.data?.assignment_id) {
-    setActiveSection('assignments');
-  } else if (notification.data?.class_id) {
-    setActiveSection('classes');
-  }
-};
-
-const handleClearAllNotifications = () => {
-  setNotifications([]);
-  toast.success('All notifications cleared');
-};
-
-
+  };
 
   const handleContactAdmin = async () => {
     if (!contactMessage.trim()) {
@@ -1003,20 +922,10 @@ const handleClearAllNotifications = () => {
     try {
       console.log('🎯 [Assignment] Starting submission process...');
       
-      // Validate submission data
       if (!submissionData.assignment_id) {
         throw new Error('Assignment ID is required');
       }
 
-      console.log('📝 [Assignment] Submission data:', {
-        assignment_id: submissionData.assignment_id,
-        has_audio: !!submissionData.audio_url,
-        audio_url: submissionData.audio_url,
-        has_text: !!submissionData.submission_text,
-        text_length: submissionData.submission_text?.length || 0
-      });
-
-      // Make the API request
       const response = await makeApiRequest('/api/student/submit-assignment', {
         method: 'POST',
         body: submissionData
@@ -1026,7 +935,6 @@ const handleClearAllNotifications = () => {
         console.log('✅ [Assignment] Submission successful!', response);
         toast.success('Assignment submitted successfully!');
         
-        // Refresh the data
         await Promise.all([
           fetchAssignments(),
           fetchStatsData()
@@ -1040,7 +948,6 @@ const handleClearAllNotifications = () => {
     } catch (error) {
       console.error('❌ [Assignment] Submission failed:', error);
       
-      // Handle specific error cases
       if (error.message.includes('Authentication') || 
           error.message.includes('session') || 
           error.message.includes('token')) {
@@ -1318,7 +1225,7 @@ const handleClearAllNotifications = () => {
   }
 
   // Main dashboard render
-return (
+  return (
     <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white overflow-hidden">
       <AnimatePresence>
         {isLoggingOut && (
@@ -1433,7 +1340,7 @@ return (
                       >
                         <div className="flex justify-between items-start mb-2">
                           <span className={`font-semibold ${
-                            notification.type === 'success' ? 'text-green-300' : 'text-white'
+                            notification.type === 'assignment' ? 'text-green-300' : 'text-white'
                           }`}>
                             {notification.title}
                           </span>
@@ -1444,7 +1351,7 @@ return (
                         <p className="text-green-200 text-sm mb-2">{notification.message}</p>
                         <div className="flex justify-between items-center">
                           <span className="text-green-400 text-xs">
-                            {new Date(notification.created_at).toLocaleDateString()}
+                            {notification.time}
                           </span>
                           {notification.data?.assignment_title && (
                             <span className="text-green-300 text-xs bg-green-800/50 px-2 py-1 rounded">
@@ -1893,7 +1800,7 @@ return (
                                 <div className="flex items-center justify-between mb-3">
                                   <h4 className="font-bold text-lg flex items-center">
                                     <CreditCard className="mr-2" size={20} />
-                                    Tuition Payment #{payment.id.slice(-6)}
+                                    Tuition Payment #{payment.id?.slice(-6) || 'N/A'}
                                   </h4>
                                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                                     payment.status === "confirmed" 
