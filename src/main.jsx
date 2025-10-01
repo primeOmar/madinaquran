@@ -6,6 +6,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from "./components/AuthContext"
+import { NotificationProvider } from './components/NotificationContext';
 
 
 
@@ -16,7 +17,9 @@ createRoot(document.getElementById('root')).render(
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <BrowserRouter>
         <AuthProvider> 
-        <App />
+           <NotificationProvider>
+             <App />
+           </NotificationProvider>
         </AuthProvider> 
       </BrowserRouter>
     </GoogleOAuthProvider>
