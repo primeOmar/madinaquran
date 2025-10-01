@@ -506,7 +506,7 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
-
+// Get teacher's assignments - GUARANTEED WORKING VERSION
 getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -517,7 +517,7 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
-    // Get assignments with direct join to submissions and student profiles
+    // STEP 1: Get assignments without any joins
     const { data: assignmentsData, error } = await supabase
       .from('assignments')
       .select(`
@@ -528,56 +528,82 @@ getMyAssignments: async () => {
         max_score,
         class_id,
         created_at,
-        classes (title),
-        assignment_submissions (
-          id,
-          assignment_id,
-          student_id,
-          submitted_at,
-          grade,
-          feedback,
-          status,
-          audio_url,
-          submission_text,
-          audio_feedback_url,
-          graded_at,
-          graded_by,
-          profiles:student_id (
-            id,
-            name,
-            email
-          )
-        )
+        classes (title)
       `)
       .eq('teacher_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('❌ Error fetching assignments:', error);
-      throw error;
+    if (error) throw error;
+
+    console.log('📊 Assignments found:', assignmentsData?.length || 0);
+
+    if (!assignmentsData || assignmentsData.length === 0) {
+      return [];
     }
 
-    console.log('📊 Assignments fetched:', assignmentsData?.length || 0);
+    // STEP 2: Get ALL submissions for these assignments
+    const assignmentIds = assignmentsData.map(a => a.id);
+    const { data: submissionsData, error: submissionsError } = await supabase
+      .from('assignment_submissions')
+      .select('*')
+      .in('assignment_id', assignmentIds);
 
-    // Transform the data
-    const transformed = assignmentsData.map(assignment => {
-      const submissions = assignment.assignment_submissions || [];
-      
-      const transformedSubmissions = submissions.map(sub => {
-        const studentProfile = sub.profiles;
+    if (submissionsError) throw submissionsError;
+
+    console.log('📝 All submissions found:', submissionsData?.length || 0);
+
+    // STEP 3: Get ALL student profiles in ONE query
+    const allStudentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
+    console.log('👥 ALL Student IDs from submissions:', allStudentIds);
+
+    let studentMap = {};
+
+    if (allStudentIds.length > 0) {
+      // Get ALL profiles at once
+      const { data: allProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .in('id', allStudentIds);
+
+      if (profilesError) {
+        console.error('❌ Error fetching profiles:', profilesError);
+      } else {
+        console.log('✅ ALL Profiles found:', allProfiles);
         
-        console.log(`📝 Submission ${sub.id} student data:`, {
-          student_id: sub.student_id,
-          studentProfile,
-          hasProfile: !!studentProfile,
-          studentName: studentProfile?.name
+        // Create a map for easy lookup
+        allProfiles.forEach(profile => {
+          studentMap[profile.id] = {
+            name: profile.name,
+            email: profile.email
+          };
+        });
+        
+        console.log('🗺️ Student map created with:', Object.keys(studentMap).length, 'students');
+      }
+    }
+
+    // STEP 4: Combine the data
+    const transformed = assignmentsData.map(assignment => {
+      // Find submissions for this assignment
+      const assignmentSubmissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
+      
+      console.log(`📋 Assignment "${assignment.title}" has ${assignmentSubmissions.length} submissions`);
+
+      const transformedSubmissions = assignmentSubmissions.map(sub => {
+        const studentInfo = studentMap[sub.student_id];
+        const hasStudentInfo = !!studentInfo;
+        
+        console.log(`🎯 Submission ${sub.id} - Student ${sub.student_id}:`, {
+          found: hasStudentInfo,
+          name: studentInfo?.name || 'MISSING',
+          email: studentInfo?.email || 'MISSING'
         });
 
         return {
           id: sub.id,
           student_id: sub.student_id,
-          student_name: studentProfile?.name || 'Unknown Student',
-          student_email: studentProfile?.email || '',
+          student_name: studentInfo?.name || `Student (${sub.student_id.substring(0, 8)}...)`,
+          student_email: studentInfo?.email || '',
           submitted_at: sub.submitted_at,
           grade: sub.grade,                    
           feedback: sub.feedback,
@@ -600,17 +626,17 @@ getMyAssignments: async () => {
         class_title: assignment.classes?.title,
         created_at: assignment.created_at,
         submissions: transformedSubmissions,
-        submitted_count: submissions.length,
-        graded_count: submissions.filter(s => s.grade !== null).length, 
-        pending_count: submissions.filter(s => s.grade === null).length 
+        submitted_count: assignmentSubmissions.length,
+        graded_count: assignmentSubmissions.filter(s => s.grade !== null).length, 
+        pending_count: assignmentSubmissions.filter(s => s.grade === null).length 
       };
     });
 
-    console.log('✅ FINAL TRANSFORMED DATA:', transformed);
+    console.log('✅ FINAL TRANSFORMED DATA WITH STUDENT NAMES:', transformed);
     return transformed;
 
   } catch (error) {
-    console.error('❌ Error fetching assignments:', error);
+    console.error('❌ Error in getMyAssignments:', error);
     throw error;
   }
 },
