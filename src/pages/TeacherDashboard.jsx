@@ -775,7 +775,7 @@ export default function TeacherDashboard() {
   };
 
   // Grade assignment function
-  c// Grade assignment function
+
 const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
   setIsGrading(true);
   try {
