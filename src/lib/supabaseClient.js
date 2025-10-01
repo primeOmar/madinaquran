@@ -869,28 +869,60 @@ getMyAssignments: async () => {
       throw error;
     }
   },
-sendNotification: async (studentId, notificationData) => {
-    const { data, error } = await supabase
-      .from('notifications')
-      .insert({
+ async sendNotification(studentId, notificationData) {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert([
+          {
+            user_id: studentId,
+            title: notificationData.title,
+            message: notificationData.message,
+            type: notificationData.type || 'info',
+            data: notificationData.data || {}
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      
+      console.log('Notification sent successfully:', data);
+      return data;
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      throw error;
+    }
+  },
+
+  // Send bulk notifications to multiple students
+  async sendBulkNotifications(studentIds, notificationData) {
+    try {
+      const notifications = studentIds.map(studentId => ({
         user_id: studentId,
-        type: notificationData.type,
         title: notificationData.title,
         message: notificationData.message,
-        data: {
-          submission_id: notificationData.submission_id,
-          assignment_title: notificationData.assignment_title,
-          score: notificationData.score,
-          max_score: notificationData.max_score
-        },
-        read: false
-      })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
-  },
+        type: notificationData.type || 'info',
+        data: notificationData.data || {}
+      }));
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert(notifications)
+        .select();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error sending bulk notifications:', error);
+      throw error;
+    }
+  }
+};
+
 
   // Create a new assignment
   createAssignment: async (assignmentData) => {
