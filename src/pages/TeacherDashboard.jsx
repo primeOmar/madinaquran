@@ -12,6 +12,40 @@ import { teacherApi } from '../lib/supabaseClient';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
 
+// Format time utility function
+const formatTime = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+// Safe Audio Player Component
+const SafeAudioPlayer = ({ src, className = "" }) => {
+  const [error, setError] = useState(false);
+
+  if (error || !src) {
+    return (
+      <div className={`bg-red-500/20 border border-red-500/30 rounded-lg p-4 text-center ${className}`}>
+        <p className="text-red-300 text-sm">Audio unavailable</p>
+        <p className="text-red-400 text-xs">The audio file could not be loaded</p>
+      </div>
+    );
+  }
+
+  return (
+    <audio
+      controls
+      className={`w-full rounded-lg ${className}`}
+      crossOrigin="anonymous"
+      preload="metadata"
+      onError={() => setError(true)}
+      src={src}
+    >
+      Your browser does not support the audio element.
+    </audio>
+  );
+};
+
 // Audio recording hook for teacher feedback
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -118,6 +152,7 @@ const useAudioRecorder = () => {
     hasRecording: !!audioBlob
   };
 };
+
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
@@ -525,7 +560,8 @@ const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, sco
     // Don't show error toast as grading was still successful
   }
 };
-  //grade assingment
+
+// Grade assignment
 const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl = '') => {
   setIsGrading(true);
   try {
@@ -559,7 +595,12 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
         });
         
         // Upload audio file and get permanent URL
-        finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+          console.warn('uploadAudioFeedback method not available, storing blob URL directly');
+          finalAudioFeedbackUrl = audioFeedbackUrl;
+        } else {
+          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+        }
       } catch (uploadError) {
         console.error('Failed to upload audio feedback:', uploadError);
         toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
@@ -629,6 +670,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
     setIsGrading(false);
   }
 };
+
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
     
@@ -645,19 +687,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
   const updateFilter = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
-
-  // if (loading.classes) {
-  //   return (
-  //     <div className="min-h-screen bg-gradient-to-br from-blue-900 to-purple-900 p-4">
-  //       <div className="flex justify-center items-center min-h-screen">
-  //         <div className="text-center">
-  //           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-  //           <p className="text-blue-200">Loading your dashboard...</p>
-  //         </div>
-  //       </div>
-  //     </div>
-  //   );
-  // }
 
   // Stats grid data
   const statsGrid = [
@@ -1111,18 +1140,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
                     <div className="mt-4">
                       <p className="text-blue-200 text-sm font-medium mb-2">Audio Submission:</p>
                       <div className="bg-black/30 p-3 rounded-lg">
-                        <audio 
-                          controls 
-                          className="w-full rounded-lg"
-                          preload="metadata"
-                          crossOrigin="anonymous"
-                        >
-                          <source src={submission.audio_url} type="audio/webm" />
-                          <source src={submission.audio_url} type="audio/mpeg" />
-                          <source src={submission.audio_url} type="audio/wav" />
-                          <source src={submission.audio_url} type="audio/ogg" />
-                          Your browser does not support the audio element.
-                        </audio>
+                        <SafeAudioPlayer src={submission.audio_url} />
                       </div>
                     </div>
                   )}
@@ -1239,20 +1257,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
                 {submission.audio_feedback_url && (
                   <div className="mt-3">
                     <p className="text-blue-200 text-sm font-medium mb-1">Audio Feedback:</p>
-                    <audio 
-  controls 
-  className="w-full rounded-lg"
-  crossOrigin="anonymous"
-  preload="metadata"
-  onError={(e) => {
-    console.error('Audio loading error:', e);
-
-  }}
->
-  <source src={submission.audio_url} type="audio/webm" />
-  <source src={submission.audio_url} type="audio/mpeg" />
-  Your browser does not support the audio element.
-</audio>
+                    <SafeAudioPlayer src={submission.audio_feedback_url} />
                   </div>
                 )}
               </div>
@@ -1276,6 +1281,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
     </div>
   );
 };
+
   const GradingTab = ({ 
   submissions, 
   pendingSubmissions, 
@@ -1365,16 +1371,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
             {submission.audio_url && (
               <div>
                 <p className="text-blue-200 text-sm">Audio Submission</p>
-                <audio 
-                  controls 
-                  className="w-full mt-2 rounded-lg"
-                  src={submission.audio_url}
-                >
-                  <source src={submission.audio_url} type="audio/webm" />
-                  <source src={submission.audio_url} type="audio/mpeg" />
-                  <source src={submission.audio_url} type="audio/wav" />
-                  Your browser does not support the audio element.
-                </audio>
+                <SafeAudioPlayer src={submission.audio_url} />
               </div>
             )}
 
@@ -2021,23 +2018,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
             {gradingSubmission.audio_url && (
               <div className="mb-6">
                 <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
-                
-<audio controls 
-  className="w-full rounded-lg"
-  crossOrigin="anonymous"
-  preload="metadata"
-  onError={(e) => {
-    console.error('Audio loading failed:', e);
-    // You can add a fallback message here
-  }}
-  onLoadStart={() => console.log('Audio loading started')}
-  onCanPlay={() => console.log('Audio can play')}
->
-  <source src={submission.audio_url} type="audio/webm" />
-  <source src={submission.audio_url} type="audio/mpeg" />
-  <source src={submission.audio_url} type="audio/wav" />
-  Your browser does not support the audio element.
-</audio>
+                <SafeAudioPlayer src={gradingSubmission.audio_url} />
               </div>
             )}
 
@@ -2185,24 +2166,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
                         </button>
                       </div>
                       
-                     <audio controls 
-  className="w-full rounded-lg"
-  crossOrigin="anonymous"
-  preload="metadata"
-  onError={(e) => {
-    console.error('Audio loading failed:', e);
-    // You can add a fallback message here
-  }}
-  onLoadStart={() => console.log('Audio loading started')}
-  onCanPlay={() => console.log('Audio can play')}
->
-  <source src={submission.audio_url} type="audio/webm" />
-  <source src={submission.audio_url} type="audio/mpeg" />
-  <source src={submission.audio_url} type="audio/wav" />
-  Your browser does not support the audio element.
-</audio>
-                        Your browser does not support the audio element.
-                      </audio>
+                      <SafeAudioPlayer src={gradeData.audioFeedbackUrl || audioUrl} />
                       
                       <div className="text-blue-300 text-xs">
                         Students will be able to listen to this audio feedback in their dashboard
