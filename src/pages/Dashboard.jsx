@@ -45,8 +45,6 @@ import {
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 
-// === COMPONENTS MOVED OUTSIDE DASHBOARD ===
-
 // Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -696,6 +694,36 @@ const DollarSign = ({ size = 16, className = "" }) => (
   </svg>
 );
 
+// Add to state declarations in Dashboard component
+const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+// Add these handler functions to Dashboard component
+const handleMarkAllAsRead = () => {
+  setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
+  toast.success('All notifications marked as read');
+};
+
+const handleNotificationClick = (notification) => {
+  setNotifications(prev => 
+    prev.map(n => 
+      n.id === notification.id ? { ...n, read: true } : n
+    )
+  );
+  setIsNotificationsOpen(false);
+  
+  // Handle navigation based on notification type
+  if (notification.data?.assignment_id) {
+    setActiveSection('assignments');
+  } else if (notification.data?.class_id) {
+    setActiveSection('classes');
+  }
+};
+
+const handleClearAllNotifications = () => {
+  setNotifications([]);
+  toast.success('All notifications cleared');
+};
+
 // === MAIN DASHBOARD COMPONENT ===
 export default function Dashboard() {
   // State declarations
@@ -703,6 +731,7 @@ export default function Dashboard() {
   const [assignments, setAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
   const [exams, setExams] = useState([]);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [stats, setStats] = useState([
     { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
     { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
@@ -876,16 +905,72 @@ export default function Dashboard() {
     }
   };
 
-  const fetchNotifications = async () => {
-    try {
+ const fetchNotifications = async () => {
+  try {
+    // Replace with actual API call
+    const notificationsData = await makeApiRequest('/api/student/notifications');
+    
+    if (Array.isArray(notificationsData)) {
+      setNotifications(notificationsData);
+    } else {
+      // Fallback mock data
       setNotifications([
-        { id: 1, type: 'assignment', message: 'New assignment posted', time: '5 min ago', read: false },
-        { id: 2, type: 'class', message: 'Class starting in 15 minutes', time: '1 hour ago', read: true },
+        { 
+          id: 1, 
+          type: 'assignment', 
+          title: 'New Assignment',
+          message: 'New assignment posted in Quran Class', 
+          time: '5 min ago', 
+          read: false,
+          created_at: new Date().toISOString(),
+          data: { assignment_id: '1', assignment_title: 'Quran Recitation' }
+        },
+        { 
+          id: 2, 
+          type: 'class', 
+          title: 'Class Reminder',
+          message: 'Class starting in 15 minutes', 
+          time: '1 hour ago', 
+          read: true,
+          created_at: new Date(Date.now() - 3600000).toISOString(),
+          data: { class_id: '1', class_title: 'Arabic Grammar' }
+        },
       ]);
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    // Fallback to empty array
+    setNotifications([]);
+  }
+};
+
+  const handleMarkAllAsRead = () => {
+  setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
+  toast.success('All notifications marked as read');
+};
+
+const handleNotificationClick = (notification) => {
+  setNotifications(prev => 
+    prev.map(n => 
+      n.id === notification.id ? { ...n, read: true } : n
+    )
+  );
+  setIsNotificationsOpen(false);
+  
+  // Handle navigation based on notification type
+  if (notification.data?.assignment_id) {
+    setActiveSection('assignments');
+  } else if (notification.data?.class_id) {
+    setActiveSection('classes');
+  }
+};
+
+const handleClearAllNotifications = () => {
+  setNotifications([]);
+  toast.success('All notifications cleared');
+};
+
+
 
   const handleContactAdmin = async () => {
     if (!contactMessage.trim()) {
