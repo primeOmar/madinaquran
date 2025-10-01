@@ -2476,4 +2476,4 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
       )}
     </div>
   );
-}
+};
