@@ -19,38 +19,119 @@ const formatTime = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Safe Audio Player Component
-const SafeAudioPlayer = ({ src, className = "" }) => {
-  const [error, setError] = useState(false);
+// Grade assignment - FIXED VERSION
+const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
+  setIsGrading(true);
+  try {
+    if (!score || isNaN(score) || score < 0) {
+      toast.error('Please enter a valid score');
+      setIsGrading(false);
+      return;
+    }
+    
+    const numericScore = parseInt(score);
+    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
+                             pendingSubmissions.find(s => s.id === submissionId);
+    
+    if (!submissionToGrade) {
+      toast.error('Submission not found');
+      setIsGrading(false);
+      return;
+    }
 
-  if (error || !src) {
-    return (
-      <div className={`bg-red-500/20 border border-red-500/30 rounded-lg p-4 text-center ${className}`}>
-        <p className="text-red-300 text-sm">Audio unavailable</p>
-        <p className="text-red-400 text-xs">The audio file could not be loaded</p>
-      </div>
+    let finalAudioFeedbackUrl = '';
+    
+    // Handle audio feedback - now using base64 data
+    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
+      try {
+        // If it's base64 data, we can upload it directly
+        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+          console.warn('uploadAudioFeedback method not available, storing base64 data directly');
+          finalAudioFeedbackUrl = audioFeedbackData;
+        } else {
+          // Convert base64 to blob for upload
+          const response = await fetch(audioFeedbackData);
+          const audioBlob = await response.blob();
+          const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
+            type: 'audio/webm'
+          });
+          
+          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+        }
+      } catch (uploadError) {
+        console.error('Failed to upload audio feedback:', uploadError);
+        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+        finalAudioFeedbackUrl = '';
+      }
+    }
+
+    // Update local state
+    const updatedSubmissions = submissions.map(sub => 
+      sub.id === submissionId 
+        ? { 
+            ...sub, 
+            grade: numericScore, 
+            feedback, 
+            audio_feedback_url: finalAudioFeedbackUrl,
+            graded_at: new Date().toISOString()
+          }
+        : sub
     );
+
+    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+    setSubmissions(updatedSubmissions);
+    setPendingSubmissions(updatedPending);
+    
+    // Update stats
+    setStats(prev => ({
+      ...prev,
+      pendingSubmissions: updatedPending.length
+    }));
+    
+    // Call API
+    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
+    
+    // Update student progress
+    if (submissionToGrade.student_id) {
+      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
+    }
+    
+    // Notify student
+    try {
+      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
+      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+      
+      await notifyStudentGraded(
+        submissionId,
+        submissionToGrade.student_id,
+        assignmentTitle,
+        numericScore,
+        maxScore
+      );
+    } catch (notificationError) {
+      console.warn('Notification failed:', notificationError);
+    }
+    
+    toast.success('Assignment graded successfully!');
+    setGradingSubmission(null);
+    setSelectedSubmission(null);
+    setGradeData({ score: '', feedback: '', audioFeedbackUrl: '' });
+    clearRecording();
+    
+  } catch (error) {
+    console.error('Grading error:', error);
+    toast.error(`Failed to grade assignment: ${error.message}`);
+    await loadSubmissions();
+  } finally {
+    setIsGrading(false);
   }
-
-  return (
-    <audio
-      controls
-      className={`w-full rounded-lg ${className}`}
-      crossOrigin="anonymous"
-      preload="metadata"
-      onError={() => setError(true)}
-      src={src}
-    >
-      Your browser does not support the audio element.
-    </audio>
-  );
 };
-
-// Audio recording hook for teacher feedback
+// Audio recording hook for teacher feedback - FIXED VERSION
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
-  const [audioUrl, setAudioUrl] = useState('');
+  const [audioData, setAudioData] = useState(null); // Store as base64 data instead of blob URL
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -72,31 +153,36 @@ const useAudioRecorder = () => {
       
       audioChunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = (event) => {
+      mediaRecorderRef.current.ondataavailable = async (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
 
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { 
-          type: 'audio/webm;codecs=opus' 
-        });
-        
-        // Clean up previous URL to prevent memory leaks
-        if (audioUrl) {
-          URL.revokeObjectURL(audioUrl);
+      mediaRecorderRef.current.onstop = async () => {
+        try {
+          const blob = new Blob(audioChunksRef.current, { 
+            type: 'audio/webm;codecs=opus' 
+          });
+          
+          // Convert blob to base64 data URL instead of blob URL
+          const dataUrl = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+          
+          setAudioBlob(blob);
+          setAudioData(dataUrl); // Store as base64 data URL
+          
+          // Stop all tracks
+          stream.getTracks().forEach(track => track.stop());
+        } catch (error) {
+          console.error('Error processing recording:', error);
         }
-        
-        const url = URL.createObjectURL(blob);
-        setAudioBlob(blob);
-        setAudioUrl(url);
-        
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
       };
 
-      mediaRecorderRef.current.start(1000); // Collect data every 1s
+      mediaRecorderRef.current.start(1000);
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -121,38 +207,31 @@ const useAudioRecorder = () => {
   };
 
   const clearRecording = () => {
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl);
-    }
     setAudioBlob(null);
-    setAudioUrl('');
+    setAudioData(null);
     setRecordingTime(0);
   };
 
   // Cleanup effect
   useEffect(() => {
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
     };
-  }, [audioUrl]);
+  }, []);
 
   return {
     isRecording,
     audioBlob,
-    audioUrl,
+    audioData, // Return base64 data instead of blob URL
     recordingTime: formatTime(recordingTime),
     startRecording,
     stopRecording,
     clearRecording,
-    hasRecording: !!audioBlob
+    hasRecording: !!audioData
   };
 };
-
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
@@ -201,7 +280,7 @@ export default function TeacherDashboard() {
   const [gradeData, setGradeData] = useState({ 
     score: '', 
     feedback: '', 
-    audioFeedbackUrl: '',
+    audioFeedbackData: '',
     isRecording: false,
     recordingTime: 0,
     audioBlob: null
@@ -211,7 +290,7 @@ export default function TeacherDashboard() {
   const {
     isRecording: audioIsRecording,
     audioBlob,
-    audioUrl,
+    audioData,
     recordingTime: audioRecordingTime,
     startRecording,
     stopRecording,
@@ -562,7 +641,8 @@ const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, sco
 };
 
 // Grade assignment
-const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl = '') => {
+// Grade assignment - FIXED VERSION
+const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
   setIsGrading(true);
   try {
     if (!score || isNaN(score) || score < 0) {
@@ -581,30 +661,29 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
       return;
     }
 
-    // Handle audio feedback - convert blob URL to file if needed
-    let finalAudioFeedbackUrl = audioFeedbackUrl;
+    let finalAudioFeedbackUrl = '';
     
-    // If it's a blob URL, we need to upload it first
-    if (audioFeedbackUrl && audioFeedbackUrl.startsWith('blob:')) {
+    // Handle audio feedback - now using base64 data
+    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
       try {
-        // Convert blob URL to file and upload
-        const response = await fetch(audioFeedbackUrl);
-        const audioBlob = await response.blob();
-        const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
-          type: 'audio/webm'
-        });
-        
-        // Upload audio file and get permanent URL
+        // If it's base64 data, we can upload it directly
         if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-          console.warn('uploadAudioFeedback method not available, storing blob URL directly');
-          finalAudioFeedbackUrl = audioFeedbackUrl;
+          console.warn('uploadAudioFeedback method not available, storing base64 data directly');
+          finalAudioFeedbackUrl = audioFeedbackData;
         } else {
+          // Convert base64 to blob for upload
+          const response = await fetch(audioFeedbackData);
+          const audioBlob = await response.blob();
+          const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
+            type: 'audio/webm'
+          });
+          
           finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
         }
       } catch (uploadError) {
         console.error('Failed to upload audio feedback:', uploadError);
         toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-        finalAudioFeedbackUrl = ''; // Continue without audio
+        finalAudioFeedbackUrl = '';
       }
     }
 
@@ -670,7 +749,6 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
     setIsGrading(false);
   }
 };
-
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
     
@@ -2075,46 +2153,45 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <button
-                            onClick={async () => {
-                              if (audioIsRecording) {
-                                // Stop recording
-                                stopRecording();
-                                setGradeData(prev => ({
-                                  ...prev, 
-                                  isRecording: false,
-                                  audioFeedbackUrl: audioUrl
-                                }));
-                                
-                                // Clear the interval
-                                if (recordingInterval) {
-                                  clearInterval(recordingInterval);
-                                  setRecordingInterval(null);
-                                }
-                              } else {
-                                // Start recording
-                                await startRecording();
-                                setGradeData(prev => ({...prev, isRecording: true}));
-                                
-                                // Update recording time every second
-                                const interval = setInterval(() => {
-                                  setGradeData(prev => ({
-                                    ...prev, 
-                                    recordingTime: prev.recordingTime + 1
-                                  }));
-                                }, 1000);
-                                
-                                // Store interval ID to clear later
-                                setRecordingInterval(interval);
-                              }
-                            }}
-                            className={`p-3 rounded-full transition-all duration-200 ${
-                              audioIsRecording 
-                                ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
-                                : 'bg-green-600 hover:bg-green-500'
-                            }`}
-                          >
-                            {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
-                          </button>
+  onClick={async () => {
+    if (audioIsRecording) {
+      // Stop recording
+      stopRecording();
+      setGradeData(prev => ({
+        ...prev, 
+        isRecording: false,
+        audioFeedbackData: audioData // Store base64 data
+      }));
+      
+      // Clear the interval
+      if (recordingInterval) {
+        clearInterval(recordingInterval);
+        setRecordingInterval(null);
+      }
+    } else {
+      // Start recording
+      await startRecording();
+      setGradeData(prev => ({...prev, isRecording: true}));
+      
+      // Update recording time every second
+      const interval = setInterval(() => {
+        setGradeData(prev => ({
+          ...prev, 
+          recordingTime: prev.recordingTime + 1
+        }));
+      }, 1000);
+      
+      setRecordingInterval(interval);
+    }
+  }}
+  className={`p-3 rounded-full transition-all duration-200 ${
+    audioIsRecording 
+      ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
+      : 'bg-green-600 hover:bg-green-500'
+  }`}
+>
+  {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
+</button>
                           
                           <div>
                             <div className="text-sm text-blue-300">
@@ -2166,7 +2243,7 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
                         </button>
                       </div>
                       
-                      <SafeAudioPlayer src={gradeData.audioFeedbackUrl || audioUrl} />
+                      <SafeAudioPlayer src={gradeData.audioFeedbackData || audioData} />
                       
                       <div className="text-blue-300 text-xs">
                         Students will be able to listen to this audio feedback in their dashboard
@@ -2198,12 +2275,12 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackUrl =
               >
                 Cancel
               </button>
-              <button
+             <button
   onClick={() => gradeAssignment(
     gradingSubmission.id, 
     parseInt(gradeData.score), 
     gradeData.feedback,
-    gradeData.audioFeedbackUrl || audioUrl
+    gradeData.audioFeedbackData || audioData // Pass base64 data instead of blob URL
   )}
   disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
   className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800/50 disabled:cursor-not-allowed flex items-center justify-center"
