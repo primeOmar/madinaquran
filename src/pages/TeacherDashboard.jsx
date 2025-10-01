@@ -87,6 +87,7 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
 };
 
 // Audio recording hook for teacher feedback
+// Enhanced Audio recording hook that uses base64 data URLs
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -106,13 +107,28 @@ const useAudioRecorder = () => {
         } 
       });
       
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      });
+      // Try different mime types for better browser compatibility
+      const options = { 
+        audioBitsPerSecond: 128000,
+        mimeType: 'audio/webm;codecs=opus' 
+      };
+      
+      // Fallback mime types for different browsers
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options.mimeType = 'audio/webm';
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options.mimeType = 'audio/mp4';
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options.mimeType = '';
+      }
+      
+      mediaRecorderRef.current = new MediaRecorder(stream, options);
       
       audioChunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = async (event) => {
+      mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
@@ -121,26 +137,35 @@ const useAudioRecorder = () => {
       mediaRecorderRef.current.onstop = async () => {
         try {
           const blob = new Blob(audioChunksRef.current, { 
-            type: 'audio/webm;codecs=opus' 
+            type: mediaRecorderRef.current.mimeType || 'audio/webm'
           });
           
-          // Convert blob to base64 data URL
-          const dataUrl = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
+          console.log('Audio blob created:', {
+            size: blob.size,
+            type: blob.type
           });
+          
+          // Convert blob to base64 data URL - THIS IS THE KEY FIX
+          const dataUrl = await blobToBase64(blob);
           
           setAudioBlob(blob);
           setAudioData(dataUrl);
           
-          stream.getTracks().forEach(track => track.stop());
+          console.log('Audio data URL created:', dataUrl.substring(0, 100) + '...');
+          
+          // Stop all tracks
+          stream.getTracks().forEach(track => {
+            track.stop();
+            track.enabled = false;
+          });
+          
         } catch (error) {
           console.error('Error processing recording:', error);
+          toast.error('Failed to process audio recording');
         }
       };
 
-      mediaRecorderRef.current.start(1000);
+      mediaRecorderRef.current.start(1000); // Collect data every 1s
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -150,7 +175,13 @@ const useAudioRecorder = () => {
 
     } catch (error) {
       console.error('Error starting recording:', error);
-      alert('Microphone access denied. Please allow microphone access to record audio feedback.');
+      if (error.name === 'NotAllowedError') {
+        toast.error('Microphone access denied. Please allow microphone access in your browser settings.');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No microphone found. Please check your audio devices.');
+      } else {
+        toast.error('Failed to access microphone: ' + error.message);
+      }
     }
   };
 
@@ -170,6 +201,7 @@ const useAudioRecorder = () => {
     setRecordingTime(0);
   };
 
+  // Cleanup effect
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -190,6 +222,26 @@ const useAudioRecorder = () => {
   };
 };
 
+// Helper function to convert blob to base64
+const blobToBase64 = (blob) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        console.log('FileReader completed, result length:', reader.result?.length || 0);
+        resolve(reader.result);
+      };
+      reader.onerror = () => {
+        console.error('FileReader error:', reader.error);
+        reject(reader.error);
+      };
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      console.error('Error in blobToBase64:', error);
+      reject(error);
+    }
+  });
+};
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
