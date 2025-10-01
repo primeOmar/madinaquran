@@ -19,132 +19,236 @@ const formatTime = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Enhanced Safe Audio Player Component
+// Enhanced Safe Audio Player Componen
 const SafeAudioPlayer = ({ src, className = "" }) => {
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+  const [audioUrl, setAudioUrl] = useState(null);
   const audioRef = useRef(null);
 
-  const handleAudioError = (error) => {
-    console.error('Audio error details:', {
-      error,
-      src: src?.substring(0, 100),
-      srcType: src?.startsWith('blob:') ? 'blob' : 
-               src?.startsWith('data:') ? 'base64' : 
-               src?.startsWith('http') ? 'http' : 'unknown'
+  // Process and validate audio source
+  useEffect(() => {
+    const processAudioSource = async () => {
+      if (!src) {
+        setError(true);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setError(false);
+
+        // Handle different source types
+        let processedUrl = src;
+
+        // If it's a Supabase URL, add cache-busting and handle CORS
+        if (src.startsWith('https://') && src.includes('supabase.co')) {
+          // Add cache-busting parameter to avoid cached errors
+          const separator = src.includes('?') ? '&' : '?';
+          processedUrl = `${src}${separator}t=${Date.now()}`;
+          
+          console.log('Processing Supabase audio URL:', {
+            original: src.substring(0, 100),
+            processed: processedUrl.substring(0, 100),
+            timestamp: Date.now()
+          });
+        }
+        // Handle data URLs and blob URLs directly
+        else if (src.startsWith('data:') || src.startsWith('blob:')) {
+          processedUrl = src;
+        }
+
+        setAudioUrl(processedUrl);
+        
+        // Small delay to ensure state is updated
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 100);
+
+      } catch (err) {
+        console.error('Error processing audio source:', err);
+        setError(true);
+        setIsLoading(false);
+      }
+    };
+
+    processAudioSource();
+  }, [src, retryCount]);
+
+  const handleAudioError = (errorEvent) => {
+    console.error('Audio player error:', {
+      error: errorEvent,
+      src: audioUrl?.substring(0, 100),
+      audioElement: audioRef.current,
+      networkState: audioRef.current?.networkState,
+      readyState: audioRef.current?.readyState,
+      errorCode: audioRef.current?.error?.code
     });
+
     setError(true);
     setIsLoading(false);
+  };
+
+  const handleAudioLoadStart = () => {
+    console.log('Audio load started for:', audioUrl?.substring(0, 100));
+    setIsLoading(true);
+  };
+
+  const handleAudioCanPlay = () => {
+    console.log('Audio can play:', audioUrl?.substring(0, 100));
+    setIsLoading(false);
+    setError(false);
+  };
+
+  const handleAudioStalled = () => {
+    console.warn('Audio stalled, retrying...');
+    // Auto-retry on stall
+    if (retryCount < 2) {
+      setTimeout(() => {
+        if (audioRef.current) {
+          audioRef.current.load();
+        }
+      }, 1000);
+    }
+  };
+
+  const handleAudioSuspend = () => {
+    console.log('Audio loading suspended, waiting...');
+  };
+
+  const handleAudioAbort = () => {
+    console.warn('Audio loading aborted');
+    // Don't immediately set error for abort - might recover
+    setTimeout(() => {
+      if (audioRef.current?.readyState < 2) {
+        setError(true);
+        setIsLoading(false);
+      }
+    }, 2000);
   };
 
   const handleRetry = () => {
     setError(false);
     setIsLoading(true);
     setRetryCount(prev => prev + 1);
+    
+    // Force reload the audio element
+    if (audioRef.current) {
+      setTimeout(() => {
+        audioRef.current.load();
+      }, 100);
+    }
   };
 
-  const getAudioSource = () => {
-    if (!src) return null;
-    
-    // If it's already a data URL or external URL, use it directly
-    if (src.startsWith('data:') || src.startsWith('http') || src.startsWith('/')) {
-      return src;
-    }
-    
-    // If it's a blob URL, we'll try to use it but expect it might fail
-    if (src.startsWith('blob:')) {
-      console.warn('Blob URL detected - this may cause security restrictions');
-      return src;
-    }
-    
-    return src;
-  };
-
-  const audioSource = getAudioSource();
-
-  useEffect(() => {
-    setIsLoading(true);
-    setError(false);
-    
-    if (audioRef.current && audioSource) {
-      // Reset the audio element
-      audioRef.current.load();
-    }
-  }, [audioSource, retryCount]);
-
-  if (error || !audioSource) {
+  // Show error state
+  if (error || !audioUrl) {
     return (
       <div className={`bg-red-500/20 border border-red-500/30 rounded-lg p-4 text-center ${className}`}>
-        <p className="text-red-300 text-sm mb-2">Audio unavailable</p>
-        <p className="text-red-400 text-xs mb-3">
-          {src?.startsWith('blob:') 
-            ? 'Audio recording cannot be played due to security restrictions' 
-            : 'The audio file could not be loaded'
-          }
-        </p>
-        {retryCount < 3 && (
-          <button
-            onClick={handleRetry}
-            className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-xs"
-          >
-            Retry
-          </button>
-        )}
+        <div className="flex flex-col items-center space-y-2">
+          <XCircle size={24} className="text-red-400" />
+          <p className="text-red-300 text-sm">Audio playback unavailable</p>
+          <p className="text-red-400 text-xs">
+            {src?.startsWith('https://') 
+              ? 'Unable to load audio file from storage' 
+              : 'The audio file could not be loaded'
+            }
+          </p>
+          
+          {/* Debug info for developers */}
+          <div className="text-red-400 text-xs mt-2 bg-red-500/10 p-2 rounded">
+            <div>URL: {src?.substring(0, 80)}...</div>
+            <div>Retry attempts: {retryCount}</div>
+          </div>
+
+          {retryCount < 3 && (
+            <button
+              onClick={handleRetry}
+              className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-xs mt-2 flex items-center"
+            >
+              <RefreshCw size={12} className="mr-1" />
+              Retry Playback
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
     <div className={`relative ${className}`}>
+      {/* Loading overlay */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-blue-800/20 rounded-lg z-10">
-          <div className="flex items-center space-x-2">
+        <div className="absolute inset-0 flex items-center justify-center bg-blue-800/20 rounded-lg z-10 backdrop-blur-sm">
+          <div className="flex flex-col items-center space-y-2">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
             <span className="text-blue-300 text-sm">Loading audio...</span>
+            <span className="text-blue-400 text-xs">{retryCount > 0 ? `Retry ${retryCount}/3` : ''}</span>
           </div>
         </div>
       )}
+
+      {/* Audio element with comprehensive event handling */}
       <audio
         ref={audioRef}
         controls
-        className="w-full rounded-lg"
-        crossOrigin="anonymous"
+        className="w-full rounded-lg bg-blue-800/20"
         preload="metadata"
-        onError={(e) => {
-          console.error('Audio element error:', e);
-          handleAudioError(e);
-        }}
-        onCanPlay={() => {
-          console.log('Audio can play');
+        onError={handleAudioError}
+        onLoadStart={handleAudioLoadStart}
+        onCanPlay={handleAudioCanPlay}
+        onCanPlayThrough={handleAudioCanPlay}
+        onStalled={handleAudioStalled}
+        onSuspend={handleAudioSuspend}
+        onAbort={handleAudioAbort}
+        onWaiting={() => console.log('Audio waiting...')}
+        onPlaying={() => {
+          console.log('Audio playing successfully');
           setIsLoading(false);
+          setError(false);
         }}
-        onLoadStart={() => {
-          console.log('Audio loading started');
-          setIsLoading(true);
-        }}
-        onStalled={() => {
-          console.warn('Audio stalled');
-        }}
-        onSuspend={() => {
-          console.warn('Audio loading suspended');
-        }}
-        onAbort={() => {
-          console.warn('Audio loading aborted');
-          handleAudioError(new Error('Loading aborted'));
-        }}
-        src={audioSource}
+        onEnded={() => console.log('Audio playback completed')}
+        crossOrigin="anonymous" // Important for CORS
       >
-        <source src={audioSource} type="audio/webm" />
-        <source src={audioSource} type="audio/mp4" />
-        <source src={audioSource} type="audio/mpeg" />
-        <source src={audioSource} type="audio/wav" />
+        {/* Multiple source formats for better compatibility */}
+        <source src={audioUrl} type="audio/webm" />
+        <source src={audioUrl} type="audio/mp4" />
+        <source src={audioUrl} type="audio/mpeg" />
+        <source src={audioUrl} type="audio/wav" />
+        <source src={audioUrl} type="audio/ogg" />
+        
         Your browser does not support the audio element.
+        {!isLoading && (
+          <div className="p-4 text-center">
+            <p className="text-red-400 text-sm">Audio format not supported</p>
+            <button 
+              onClick={handleRetry}
+              className="text-blue-400 hover:text-blue-300 text-xs underline mt-1"
+            >
+              Try different format
+            </button>
+          </div>
+        )}
       </audio>
+
+      {/* Audio controls enhancement */}
+      <div className="flex justify-between items-center mt-2 text-xs text-blue-300">
+        <span>Format: {audioUrl.includes('.webm') ? 'WEBM' : 
+                        audioUrl.includes('.mp3') ? 'MP3' : 
+                        audioUrl.includes('.wav') ? 'WAV' : 
+                        'Unknown'}</span>
+        
+        {retryCount > 0 && (
+          <span className="text-yellow-400">Retry {retryCount}/3</span>
+        )}
+      </div>
     </div>
   );
 };
 
+// Add the missing RefreshCw icon import at the top with other Lucide icons
+// import { RefreshCw } from "lucide-react";
 // Enhanced Audio recording hook that uses base64 data URLs
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -193,36 +297,48 @@ const useAudioRecorder = () => {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        try {
-          const blob = new Blob(audioChunksRef.current, { 
-            type: mediaRecorderRef.current.mimeType || 'audio/webm'
-          });
-          
-          console.log('Audio blob created:', {
-            size: blob.size,
-            type: blob.type
-          });
-          
-          // Convert blob to base64 data URL - THIS IS THE KEY FIX
-          const dataUrl = await blobToBase64(blob);
-          
-          setAudioBlob(blob);
-          setAudioData(dataUrl);
-          
-          console.log('Audio data URL created:', dataUrl.substring(0, 100) + '...');
-          
-          // Stop all tracks
-          stream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-          });
-          
-        } catch (error) {
-          console.error('Error processing recording:', error);
-          toast.error('Failed to process audio recording');
-        }
-      };
-
+  try {
+    const blob = new Blob(audioChunksRef.current, { 
+      type: mediaRecorderRef.current.mimeType || 'audio/webm'
+    });
+    
+    console.log('Audio recording completed:', {
+      size: blob.size,
+      type: blob.type,
+      duration: recordingTime
+    });
+    
+    // For student submissions, upload to Supabase
+    if (uploadToSupabase) {
+      try {
+        const audioUrl = await teacherApi.uploadStudentAudio(blob, assignmentId);
+        setAudioBlob(blob);
+        setAudioData(audioUrl); // This will be the Supabase URL
+      } catch (uploadError) {
+        console.error('Upload failed, using data URL:', uploadError);
+        // Fallback to data URL
+        const dataUrl = await blobToBase64(blob);
+        setAudioBlob(blob);
+        setAudioData(dataUrl);
+      }
+    } else {
+      // For audio feedback, use data URL
+      const dataUrl = await blobToBase64(blob);
+      setAudioBlob(blob);
+      setAudioData(dataUrl);
+    }
+    
+    // Stop all tracks
+    stream.getTracks().forEach(track => {
+      track.stop();
+      track.enabled = false;
+    });
+    
+  } catch (error) {
+    console.error('Error processing recording:', error);
+    toast.error('Failed to process audio recording');
+  }
+};
       mediaRecorderRef.current.start(1000); // Collect data every 1s
       setIsRecording(true);
       setRecordingTime(0);
