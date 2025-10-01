@@ -506,7 +506,6 @@ export const teacherApi = {
   },
 
   // Get teacher's assignments
-// Get teacher's assignments - GUARANTEED WORKING VERSION
 getMyAssignments: async () => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -517,7 +516,7 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
-    // STEP 1: Get assignments without any joins
+    // Get ALL assignments for this teacher
     const { data: assignmentsData, error } = await supabase
       .from('assignments')
       .select(`
@@ -541,7 +540,7 @@ getMyAssignments: async () => {
       return [];
     }
 
-    // STEP 2: Get ALL submissions for these assignments
+    // Get ALL submissions for these assignments
     const assignmentIds = assignmentsData.map(a => a.id);
     const { data: submissionsData, error: submissionsError } = await supabase
       .from('assignment_submissions')
@@ -550,16 +549,16 @@ getMyAssignments: async () => {
 
     if (submissionsError) throw submissionsError;
 
-    console.log('📝 All submissions found:', submissionsData?.length || 0);
+    console.log('📝 Submissions found:', submissionsData?.length || 0);
 
-    // STEP 3: Get ALL student profiles in ONE query
+    // Get ALL student profiles in ONE query
     const allStudentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
-    console.log('👥 ALL Student IDs from submissions:', allStudentIds);
+    console.log('👥 Student IDs to fetch:', allStudentIds);
 
     let studentMap = {};
 
     if (allStudentIds.length > 0) {
-      // Get ALL profiles at once
+      // Get ALL profiles at once - this WORKS based on your SQL test
       const { data: allProfiles, error: profilesError } = await supabase
         .from('profiles')
         .select('id, name, email')
@@ -568,9 +567,9 @@ getMyAssignments: async () => {
       if (profilesError) {
         console.error('❌ Error fetching profiles:', profilesError);
       } else {
-        console.log('✅ ALL Profiles found:', allProfiles);
+        console.log('✅ Profiles successfully fetched:', allProfiles);
         
-        // Create a map for easy lookup
+        // Create the student map
         allProfiles.forEach(profile => {
           studentMap[profile.id] = {
             name: profile.name,
@@ -578,31 +577,38 @@ getMyAssignments: async () => {
           };
         });
         
-        console.log('🗺️ Student map created with:', Object.keys(studentMap).length, 'students');
+        console.log('🗺️ Student map created:', studentMap);
+        
+        // DEBUG: Check if our specific student is in the map
+        const testStudentId = "03333731-5b6f-4e95-a91d-62c0ca4dced5";
+        console.log('🔍 DEBUG - Student lookup test:', {
+          studentId: testStudentId,
+          inMap: !!studentMap[testStudentId],
+          studentData: studentMap[testStudentId]
+        });
       }
     }
 
-    // STEP 4: Combine the data
+    // Transform the data
     const transformed = assignmentsData.map(assignment => {
-      // Find submissions for this assignment
       const assignmentSubmissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
       
       console.log(`📋 Assignment "${assignment.title}" has ${assignmentSubmissions.length} submissions`);
 
       const transformedSubmissions = assignmentSubmissions.map(sub => {
         const studentInfo = studentMap[sub.student_id];
-        const hasStudentInfo = !!studentInfo;
         
-        console.log(`🎯 Submission ${sub.id} - Student ${sub.student_id}:`, {
-          found: hasStudentInfo,
-          name: studentInfo?.name || 'MISSING',
-          email: studentInfo?.email || 'MISSING'
+        console.log(`🎯 Submission ${sub.id}:`, {
+          student_id: sub.student_id,
+          studentInfo: studentInfo,
+          hasStudentInfo: !!studentInfo,
+          studentName: studentInfo?.name || 'MISSING'
         });
 
         return {
           id: sub.id,
           student_id: sub.student_id,
-          student_name: studentInfo?.name || `Student (${sub.student_id.substring(0, 8)}...)`,
+          student_name: studentInfo?.name || `Student ${sub.student_id.substring(0, 8)}...`,
           student_email: studentInfo?.email || '',
           submitted_at: sub.submitted_at,
           grade: sub.grade,                    
@@ -632,7 +638,7 @@ getMyAssignments: async () => {
       };
     });
 
-    console.log('✅ FINAL TRANSFORMED DATA WITH STUDENT NAMES:', transformed);
+    console.log('✅ FINAL TRANSFORMED DATA:', transformed);
     return transformed;
 
   } catch (error) {
