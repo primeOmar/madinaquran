@@ -19,12 +19,15 @@ const formatTime = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Enhanced Safe Audio Player Component with better error handling and CORS support
+// Enhanced Safe Audio Player Component with better metadata and timing handling
 const SafeAudioPlayer = ({ src, className = "" }) => {
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [audioUrl, setAudioUrl] = useState(null);
+  const [duration, setDuration] = useState(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
 
   // Process and validate audio source
@@ -62,10 +65,9 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
 
         setAudioUrl(processedUrl);
         
-        // Small delay to ensure state is updated
-        setTimeout(() => {
-          setIsLoading(false);
-        }, 100);
+        // Reset duration and timing
+        setDuration(null);
+        setCurrentTime(0);
 
       } catch (err) {
         console.error('Error processing audio source:', err);
@@ -77,6 +79,7 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     processAudioSource();
   }, [src, retryCount]);
 
+  // Audio event handlers
   const handleAudioError = (errorEvent) => {
     console.error('Audio player error:', {
       error: errorEvent,
@@ -96,15 +99,45 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     setIsLoading(true);
   };
 
+  const handleAudioLoadedMetadata = () => {
+    console.log('Audio metadata loaded, duration:', audioRef.current?.duration);
+    if (audioRef.current) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
   const handleAudioCanPlay = () => {
-    console.log('Audio can play:', audioUrl?.substring(0, 100));
+    console.log('Audio can play, duration:', audioRef.current?.duration);
     setIsLoading(false);
     setError(false);
+    
+    // Double-check duration after can play
+    if (audioRef.current && audioRef.current.duration) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleAudioTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const handleAudioPlay = () => {
+    setIsPlaying(true);
+  };
+
+  const handleAudioPause = () => {
+    setIsPlaying(false);
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
   };
 
   const handleAudioStalled = () => {
     console.warn('Audio stalled, retrying...');
-    // Auto-retry on stall
     if (retryCount < 2) {
       setTimeout(() => {
         if (audioRef.current) {
@@ -120,7 +153,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
 
   const handleAudioAbort = () => {
     console.warn('Audio loading aborted');
-    // Don't immediately set error for abort - might recover
     setTimeout(() => {
       if (audioRef.current?.readyState < 2) {
         setError(true);
@@ -134,12 +166,19 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     setIsLoading(true);
     setRetryCount(prev => prev + 1);
     
-    // Force reload the audio element
     if (audioRef.current) {
       setTimeout(() => {
         audioRef.current.load();
       }, 100);
     }
+  };
+
+  // Format time display
+  const formatDisplayTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Show error state
@@ -156,12 +195,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
             }
           </p>
           
-          {/* Debug info for developers */}
-          <div className="text-red-400 text-xs mt-2 bg-red-500/10 p-2 rounded">
-            <div>URL: {src?.substring(0, 80)}...</div>
-            <div>Retry attempts: {retryCount}</div>
-          </div>
-
           {retryCount < 3 && (
             <button
               onClick={handleRetry}
@@ -197,19 +230,17 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         preload="metadata"
         onError={handleAudioError}
         onLoadStart={handleAudioLoadStart}
+        onLoadedMetadata={handleAudioLoadedMetadata}
         onCanPlay={handleAudioCanPlay}
         onCanPlayThrough={handleAudioCanPlay}
+        onTimeUpdate={handleAudioTimeUpdate}
+        onPlay={handleAudioPlay}
+        onPause={handleAudioPause}
+        onEnded={handleAudioEnded}
         onStalled={handleAudioStalled}
         onSuspend={handleAudioSuspend}
         onAbort={handleAudioAbort}
-        onWaiting={() => console.log('Audio waiting...')}
-        onPlaying={() => {
-          console.log('Audio playing successfully');
-          setIsLoading(false);
-          setError(false);
-        }}
-        onEnded={() => console.log('Audio playback completed')}
-        crossOrigin="anonymous" // Important for CORS
+        crossOrigin="anonymous"
       >
         {/* Multiple source formats for better compatibility */}
         <source src={audioUrl} type="audio/webm" />
@@ -219,35 +250,33 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         <source src={audioUrl} type="audio/ogg" />
         
         Your browser does not support the audio element.
-        {!isLoading && (
-          <div className="p-4 text-center">
-            <p className="text-red-400 text-sm">Audio format not supported</p>
-            <button 
-              onClick={handleRetry}
-              className="text-blue-400 hover:text-blue-300 text-xs underline mt-1"
-            >
-              Try different format
-            </button>
-          </div>
-        )}
       </audio>
 
-      {/* Audio controls enhancement */}
+      {/* Custom audio controls and info */}
       <div className="flex justify-between items-center mt-2 text-xs text-blue-300">
-        <span>Format: {audioUrl.includes('.webm') ? 'WEBM' : 
-                        audioUrl.includes('.mp3') ? 'MP3' : 
-                        audioUrl.includes('.wav') ? 'WAV' : 
-                        'Unknown'}</span>
+        <div className="flex items-center space-x-2">
+          <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-green-400 animate-pulse' : 'bg-blue-400'}`}></span>
+          <span>
+            {isPlaying ? 'Playing' : 'Paused'} • 
+            {duration ? ` ${formatDisplayTime(duration)}` : ' Loading...'}
+          </span>
+        </div>
         
         {retryCount > 0 && (
           <span className="text-yellow-400">Retry {retryCount}/3</span>
         )}
       </div>
+
+      {/* Debug info - remove in production */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-1 text-xs text-gray-400 bg-black/20 p-1 rounded">
+          URL: {audioUrl?.substring(0, 50)}...
+          {duration && ` | Duration: ${duration}s`}
+        </div>
+      )}
     </div>
   );
 };
-
-
 // Enhanced Audio recording hook that uses base64 data URLs
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -795,34 +824,55 @@ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData 
       return;
     }
 
-    let finalAudioFeedbackUrl = '';
-    
-    // Handle audio feedback - only upload if it's a data URL
-    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
-      try {
-        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-          console.warn('uploadAudioFeedback method not available, storing base64 data directly');
-          finalAudioFeedbackUrl = audioFeedbackData;
-        } else {
-          // Convert data URL to blob for upload
-          const response = await fetch(audioFeedbackData);
-          const audioBlob = await response.blob();
-          const audioFile = new File([audioBlob], `feedback-${submissionId}.webm`, {
-            type: 'audio/webm'
-          });
-          
-          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
-          console.log('Audio feedback uploaded to:', finalAudioFeedbackUrl);
-        }
-      } catch (uploadError) {
-        console.error('Failed to upload audio feedback:', uploadError);
-        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-        finalAudioFeedbackUrl = '';
-      }
-    } else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
-      // If it's already a URL (Supabase), use it directly
+// In the gradeAssignment function, update the audio feedback handling:
+let finalAudioFeedbackUrl = '';
+
+// Handle audio feedback - only upload if it's a data URL
+if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
+  try {
+    console.log('Processing audio feedback data URL:', {
+      dataUrlLength: audioFeedbackData.length,
+      dataUrlPrefix: audioFeedbackData.substring(0, 50)
+    });
+
+    if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+      console.warn('uploadAudioFeedback method not available, storing base64 data directly');
       finalAudioFeedbackUrl = audioFeedbackData;
+    } else {
+      // Convert data URL to blob for upload
+      const response = await fetch(audioFeedbackData);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio data: ${response.status}`);
+      }
+      
+      const audioBlob = await response.blob();
+      console.log('Audio blob created:', {
+        size: audioBlob.size,
+        type: audioBlob.type
+      });
+
+      // Validate blob size
+      if (audioBlob.size < 100) { // Too small, likely invalid
+        throw new Error('Audio recording is too short or invalid');
+      }
+
+      const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
+        type: 'audio/webm'
+      });
+      
+      finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+      console.log('Audio feedback uploaded to:', finalAudioFeedbackUrl);
     }
+  } catch (uploadError) {
+    console.error('Failed to upload audio feedback:', uploadError);
+    toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+    finalAudioFeedbackUrl = '';
+  }
+} else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
+  // If it's already a URL (Supabase), use it directly
+  finalAudioFeedbackUrl = audioFeedbackData;
+  console.log('Using existing audio URL:', finalAudioFeedbackUrl);
+}
 
     // Update local state
     const updatedSubmissions = submissions.map(sub => 
@@ -2260,121 +2310,131 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
                 />
               </div>
 
-              {/* Audio Feedback Recording Section */}
-              <div className="border-t border-blue-700/30 pt-4">
-                <label className="block text-sm font-medium text-blue-200 mb-3">
-                  Audio Feedback (Record corrections or detailed feedback)
-                </label>
-                
-                {/* Audio Recorder Component */}
-                <div className="bg-blue-800/30 rounded-lg p-4 border border-blue-700/30">
-                  {!gradeData.audioFeedbackData && !audioData ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={async () => {
-                              if (audioIsRecording) {
-                                stopRecording();
-                                setGradeData(prev => ({
-                                  ...prev, 
-                                  isRecording: false,
-                                  audioFeedbackData: audioData
-                                }));
-                                
-                                if (recordingInterval) {
-                                  clearInterval(recordingInterval);
-                                  setRecordingInterval(null);
-                                }
-                              } else {
-                                await startRecording();
-                                setGradeData(prev => ({...prev, isRecording: true}));
-                                
-                                const interval = setInterval(() => {
-                                  setGradeData(prev => ({
-                                    ...prev, 
-                                    recordingTime: prev.recordingTime + 1
-                                  }));
-                                }, 1000);
-                                
-                                setRecordingInterval(interval);
-                              }
-                            }}
-                            className={`p-3 rounded-full transition-all duration-200 ${
-                              audioIsRecording 
-                                ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
-                                : 'bg-green-600 hover:bg-green-500'
-                            }`}
-                          >
-                            {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
-                          </button>
-                          
-                          <div>
-                            <div className="text-sm text-blue-300">
-                              {audioIsRecording ? `Recording... ${audioRecordingTime}` : 'Click to record audio feedback'}
-                            </div>
-                            <div className="text-xs text-blue-400">
-                              {audioIsRecording ? 'Click stop when finished' : 'Record pronunciation corrections or detailed feedback'}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {audioIsRecording && (
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                            <span className="text-red-300 text-sm">Recording</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Recording Visualization */}
-                      {audioIsRecording && (
-                        <div className="flex items-center space-x-1 h-4">
-                          {[...Array(10)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="flex-1 bg-green-500/30 rounded-full animate-pulse"
-                              style={{
-                                height: `${Math.random() * 12 + 4}px`,
-                                animationDelay: `${i * 0.1}s`
-                              }}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    /* Audio Preview after Recording */
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-green-400 text-sm font-medium">✅ Audio feedback recorded</span>
-                        <button
-                          onClick={() => {
-                            clearRecording();
-                            setGradeData(prev => ({...prev, audioFeedbackData: ''}));
-                          }}
-                          className="text-red-400 hover:text-red-300 text-sm"
-                        >
-                          Re-record
-                        </button>
-                      </div>
-                      
-                      <SafeAudioPlayer src={gradeData.audioFeedbackData || audioData} />
-                      
-                      <div className="text-blue-300 text-xs">
-                        Students will be able to listen to this audio feedback in their dashboard
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Instructions */}
-                <div className="mt-2 text-blue-300 text-xs">
-                  💡 <strong>Perfect for:</strong> Tajweed corrections, detailed explanations, 
-                  Quranic recitation feedback, or personalized encouragement
-                </div>
+             {/* Audio Feedback Recording Section - IMPROVED */}
+<div className="border-t border-blue-700/30 pt-4">
+  <label className="block text-sm font-medium text-blue-200 mb-3">
+    Audio Feedback (Record corrections or detailed feedback)
+  </label>
+  
+  {/* Audio Recorder Component */}
+  <div className="bg-blue-800/30 rounded-lg p-4 border border-blue-700/30">
+    {!gradeData.audioFeedbackData && !audioData ? (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={async () => {
+                if (audioIsRecording) {
+                  console.log('Stopping recording...');
+                  stopRecording();
+                  
+                  // Wait a moment for the recording to process
+                  setTimeout(() => {
+                    setGradeData(prev => ({
+                      ...prev, 
+                      isRecording: false,
+                      audioFeedbackData: audioData
+                    }));
+                  }, 500);
+                  
+                  if (recordingInterval) {
+                    clearInterval(recordingInterval);
+                    setRecordingInterval(null);
+                  }
+                } else {
+                  console.log('Starting recording...');
+                  await startRecording();
+                  setGradeData(prev => ({...prev, isRecording: true}));
+                  
+                  const interval = setInterval(() => {
+                    setGradeData(prev => ({
+                      ...prev, 
+                      recordingTime: prev.recordingTime + 1
+                    }));
+                  }, 1000);
+                  
+                  setRecordingInterval(interval);
+                }
+              }}
+              className={`p-3 rounded-full transition-all duration-200 ${
+                audioIsRecording 
+                  ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
+                  : 'bg-green-600 hover:bg-green-500'
+              }`}
+            >
+              {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
+            </button>
+            
+            <div>
+              <div className="text-sm text-blue-300">
+                {audioIsRecording ? `Recording... ${audioRecordingTime}` : 'Click to record audio feedback'}
+              </div>
+              <div className="text-xs text-blue-400">
+                {audioIsRecording ? 'Click stop when finished' : 'Record pronunciation corrections or detailed feedback'}
               </div>
             </div>
+          </div>
+          
+          {audioIsRecording && (
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+              <span className="text-red-300 text-sm">Recording</span>
+            </div>
+          )}
+        </div>
+
+        {/* Recording Visualization */}
+        {audioIsRecording && (
+          <div className="flex items-center space-x-1 h-4">
+            {[...Array(8)].map((_, i) => (
+              <div
+                key={i}
+                className="flex-1 bg-green-500/30 rounded-full animate-pulse"
+                style={{
+                  height: `${Math.random() * 12 + 4}px`,
+                  animationDelay: `${i * 0.1}s`,
+                  animationDuration: '0.6s'
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    ) : (
+      /* Audio Preview after Recording */
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-green-400 text-sm font-medium">✅ Audio feedback recorded</span>
+          <button
+            onClick={() => {
+              console.log('Clearing recording...');
+              clearRecording();
+              setGradeData(prev => ({...prev, audioFeedbackData: ''}));
+            }}
+            className="text-red-400 hover:text-red-300 text-sm"
+          >
+            Re-record
+          </button>
+        </div>
+        
+        {/* Enhanced audio player for preview */}
+        <div className="bg-blue-900/50 p-3 rounded-lg">
+          <SafeAudioPlayer src={gradeData.audioFeedbackData || audioData} />
+        </div>
+        
+        <div className="text-blue-300 text-xs">
+          Students will be able to listen to this audio feedback in their dashboard
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* Instructions */}
+  <div className="mt-2 text-blue-300 text-xs">
+    💡 <strong>Perfect for:</strong> Tajweed corrections, detailed explanations, 
+    Quranic recitation feedback, or personalized encouragement
+  </div>
+</div>
 
             <div className="flex justify-end space-x-3 mt-6">
               <button
