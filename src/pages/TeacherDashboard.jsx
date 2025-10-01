@@ -1047,10 +1047,7 @@ setPendingSubmissions(updatedPending);
                   <div className="flex items-center mb-2">
                     <User size={16} className="text-yellow-400 mr-2" />
                     <h4 className="font-semibold text-white">{studentName}</h4>
-                    {studentEmail && (
-                      <span className="ml-3 text-yellow-300 text-sm bg-yellow-500/20 px-2 py-1 rounded">
-                        {studentEmail}
-                      </span>
+                   
                     )}
                   </div>
                   
@@ -1278,7 +1275,7 @@ setPendingSubmissions(updatedPending);
       if (!submission) return null;
 
       const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
-      const studentEmail = submission.student?.email || submission.student_email || '';
+     
       const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
       const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
       const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
@@ -1299,9 +1296,7 @@ setPendingSubmissions(updatedPending);
             <div>
               <p className="text-blue-200 text-sm">Student</p>
               <p className="text-white font-medium">{studentName}</p>
-              {studentEmail && (
-                <p className="text-blue-300 text-xs">{studentEmail}</p>
-              )}
+             
             </div>
 
             <div>
