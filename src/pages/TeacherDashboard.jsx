@@ -647,98 +647,126 @@ export default function TeacherDashboard() {
   };
 
   // Grade assignment function
-  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
-    setIsGrading(true);
-    try {
-      if (!score || isNaN(score) || score < 0) {
-        toast.error('Please enter a valid score');
-        setIsGrading(false);
-        return;
-      }
-      
-      const numericScore = parseInt(score);
-      const submissionToGrade = submissions.find(s => s.id === submissionId) || 
-                              pendingSubmissions.find(s => s.id === submissionId);
-      
-      if (!submissionToGrade) {
-        toast.error('Submission not found');
-        setIsGrading(false);
-        return;
-      }
-
-      let finalAudioFeedbackUrl = '';
-
-      if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
-        try {
-          if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-            finalAudioFeedbackUrl = audioFeedbackData;
-          } else {
-            const response = await fetch(audioFeedbackData);
-            if (!response.ok) {
-              throw new Error(`Failed to fetch audio data: ${response.status}`);
-            }
-            
-            const audioBlob = await response.blob();
-            const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
-              type: 'audio/webm'
-            });
-            
-            finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
-          }
-        } catch (uploadError) {
-          console.error('Failed to upload audio feedback:', uploadError);
-          toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-          finalAudioFeedbackUrl = '';
-        }
-      } else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
-        finalAudioFeedbackUrl = audioFeedbackData;
-      }
-
-      // Update local state
-      const updatedSubmissions = submissions.map(sub => 
-        sub.id === submissionId 
-          ? { 
-              ...sub, 
-              grade: numericScore, 
-              feedback, 
-              audio_feedback_url: finalAudioFeedbackUrl,
-              graded_at: new Date().toISOString()
-            }
-          : sub
-      );
-
-      const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
-      setSubmissions(updatedSubmissions);
-      setPendingSubmissions(updatedPending);
-      
-      setStats(prev => ({
-        ...prev,
-        pendingSubmissions: updatedPending.length
-      }));
-      
-      // Call API
-      await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
-      
-      // Update student progress
-      if (submissionToGrade.student_id) {
-        await teacherApi.updateStudentProgress(submissionToGrade.student_id);
-      }
-      
-      toast.success('Assignment graded successfully!');
-      setGradingSubmission(null);
-      setSelectedSubmission(null);
-      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
-      clearRecording();
-      
-    } catch (error) {
-      console.error('Grading error:', error);
-      toast.error(`Failed to grade assignment: ${error.message}`);
-      await loadSubmissions();
-    } finally {
+ const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
+  setIsGrading(true);
+  try {
+    if (!score || isNaN(score) || score < 0) {
+      toast.error('Please enter a valid score');
       setIsGrading(false);
+      return;
     }
-  };
+    
+    const numericScore = parseInt(score);
+    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
+                            pendingSubmissions.find(s => s.id === submissionId);
+    
+    if (!submissionToGrade) {
+      toast.error('Submission not found');
+      setIsGrading(false);
+      return;
+    }
+
+    let finalAudioFeedbackUrl = '';
+
+    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
+      try {
+        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+          finalAudioFeedbackUrl = audioFeedbackData;
+        } else {
+          const response = await fetch(audioFeedbackData);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch audio data: ${response.status}`);
+          }
+          
+          const audioBlob = await response.blob();
+          const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
+            type: 'audio/webm'
+          });
+          
+          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+        }
+      } catch (uploadError) {
+        console.error('Failed to upload audio feedback:', uploadError);
+        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+        finalAudioFeedbackUrl = '';
+      }
+    } else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
+      finalAudioFeedbackUrl = audioFeedbackData;
+    }
+
+    // Update local state
+    const updatedSubmissions = submissions.map(sub => 
+      sub.id === submissionId 
+        ? { 
+            ...sub, 
+            grade: numericScore, 
+            feedback, 
+            audio_feedback_url: finalAudioFeedbackUrl,
+            graded_at: new Date().toISOString()
+          }
+        : sub
+    );
+
+    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+    setSubmissions(updatedSubmissions);
+    setPendingSubmissions(updatedPending);
+    
+    setStats(prev => ({
+      ...prev,
+      pendingSubmissions: updatedPending.length
+    }));
+    
+    // Call API to grade assignment
+    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
+    
+    // Update student progress
+    if (submissionToGrade.student_id) {
+      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
+    }
+    
+    // Send notification to student
+    try {
+      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
+      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+      
+      await teacherApi.sendNotification(submissionToGrade.student_id, {
+        title: 'Assignment Graded 📝',
+        message: `Your assignment "${assignmentTitle}" has been graded. You scored ${numericScore}/${maxScore}.${feedback ? ' Teacher left feedback.' : ''}`,
+        type: 'success',
+        data: {
+          submission_id: submissionId,
+          assignment_title: assignmentTitle,
+          score: numericScore,
+          max_score: maxScore,
+          has_feedback: !!feedback,
+          has_audio_feedback: !!finalAudioFeedbackUrl,
+          graded_at: new Date().toISOString(),
+          action_url: `/assignments/${submissionId}`
+        }
+      });
+      
+      console.log('✅ Notification sent to student:', submissionToGrade.student_id);
+    } catch (notificationError) {
+      console.warn('❌ Failed to send notification:', notificationError);
+      // Don't fail the grading process if notification fails
+      toast.warning('Assignment graded, but failed to send notification to student.');
+    }
+    
+    toast.success('Assignment graded successfully! Notification sent to student.');
+    setGradingSubmission(null);
+    setSelectedSubmission(null);
+    setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
+    clearRecording();
+    
+  } catch (error) {
+    console.error('Grading error:', error);
+    toast.error(`Failed to grade assignment: ${error.message}`);
+    await loadSubmissions();
+  } finally {
+    setIsGrading(false);
+  }
+};
 
   // Utility functions
   const formatDateTime = (dateString) => {
