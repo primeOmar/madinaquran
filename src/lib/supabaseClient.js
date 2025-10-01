@@ -516,7 +516,7 @@ getMyAssignments: async () => {
 
     console.log('🔍 Fetching assignments for teacher:', user.id);
 
-    // Get ALL assignments for this teacher
+    // STEP 1: Get assignments
     const { data: assignmentsData, error } = await supabase
       .from('assignments')
       .select(`
@@ -540,8 +540,10 @@ getMyAssignments: async () => {
       return [];
     }
 
-    // Get ALL submissions for these assignments
+    // STEP 2: Get submissions
     const assignmentIds = assignmentsData.map(a => a.id);
+    console.log('🆔 Assignment IDs:', assignmentIds);
+
     const { data: submissionsData, error: submissionsError } = await supabase
       .from('assignment_submissions')
       .select('*')
@@ -550,15 +552,18 @@ getMyAssignments: async () => {
     if (submissionsError) throw submissionsError;
 
     console.log('📝 Submissions found:', submissionsData?.length || 0);
+    console.log('📄 Sample submission:', submissionsData?.[0]);
 
-    // Get ALL student profiles in ONE query
+    // STEP 3: Get student profiles with COMPREHENSIVE DEBUGGING
     const allStudentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
-    console.log('👥 Student IDs to fetch:', allStudentIds);
+    console.log('👥 ALL Student IDs from submissions:', allStudentIds);
+    console.log('🔍 Looking for student:', "03333731-5b6f-4e95-a91d-62c0ca4dced5", 'in array:', allStudentIds.includes("03333731-5b6f-4e95-a91d-62c0ca4dced5"));
 
     let studentMap = {};
 
     if (allStudentIds.length > 0) {
-      // Get ALL profiles at once - this WORKS based on your SQL test
+      console.log('🔄 Fetching profiles for', allStudentIds.length, 'student IDs');
+      
       const { data: allProfiles, error: profilesError } = await supabase
         .from('profiles')
         .select('id, name, email')
@@ -567,9 +572,17 @@ getMyAssignments: async () => {
       if (profilesError) {
         console.error('❌ Error fetching profiles:', profilesError);
       } else {
-        console.log('✅ Profiles successfully fetched:', allProfiles);
+        console.log('✅ PROFILES FETCHED SUCCESSFULLY:', allProfiles);
+        console.log('🔎 Number of profiles found:', allProfiles.length);
         
-        // Create the student map
+        // Check if our specific student is in the results
+        const targetStudent = allProfiles.find(p => p.id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
+        console.log('🎯 Looking for student 03333731... in profiles:', {
+          found: !!targetStudent,
+          studentData: targetStudent
+        });
+
+        // Build the student map
         allProfiles.forEach(profile => {
           studentMap[profile.id] = {
             name: profile.name,
@@ -577,19 +590,14 @@ getMyAssignments: async () => {
           };
         });
         
-        console.log('🗺️ Student map created:', studentMap);
-        
-        // DEBUG: Check if our specific student is in the map
-        const testStudentId = "03333731-5b6f-4e95-a91d-62c0ca4dced5";
-        console.log('🔍 DEBUG - Student lookup test:', {
-          studentId: testStudentId,
-          inMap: !!studentMap[testStudentId],
-          studentData: studentMap[testStudentId]
-        });
+        console.log('🗺️ STUDENT MAP CONTENTS:', studentMap);
+        console.log('🔍 Student 03333731... in map:', studentMap["03333731-5b6f-4e95-a91d-62c0ca4dced5"]);
       }
+    } else {
+      console.log('❌ No student IDs found in submissions!');
     }
 
-    // Transform the data
+    // STEP 4: Transform data with DETAILED DEBUGGING
     const transformed = assignmentsData.map(assignment => {
       const assignmentSubmissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
       
@@ -598,18 +606,33 @@ getMyAssignments: async () => {
       const transformedSubmissions = assignmentSubmissions.map(sub => {
         const studentInfo = studentMap[sub.student_id];
         
-        console.log(`🎯 Submission ${sub.id}:`, {
+        console.log(`🎯 TRANSFORMING SUBMISSION ${sub.id}:`, {
           student_id: sub.student_id,
+          student_id_type: typeof sub.student_id,
           studentInfo: studentInfo,
           hasStudentInfo: !!studentInfo,
-          studentName: studentInfo?.name || 'MISSING'
+          studentName: studentInfo?.name || 'NOT FOUND',
+          studentMapKeys: Object.keys(studentMap),
+          isTargetStudent: sub.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5"
         });
+
+        // Use the student name if found, otherwise show the ID
+        let studentName = `Student ${sub.student_id.substring(0, 8)}...`;
+        let studentEmail = '';
+        
+        if (studentInfo) {
+          studentName = studentInfo.name;
+          studentEmail = studentInfo.email;
+          console.log('✅ USING STUDENT NAME:', studentName);
+        } else {
+          console.log('❌ STUDENT NOT FOUND IN MAP');
+        }
 
         return {
           id: sub.id,
           student_id: sub.student_id,
-          student_name: studentInfo?.name || `Student ${sub.student_id.substring(0, 8)}...`,
-          student_email: studentInfo?.email || '',
+          student_name: studentName,
+          student_email: studentEmail,
           submitted_at: sub.submitted_at,
           grade: sub.grade,                    
           feedback: sub.feedback,
@@ -639,6 +662,14 @@ getMyAssignments: async () => {
     });
 
     console.log('✅ FINAL TRANSFORMED DATA:', transformed);
+    
+    // Final check for our target student
+    const targetSubmission = transformed
+      .flatMap(a => a.submissions)
+      .find(s => s.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
+    
+    console.log('🎯 FINAL CHECK - Target student submission:', targetSubmission);
+
     return transformed;
 
   } catch (error) {
