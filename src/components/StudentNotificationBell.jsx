@@ -1,4 +1,4 @@
-simport { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Bell, Check, Trash2, ExternalLink } from 'lucide-react';
 import { useNotifications } from '../components/NotificationContext';
 import { useNavigate } from 'react-router-dom';
