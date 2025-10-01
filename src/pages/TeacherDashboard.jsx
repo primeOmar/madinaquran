@@ -1036,7 +1036,6 @@ setPendingSubmissions(updatedPending);
                            submission.student_name || 
                            submission.students?.name ||
                            'Unknown Student';
-          const studentEmail = submission.student?.email || submission.student_email || '';
           const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
           const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
           const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
