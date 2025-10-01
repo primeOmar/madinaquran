@@ -19,21 +19,43 @@ const formatTime = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Safe Audio Player Component
+// Enhanced Safe Audio Player Component
 const SafeAudioPlayer = ({ src, className = "" }) => {
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const audioRef = useRef(null);
+
+  const handleAudioError = (error) => {
+    console.error('Audio error details:', {
+      error,
+      src: src?.substring(0, 100),
+      srcType: src?.startsWith('blob:') ? 'blob' : 
+               src?.startsWith('data:') ? 'base64' : 
+               src?.startsWith('http') ? 'http' : 'unknown'
+    });
+    setError(true);
+    setIsLoading(false);
+  };
+
+  const handleRetry = () => {
+    setError(false);
+    setIsLoading(true);
+    setRetryCount(prev => prev + 1);
+  };
 
   const getAudioSource = () => {
     if (!src) return null;
     
+    // If it's already a data URL or external URL, use it directly
     if (src.startsWith('data:') || src.startsWith('http') || src.startsWith('/')) {
       return src;
     }
     
+    // If it's a blob URL, we'll try to use it but expect it might fail
     if (src.startsWith('blob:')) {
-      console.warn('Blob URL detected, this may cause security errors:', src);
-      return null;
+      console.warn('Blob URL detected - this may cause security restrictions');
+      return src;
     }
     
     return src;
@@ -44,18 +66,31 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
   useEffect(() => {
     setIsLoading(true);
     setError(false);
-  }, [src]);
+    
+    if (audioRef.current && audioSource) {
+      // Reset the audio element
+      audioRef.current.load();
+    }
+  }, [audioSource, retryCount]);
 
   if (error || !audioSource) {
     return (
       <div className={`bg-red-500/20 border border-red-500/30 rounded-lg p-4 text-center ${className}`}>
-        <p className="text-red-300 text-sm">Audio unavailable</p>
-        <p className="text-red-400 text-xs">
+        <p className="text-red-300 text-sm mb-2">Audio unavailable</p>
+        <p className="text-red-400 text-xs mb-3">
           {src?.startsWith('blob:') 
             ? 'Audio recording cannot be played due to security restrictions' 
             : 'The audio file could not be loaded'
           }
         </p>
+        {retryCount < 3 && (
+          <button
+            onClick={handleRetry}
+            className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-xs"
+          >
+            Retry
+          </button>
+        )}
       </div>
     );
   }
@@ -63,30 +98,53 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
   return (
     <div className={`relative ${className}`}>
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-blue-800/20 rounded-lg">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+        <div className="absolute inset-0 flex items-center justify-center bg-blue-800/20 rounded-lg z-10">
+          <div className="flex items-center space-x-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+            <span className="text-blue-300 text-sm">Loading audio...</span>
+          </div>
         </div>
       )}
       <audio
+        ref={audioRef}
         controls
         className="w-full rounded-lg"
         crossOrigin="anonymous"
         preload="metadata"
-        onError={() => {
-          setError(true);
+        onError={(e) => {
+          console.error('Audio element error:', e);
+          handleAudioError(e);
+        }}
+        onCanPlay={() => {
+          console.log('Audio can play');
           setIsLoading(false);
         }}
-        onCanPlay={() => setIsLoading(false)}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          console.log('Audio loading started');
+          setIsLoading(true);
+        }}
+        onStalled={() => {
+          console.warn('Audio stalled');
+        }}
+        onSuspend={() => {
+          console.warn('Audio loading suspended');
+        }}
+        onAbort={() => {
+          console.warn('Audio loading aborted');
+          handleAudioError(new Error('Loading aborted'));
+        }}
         src={audioSource}
       >
+        <source src={audioSource} type="audio/webm" />
+        <source src={audioSource} type="audio/mp4" />
+        <source src={audioSource} type="audio/mpeg" />
+        <source src={audioSource} type="audio/wav" />
         Your browser does not support the audio element.
       </audio>
     </div>
   );
 };
 
-// Audio recording hook for teacher feedback
 // Enhanced Audio recording hook that uses base64 data URLs
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
