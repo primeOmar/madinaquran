@@ -438,6 +438,97 @@ export const getAuthToken = async () => {
 
 // Teacher API functions with GRADING capabilities
 export const teacherApi = {
+// Notification functions
+  sendNotification: async (studentId, notificationData) => {
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Validate inputs
+      if (!studentId) {
+        throw new Error('Student ID is required');
+      }
+
+      if (!notificationData?.title || !notificationData?.message) {
+        throw new Error('Notification title and message are required');
+      }
+
+      const notificationPayload = {
+        user_id: studentId,
+        title: notificationData.title.trim(),
+        message: notificationData.message.trim(),
+        type: notificationData.type || 'info',
+        data: notificationData.data || {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert([notificationPayload])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      
+      console.log('Notification sent successfully:', data);
+      return data;
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      throw error;
+    }
+  },
+
+  sendBulkNotifications: async (studentIds, notificationData) => {
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Validate inputs
+      if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+        throw new Error('Valid student IDs array is required');
+      }
+
+      if (!notificationData?.title || !notificationData?.message) {
+        throw new Error('Notification title and message are required');
+      }
+
+      const notifications = studentIds.map(studentId => ({
+        user_id: studentId,
+        title: notificationData.title.trim(),
+        message: notificationData.message.trim(),
+        type: notificationData.type || 'info',
+        data: notificationData.data || {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert(notifications)
+        .select();
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log(`Bulk notifications sent successfully to ${studentIds.length} students`);
+      return data;
+    } catch (error) {
+      console.error('Error sending bulk notifications:', error);
+      throw error;
+    }
+  },  
   // Get teacher's classes
   getMyClasses: async () => {
     try {
@@ -869,59 +960,6 @@ getMyAssignments: async () => {
       throw error;
     }
   },
- async sendNotification(studentId, notificationData) {
-    try {
-      const { data, error } = await supabase
-        .from('notifications')
-        .insert([
-          {
-            user_id: studentId,
-            title: notificationData.title,
-            message: notificationData.message,
-            type: notificationData.type || 'info',
-            data: notificationData.data || {}
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
-      
-      console.log('Notification sent successfully:', data);
-      return data;
-    } catch (error) {
-      console.error('Error sending notification:', error);
-      throw error;
-    }
-  },
-
-  // Send bulk notifications to multiple students
-  async sendBulkNotifications(studentIds, notificationData) {
-    try {
-      const notifications = studentIds.map(studentId => ({
-        user_id: studentId,
-        title: notificationData.title,
-        message: notificationData.message,
-        type: notificationData.type || 'info',
-        data: notificationData.data || {}
-      }));
-
-      const { data, error } = await supabase
-        .from('notifications')
-        .insert(notifications)
-        .select();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error sending bulk notifications:', error);
-      throw error;
-    }
-  }
-};
 
 
   // Create a new assignment
