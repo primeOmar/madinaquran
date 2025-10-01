@@ -19,7 +19,7 @@ const formatTime = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Enhanced Safe Audio Player Component with better metadata and timing handling
+// Enhanced Safe Audio Player Component
 const SafeAudioPlayer = ({ src, className = "" }) => {
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,7 +30,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
 
-  // Process and validate audio source
   useEffect(() => {
     const processAudioSource = async () => {
       if (!src) {
@@ -43,29 +42,13 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         setIsLoading(true);
         setError(false);
 
-        // Handle different source types
         let processedUrl = src;
-
-        // If it's a Supabase URL, add cache-busting and handle CORS
         if (src.startsWith('https://') && src.includes('supabase.co')) {
-          // Add cache-busting parameter to avoid cached errors
           const separator = src.includes('?') ? '&' : '?';
           processedUrl = `${src}${separator}t=${Date.now()}`;
-          
-          console.log('Processing Supabase audio URL:', {
-            original: src.substring(0, 100),
-            processed: processedUrl.substring(0, 100),
-            timestamp: Date.now()
-          });
-        }
-        // Handle data URLs and blob URLs directly
-        else if (src.startsWith('data:') || src.startsWith('blob:')) {
-          processedUrl = src;
         }
 
         setAudioUrl(processedUrl);
-        
-        // Reset duration and timing
         setDuration(null);
         setCurrentTime(0);
 
@@ -79,39 +62,25 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     processAudioSource();
   }, [src, retryCount]);
 
-  // Audio event handlers
   const handleAudioError = (errorEvent) => {
-    console.error('Audio player error:', {
-      error: errorEvent,
-      src: audioUrl?.substring(0, 100),
-      audioElement: audioRef.current,
-      networkState: audioRef.current?.networkState,
-      readyState: audioRef.current?.readyState,
-      errorCode: audioRef.current?.error?.code
-    });
-
+    console.error('Audio player error:', errorEvent);
     setError(true);
     setIsLoading(false);
   };
 
   const handleAudioLoadStart = () => {
-    console.log('Audio load started for:', audioUrl?.substring(0, 100));
     setIsLoading(true);
   };
 
   const handleAudioLoadedMetadata = () => {
-    console.log('Audio metadata loaded, duration:', audioRef.current?.duration);
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
     }
   };
 
   const handleAudioCanPlay = () => {
-    console.log('Audio can play, duration:', audioRef.current?.duration);
     setIsLoading(false);
     setError(false);
-    
-    // Double-check duration after can play
     if (audioRef.current && audioRef.current.duration) {
       setDuration(audioRef.current.duration);
     }
@@ -123,42 +92,11 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     }
   };
 
-  const handleAudioPlay = () => {
-    setIsPlaying(true);
-  };
-
-  const handleAudioPause = () => {
-    setIsPlaying(false);
-  };
-
+  const handleAudioPlay = () => setIsPlaying(true);
+  const handleAudioPause = () => setIsPlaying(false);
   const handleAudioEnded = () => {
     setIsPlaying(false);
     setCurrentTime(0);
-  };
-
-  const handleAudioStalled = () => {
-    console.warn('Audio stalled, retrying...');
-    if (retryCount < 2) {
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.load();
-        }
-      }, 1000);
-    }
-  };
-
-  const handleAudioSuspend = () => {
-    console.log('Audio loading suspended, waiting...');
-  };
-
-  const handleAudioAbort = () => {
-    console.warn('Audio loading aborted');
-    setTimeout(() => {
-      if (audioRef.current?.readyState < 2) {
-        setError(true);
-        setIsLoading(false);
-      }
-    }, 2000);
   };
 
   const handleRetry = () => {
@@ -173,7 +111,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     }
   };
 
-  // Format time display
   const formatDisplayTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
@@ -181,29 +118,19 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Show error state
   if (error || !audioUrl) {
     return (
       <div className={`bg-red-500/20 border border-red-500/30 rounded-lg p-4 text-center ${className}`}>
         <div className="flex flex-col items-center space-y-2">
           <XCircle size={24} className="text-red-400" />
           <p className="text-red-300 text-sm">Audio playback unavailable</p>
-          <p className="text-red-400 text-xs">
-            {src?.startsWith('https://') 
-              ? 'Unable to load audio file from storage' 
-              : 'The audio file could not be loaded'
-            }
-          </p>
-          
-          {retryCount < 3 && (
-            <button
-              onClick={handleRetry}
-              className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-xs mt-2 flex items-center"
-            >
-              <RefreshCw size={12} className="mr-1" />
-              Retry Playback
-            </button>
-          )}
+          <button
+            onClick={handleRetry}
+            className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-xs mt-2 flex items-center"
+          >
+            <RefreshCw size={12} className="mr-1" />
+            Retry Playback
+          </button>
         </div>
       </div>
     );
@@ -211,18 +138,15 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
 
   return (
     <div className={`relative ${className}`}>
-      {/* Loading overlay */}
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-blue-800/20 rounded-lg z-10 backdrop-blur-sm">
           <div className="flex flex-col items-center space-y-2">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
             <span className="text-blue-300 text-sm">Loading audio...</span>
-            <span className="text-blue-400 text-xs">{retryCount > 0 ? `Retry ${retryCount}/3` : ''}</span>
           </div>
         </div>
       )}
 
-      {/* Audio element with comprehensive event handling */}
       <audio
         ref={audioRef}
         controls
@@ -232,27 +156,20 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         onLoadStart={handleAudioLoadStart}
         onLoadedMetadata={handleAudioLoadedMetadata}
         onCanPlay={handleAudioCanPlay}
-        onCanPlayThrough={handleAudioCanPlay}
         onTimeUpdate={handleAudioTimeUpdate}
         onPlay={handleAudioPlay}
         onPause={handleAudioPause}
         onEnded={handleAudioEnded}
-        onStalled={handleAudioStalled}
-        onSuspend={handleAudioSuspend}
-        onAbort={handleAudioAbort}
         crossOrigin="anonymous"
       >
-        {/* Multiple source formats for better compatibility */}
         <source src={audioUrl} type="audio/webm" />
         <source src={audioUrl} type="audio/mp4" />
         <source src={audioUrl} type="audio/mpeg" />
         <source src={audioUrl} type="audio/wav" />
         <source src={audioUrl} type="audio/ogg" />
-        
         Your browser does not support the audio element.
       </audio>
 
-      {/* Custom audio controls and info */}
       <div className="flex justify-between items-center mt-2 text-xs text-blue-300">
         <div className="flex items-center space-x-2">
           <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-green-400 animate-pulse' : 'bg-blue-400'}`}></span>
@@ -261,23 +178,12 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
             {duration ? ` ${formatDisplayTime(duration)}` : ' Loading...'}
           </span>
         </div>
-        
-        {retryCount > 0 && (
-          <span className="text-yellow-400">Retry {retryCount}/3</span>
-        )}
       </div>
-
-      {/* Debug info - remove in production */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-1 text-xs text-gray-400 bg-black/20 p-1 rounded">
-          URL: {audioUrl?.substring(0, 50)}...
-          {duration && ` | Duration: ${duration}s`}
-        </div>
-      )}
     </div>
   );
 };
-// Enhanced Audio recording hook that uses base64 data URLs
+
+// Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -297,25 +203,16 @@ const useAudioRecorder = () => {
         } 
       });
       
-      // Try different mime types for better browser compatibility
       const options = { 
         audioBitsPerSecond: 128000,
         mimeType: 'audio/webm;codecs=opus' 
       };
       
-      // Fallback mime types for different browsers
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         options.mimeType = 'audio/webm';
       }
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = 'audio/mp4';
-      }
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = '';
-      }
       
       mediaRecorderRef.current = new MediaRecorder(stream, options);
-      
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -330,18 +227,10 @@ const useAudioRecorder = () => {
             type: mediaRecorderRef.current.mimeType || 'audio/webm'
           });
           
-          console.log('Audio recording completed:', {
-            size: blob.size,
-            type: blob.type,
-            duration: recordingTime
-          });
-          
-          // For audio feedback, use data URL (no upload to Supabase needed here)
           const dataUrl = await blobToBase64(blob);
           setAudioBlob(blob);
           setAudioData(dataUrl);
           
-          // Stop all tracks
           stream.getTracks().forEach(track => {
             track.stop();
             track.enabled = false;
@@ -353,7 +242,7 @@ const useAudioRecorder = () => {
         }
       };
 
-      mediaRecorderRef.current.start(1000); // Collect data every 1s
+      mediaRecorderRef.current.start(1000);
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -365,8 +254,6 @@ const useAudioRecorder = () => {
       console.error('Error starting recording:', error);
       if (error.name === 'NotAllowedError') {
         toast.error('Microphone access denied. Please allow microphone access in your browser settings.');
-      } else if (error.name === 'NotFoundError') {
-        toast.error('No microphone found. Please check your audio devices.');
       } else {
         toast.error('Failed to access microphone: ' + error.message);
       }
@@ -389,7 +276,6 @@ const useAudioRecorder = () => {
     setRecordingTime(0);
   };
 
-  // Cleanup effect
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -406,32 +292,20 @@ const useAudioRecorder = () => {
     startRecording,
     stopRecording,
     clearRecording,
-
     hasRecording: !!audioData
   };
 };
 
-
 // Helper function to convert blob to base64
 const blobToBase64 = (blob) => {
   return new Promise((resolve, reject) => {
-    try {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        console.log('FileReader completed, result length:', reader.result?.length || 0);
-        resolve(reader.result);
-      };
-      reader.onerror = () => {
-        console.error('FileReader error:', reader.error);
-        reject(reader.error);
-      };
-      reader.readAsDataURL(blob);
-    } catch (error) {
-      console.error('Error in blobToBase64:', error);
-      reject(error);
-    }
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
   });
 };
+
 export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
@@ -452,7 +326,6 @@ export default function TeacherDashboard() {
   const [activeGradingTab, setActiveGradingTab] = useState('pending');
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [filters, setFilters] = useState({ status: '', search: '' });
-  const [notifications, setNotifications] = useState([]);
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [gradingSubmission, setGradingSubmission] = useState(null);
   const [isCreatingAssignment, setIsCreatingAssignment] = useState(false);
@@ -476,7 +349,6 @@ export default function TeacherDashboard() {
     selected_students: [] 
   });
   
-  // Grade data state
   const [gradeData, setGradeData] = useState({ 
     score: '', 
     feedback: '', 
@@ -499,7 +371,6 @@ export default function TeacherDashboard() {
 
   const [recordingInterval, setRecordingInterval] = useState(null);
 
-  // Cleanup effect for recording interval
   useEffect(() => {
     return () => {
       if (recordingInterval) {
@@ -545,11 +416,6 @@ export default function TeacherDashboard() {
       const pendingData = allSubmissions.filter(submission => {
         const grade = submission.grade;
         return grade === null || grade === undefined || grade === '' || isNaN(Number(grade));
-      });
-      
-      const gradedData = allSubmissions.filter(submission => {
-        const grade = submission.grade;
-        return grade !== null && grade !== undefined && grade !== '' && !isNaN(Number(grade)) && Number(grade) >= 0;
       });
       
       setSubmissions(allSubmissions);
@@ -780,161 +646,100 @@ export default function TeacherDashboard() {
     });
   };
 
-  // Notification function
-  const notifyStudentGraded = async (submissionId, studentId, assignmentTitle, score, maxScore) => {
+  // Grade assignment function
+  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
+    setIsGrading(true);
     try {
-      if (!teacherApi.sendNotification || typeof teacherApi.sendNotification !== 'function') {
-        console.warn('sendNotification method not available');
+      if (!score || isNaN(score) || score < 0) {
+        toast.error('Please enter a valid score');
+        setIsGrading(false);
         return;
       }
       
-      await teacherApi.sendNotification(studentId, {
-        type: 'assignment_graded',
-        title: 'Assignment Graded',
-        message: `Your assignment "${assignmentTitle}" has been graded. Score: ${score}/${maxScore}`,
-        submission_id: submissionId,
-        assignment_title: assignmentTitle,
-        score: score,
-        max_score: maxScore
-      });
+      const numericScore = parseInt(score);
+      const submissionToGrade = submissions.find(s => s.id === submissionId) || 
+                              pendingSubmissions.find(s => s.id === submissionId);
+      
+      if (!submissionToGrade) {
+        toast.error('Submission not found');
+        setIsGrading(false);
+        return;
+      }
+
+      let finalAudioFeedbackUrl = '';
+
+      if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
+        try {
+          if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+            finalAudioFeedbackUrl = audioFeedbackData;
+          } else {
+            const response = await fetch(audioFeedbackData);
+            if (!response.ok) {
+              throw new Error(`Failed to fetch audio data: ${response.status}`);
+            }
+            
+            const audioBlob = await response.blob();
+            const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
+              type: 'audio/webm'
+            });
+            
+            finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload audio feedback:', uploadError);
+          toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+          finalAudioFeedbackUrl = '';
+        }
+      } else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
+        finalAudioFeedbackUrl = audioFeedbackData;
+      }
+
+      // Update local state
+      const updatedSubmissions = submissions.map(sub => 
+        sub.id === submissionId 
+          ? { 
+              ...sub, 
+              grade: numericScore, 
+              feedback, 
+              audio_feedback_url: finalAudioFeedbackUrl,
+              graded_at: new Date().toISOString()
+            }
+          : sub
+      );
+
+      const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+      setSubmissions(updatedSubmissions);
+      setPendingSubmissions(updatedPending);
+      
+      setStats(prev => ({
+        ...prev,
+        pendingSubmissions: updatedPending.length
+      }));
+      
+      // Call API
+      await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
+      
+      // Update student progress
+      if (submissionToGrade.student_id) {
+        await teacherApi.updateStudentProgress(submissionToGrade.student_id);
+      }
+      
+      toast.success('Assignment graded successfully!');
+      setGradingSubmission(null);
+      setSelectedSubmission(null);
+      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
+      clearRecording();
       
     } catch (error) {
-      console.error('Error notifying student:', error);
+      console.error('Grading error:', error);
+      toast.error(`Failed to grade assignment: ${error.message}`);
+      await loadSubmissions();
+    } finally {
+      setIsGrading(false);
     }
   };
 
-  // Grade assignment function
-
-const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
-  setIsGrading(true);
-  try {
-    if (!score || isNaN(score) || score < 0) {
-      toast.error('Please enter a valid score');
-      setIsGrading(false);
-      return;
-    }
-    
-    const numericScore = parseInt(score);
-    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
-                            pendingSubmissions.find(s => s.id === submissionId);
-    
-    if (!submissionToGrade) {
-      toast.error('Submission not found');
-      setIsGrading(false);
-      return;
-    }
-
-// In the gradeAssignment function, update the audio feedback handling:
-let finalAudioFeedbackUrl = '';
-
-// Handle audio feedback - only upload if it's a data URL
-if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
-  try {
-    console.log('Processing audio feedback data URL:', {
-      dataUrlLength: audioFeedbackData.length,
-      dataUrlPrefix: audioFeedbackData.substring(0, 50)
-    });
-
-    if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-      console.warn('uploadAudioFeedback method not available, storing base64 data directly');
-      finalAudioFeedbackUrl = audioFeedbackData;
-    } else {
-      // Convert data URL to blob for upload
-      const response = await fetch(audioFeedbackData);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch audio data: ${response.status}`);
-      }
-      
-      const audioBlob = await response.blob();
-      console.log('Audio blob created:', {
-        size: audioBlob.size,
-        type: audioBlob.type
-      });
-
-      // Validate blob size
-      if (audioBlob.size < 100) { // Too small, likely invalid
-        throw new Error('Audio recording is too short or invalid');
-      }
-
-      const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
-        type: 'audio/webm'
-      });
-      
-      finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
-      console.log('Audio feedback uploaded to:', finalAudioFeedbackUrl);
-    }
-  } catch (uploadError) {
-    console.error('Failed to upload audio feedback:', uploadError);
-    toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-    finalAudioFeedbackUrl = '';
-  }
-} else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
-  // If it's already a URL (Supabase), use it directly
-  finalAudioFeedbackUrl = audioFeedbackData;
-  console.log('Using existing audio URL:', finalAudioFeedbackUrl);
-}
-
-    // Update local state
-    const updatedSubmissions = submissions.map(sub => 
-      sub.id === submissionId 
-        ? { 
-            ...sub, 
-            grade: numericScore, 
-            feedback, 
-            audio_feedback_url: finalAudioFeedbackUrl,
-            graded_at: new Date().toISOString()
-          }
-        : sub
-    );
-
-    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
-    setSubmissions(updatedSubmissions);
-    setPendingSubmissions(updatedPending);
-    
-    setStats(prev => ({
-      ...prev,
-      pendingSubmissions: updatedPending.length
-    }));
-    
-    // Call API
-    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
-    
-    // Update student progress
-    if (submissionToGrade.student_id) {
-      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
-    }
-    
-    // Notify student
-    try {
-      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
-      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
-      
-      await notifyStudentGraded(
-        submissionId,
-        submissionToGrade.student_id,
-        assignmentTitle,
-        numericScore,
-        maxScore
-      );
-    } catch (notificationError) {
-      console.warn('Notification failed:', notificationError);
-    }
-    
-    toast.success('Assignment graded successfully!');
-    setGradingSubmission(null);
-    setSelectedSubmission(null);
-    setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
-    clearRecording();
-    
-  } catch (error) {
-    console.error('Grading error:', error);
-    toast.error(`Failed to grade assignment: ${error.message}`);
-    await loadSubmissions();
-  } finally {
-    setIsGrading(false);
-  }
-};
   // Utility functions
   const formatDateTime = (dateString) => {
     if (!dateString) return "Not scheduled";
@@ -1420,121 +1225,120 @@ if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
   };
 
   const GradedSubmissions = ({ submissions, onViewSubmission }) => {
-  const gradedSubmissions = submissions.filter(sub => {
-    const grade = sub.grade;
-    return grade !== null && 
-           grade !== undefined && 
-           grade !== '' && 
-           !isNaN(Number(grade)) &&
-           Number(grade) >= 0;
-  });
+    const gradedSubmissions = submissions.filter(sub => {
+      const grade = sub.grade;
+      return grade !== null && 
+             grade !== undefined && 
+             grade !== '' && 
+             !isNaN(Number(grade)) &&
+             Number(grade) >= 0;
+    });
 
-  if (gradedSubmissions.length === 0) {
+    if (gradedSubmissions.length === 0) {
+      return (
+        <div className="text-center py-12">
+          <Award size={48} className="mx-auto text-blue-400 mb-3" />
+          <p className="text-blue-200">No graded submissions yet</p>
+          <p className="text-blue-300 text-sm mt-1">
+            {submissions.length > 0 ? `${submissions.length} submissions need grading` : 'All caught up!'}
+          </p>
+        </div>
+      );
+    }
+
     return (
-      <div className="text-center py-12">
-        <Award size={48} className="mx-auto text-blue-400 mb-3" />
-        <p className="text-blue-200">No graded submissions yet</p>
-        <p className="text-blue-300 text-sm mt-1">
-          {submissions.length > 0 ? `${submissions.length} submissions need grading` : 'All caught up!'}
-        </p>
-      </div>
-    );
-  }
+      <div className="space-y-4">
+        {gradedSubmissions.map((submission) => {
+          const studentName = submission.student?.name || 
+                           submission.student_name || 
+                           submission.students?.name ||
+                           'Unknown Student';
+          const assignmentTitle = submission.assignment?.title || 
+                                submission.assignment_title || 
+                                'Unknown Assignment';
+          
+          const maxScore = submission.assignment?.max_score || 
+                          submission.assignment_max_score || 
+                          100;
+          
+          const submittedDate = submission.submitted_at ? 
+            new Date(submission.submitted_at).toLocaleDateString() : 
+            'Not submitted';
+          
+          const gradedDate = submission.graded_at ? 
+            new Date(submission.graded_at).toLocaleDateString() : 
+            'Recently graded';
 
-  return (
-    <div className="space-y-4">
-      {gradedSubmissions.map((submission) => {
-        const studentName = submission.student?.name || 
-                         submission.student_name || 
-                         submission.students?.name ||
-                         'Unknown Student';
-        const assignmentTitle = submission.assignment?.title || 
-                              submission.assignment_title || 
-                              'Unknown Assignment';
-        
-        const maxScore = submission.assignment?.max_score || 
-                        submission.assignment_max_score || 
-                        100;
-        
-        const submittedDate = submission.submitted_at ? 
-          new Date(submission.submitted_at).toLocaleDateString() : 
-          'Not submitted';
-        
-        const gradedDate = submission.graded_at ? 
-          new Date(submission.graded_at).toLocaleDateString() : 
-          'Recently graded';
-
-        return (
-          <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-              <div className="flex-1">
-                <div className="flex items-center mb-2">
-                  <User size={16} className="text-green-400 mr-2" />
-                  <h4 className="font-semibold text-white">{studentName}</h4>
-                  <div className="ml-3 flex items-center space-x-2">
-                    <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
-                      Score: {submission.grade}/{maxScore}
-                    </span>
-                    <span className="text-blue-300 text-sm">
-                      {Math.round((submission.grade / maxScore) * 100)}%
-                    </span>
+          return (
+            <div key={submission.id} className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center mb-2">
+                    <User size={16} className="text-green-400 mr-2" />
+                    <h4 className="font-semibold text-white">{studentName}</h4>
+                    <div className="ml-3 flex items-center space-x-2">
+                      <span className="text-green-300 text-sm bg-green-500/20 px-2 py-1 rounded">
+                        Score: {submission.grade}/{maxScore}
+                      </span>
+                      <span className="text-blue-300 text-sm">
+                        {Math.round((submission.grade / maxScore) * 100)}%
+                      </span>
+                    </div>
                   </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-blue-200">Assignment: <span className="text-white">{assignmentTitle}</span></p>
+                      <p className="text-blue-200">Graded on: <span className="text-white">{gradedDate}</span></p>
+                    </div>
+                    <div>
+                      <p className="text-blue-200">Submitted: <span className="text-white">{submittedDate}</span></p>
+                      <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
+                    </div>
+                  </div>
+
+                  {submission.feedback && (
+                    <div className="mt-3 p-3 bg-black/20 rounded">
+                      <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
+                      <p className="text-white text-sm">{submission.feedback}</p>
+                    </div>
+                  )}
+
+                  {submission.audio_feedback_url && (
+                    <div className="mt-3">
+                      <p className="text-blue-200 text-sm font-medium mb-1">Audio Feedback:</p>
+                      <SafeAudioPlayer src={submission.audio_feedback_url} />
+                    </div>
+                  )}
+
+                  {submission.audio_url && (
+                    <div className="mt-3">
+                      <p className="text-blue-200 text-sm font-medium mb-1">Student's Audio Submission:</p>
+                      <SafeAudioPlayer src={submission.audio_url} />
+                    </div>
+                  )}
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <p className="text-blue-200">Assignment: <span className="text-white">{assignmentTitle}</span></p>
-                    <p className="text-blue-200">Graded on: <span className="text-white">{gradedDate}</span></p>
-                  </div>
-                  <div>
-                    <p className="text-blue-200">Submitted: <span className="text-white">{submittedDate}</span></p>
-                    <p className="text-blue-200">Status: <span className="text-green-400">Graded</span></p>
-                  </div>
+
+                <div className="flex space-x-2 self-end md:self-auto">
+                  <button
+                    onClick={() => onViewSubmission(submission.id)}
+                    className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
+                  >
+                    <Eye size={16} className="mr-2" />
+                    View Details
+                  </button>
+                  <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
+                    GRADED
+                  </span>
                 </div>
-
-                {submission.feedback && (
-                  <div className="mt-3 p-3 bg-black/20 rounded">
-                    <p className="text-blue-200 text-sm font-medium mb-1">Your Feedback:</p>
-                    <p className="text-white text-sm">{submission.feedback}</p>
-                  </div>
-                )}
-
-                {/* FIXED: Audio feedback display for graded submissions */}
-                {submission.audio_feedback_url && (
-                  <div className="mt-3">
-                    <p className="text-blue-200 text-sm font-medium mb-1">Audio Feedback:</p>
-                    <SafeAudioPlayer src={submission.audio_feedback_url} />
-                  </div>
-                )}
-
-                {/* Also show student's original audio submission if available */}
-                {submission.audio_url && (
-                  <div className="mt-3">
-                    <p className="text-blue-200 text-sm font-medium mb-1">Student's Audio Submission:</p>
-                    <SafeAudioPlayer src={submission.audio_url} />
-                  </div>
-                )}
-              </div>
-
-              <div className="flex space-x-2 self-end md:self-auto">
-                <button
-                  onClick={() => onViewSubmission(submission.id)}
-                  className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-white flex items-center"
-                >
-                  <Eye size={16} className="mr-2" />
-                  View Details
-                </button>
-                <span className="bg-green-600 text-green-100 px-3 py-1 rounded-full text-sm">
-                  GRADED
-                </span>
               </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+          );
+        })}
+      </div>
+    );
+  };
+
   const GradingTab = ({ 
     submissions, 
     pendingSubmissions, 
@@ -1574,90 +1378,89 @@ if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
       }
     };
 
-const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
-  if (!submission) return null;
+    const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
+      if (!submission) return null;
 
-  const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
-  const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
-  const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
-  const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
+      const studentName = submission.student?.name || submission.student_name || submission.students?.name || 'Unknown Student';
+      const assignmentTitle = submission.assignment?.title || submission.assignment_title || 'Unknown Assignment';
+      const dueDate = submission.assignment?.due_date || submission.assignment_due_date;
+      const maxScore = submission.assignment?.max_score || submission.assignment_max_score || 100;
 
-  return (
-    <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
-      <div className="flex justify-between items-center mb-4">
-        <h4 className="text-lg font-semibold text-white">Submission Details</h4>
-        <button
-          onClick={onClose}
-          className="text-blue-300 hover:text-white"
-        >
-          <X size={20} />
-        </button>
-      </div>
+      return (
+        <div className="lg:w-1/3 bg-white/10 border border-white/20 rounded-lg p-6 h-fit">
+          <div className="flex justify-between items-center mb-4">
+            <h4 className="text-lg font-semibold text-white">Submission Details</h4>
+            <button
+              onClick={onClose}
+              className="text-blue-300 hover:text-white"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
-      <div className="space-y-4">
-        <div>
-          <p className="text-blue-200 text-sm">Student</p>
-          <p className="text-white font-medium">{studentName}</p>
+          <div className="space-y-4">
+            <div>
+              <p className="text-blue-200 text-sm">Student</p>
+              <p className="text-white font-medium">{studentName}</p>
+            </div>
+
+            <div>
+              <p className="text-blue-200 text-sm">Assignment</p>
+              <p className="text-white font-medium">{assignmentTitle}</p>
+              {dueDate && (
+                <p className="text-blue-300 text-xs">
+                  Due: {new Date(dueDate).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+
+            {submission.submission_text && (
+              <div>
+                <p className="text-blue-200 text-sm">Written Submission</p>
+                <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
+                  {submission.submission_text}
+                </p>
+              </div>
+            )}
+
+            {submission.audio_url && (
+              <div>
+                <p className="text-blue-200 text-sm">Audio Submission</p>
+                <SafeAudioPlayer src={submission.audio_url} />
+              </div>
+            )}
+
+            {submission.audio_feedback_url && (
+              <div>
+                <p className="text-blue-200 text-sm">Your Audio Feedback</p>
+                <SafeAudioPlayer src={submission.audio_feedback_url} />
+              </div>
+            )}
+
+            {submission.submitted_at && (
+              <div>
+                <p className="text-blue-200 text-sm">Submitted</p>
+                <p className="text-white text-sm">
+                  {new Date(submission.submitted_at).toLocaleString()}
+                </p>
+              </div>
+            )}
+
+            {(!submission.grade || submission.grade === null) && (
+              <button
+                onClick={() => {
+                  onStartGrading(submission);
+                  onClose();
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
+              >
+                Grade This Submission
+              </button>
+            )}
+          </div>
         </div>
-
-        <div>
-          <p className="text-blue-200 text-sm">Assignment</p>
-          <p className="text-white font-medium">{assignmentTitle}</p>
-          {dueDate && (
-            <p className="text-blue-300 text-xs">
-              Due: {new Date(dueDate).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-
-        {submission.submission_text && (
-          <div>
-            <p className="text-blue-200 text-sm">Written Submission</p>
-            <p className="text-white text-sm bg-white/5 p-3 rounded mt-1">
-              {submission.submission_text}
-            </p>
-          </div>
-        )}
-
-        {submission.audio_url && (
-          <div>
-            <p className="text-blue-200 text-sm">Audio Submission</p>
-            <SafeAudioPlayer src={submission.audio_url} />
-          </div>
-        )}
-
-        {/* Show teacher's audio feedback if available */}
-        {submission.audio_feedback_url && (
-          <div>
-            <p className="text-blue-200 text-sm">Your Audio Feedback</p>
-            <SafeAudioPlayer src={submission.audio_feedback_url} />
-          </div>
-        )}
-
-        {submission.submitted_at && (
-          <div>
-            <p className="text-blue-200 text-sm">Submitted</p>
-            <p className="text-white text-sm">
-              {new Date(submission.submitted_at).toLocaleString()}
-            </p>
-          </div>
-        )}
-
-        {(!submission.grade || submission.grade === null) && (
-          <button
-            onClick={() => {
-              onStartGrading(submission);
-              onClose();
-            }}
-            className="w-full bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg text-white font-medium mt-4"
-          >
-            Grade This Submission
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
+      );
+    };
 
     return (
       <div className="flex flex-col lg:flex-row gap-6">
@@ -2059,7 +1862,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
                 />
               </div>
 
-              {/* Class field (optional for categorization) */}
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-1">
                   Class (Optional)
@@ -2078,7 +1880,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
                 <p className="text-blue-300 text-xs mt-1">Optional: Categorize assignment by class</p>
               </div>
 
-              {/* Default Quran Subject */}
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-1">Subject</label>
                 <input
@@ -2107,14 +1908,12 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
                 <span className="text-blue-200 text-sm">Assign to all my students</span>
               </div>
 
-              {/* Student Selection (only show when not assigning to all students) */}
               {!newAssignment.for_all_students && (
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-blue-200 mb-2">
                     Select Students *
                   </label>
                   
-                  {/* Class filter for students */}
                   <div className="mb-3">
                     <label className="block text-sm font-medium text-blue-200 mb-1">Filter by Class (Optional)</label>
                     <select
@@ -2203,7 +2002,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
               </button>
             </div>
 
-            {/* Success Animation */}
             {assignmentCreated && (
               <div className="absolute inset-0 bg-green-900/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
                 <div className="text-center p-6">
@@ -2246,7 +2044,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
           <div className="bg-blue-900/90 border border-blue-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4 text-white">Grade Assignment</h3>
             
-            {/* Student and Assignment Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-blue-800/30 rounded-lg">
               <div>
                 <p className="text-blue-200 text-sm">Student</p>
@@ -2262,7 +2059,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
               </div>
             </div>
 
-            {/* Student's Audio Submission */}
             {gradingSubmission.audio_url && (
               <div className="mb-6">
                 <p className="text-blue-200 text-sm font-medium mb-2">Student's Audio Submission:</p>
@@ -2270,7 +2066,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
               </div>
             )}
 
-            {/* Student's Written Submission */}
             {gradingSubmission.submission_text && (
               <div className="mb-6">
                 <p className="text-blue-200 text-sm font-medium mb-2">Written Submission:</p>
@@ -2281,7 +2076,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
             )}
 
             <div className="space-y-4">
-              {/* Score Input */}
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-1">
                   Score * (Max: {gradingSubmission.assignment?.max_score || 100})
@@ -2298,7 +2092,6 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
                 />
               </div>
 
-              {/* Written Feedback */}
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-1">Written Feedback</label>
                 <textarea
@@ -2310,131 +2103,121 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
                 />
               </div>
 
-             {/* Audio Feedback Recording Section - IMPROVED */}
-<div className="border-t border-blue-700/30 pt-4">
-  <label className="block text-sm font-medium text-blue-200 mb-3">
-    Audio Feedback (Record corrections or detailed feedback)
-  </label>
-  
-  {/* Audio Recorder Component */}
-  <div className="bg-blue-800/30 rounded-lg p-4 border border-blue-700/30">
-    {!gradeData.audioFeedbackData && !audioData ? (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={async () => {
-                if (audioIsRecording) {
-                  console.log('Stopping recording...');
-                  stopRecording();
-                  
-                  // Wait a moment for the recording to process
-                  setTimeout(() => {
-                    setGradeData(prev => ({
-                      ...prev, 
-                      isRecording: false,
-                      audioFeedbackData: audioData
-                    }));
-                  }, 500);
-                  
-                  if (recordingInterval) {
-                    clearInterval(recordingInterval);
-                    setRecordingInterval(null);
-                  }
-                } else {
-                  console.log('Starting recording...');
-                  await startRecording();
-                  setGradeData(prev => ({...prev, isRecording: true}));
-                  
-                  const interval = setInterval(() => {
-                    setGradeData(prev => ({
-                      ...prev, 
-                      recordingTime: prev.recordingTime + 1
-                    }));
-                  }, 1000);
-                  
-                  setRecordingInterval(interval);
-                }
-              }}
-              className={`p-3 rounded-full transition-all duration-200 ${
-                audioIsRecording 
-                  ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
-                  : 'bg-green-600 hover:bg-green-500'
-              }`}
-            >
-              {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
-            </button>
-            
-            <div>
-              <div className="text-sm text-blue-300">
-                {audioIsRecording ? `Recording... ${audioRecordingTime}` : 'Click to record audio feedback'}
-              </div>
-              <div className="text-xs text-blue-400">
-                {audioIsRecording ? 'Click stop when finished' : 'Record pronunciation corrections or detailed feedback'}
+              <div className="border-t border-blue-700/30 pt-4">
+                <label className="block text-sm font-medium text-blue-200 mb-3">
+                  Audio Feedback (Record corrections or detailed feedback)
+                </label>
+                
+                <div className="bg-blue-800/30 rounded-lg p-4 border border-blue-700/30">
+                  {!gradeData.audioFeedbackData && !audioData ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <button
+                            onClick={async () => {
+                              if (audioIsRecording) {
+                                stopRecording();
+                                setTimeout(() => {
+                                  setGradeData(prev => ({
+                                    ...prev, 
+                                    isRecording: false,
+                                    audioFeedbackData: audioData
+                                  }));
+                                }, 500);
+                                
+                                if (recordingInterval) {
+                                  clearInterval(recordingInterval);
+                                  setRecordingInterval(null);
+                                }
+                              } else {
+                                await startRecording();
+                                setGradeData(prev => ({...prev, isRecording: true}));
+                                
+                                const interval = setInterval(() => {
+                                  setGradeData(prev => ({
+                                    ...prev, 
+                                    recordingTime: prev.recordingTime + 1
+                                  }));
+                                }, 1000);
+                                
+                                setRecordingInterval(interval);
+                              }
+                            }}
+                            className={`p-3 rounded-full transition-all duration-200 ${
+                              audioIsRecording 
+                                ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
+                                : 'bg-green-600 hover:bg-green-500'
+                            }`}
+                          >
+                            {audioIsRecording ? <Square size={20} /> : <Mic size={20} />}
+                          </button>
+                          
+                          <div>
+                            <div className="text-sm text-blue-300">
+                              {audioIsRecording ? `Recording... ${audioRecordingTime}` : 'Click to record audio feedback'}
+                            </div>
+                            <div className="text-xs text-blue-400">
+                              {audioIsRecording ? 'Click stop when finished' : 'Record pronunciation corrections or detailed feedback'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {audioIsRecording && (
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                            <span className="text-red-300 text-sm">Recording</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {audioIsRecording && (
+                        <div className="flex items-center space-x-1 h-4">
+                          {[...Array(8)].map((_, i) => (
+                            <div
+                              key={i}
+                              className="flex-1 bg-green-500/30 rounded-full animate-pulse"
+                              style={{
+                                height: `${Math.random() * 12 + 4}px`,
+                                animationDelay: `${i * 0.1}s`,
+                                animationDuration: '0.6s'
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-green-400 text-sm font-medium">✅ Audio feedback recorded</span>
+                        <button
+                          onClick={() => {
+                            clearRecording();
+                            setGradeData(prev => ({...prev, audioFeedbackData: ''}));
+                          }}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          Re-record
+                        </button>
+                      </div>
+                      
+                      <div className="bg-blue-900/50 p-3 rounded-lg">
+                        <SafeAudioPlayer src={gradeData.audioFeedbackData || audioData} />
+                      </div>
+                      
+                      <div className="text-blue-300 text-xs">
+                        Students will be able to listen to this audio feedback in their dashboard
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2 text-blue-300 text-xs">
+                  💡 <strong>Perfect for:</strong> Tajweed corrections, detailed explanations, 
+                  Quranic recitation feedback, or personalized encouragement
+                </div>
               </div>
             </div>
-          </div>
-          
-          {audioIsRecording && (
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-              <span className="text-red-300 text-sm">Recording</span>
-            </div>
-          )}
-        </div>
-
-        {/* Recording Visualization */}
-        {audioIsRecording && (
-          <div className="flex items-center space-x-1 h-4">
-            {[...Array(8)].map((_, i) => (
-              <div
-                key={i}
-                className="flex-1 bg-green-500/30 rounded-full animate-pulse"
-                style={{
-                  height: `${Math.random() * 12 + 4}px`,
-                  animationDelay: `${i * 0.1}s`,
-                  animationDuration: '0.6s'
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    ) : (
-      /* Audio Preview after Recording */
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-green-400 text-sm font-medium">✅ Audio feedback recorded</span>
-          <button
-            onClick={() => {
-              console.log('Clearing recording...');
-              clearRecording();
-              setGradeData(prev => ({...prev, audioFeedbackData: ''}));
-            }}
-            className="text-red-400 hover:text-red-300 text-sm"
-          >
-            Re-record
-          </button>
-        </div>
-        
-        {/* Enhanced audio player for preview */}
-        <div className="bg-blue-900/50 p-3 rounded-lg">
-          <SafeAudioPlayer src={gradeData.audioFeedbackData || audioData} />
-        </div>
-        
-        <div className="text-blue-300 text-xs">
-          Students will be able to listen to this audio feedback in their dashboard
-        </div>
-      </div>
-    )}
-  </div>
-
-  {/* Instructions */}
-  <div className="mt-2 text-blue-300 text-xs">
-    💡 <strong>Perfect for:</strong> Tajweed corrections, detailed explanations, 
-    Quranic recitation feedback, or personalized encouragement
-  </div>
-</div>
 
             <div className="flex justify-end space-x-3 mt-6">
               <button
@@ -2476,4 +2259,4 @@ const SubmissionDetailsPanel = ({ submission, onClose, onStartGrading }) => {
       )}
     </div>
   );
-};
+}
