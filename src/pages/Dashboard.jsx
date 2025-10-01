@@ -1,6 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect, useRef } from "react";
 import { makeApiRequest } from "../lib/supabaseClient";
+import StudentNotificationBell from '../components/StudentNotificationBell';
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -1232,7 +1233,7 @@ export default function Dashboard() {
   }
 
   // Main dashboard render
-  return (
+return (
     <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-green-900 via-green-800 to-green-700 text-white overflow-hidden">
       <AnimatePresence>
         {isLoggingOut && (
@@ -1293,13 +1294,97 @@ export default function Dashboard() {
         </div>
         
         <div className="flex items-center space-x-4">
+          {/* Notification Bell */}
           <div className="relative">
-            <button className="flex items-center space-x-2 p-2 bg-black rounded-lg hover:bg-green-800/50 transition-all duration-200 relative">
+            <button 
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              className="flex items-center space-x-2 p-2 bg-black rounded-lg hover:bg-green-800/50 transition-all duration-200 relative"
+            >
               <Bell size={20} />
               {notifications.filter(n => !n.read).length > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
               )}
             </button>
+
+            {/* Notifications Dropdown */}
+            {isNotificationsOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                className="absolute right-0 mt-2 w-80 bg-green-900/95 backdrop-blur-md rounded-lg shadow-2xl border border-green-700/30 z-50"
+              >
+                {/* Notifications Header */}
+                <div className="p-4 border-b border-green-700/30">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-bold">Notifications</h3>
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <button
+                        onClick={handleMarkAllAsRead}
+                        className="text-green-300 hover:text-green-100 text-sm transition-colors"
+                      >
+                        Mark all as read
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Notifications List */}
+                <div className="max-h-96 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-6 text-center">
+                      <Bell size={32} className="mx-auto text-green-400 mb-3 opacity-50" />
+                      <p className="text-green-200">No notifications</p>
+                      <p className="text-green-300 text-sm mt-1">You're all caught up!</p>
+                    </div>
+                  ) : (
+                    notifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        className={`p-4 border-b border-green-800/30 cursor-pointer transition-all duration-200 hover:bg-green-800/30 ${
+                          !notification.read ? 'bg-green-800/20 border-l-4 border-l-green-400' : ''
+                        }`}
+                        onClick={() => handleNotificationClick(notification)}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <span className={`font-semibold ${
+                            notification.type === 'success' ? 'text-green-300' : 'text-white'
+                          }`}>
+                            {notification.title}
+                          </span>
+                          {!notification.read && (
+                            <span className="w-2 h-2 bg-green-400 rounded-full mt-2"></span>
+                          )}
+                        </div>
+                        <p className="text-green-200 text-sm mb-2">{notification.message}</p>
+                        <div className="flex justify-between items-center">
+                          <span className="text-green-400 text-xs">
+                            {new Date(notification.created_at).toLocaleDateString()}
+                          </span>
+                          {notification.data?.assignment_title && (
+                            <span className="text-green-300 text-xs bg-green-800/50 px-2 py-1 rounded">
+                              Assignment
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Notifications Footer */}
+                {notifications.length > 0 && (
+                  <div className="p-3 border-t border-green-700/30">
+                    <button
+                      onClick={handleClearAllNotifications}
+                      className="w-full text-center text-green-300 hover:text-green-100 text-sm transition-colors py-2"
+                    >
+                      Clear all notifications
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
           </div>
           
           <div className="relative">
