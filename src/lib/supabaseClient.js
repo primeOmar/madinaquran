@@ -214,735 +214,11 @@ export const deleteAudioFile = async (filePath, bucketName = 'assignment-audio')
 };
 
 // ============================================================================
-// EXISTING API FUNCTIONS (Keep all your existing code below)
+// NOTIFICATION API FUNCTIONS
 // ============================================================================
 
-// API request helper
-export const makeApiRequest = async (endpoint, options = {}) => {
-  try {
-    console.log(`🔗 [API] Starting request to: ${endpoint}`);
-    
-    // Get the current session with better error handling
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
-    console.log('🔐 [API] Session check:', {
-      hasSession: !!session,
-      hasUser: session?.user?.id,
-      userEmail: session?.user?.email,
-      sessionError: sessionError?.message
-    });
-
-    if (sessionError) {
-      console.error('❌ [API] Session error:', sessionError);
-      throw new Error('Authentication failed. Please login again.');
-    }
-    
-    if (!session) {
-      console.error('❌ [API] No active session found');
-      throw new Error('User not authenticated. Please login again.');
-    }
-    
-    if (!session.access_token) {
-      console.error('❌ [API] No access token in session');
-      throw new Error('Authentication token missing. Please login again.');
-    }
-    
-    console.log('✅ [API] Session found for:', session.user.email);
-    console.log('🔑 [API] Token preview:', `${session.access_token.substring(0, 20)}...`);
-    
-    const API_BASE = 'https://madina-quran-backend.onrender.com';
-    const fullUrl = `${API_BASE}${endpoint}`;
-    
-    console.log(`🌐 [API] Full URL: ${fullUrl}`);
-    
-    // Prepare headers with authorization - KEEP existing header merging
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      ...options.headers, // Preserve any custom headers
-    };
-
-    console.log('📋 [API] Request headers:', {
-      hasAuthHeader: !!headers.Authorization,
-      authHeaderLength: headers.Authorization?.length,
-      contentType: headers['Content-Type'],
-      customHeaders: Object.keys(headers).filter(key => !['Content-Type', 'Authorization'].includes(key))
-    });
-
-    // Prepare request options - PRESERVE all existing functionality
-    const requestOptions = {
-      method: options.method || 'GET',
-      headers: headers,
-      // Preserve all other options like credentials, mode, cache, etc.
-      ...Object.fromEntries(
-        Object.entries(options).filter(([key]) => 
-          !['headers', 'body', 'method'].includes(key)
-        )
-      )
-    };
-    
-    // FIX: Handle body properly - always stringify if it's an object, but preserve strings
-    if (options.body !== undefined && options.body !== null) {
-      if (typeof options.body === 'string') {
-        // If it's already a string, use it as-is (for FormData, URLSearchParams, etc.)
-        requestOptions.body = options.body;
-        console.log('📦 [API] Body is already string, using as-is. Length:', options.body.length);
-      } else {
-        // If it's an object, array, or other type, stringify it
-        requestOptions.body = JSON.stringify(options.body);
-        console.log('📦 [API] Body stringified to JSON. Length:', requestOptions.body.length);
-      }
-    } else {
-      delete requestOptions.body;
-      console.log('📦 [API] No request body');
-    }
-
-    console.log('🚀 [API] Making fetch request with options:', {
-      method: requestOptions.method,
-      hasBody: !!requestOptions.body,
-      bodyType: requestOptions.body ? typeof requestOptions.body : 'none',
-      preservedOptions: Object.keys(requestOptions).filter(key => !['method', 'headers', 'body'].includes(key))
-    });
-
-    const response = await fetch(fullUrl, requestOptions);
-    
-    console.log(`📊 [API] Response received:`, {
-      status: response.status,
-      statusText: response.statusText,
-      url: response.url,
-      ok: response.ok
-    });
-
-    // Handle authentication errors - KEEP existing refresh logic
-    if (response.status === 401) {
-      console.error('❌ [API] 401 Unauthorized - Invalid token');
-      
-      // Try to refresh the session first
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-      
-      if (refreshError) {
-        console.error('❌ [API] Session refresh failed:', refreshError);
-        await supabase.auth.signOut();
-        window.location.href = '/login';
-        throw new Error('Session expired. Please login again.');
-      }
-      
-      console.log('🔄 [API] Session refreshed, retrying request...');
-      // Retry the request with new token
-      return makeApiRequest(endpoint, options);
-    }
-
-    // Handle other error statuses - KEEP existing error handling
-    if (!response.ok) {
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      
-      try {
-        const errorText = await response.text();
-        console.error(`❌ [API] Error response body:`, errorText);
-        
-        if (errorText) {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorData.message || errorText;
-        }
-      } catch (parseError) {
-        console.error('❌ [API] Error parsing error response:', parseError);
-        // Use default error message if parsing fails
-      }
-      
-      throw new Error(errorMessage);
-    }
-
-    // Parse successful response - KEEP existing response handling
-    let responseData;
-    try {
-      const responseText = await response.text();
-      console.log('✅ [API] Raw response received, length:', responseText.length);
-      
-      if (responseText) {
-        responseData = JSON.parse(responseText);
-        console.log('✅ [API] Response parsed successfully');
-      } else {
-        responseData = { success: true }; // Default success for empty responses
-        console.log('✅ [API] Empty response, using default success');
-      }
-    } catch (parseError) {
-      console.error('❌ [API] Error parsing success response:', parseError);
-      throw new Error('Invalid response from server');
-    }
-
-    console.log('🎉 [API] Request successful:', {
-      success: responseData.success,
-      hasMessage: !!responseData.message,
-      hasData: !!responseData.data
-    });
-    return responseData;
-
-  } catch (error) {
-    console.error(`💥 [API] Request failed for ${endpoint}:`, error);
-    
-    // Handle network errors - KEEP existing network error handling
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      console.error('🌐 [API] Network error - check internet connection');
-      throw new Error('Network error. Please check your internet connection.');
-    }
-    
-    // Handle JSON parsing errors specifically
-    if (error.message.includes('JSON') || error.message.includes('parse')) {
-      console.error('📄 [API] JSON parsing error - possible server response issue');
-      throw new Error('Server response format error. Please try again.');
-    }
-    
-    // Re-throw the error with proper context - KEEP existing error propagation
-    throw new Error(error.message || `API request failed: ${endpoint}`);
-  }
-};
-
-// Health check function
-export const checkServerHealth = async () => {
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/health`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Server health check failed: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('Server health check failed:', error);
-    throw new Error('Server is unavailable. Please make sure the backend is running on port 3001.');
-  }
-};
-
-// Helper function to get current user ID
-const getCurrentUserId = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-  return user.id;
-};
-
-// Get auth token
-export const getAuthToken = async () => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return null;
-  }
-};
-
-// Teacher API functions with GRADING capabilities
-export const teacherApi = {
-
-  // Get teacher's classes
-  getMyClasses: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-      
-      const { data, error } = await supabase
-        .from('classes')
-        .select(`
-          *,
-          course:course_id (*),
-          students_classes (*),
-          video_sessions (*)
-        `)
-        .eq('teacher_id', user.id)
-        .order('scheduled_date', { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      throw error;
-    }
-  },
-
-  // Get teacher's students
-  getMyStudents: async () => {
-    try {
-      console.log('🔄 Fetching students from API...');
-      const token = await getAuthToken();
-      console.log('🔑 Using token:', token ? 'Present' : 'Missing');
-      
-      const response = await fetch(`${apiBaseUrl}/api/teacher/students`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      console.log('📊 API Response status:', response.status);
-      
-      const contentType = response.headers.get('content-type');
-      console.log('📄 Content-Type:', contentType);
-      
-      if (!response.ok) {
-        const responseText = await response.text();
-        console.error('❌ Server error response:', responseText.substring(0, 200));
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        console.log('✅ Students fetched:', data.length);
-        return data;
-      } else {
-        const responseText = await response.text();
-        console.error('❌ Got HTML instead of JSON:', responseText.substring(0, 200));
-        throw new Error('Server returned HTML instead of JSON. Check API endpoint.');
-      }
-    } catch (error) {
-      console.error('❌ Error fetching students:', error);
-      throw error;
-    }
-  },
-
-  // Get teacher's assignments
-getMyAssignments: async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    console.log('🔍 Fetching assignments for teacher:', user.id);
-
-    // STEP 1: Get assignments
-    const { data: assignmentsData, error } = await supabase
-      .from('assignments')
-      .select(`
-        id,
-        title,
-        description,
-        due_date,
-        max_score,
-        class_id,
-        created_at,
-        classes (title)
-      `)
-      .eq('teacher_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    console.log('📊 Assignments found:', assignmentsData?.length || 0);
-
-    if (!assignmentsData || assignmentsData.length === 0) {
-      return [];
-    }
-
-    // STEP 2: Get submissions
-    const assignmentIds = assignmentsData.map(a => a.id);
-    console.log('🆔 Assignment IDs:', assignmentIds);
-
-    const { data: submissionsData, error: submissionsError } = await supabase
-      .from('assignment_submissions')
-      .select('*')
-      .in('assignment_id', assignmentIds);
-
-    if (submissionsError) throw submissionsError;
-
-    console.log('📝 Submissions found:', submissionsData?.length || 0);
-    console.log('📄 Sample submission:', submissionsData?.[0]);
-
-    // STEP 3: Get student profiles with COMPREHENSIVE DEBUGGING
-    const allStudentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
-    console.log('👥 ALL Student IDs from submissions:', allStudentIds);
-    console.log('🔍 Looking for student:', "03333731-5b6f-4e95-a91d-62c0ca4dced5", 'in array:', allStudentIds.includes("03333731-5b6f-4e95-a91d-62c0ca4dced5"));
-
-    let studentMap = {};
-
-    if (allStudentIds.length > 0) {
-      console.log('🔄 Fetching profiles for', allStudentIds.length, 'student IDs');
-      
-      const { data: allProfiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, name, email')
-        .in('id', allStudentIds);
-
-      if (profilesError) {
-        console.error('❌ Error fetching profiles:', profilesError);
-      } else {
-        console.log('✅ PROFILES FETCHED SUCCESSFULLY:', allProfiles);
-        console.log('🔎 Number of profiles found:', allProfiles.length);
-        
-        // Check if our specific student is in the results
-        const targetStudent = allProfiles.find(p => p.id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
-        console.log('🎯 Looking for student 03333731... in profiles:', {
-          found: !!targetStudent,
-          studentData: targetStudent
-        });
-
-        // Build the student map
-        allProfiles.forEach(profile => {
-          studentMap[profile.id] = {
-            name: profile.name,
-            email: profile.email
-          };
-        });
-        
-        console.log('🗺️ STUDENT MAP CONTENTS:', studentMap);
-        console.log('🔍 Student 03333731... in map:', studentMap["03333731-5b6f-4e95-a91d-62c0ca4dced5"]);
-      }
-    } else {
-      console.log('❌ No student IDs found in submissions!');
-    }
-
-    // STEP 4: Transform data with DETAILED DEBUGGING
-    const transformed = assignmentsData.map(assignment => {
-      const assignmentSubmissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
-      
-      console.log(`📋 Assignment "${assignment.title}" has ${assignmentSubmissions.length} submissions`);
-
-      const transformedSubmissions = assignmentSubmissions.map(sub => {
-        const studentInfo = studentMap[sub.student_id];
-        
-        console.log(`🎯 TRANSFORMING SUBMISSION ${sub.id}:`, {
-          student_id: sub.student_id,
-          student_id_type: typeof sub.student_id,
-          studentInfo: studentInfo,
-          hasStudentInfo: !!studentInfo,
-          studentName: studentInfo?.name || 'NOT FOUND',
-          studentMapKeys: Object.keys(studentMap),
-          isTargetStudent: sub.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5"
-        });
-
-        // Use the student name if found, otherwise show the ID
-        let studentName = `Student ${sub.student_id.substring(0, 8)}...`;
-        let studentEmail = '';
-        
-        if (studentInfo) {
-          studentName = studentInfo.name;
-          studentEmail = studentInfo.email;
-          console.log('✅ USING STUDENT NAME:', studentName);
-        } else {
-          console.log('❌ STUDENT NOT FOUND IN MAP');
-        }
-
-        return {
-          id: sub.id,
-          student_id: sub.student_id,
-          student_name: studentName,
-          student_email: studentEmail,
-          submitted_at: sub.submitted_at,
-          grade: sub.grade,                    
-          feedback: sub.feedback,
-          status: sub.status,
-          audio_url: sub.audio_url,
-          submission_text: sub.submission_text,
-          audio_feedback_url: sub.audio_feedback_url,
-          graded_at: sub.graded_at,
-          graded_by: sub.graded_by
-        };
-      });
-
-      return {
-        id: assignment.id,
-        title: assignment.title,
-        description: assignment.description,
-        due_date: assignment.due_date,
-        max_score: assignment.max_score,
-        class_id: assignment.class_id,
-        class_title: assignment.classes?.title,
-        created_at: assignment.created_at,
-        submissions: transformedSubmissions,
-        submitted_count: assignmentSubmissions.length,
-        graded_count: assignmentSubmissions.filter(s => s.grade !== null).length, 
-        pending_count: assignmentSubmissions.filter(s => s.grade === null).length 
-      };
-    });
-
-    console.log('✅ FINAL TRANSFORMED DATA:', transformed);
-    
-    // Final check for our target student
-    const targetSubmission = transformed
-      .flatMap(a => a.submissions)
-      .find(s => s.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
-    
-    console.log('🎯 FINAL CHECK - Target student submission:', targetSubmission);
-
-    return transformed;
-
-  } catch (error) {
-    console.error('❌ Error in getMyAssignments:', error);
-    throw error;
-  }
-},
-  
-  // Get pending submissions for grading
-  getPendingSubmissions: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('assignment_submissions')
-        .select(`
-          *,
-          student:profiles!assignment_submissions_student_id_fkey(name, email),
-          assignment:assignments!assignment_submissions_assignment_id_fkey(
-            title, 
-            max_score, 
-            due_date,
-            class:classes(title)
-          )
-        `)
-        .is('grade', null)
-        .order('submitted_at', { ascending: true });
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error fetching pending submissions:', error);
-      throw error;
-    }
-  },
-
-  // Get assignments with submissions
-  getAssignmentsWithSubmissions: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('assignments')
-        .select(`
-          *,
-          class:classes(title),
-          submissions:assignment_submissions(
-            *,
-            student:profiles!assignment_submissions_student_id_fkey(name, email)
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error fetching assignments with submissions:', error);
-      throw error;
-    }
-  },
-
-  // Get graded submissions history
-  getGradedSubmissions: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data: submissions, error } = await supabase
-        .from('assignment_submissions')
-        .select(`
-          id,
-          submission_text,
-          audio_url,
-          submitted_at,
-          graded_at,
-          status,
-          grade,
-          feedback,
-          audio_feedback_url,
-          student:profiles!assignment_submissions_student_id_fkey(
-            id,
-            name,
-            email,
-            overall_score
-          ),
-          assignment:assignments!inner(
-            id,
-            title,
-            description,
-            max_score,
-            due_date,
-            teacher_id
-          )
-        `)
-        .eq('assignment.teacher_id', user.id)
-        .not('grade', 'is', null)
-        .order('graded_at', { ascending: false });
-
-      if (error) throw error;
-      return submissions || [];
-    } catch (error) {
-      console.error('Error fetching graded submissions:', error);
-      throw error;
-    }
-  },
-
-  // Grade assignment
-  gradeAssignment: async (submissionId, score, feedback, audioFeedbackUrl = null) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('assignment_submissions')
-        .update({
-          grade: score,
-          feedback: feedback,
-          audio_feedback_url: audioFeedbackUrl,
-          graded_at: new Date().toISOString(),
-          graded_by: user.id
-        })
-        .eq('id', submissionId)
-        .select(`
-          *,
-          student:student_id(name, email),
-          assignment:assignment_id(title, max_score)
-        `)
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error grading assignment:', error);
-      throw error;
-    }
-  },
-
-  // Get submission with full details for grading
-  getSubmissionDetails: async (submissionId) => {
-    try {
-      const { data, error } = await supabase
-        .from('assignment_submissions')
-        .select(`
-          *,
-          student:student_id(name, email),
-          assignment:assignment_id(
-            title, 
-            max_score, 
-            due_date,
-            description,
-            class:classes(title)
-          )
-        `)
-        .eq('id', submissionId)
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error fetching submission details:', error);
-      throw error;
-    }
-  },
-
-  // Update student progress after grading
-  updateStudentProgress: async (studentId) => {
-    try {
-      const { data: submissions, error } = await supabase
-        .from('assignment_submissions')
-        .select('grade, assignment:assignments(max_score)')
-        .eq('student_id', studentId)
-        .not('grade', 'is', null);
-
-      if (error) throw error;
-
-      if (submissions && submissions.length > 0) {
-        const averageGrade = submissions.reduce((sum, sub) => {
-          const percentage = (sub.grade / sub.assignment.max_score) * 100;
-          return sum + percentage;
-        }, 0) / submissions.length;
-
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({
-            overall_score: Math.round(averageGrade),
-            completed_assignments: submissions.length,
-            last_active: new Date().toISOString()
-          })
-          .eq('id', studentId);
-
-        if (updateError) throw updateError;
-      }
-    } catch (error) {
-      console.error('Error updating student progress:', error);
-      throw error;
-    }
-  },
-
-
-  // Create a new assignment
-  createAssignment: async (assignmentData) => {
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        throw new Error('Not authenticated');
-      }
-
-      const response = await fetch('/api/teacher/assignments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(assignmentData)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create assignment');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error('API Error:', error);
-      throw new Error(error.message || 'Failed to create assignment');
-    }
-  },
-
-  // Start a video session
-  startVideoSession: async (classId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Generate a unique meeting ID
-      const meetingId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      const { data, error } = await supabase
-        .from('video_sessions')
-        .insert([{
-          class_id: classId,
-          teacher_id: user.id,
-          meeting_id: meetingId,
-          status: 'active',
-          started_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      // Update class status to active
-      await supabase
-        .from('classes')
-        .update({ status: 'active' })
-        .eq('id', classId);
-
-      return data;
-    } catch (error) {
-      console.error('Error starting video session:', error);
-      throw error;
-    }
-  }
-};
- // Enhanced notification functions
-notificationApi: {
+// Enhanced notification functions
+export const notificationApi = {
   // Send notification when grading assignment
   sendGradingNotification: async (submissionId, score, feedback, hasAudioFeedback = false) => {
     try {
@@ -1242,8 +518,737 @@ notificationApi: {
       return { success: false, error: error.message };
     }
   }
-},
+};
 
+// ============================================================================
+// EXISTING API FUNCTIONS
+// ============================================================================
+
+// API request helper
+export const makeApiRequest = async (endpoint, options = {}) => {
+  try {
+    console.log(`🔗 [API] Starting request to: ${endpoint}`);
+    
+    // Get the current session with better error handling
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    console.log('🔐 [API] Session check:', {
+      hasSession: !!session,
+      hasUser: session?.user?.id,
+      userEmail: session?.user?.email,
+      sessionError: sessionError?.message
+    });
+
+    if (sessionError) {
+      console.error('❌ [API] Session error:', sessionError);
+      throw new Error('Authentication failed. Please login again.');
+    }
+    
+    if (!session) {
+      console.error('❌ [API] No active session found');
+      throw new Error('User not authenticated. Please login again.');
+    }
+    
+    if (!session.access_token) {
+      console.error('❌ [API] No access token in session');
+      throw new Error('Authentication token missing. Please login again.');
+    }
+    
+    console.log('✅ [API] Session found for:', session.user.email);
+    console.log('🔑 [API] Token preview:', `${session.access_token.substring(0, 20)}...`);
+    
+    const API_BASE = 'https://madina-quran-backend.onrender.com';
+    const fullUrl = `${API_BASE}${endpoint}`;
+    
+    console.log(`🌐 [API] Full URL: ${fullUrl}`);
+    
+    // Prepare headers with authorization - KEEP existing header merging
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      ...options.headers, // Preserve any custom headers
+    };
+
+    console.log('📋 [API] Request headers:', {
+      hasAuthHeader: !!headers.Authorization,
+      authHeaderLength: headers.Authorization?.length,
+      contentType: headers['Content-Type'],
+      customHeaders: Object.keys(headers).filter(key => !['Content-Type', 'Authorization'].includes(key))
+    });
+
+    // Prepare request options - PRESERVE all existing functionality
+    const requestOptions = {
+      method: options.method || 'GET',
+      headers: headers,
+      // Preserve all other options like credentials, mode, cache, etc.
+      ...Object.fromEntries(
+        Object.entries(options).filter(([key]) => 
+          !['headers', 'body', 'method'].includes(key)
+        )
+      )
+    };
+    
+    // FIX: Handle body properly - always stringify if it's an object, but preserve strings
+    if (options.body !== undefined && options.body !== null) {
+      if (typeof options.body === 'string') {
+        // If it's already a string, use it as-is (for FormData, URLSearchParams, etc.)
+        requestOptions.body = options.body;
+        console.log('📦 [API] Body is already string, using as-is. Length:', options.body.length);
+      } else {
+        // If it's an object, array, or other type, stringify it
+        requestOptions.body = JSON.stringify(options.body);
+        console.log('📦 [API] Body stringified to JSON. Length:', requestOptions.body.length);
+      }
+    } else {
+      delete requestOptions.body;
+      console.log('📦 [API] No request body');
+    }
+
+    console.log('🚀 [API] Making fetch request with options:', {
+      method: requestOptions.method,
+      hasBody: !!requestOptions.body,
+      bodyType: requestOptions.body ? typeof requestOptions.body : 'none',
+      preservedOptions: Object.keys(requestOptions).filter(key => !['method', 'headers', 'body'].includes(key))
+    });
+
+    const response = await fetch(fullUrl, requestOptions);
+    
+    console.log(`📊 [API] Response received:`, {
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+      ok: response.ok
+    });
+
+    // Handle authentication errors - KEEP existing refresh logic
+    if (response.status === 401) {
+      console.error('❌ [API] 401 Unauthorized - Invalid token');
+      
+      // Try to refresh the session first
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError) {
+        console.error('❌ [API] Session refresh failed:', refreshError);
+        await supabase.auth.signOut();
+        window.location.href = '/login';
+        throw new Error('Session expired. Please login again.');
+      }
+      
+      console.log('🔄 [API] Session refreshed, retrying request...');
+      // Retry the request with new token
+      return makeApiRequest(endpoint, options);
+    }
+
+    // Handle other error statuses - KEEP existing error handling
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      
+      try {
+        const errorText = await response.text();
+        console.error(`❌ [API] Error response body:`, errorText);
+        
+        if (errorText) {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorText;
+        }
+      } catch (parseError) {
+        console.error('❌ [API] Error parsing error response:', parseError);
+        // Use default error message if parsing fails
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    // Parse successful response - KEEP existing response handling
+    let responseData;
+    try {
+      const responseText = await response.text();
+      console.log('✅ [API] Raw response received, length:', responseText.length);
+      
+      if (responseText) {
+        responseData = JSON.parse(responseText);
+        console.log('✅ [API] Response parsed successfully');
+      } else {
+        responseData = { success: true }; // Default success for empty responses
+        console.log('✅ [API] Empty response, using default success');
+      }
+    } catch (parseError) {
+      console.error('❌ [API] Error parsing success response:', parseError);
+      throw new Error('Invalid response from server');
+    }
+
+    console.log('🎉 [API] Request successful:', {
+      success: responseData.success,
+      hasMessage: !!responseData.message,
+      hasData: !!responseData.data
+    });
+    return responseData;
+
+  } catch (error) {
+    console.error(`💥 [API] Request failed for ${endpoint}:`, error);
+    
+    // Handle network errors - KEEP existing network error handling
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('🌐 [API] Network error - check internet connection');
+      throw new Error('Network error. Please check your internet connection.');
+    }
+    
+    // Handle JSON parsing errors specifically
+    if (error.message.includes('JSON') || error.message.includes('parse')) {
+      console.error('📄 [API] JSON parsing error - possible server response issue');
+      throw new Error('Server response format error. Please try again.');
+    }
+    
+    // Re-throw the error with proper context - KEEP existing error propagation
+    throw new Error(error.message || `API request failed: ${endpoint}`);
+  }
+};
+
+// Health check function
+export const checkServerHealth = async () => {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/health`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server health check failed: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Server health check failed:', error);
+    throw new Error('Server is unavailable. Please make sure the backend is running on port 3001.');
+  }
+};
+
+// Helper function to get current user ID
+const getCurrentUserId = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('User not authenticated');
+  return user.id;
+};
+
+// Get auth token
+export const getAuthToken = async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
+};
+
+// Teacher API functions with GRADING capabilities
+export const teacherApi = {
+  // Get teacher's classes
+  getMyClasses: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      const { data, error } = await supabase
+        .from('classes')
+        .select(`
+          *,
+          course:course_id (*),
+          students_classes (*),
+          video_sessions (*)
+        `)
+        .eq('teacher_id', user.id)
+        .order('scheduled_date', { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+      throw error;
+    }
+  },
+
+  // Get teacher's students
+  getMyStudents: async () => {
+    try {
+      console.log('🔄 Fetching students from API...');
+      const token = await getAuthToken();
+      console.log('🔑 Using token:', token ? 'Present' : 'Missing');
+      
+      const response = await fetch(`${apiBaseUrl}/api/teacher/students`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log('📊 API Response status:', response.status);
+      
+      const contentType = response.headers.get('content-type');
+      console.log('📄 Content-Type:', contentType);
+      
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error('❌ Server error response:', responseText.substring(0, 200));
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        console.log('✅ Students fetched:', data.length);
+        return data;
+      } else {
+        const responseText = await response.text();
+        console.error('❌ Got HTML instead of JSON:', responseText.substring(0, 200));
+        throw new Error('Server returned HTML instead of JSON. Check API endpoint.');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching students:', error);
+      throw error;
+    }
+  },
+
+  // Get teacher's assignments
+  getMyAssignments: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      console.log('🔍 Fetching assignments for teacher:', user.id);
+
+      // STEP 1: Get assignments
+      const { data: assignmentsData, error } = await supabase
+        .from('assignments')
+        .select(`
+          id,
+          title,
+          description,
+          due_date,
+          max_score,
+          class_id,
+          created_at,
+          classes (title)
+        `)
+        .eq('teacher_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      console.log('📊 Assignments found:', assignmentsData?.length || 0);
+
+      if (!assignmentsData || assignmentsData.length === 0) {
+        return [];
+      }
+
+      // STEP 2: Get submissions
+      const assignmentIds = assignmentsData.map(a => a.id);
+      console.log('🆔 Assignment IDs:', assignmentIds);
+
+      const { data: submissionsData, error: submissionsError } = await supabase
+        .from('assignment_submissions')
+        .select('*')
+        .in('assignment_id', assignmentIds);
+
+      if (submissionsError) throw submissionsError;
+
+      console.log('📝 Submissions found:', submissionsData?.length || 0);
+      console.log('📄 Sample submission:', submissionsData?.[0]);
+
+      // STEP 3: Get student profiles with COMPREHENSIVE DEBUGGING
+      const allStudentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
+      console.log('👥 ALL Student IDs from submissions:', allStudentIds);
+      console.log('🔍 Looking for student:', "03333731-5b6f-4e95-a91d-62c0ca4dced5", 'in array:', allStudentIds.includes("03333731-5b6f-4e95-a91d-62c0ca4dced5"));
+
+      let studentMap = {};
+
+      if (allStudentIds.length > 0) {
+        console.log('🔄 Fetching profiles for', allStudentIds.length, 'student IDs');
+        
+        const { data: allProfiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, name, email')
+          .in('id', allStudentIds);
+
+        if (profilesError) {
+          console.error('❌ Error fetching profiles:', profilesError);
+        } else {
+          console.log('✅ PROFILES FETCHED SUCCESSFULLY:', allProfiles);
+          console.log('🔎 Number of profiles found:', allProfiles.length);
+          
+          // Check if our specific student is in the results
+          const targetStudent = allProfiles.find(p => p.id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
+          console.log('🎯 Looking for student 03333731... in profiles:', {
+            found: !!targetStudent,
+            studentData: targetStudent
+          });
+
+          // Build the student map
+          allProfiles.forEach(profile => {
+            studentMap[profile.id] = {
+              name: profile.name,
+              email: profile.email
+            };
+          });
+          
+          console.log('🗺️ STUDENT MAP CONTENTS:', studentMap);
+          console.log('🔍 Student 03333731... in map:', studentMap["03333731-5b6f-4e95-a91d-62c0ca4dced5"]);
+        }
+      } else {
+        console.log('❌ No student IDs found in submissions!');
+      }
+
+      // STEP 4: Transform data with DETAILED DEBUGGING
+      const transformed = assignmentsData.map(assignment => {
+        const assignmentSubmissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
+        
+        console.log(`📋 Assignment "${assignment.title}" has ${assignmentSubmissions.length} submissions`);
+
+        const transformedSubmissions = assignmentSubmissions.map(sub => {
+          const studentInfo = studentMap[sub.student_id];
+          
+          console.log(`🎯 TRANSFORMING SUBMISSION ${sub.id}:`, {
+            student_id: sub.student_id,
+            student_id_type: typeof sub.student_id,
+            studentInfo: studentInfo,
+            hasStudentInfo: !!studentInfo,
+            studentName: studentInfo?.name || 'NOT FOUND',
+            studentMapKeys: Object.keys(studentMap),
+            isTargetStudent: sub.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5"
+          });
+
+          // Use the student name if found, otherwise show the ID
+          let studentName = `Student ${sub.student_id.substring(0, 8)}...`;
+          let studentEmail = '';
+          
+          if (studentInfo) {
+            studentName = studentInfo.name;
+            studentEmail = studentInfo.email;
+            console.log('✅ USING STUDENT NAME:', studentName);
+          } else {
+            console.log('❌ STUDENT NOT FOUND IN MAP');
+          }
+
+          return {
+            id: sub.id,
+            student_id: sub.student_id,
+            student_name: studentName,
+            student_email: studentEmail,
+            submitted_at: sub.submitted_at,
+            grade: sub.grade,                    
+            feedback: sub.feedback,
+            status: sub.status,
+            audio_url: sub.audio_url,
+            submission_text: sub.submission_text,
+            audio_feedback_url: sub.audio_feedback_url,
+            graded_at: sub.graded_at,
+            graded_by: sub.graded_by
+          };
+        });
+
+        return {
+          id: assignment.id,
+          title: assignment.title,
+          description: assignment.description,
+          due_date: assignment.due_date,
+          max_score: assignment.max_score,
+          class_id: assignment.class_id,
+          class_title: assignment.classes?.title,
+          created_at: assignment.created_at,
+          submissions: transformedSubmissions,
+          submitted_count: assignmentSubmissions.length,
+          graded_count: assignmentSubmissions.filter(s => s.grade !== null).length, 
+          pending_count: assignmentSubmissions.filter(s => s.grade === null).length 
+        };
+      });
+
+      console.log('✅ FINAL TRANSFORMED DATA:', transformed);
+      
+      // Final check for our target student
+      const targetSubmission = transformed
+        .flatMap(a => a.submissions)
+        .find(s => s.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
+      
+      console.log('🎯 FINAL CHECK - Target student submission:', targetSubmission);
+
+      return transformed;
+
+    } catch (error) {
+      console.error('❌ Error in getMyAssignments:', error);
+      throw error;
+    }
+  },
+  
+  // Get pending submissions for grading
+  getPendingSubmissions: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          student:profiles!assignment_submissions_student_id_fkey(name, email),
+          assignment:assignments!assignment_submissions_assignment_id_fkey(
+            title, 
+            max_score, 
+            due_date,
+            class:classes(title)
+          )
+        `)
+        .is('grade', null)
+        .order('submitted_at', { ascending: true });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching pending submissions:', error);
+      throw error;
+    }
+  },
+
+  // Get assignments with submissions
+  getAssignmentsWithSubmissions: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          class:classes(title),
+          submissions:assignment_submissions(
+            *,
+            student:profiles!assignment_submissions_student_id_fkey(name, email)
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching assignments with submissions:', error);
+      throw error;
+    }
+  },
+
+  // Get graded submissions history
+  getGradedSubmissions: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const { data: submissions, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          id,
+          submission_text,
+          audio_url,
+          submitted_at,
+          graded_at,
+          status,
+          grade,
+          feedback,
+          audio_feedback_url,
+          student:profiles!assignment_submissions_student_id_fkey(
+            id,
+            name,
+            email,
+            overall_score
+          ),
+          assignment:assignments!inner(
+            id,
+            title,
+            description,
+            max_score,
+            due_date,
+            teacher_id
+          )
+        `)
+        .eq('assignment.teacher_id', user.id)
+        .not('grade', 'is', null)
+        .order('graded_at', { ascending: false });
+
+      if (error) throw error;
+      return submissions || [];
+    } catch (error) {
+      console.error('Error fetching graded submissions:', error);
+      throw error;
+    }
+  },
+
+  // Grade assignment
+  gradeAssignment: async (submissionId, score, feedback, audioFeedbackUrl = null) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .update({
+          grade: score,
+          feedback: feedback,
+          audio_feedback_url: audioFeedbackUrl,
+          graded_at: new Date().toISOString(),
+          graded_by: user.id
+        })
+        .eq('id', submissionId)
+        .select(`
+          *,
+          student:student_id(name, email),
+          assignment:assignment_id(title, max_score)
+        `)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error grading assignment:', error);
+      throw error;
+    }
+  },
+
+  // Get submission with full details for grading
+  getSubmissionDetails: async (submissionId) => {
+    try {
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          student:student_id(name, email),
+          assignment:assignment_id(
+            title, 
+            max_score, 
+            due_date,
+            description,
+            class:classes(title)
+          )
+        `)
+        .eq('id', submissionId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching submission details:', error);
+      throw error;
+    }
+  },
+
+  // Update student progress after grading
+  updateStudentProgress: async (studentId) => {
+    try {
+      const { data: submissions, error } = await supabase
+        .from('assignment_submissions')
+        .select('grade, assignment:assignments(max_score)')
+        .eq('student_id', studentId)
+        .not('grade', 'is', null);
+
+      if (error) throw error;
+
+      if (submissions && submissions.length > 0) {
+        const averageGrade = submissions.reduce((sum, sub) => {
+          const percentage = (sub.grade / sub.assignment.max_score) * 100;
+          return sum + percentage;
+        }, 0) / submissions.length;
+
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            overall_score: Math.round(averageGrade),
+            completed_assignments: submissions.length,
+            last_active: new Date().toISOString()
+          })
+          .eq('id', studentId);
+
+        if (updateError) throw updateError;
+      }
+    } catch (error) {
+      console.error('Error updating student progress:', error);
+      throw error;
+    }
+  },
+
+  // Create a new assignment
+  createAssignment: async (assignmentData) => {
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch('/api/teacher/assignments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(assignmentData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create assignment');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw new Error(error.message || 'Failed to create assignment');
+    }
+  },
+
+  // Start a video session
+  startVideoSession: async (classId) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Generate a unique meeting ID
+      const meetingId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const { data, error } = await supabase
+        .from('video_sessions')
+        .insert([{
+          class_id: classId,
+          teacher_id: user.id,
+          meeting_id: meetingId,
+          status: 'active',
+          started_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Update class status to active
+      await supabase
+        .from('classes')
+        .update({ status: 'active' })
+        .eq('id', classId);
+
+      return data;
+    } catch (error) {
+      console.error('Error starting video session:', error);
+      throw error;
+    }
+  },
+
+  // Include notification API in teacherApi
+  notificationApi: notificationApi
+};
 
 // Admin API functions (keep existing)
 const adminApi = {
@@ -1538,7 +1543,7 @@ const adminApi = {
     makeApiRequest(`/api/admin/students/teacher/${teacherId}`)
 };
 
-export { adminApi };
+export { adminApi, notificationApi };
 
 // Export everything as default for backward compatibility
 export default {
@@ -1549,6 +1554,7 @@ export default {
   getAuthToken,
   adminApi,
   teacherApi,
+  notificationApi,
   // New storage functions
   configureAudioBucket,
   getSecureAudioUrl,
