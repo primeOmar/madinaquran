@@ -1554,7 +1554,6 @@ export default {
   getAuthToken,
   adminApi,
   teacherApi,
-  notificationApi,
   // New storage functions
   configureAudioBucket,
   getSecureAudioUrl,
