@@ -744,6 +744,7 @@ export const getAuthToken = async () => {
 };
 
 // Teacher API functions with GRADING capabilities
+// Teacher API functions with GRADING capabilities
 export const teacherApi = {
   // Get teacher's classes
   getMyClasses: async () => {
@@ -864,7 +865,6 @@ export const teacherApi = {
       // STEP 3: Get student profiles with COMPREHENSIVE DEBUGGING
       const allStudentIds = [...new Set(submissionsData.map(s => s.student_id).filter(Boolean))];
       console.log('👥 ALL Student IDs from submissions:', allStudentIds);
-      console.log('🔍 Looking for student:', "03333731-5b6f-4e95-a91d-62c0ca4dced5", 'in array:', allStudentIds.includes("03333731-5b6f-4e95-a91d-62c0ca4dced5"));
 
       let studentMap = {};
 
@@ -881,13 +881,6 @@ export const teacherApi = {
         } else {
           console.log('✅ PROFILES FETCHED SUCCESSFULLY:', allProfiles);
           console.log('🔎 Number of profiles found:', allProfiles.length);
-          
-          // Check if our specific student is in the results
-          const targetStudent = allProfiles.find(p => p.id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
-          console.log('🎯 Looking for student 03333731... in profiles:', {
-            found: !!targetStudent,
-            studentData: targetStudent
-          });
 
           // Build the student map
           allProfiles.forEach(profile => {
@@ -896,15 +889,12 @@ export const teacherApi = {
               email: profile.email
             };
           });
-          
-          console.log('🗺️ STUDENT MAP CONTENTS:', studentMap);
-          console.log('🔍 Student 03333731... in map:', studentMap["03333731-5b6f-4e95-a91d-62c0ca4dced5"]);
         }
       } else {
         console.log('❌ No student IDs found in submissions!');
       }
 
-      // STEP 4: Transform data with DETAILED DEBUGGING
+      // STEP 4: Transform data
       const transformed = assignmentsData.map(assignment => {
         const assignmentSubmissions = submissionsData.filter(sub => sub.assignment_id === assignment.id);
         
@@ -912,27 +902,14 @@ export const teacherApi = {
 
         const transformedSubmissions = assignmentSubmissions.map(sub => {
           const studentInfo = studentMap[sub.student_id];
-          
-          console.log(`🎯 TRANSFORMING SUBMISSION ${sub.id}:`, {
-            student_id: sub.student_id,
-            student_id_type: typeof sub.student_id,
-            studentInfo: studentInfo,
-            hasStudentInfo: !!studentInfo,
-            studentName: studentInfo?.name || 'NOT FOUND',
-            studentMapKeys: Object.keys(studentMap),
-            isTargetStudent: sub.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5"
-          });
 
           // Use the student name if found, otherwise show the ID
-          let studentName = `Student ${sub.student_id.substring(0, 8)}...`;
+          let studentName = `Student ${sub.student_id?.substring(0, 8)}...` || 'Unknown Student';
           let studentEmail = '';
           
           if (studentInfo) {
             studentName = studentInfo.name;
             studentEmail = studentInfo.email;
-            console.log('✅ USING STUDENT NAME:', studentName);
-          } else {
-            console.log('❌ STUDENT NOT FOUND IN MAP');
           }
 
           return {
@@ -967,15 +944,6 @@ export const teacherApi = {
           pending_count: assignmentSubmissions.filter(s => s.grade === null).length 
         };
       });
-
-      console.log('✅ FINAL TRANSFORMED DATA:', transformed);
-      
-      // Final check for our target student
-      const targetSubmission = transformed
-        .flatMap(a => a.submissions)
-        .find(s => s.student_id === "03333731-5b6f-4e95-a91d-62c0ca4dced5");
-      
-      console.log('🎯 FINAL CHECK - Target student submission:', targetSubmission);
 
       return transformed;
 
@@ -1246,10 +1214,246 @@ export const teacherApi = {
     }
   },
 
-  // Include notification API in teacherApi
-  notificationApi: notificationApi
-};
+  // ============================================================================
+  // NOTIFICATION FUNCTIONS - ADD THESE DIRECTLY TO teacherApi
+  // ============================================================================
 
+  // Send notification when grading assignment
+  sendNotification: async (studentId, notificationData) => {
+    try {
+      console.log('🔔 [NOTIFICATION] Starting sendNotification:', {
+        studentId,
+        notificationData
+      });
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Teacher not authenticated');
+      }
+
+      // Validate inputs
+      if (!studentId) {
+        console.error('🔔 [NOTIFICATION] Missing studentId');
+        throw new Error('Student ID is required');
+      }
+
+      if (!notificationData?.title || !notificationData?.message) {
+        console.error('🔔 [NOTIFICATION] Missing title or message');
+        throw new Error('Notification title and message are required');
+      }
+
+      // Verify student exists in profiles table
+      console.log('🔔 [NOTIFICATION] Looking for student in profiles table with id:', studentId);
+      
+      const { data: studentProfile, error: studentError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .eq('id', studentId)
+        .single();
+
+      console.log('🔔 [NOTIFICATION] Student verification result:', {
+        studentExists: !!studentProfile,
+        studentError: studentError?.message,
+        studentName: studentProfile?.name,
+        studentEmail: studentProfile?.email
+      });
+
+      if (studentError) {
+        console.error('🔔 [NOTIFICATION] Student query error:', studentError);
+        
+        // If student not found, check if it's because the ID doesn't exist in profiles
+        if (studentError.code === 'PGRST116') {
+          throw new Error(`Student with ID ${studentId} not found in profiles table`);
+        }
+        throw studentError;
+      }
+
+      if (!studentProfile) {
+        throw new Error(`Student profile not found for ID: ${studentId}`);
+      }
+
+      const notificationPayload = {
+        user_id: studentId,
+        title: notificationData.title.trim(),
+        message: notificationData.message.trim(),
+        type: notificationData.type || 'info',
+        data: notificationData.data || {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      console.log('🔔 [NOTIFICATION] Inserting notification:', notificationPayload);
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert([notificationPayload])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('🔔 [NOTIFICATION] Supabase insert error:', error);
+        throw error;
+      }
+      
+      console.log('🔔 [NOTIFICATION] Insert successful:', data);
+      return data;
+    } catch (error) {
+      console.error('🔔 [NOTIFICATION] Overall error:', error);
+      throw error;
+    }
+  },
+
+  // Send grading notification specifically
+  sendGradingNotification: async (submissionId, score, feedback, hasAudioFeedback = false) => {
+    try {
+      console.log('🔔 [NOTIFICATION] Starting grading notification for submission:', submissionId);
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error('Teacher not authenticated');
+      }
+
+      // Get submission details with assignment and student info
+      const { data: submission, error: submissionError } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          assignment:assignments(
+            title,
+            max_score,
+            description
+          ),
+          student:profiles!assignment_submissions_student_id_fkey(
+            id,
+            name,
+            email
+          )
+        `)
+        .eq('id', submissionId)
+        .single();
+
+      if (submissionError || !submission) {
+        console.error('🔔 [NOTIFICATION] Submission not found:', submissionError);
+        throw new Error('Submission not found');
+      }
+
+      console.log('🔔 [NOTIFICATION] Submission details:', {
+        submissionId: submission.id,
+        studentId: submission.student_id,
+        student: submission.student,
+        assignment: submission.assignment
+      });
+
+      // Verify student exists
+      if (!submission.student || !submission.student.id) {
+        throw new Error('Student profile not found for this submission');
+      }
+
+      const studentId = submission.student.id;
+      const assignmentTitle = submission.assignment?.title || 'Assignment';
+      const maxScore = submission.assignment?.max_score || 100;
+      const percentage = Math.round((score / maxScore) * 100);
+      
+      let gradeEmoji = '📊';
+      if (percentage >= 90) gradeEmoji = '🎉';
+      else if (percentage >= 80) gradeEmoji = '👍';
+      else if (percentage >= 70) gradeEmoji = '📝';
+      else gradeEmoji = '💪';
+
+      const notificationData = {
+        user_id: studentId,
+        title: `${gradeEmoji} Assignment Graded: ${assignmentTitle}`,
+        message: `Your assignment "${assignmentTitle}" has been graded. You scored ${score}/${maxScore} (${percentage}%).${feedback ? ' Teacher provided feedback.' : ''}${hasAudioFeedback ? ' Includes audio feedback.' : ''}`,
+        type: 'success',
+        data: {
+          submission_id: submissionId,
+          assignment_title: assignmentTitle,
+          score: score,
+          max_score: maxScore,
+          percentage: percentage,
+          has_feedback: !!feedback,
+          has_audio_feedback: hasAudioFeedback,
+          graded_at: new Date().toISOString(),
+          action_url: `/assignments/${submissionId}`,
+          assignment_id: submission.assignment_id
+        }
+      };
+
+      console.log('🔔 [NOTIFICATION] Sending grading notification:', notificationData);
+
+      // Use the sendNotification function
+      const result = await teacherApi.sendNotification(studentId, notificationData);
+      console.log('🔔 [NOTIFICATION] Grading notification sent successfully:', result);
+      return result;
+
+    } catch (error) {
+      console.error('🔔 [NOTIFICATION] Error sending grading notification:', error);
+      throw error;
+    }
+  },
+
+  // Debug function to test notification system
+  testNotificationSystem: async () => {
+    try {
+      console.log('🧪 [DEBUG] Testing notification system...');
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log('🧪 [DEBUG] Current user:', user);
+
+      // Get a test student
+      const { data: students, error: studentsError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .eq('role', 'student')
+        .limit(1);
+
+      if (studentsError || !students || students.length === 0) {
+        console.error('🧪 [DEBUG] No students found');
+        return { success: false, error: 'No students found' };
+      }
+
+      const testStudent = students[0];
+      console.log('🧪 [DEBUG] Test student:', testStudent);
+
+      // Test notification insertion
+      const testNotification = {
+        title: '🧪 Test Notification',
+        message: 'This is a test notification from the debug system.',
+        type: 'info',
+        data: {
+          test: true,
+          debug_time: new Date().toISOString(),
+          student_name: testStudent.name
+        }
+      };
+
+      console.log('🧪 [DEBUG] Testing with notification:', testNotification);
+
+      const result = await teacherApi.sendNotification(testStudent.id, testNotification);
+      
+      console.log('🧪 [DEBUG] Test notification created:', result);
+
+      // Clean up test notification
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', result.id);
+
+      console.log('🧪 [DEBUG] Test completed successfully');
+      return { 
+        success: true, 
+        data: result
+      };
+
+    } catch (error) {
+      console.error('🧪 [DEBUG] Test failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+};
 // Admin API functions (keep existing)
 const adminApi = {
   // Student management
