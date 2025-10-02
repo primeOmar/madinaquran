@@ -1543,7 +1543,7 @@ const adminApi = {
     makeApiRequest(`/api/admin/students/teacher/${teacherId}`)
 };
 
-export { adminApi, notificationApi };
+export { adminApi };
 
 // Export everything as default for backward compatibility
 export default {
