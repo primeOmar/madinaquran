@@ -696,30 +696,81 @@ export default function Dashboard() {
   });
 
   // Notification handlers
-  const handleMarkAllAsRead = () => {
-    setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
+ const handleMarkAllAsRead = async () => {
+  try {
+    await studentApi.markAllAsRead();
+    
+    // Update local state
+    setNotifications(prev => prev.map(notification => ({ 
+      ...notification, 
+      read: true 
+    })));
+    
     toast.success('All notifications marked as read');
-  };
+  } catch (error) {
+    console.error('Error marking all as read:', error);
+    toast.error('Failed to mark notifications as read');
+  }
+};
 
-  const handleNotificationClick = (notification) => {
+const handleNotificationClick = async (notification) => {
+  try {
+    // Mark as read in database if not already read
+    if (!notification.read) {
+      await studentApi.markAsRead(notification.id);
+    }
+
+    // Update local state
     setNotifications(prev => 
       prev.map(n => 
         n.id === notification.id ? { ...n, read: true } : n
       )
     );
+    
     setIsNotificationsOpen(false);
     
+    // Navigate based on notification type
     if (notification.data?.assignment_id) {
       setActiveSection('assignments');
     } else if (notification.data?.class_id) {
       setActiveSection('classes');
+    } else if (notification.data?.payment_id) {
+      setActiveSection('payments');
     }
-  };
+  } catch (error) {
+    console.error('Error handling notification click:', error);
+    // Still navigate even if marking as read fails
+    setIsNotificationsOpen(false);
+  }
+};
 
-  const handleClearAllNotifications = () => {
+const handleClearAllNotifications = async () => {
+  try {
+    await studentApi.clearAllNotifications();
     setNotifications([]);
     toast.success('All notifications cleared');
-  };
+  } catch (error) {
+    console.error('Error clearing notifications:', error);
+    toast.error('Failed to clear notifications');
+  }
+};
+
+const handleDeleteNotification = async (notificationId, event) => {
+  event.stopPropagation(); // Prevent triggering the notification click
+  
+  try {
+    await studentApi.deleteNotification(notificationId);
+    
+    // Remove from local state
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    
+    toast.success('Notification deleted');
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    toast.error('Failed to delete notification');
+  }
+};
+
 
   // API fetch functions
   const fetchStatsData = async () => {
@@ -863,33 +914,61 @@ export default function Dashboard() {
   };
 
   const fetchNotifications = async () => {
-    try {
-      setNotifications([
-        { 
-          id: 1, 
-          type: 'assignment', 
-          title: 'New Assignment',
-          message: 'New assignment posted in Quran Class', 
-          time: '5 min ago', 
-          read: false,
-          created_at: new Date().toISOString(),
-          data: { assignment_id: '1', assignment_title: 'Quran Recitation' }
-        },
-        { 
-          id: 2, 
-          type: 'class', 
-          title: 'Class Reminder',
-          message: 'Class starting in 15 minutes', 
-          time: '1 hour ago', 
-          read: true,
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-          data: { class_id: '1', class_title: 'Arabic Grammar' }
-        },
-      ]);
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
+  try {
+    console.log('🔔 Fetching notifications from database...');
+    
+    const result = await studentApi.getMyNotifications();
+    
+    if (result && result.notifications) {
+      // Transform the database notifications to match your UI format
+      const transformedNotifications = result.notifications.map(notification => ({
+        id: notification.id,
+        type: this.getNotificationType(notification),
+        title: notification.title,
+        message: notification.message,
+        time: this.formatNotificationTime(notification.created_at),
+        read: notification.read,
+        created_at: notification.created_at,
+        data: notification.data || {}
+      }));
+      
+      setNotifications(transformedNotifications);
+      console.log('🔔 Notifications loaded:', transformedNotifications.length);
+    } else {
+      setNotifications([]);
     }
-  };
+  } catch (error) {
+    console.error('❌ Error fetching notifications:', error);
+    // Fallback to empty array
+    setNotifications([]);
+  }
+};
+
+// Add these helper functions to your Dashboard component
+const getNotificationType = (notification) => {
+  const data = notification.data || {};
+  if (data.assignment_id) return 'assignment';
+  if (data.class_id) return 'class';
+  if (data.payment_id) return 'payment';
+  return 'info';
+};
+
+const formatNotificationTime = (timestamp) => {
+  const now = new Date();
+  const notificationTime = new Date(timestamp);
+  const diffMs = now - notificationTime;
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  
+  return notificationTime.toLocaleDateString();
+};
+
 
   const handleContactAdmin = async () => {
     if (!contactMessage.trim()) {
@@ -967,6 +1046,73 @@ export default function Dashboard() {
   };
 
   // Effects
+  useEffect(() => {
+  if (!userEmailVerified) return;
+
+  // Refresh notifications every 30 seconds
+  const interval = setInterval(() => {
+    fetchNotifications();
+  }, 30000);
+
+  return () => clearInterval(interval);
+}, [userEmailVerified]);
+  useEffect(() => {
+  if (!userEmailVerified) return;
+
+  // Set up real-time subscription for notifications
+  const notificationSubscription = supabase
+    .channel('notifications-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user?.id}` // Only listen to current user's notifications
+      },
+      (payload) => {
+        console.log('🔔 Real-time notification update:', payload);
+        
+        // Handle different events
+        switch (payload.eventType) {
+          case 'INSERT':
+            // New notification added
+            fetchNotifications(); // Refresh the list
+            // Show a toast for new notifications
+            if (payload.new && !payload.new.read) {
+              toast.info(`New notification: ${payload.new.title}`);
+            }
+            break;
+            
+          case 'UPDATE':
+            // Notification updated (e.g., marked as read)
+            setNotifications(prev => 
+              prev.map(n => 
+                n.id === payload.new.id ? { ...n, ...payload.new } : n
+              )
+            );
+            break;
+            
+          case 'DELETE':
+            // Notification deleted
+            setNotifications(prev => 
+              prev.filter(n => n.id !== payload.old.id)
+            );
+            break;
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('🔔 Notification subscription status:', status);
+    });
+
+  return () => {
+    console.log('🔔 Cleaning up notification subscription');
+    supabase.removeChannel(notificationSubscription);
+  };
+}, [user?.id, userEmailVerified]);
+
+
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
@@ -1286,83 +1432,121 @@ export default function Dashboard() {
         </div>
         
         <div className="flex items-center space-x-4">
-          {/* Notification Bell */}
-          <div className="relative">
-            <button 
-              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-              className="flex items-center space-x-2 p-2 bg-black rounded-lg hover:bg-green-800/50 transition-all duration-200 relative"
-            >
-              <Bell size={20} />
-              {notifications.filter(n => !n.read).length > 0 && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
-              )}
-            </button>
+         {/* Notification Bell */}
+<div className="relative">
+  <button 
+    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+    className="flex items-center space-x-2 p-2 bg-black rounded-lg hover:bg-green-800/50 transition-all duration-200 relative"
+  >
+    <Bell size={20} />
+    {notifications.filter(n => !n.read).length > 0 && (
+      <motion.span 
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-xs font-bold animate-pulse"
+      >
+        {notifications.filter(n => !n.read).length}
+      </motion.span>
+    )}
+  </button>
+</div>
 
-            {/* Notifications Dropdown */}
-            {isNotificationsOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                className="absolute right-0 mt-2 w-80 bg-green-900/95 backdrop-blur-md rounded-lg shadow-2xl border border-green-700/30 z-50"
-              >
-                {/* Notifications Header */}
-                <div className="p-4 border-b border-green-700/30">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-bold">Notifications</h3>
-                    {notifications.filter(n => !n.read).length > 0 && (
-                      <button
-                        onClick={handleMarkAllAsRead}
-                        className="text-green-300 hover:text-green-100 text-sm transition-colors"
-                      >
-                        Mark all as read
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Notifications List */}
-                <div className="max-h-96 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="p-6 text-center">
-                      <Bell size={32} className="mx-auto text-green-400 mb-3 opacity-50" />
-                      <p className="text-green-200">No notifications</p>
-                      <p className="text-green-300 text-sm mt-1">You're all caught up!</p>
-                    </div>
-                  ) : (
-                    notifications.map((notification) => (
-                      <div
-                        key={notification.id}
-                        className={`p-4 border-b border-green-800/30 cursor-pointer transition-all duration-200 hover:bg-green-800/30 ${
-                          !notification.read ? 'bg-green-800/20 border-l-4 border-l-green-400' : ''
-                        }`}
-                        onClick={() => handleNotificationClick(notification)}
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <span className={`font-semibold ${
-                            notification.type === 'assignment' ? 'text-green-300' : 'text-white'
-                          }`}>
-                            {notification.title}
-                          </span>
-                          {!notification.read && (
-                            <span className="w-2 h-2 bg-green-400 rounded-full mt-2"></span>
-                          )}
-                        </div>
-                        <p className="text-green-200 text-sm mb-2">{notification.message}</p>
-                        <div className="flex justify-between items-center">
-                          <span className="text-green-400 text-xs">
-                            {notification.time}
-                          </span>
-                          {notification.data?.assignment_title && (
-                            <span className="text-green-300 text-xs bg-green-800/50 px-2 py-1 rounded">
-                              Assignment
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+
+
+          {isNotificationsOpen && (
+  <motion.div
+    initial={{ opacity: 0, y: -10, scale: 0.95 }}
+    animate={{ opacity: 1, y: 0, scale: 1 }}
+    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+    className="absolute right-0 mt-2 w-80 bg-green-900/95 backdrop-blur-md rounded-lg shadow-2xl border border-green-700/30 z-50"
+  >
+    {/* Notifications Header */}
+    <div className="p-4 border-b border-green-700/30">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-bold">Notifications</h3>
+        <div className="flex space-x-2">
+          {notifications.filter(n => !n.read).length > 0 && (
+            <button
+              onClick={handleMarkAllAsRead}
+              className="text-green-300 hover:text-green-100 text-sm transition-colors"
+            >
+              Mark all read
+            </button>
+          )}
+          {notifications.length > 0 && (
+            <button
+              onClick={handleClearAllNotifications}
+              className="text-red-300 hover:text-red-200 text-sm transition-colors ml-2"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+    
+    {/* Notifications List */}
+    <div className="max-h-96 overflow-y-auto">
+      {notifications.length === 0 ? (
+        <div className="p-6 text-center">
+          <Bell size={32} className="mx-auto text-green-400 mb-3 opacity-50" />
+          <p className="text-green-200">No notifications</p>
+          <p className="text-green-300 text-sm mt-1">You're all caught up!</p>
+        </div>
+      ) : (
+        notifications.map((notification) => (
+          <div
+            key={notification.id}
+            className={`p-4 border-b border-green-800/30 cursor-pointer transition-all duration-200 hover:bg-green-800/30 group ${
+              !notification.read ? 'bg-green-800/20 border-l-4 border-l-green-400' : ''
+            }`}
+            onClick={() => handleNotificationClick(notification)}
+          >
+            <div className="flex justify-between items-start mb-2">
+              <span className={`font-semibold ${
+                notification.type === 'assignment' ? 'text-green-300' : 
+                notification.type === 'class' ? 'text-blue-300' :
+                notification.type === 'payment' ? 'text-yellow-300' : 'text-white'
+              }`}>
+                {notification.title}
+              </span>
+              <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {!notification.read && (
+                  <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                )}
+                <button
+                  onClick={(e) => handleDeleteNotification(notification.id, e)}
+                  className="text-red-300 hover:text-red-200 p-1 rounded transition-colors"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+            <p className="text-green-200 text-sm mb-2">{notification.message}</p>
+            <div className="flex justify-between items-center">
+              <span className="text-green-400 text-xs">
+                {notification.time}
+              </span>
+              {notification.data?.assignment_title && (
+                <span className="text-green-300 text-xs bg-green-800/50 px-2 py-1 rounded">
+                  Assignment
+                </span>
+              )}
+              {notification.data?.class_title && (
+                <span className="text-blue-300 text-xs bg-blue-800/50 px-2 py-1 rounded">
+                  Class
+                </span>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  </motion.div>
+
+)}
+
+
 
                 {/* Notifications Footer */}
                 {notifications.length > 0 && (
