@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { teacherApi } from '../lib/supabaseClient';
+import { teachervideoAPi } from '../lib/teacherApi';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
   const [client, setClient] = useState(null);
