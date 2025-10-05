@@ -1209,7 +1209,7 @@ export default function Dashboard() {
       `}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-green-700/30">
-            <h1 className="text-2xl font-bold text-white">EduPlatform</h1>
+            <h1 className="text-2xl font-bold text-white">Madina Quran Classes</h1>
             <p className="text-green-300 text-sm">Student Dashboard</p>
           </div>
 
