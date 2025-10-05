@@ -10,8 +10,13 @@ import {
   X, Maximize2, Minimize2, Volume2, VolumeX
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { teacherApi } from '../lib/supabaseClient';
-import { teachervideoAPi } from '../lib/teacherApi';
+
+// ✅ FIXED IMPORT - Use teachervideoApi consistently
+import teachervideoApi from '../lib/teacherApi';
+
+// Debug the import
+console.log('🔧 teachervideoApi imported:', teachervideoApi);
+console.log('🔧 generateAgoraToken function:', typeof teachervideoApi?.generateAgoraToken);
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
   const [client, setClient] = useState(null);
@@ -30,6 +35,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
   const [layout, setLayout] = useState('grid');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeSpeakers, setActiveSpeakers] = useState(new Set());
+  const [isFallbackMode, setIsFallbackMode] = useState(false);
 
   const localPlayerRef = useRef(null);
   const remotePlayersRef = useRef({});
@@ -42,11 +48,26 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
         setIsLoading(true);
         setError(null);
 
-        // Generate token from backend
-        const tokenData = await teacherApi.generateAgoraToken(meetingId, user.id);
-        
-        if (!tokenData.token) {
-          throw new Error('Failed to generate authentication token');
+        console.log('🚀 Starting Agora initialization...');
+
+        // ✅ VERIFY FUNCTION EXISTS BEFORE CALLING
+        if (typeof teachervideoApi.generateAgoraToken !== 'function') {
+          throw new Error('generateAgoraToken is not available - check import');
+        }
+
+        // ✅ GET TOKEN WITH ERROR HANDLING
+        console.log('🔐 Requesting Agora token...');
+        const tokenData = await teachervideoApi.generateAgoraToken(meetingId, user.id);
+        console.log('✅ Token data received:', tokenData);
+
+        if (!tokenData.appId) {
+          throw new Error('Agora App ID not configured');
+        }
+
+        // Check if we're in fallback mode
+        if (tokenData.isFallback || tokenData.isDevelopment) {
+          setIsFallbackMode(true);
+          console.log('⚠️ Using fallback/development mode');
         }
 
         // Initialize Agora client
@@ -58,18 +79,22 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
 
         // Set up event listeners
         agoraClient.on('user-published', async (user, mediaType) => {
-          await agoraClient.subscribe(user, mediaType);
-          
-          if (mediaType === 'video') {
-            setRemoteUsers(prev => {
-              const exists = prev.find(u => u.uid === user.uid);
-              if (!exists) return [...prev, user];
-              return prev;
-            });
-          }
+          try {
+            await agoraClient.subscribe(user, mediaType);
+            
+            if (mediaType === 'video') {
+              setRemoteUsers(prev => {
+                const exists = prev.find(u => u.uid === user.uid);
+                if (!exists) return [...prev, user];
+                return prev;
+              });
+            }
 
-          if (mediaType === 'audio') {
-            user.audioTrack?.play();
+            if (mediaType === 'audio') {
+              user.audioTrack?.play();
+            }
+          } catch (subscribeError) {
+            console.error('Subscribe error:', subscribeError);
           }
         });
 
@@ -99,10 +124,11 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
         });
 
         // Join the channel
+        console.log('🔗 Joining Agora channel...');
         await agoraClient.join(
           tokenData.appId, 
           meetingId, 
-          tokenData.token, 
+          tokenData.token || null, // token can be null in fallback mode
           user.id
         );
 
@@ -120,10 +146,17 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
           videoTrack.play(localPlayerRef.current);
         }
 
+        console.log('✅ Agora initialization successful');
         setIsLoading(false);
 
+        if (isFallbackMode) {
+          toast.warning('Using development mode - limited features');
+        } else {
+          toast.success('Video call connected successfully!');
+        }
+
       } catch (error) {
-        console.error('Error initializing Agora:', error);
+        console.error('❌ Error initializing Agora:', error);
         setError(error.message);
         toast.error(`Failed to join video call: ${error.message}`);
         setIsLoading(false);
@@ -137,6 +170,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
     return () => {
       if (client) {
         client.leave();
+        console.log('🔚 Left Agora channel');
       }
       if (localAudioTrack) {
         localAudioTrack.close();
@@ -264,7 +298,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
       // End session if teacher
       if (isTeacher) {
         try {
-          await teacherApi.endVideoSession(meetingId);
+          await teachervideoApi.endVideoSession(meetingId);
         } catch (error) {
           console.error('Error ending session:', error);
         }
@@ -309,6 +343,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
             />
             <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm">
               {mainSpeaker.name} {mainSpeaker.role === 'teacher' && '👑'}
+              {isFallbackMode && ' 🚧'}
             </div>
             {(!mainSpeaker.videoTrack || (mainSpeaker.uid === 'local' && isVideoMuted)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-800 rounded-xl">
@@ -389,6 +424,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
                 <span>{user.name}</span>
                 {user.role === 'teacher' && <Crown size={14} className="text-yellow-400" />}
                 {user.uid === 'local' && <span className="text-blue-300">(You)</span>}
+                {isFallbackMode && <span className="text-yellow-400 text-xs">🚧</span>}
               </div>
               
               {isTeacher && user.role === 'student' && (
@@ -481,6 +517,11 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
             <span className="text-sm text-green-400">Live</span>
+            {isFallbackMode && (
+              <span className="text-yellow-400 text-xs bg-yellow-500/20 px-2 py-1 rounded">
+                Development Mode
+              </span>
+            )}
           </div>
           
           <div className="flex items-center space-x-2 text-sm text-gray-300">
@@ -652,6 +693,13 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
                     </div>
                     <span className="text-green-400 text-sm">Excellent</span>
                   </div>
+
+                  {isFallbackMode && (
+                    <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3">
+                      <p className="text-yellow-400 text-sm font-medium">Development Mode</p>
+                      <p className="text-yellow-300 text-xs">Using token-less Agora mode</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -721,6 +769,11 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
             {isScreenSharing ? <Monitor size={16} /> : <Video size={16} />}
             <span>{isScreenSharing ? 'Screen Sharing' : 'Camera'}</span>
           </div>
+          {isFallbackMode && (
+            <div className="flex items-center space-x-2 text-yellow-400">
+              <span>🚧 Dev Mode</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
