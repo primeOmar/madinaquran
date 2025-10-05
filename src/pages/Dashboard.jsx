@@ -11,6 +11,7 @@ import {
   User,
   Calendar,
   Award,
+  RefreshCw,
   BarChart3,
   Download,
   Upload,
