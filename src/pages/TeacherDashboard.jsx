@@ -807,14 +807,15 @@ export default function TeacherDashboard() {
   ];
 
   // Tab Components
-  const ClassesTab = ({ classes, onStartSession, onJoinSession, formatDateTime }) => {
+  // In your TeacherDashboard.jsx - Updated ClassesTab component
+const ClassesTab = ({ classes, formatDateTime }) => {
   const [activeVideoCall, setActiveVideoCall] = useState(null);
+  const { user } = useAuth();
 
   const handleStartVideoSession = async (classItem) => {
     try {
       const session = await teacherApi.startVideoSession(classItem.id);
       
-      // Open video call in a modal instead of new tab
       setActiveVideoCall({
         meetingId: session.meeting_id,
         class: classItem,
@@ -840,6 +841,12 @@ export default function TeacherDashboard() {
     toast.info('You left the video call');
   };
 
+  const copyClassLink = (meetingId) => {
+    const link = `${window.location.origin}/join-class/${meetingId}`;
+    navigator.clipboard.writeText(link);
+    toast.success('Class link copied to clipboard!');
+  };
+
   return (
     <div>
       {/* Video Call Modal */}
@@ -852,123 +859,158 @@ export default function TeacherDashboard() {
         />
       )}
 
-      <h3 className="text-lg font-semibold text-white mb-4">My Classes</h3>
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-2xl font-bold text-white">My Classes</h3>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 text-blue-300">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-sm">Live sessions available</span>
+          </div>
+        </div>
+      </div>
+
       {classes.length > 0 ? (
-        <div className="grid gap-4">
-          {classes.map((classItem) => (
-            <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors group">
-              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                <div className="flex-1">
-                  <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
-                  <div className="flex flex-col md:flex-row flex-wrap items-start md:items-center mt-2 text-sm text-blue-200 space-y-2 md:space-y-0 md:space-x-4">
-                    <span className="flex items-center">
-                      <Calendar size={14} className="mr-1" />
-                      {formatDateTime(classItem.scheduled_date)}
-                    </span>
-                    {classItem.duration && (
-                      <span className="flex items-center">
-                        <Clock size={14} className="mr-1" />
-                        {classItem.duration} minutes
-                      </span>
+        <div className="grid gap-6">
+          {classes.map((classItem) => {
+            const activeSession = classItem.video_sessions?.find(s => s.status === 'active');
+            const studentCount = classItem.students_classes?.length || 0;
+
+            return (
+              <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6 hover:from-blue-900/60 hover:to-purple-900/60 transition-all duration-300 group">
+                <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between mb-4">
+                      <h4 className="font-bold text-2xl text-white group-hover:text-blue-200 transition-colors">
+                        {classItem.title}
+                      </h4>
+                      {activeSession && (
+                        <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
+                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                          <span className="text-red-300 text-sm font-medium">LIVE NOW</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                      <div className="flex items-center text-blue-200">
+                        <Calendar size={18} className="mr-3 text-blue-400" />
+                        <div>
+                          <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
+                          <p className="text-xs text-blue-300">Scheduled Time</p>
+                        </div>
+                      </div>
+                      
+                      {classItem.duration && (
+                        <div className="flex items-center text-blue-200">
+                          <Clock size={18} className="mr-3 text-blue-400" />
+                          <div>
+                            <p className="text-sm font-medium">{classItem.duration} minutes</p>
+                            <p className="text-xs text-blue-300">Duration</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center text-blue-200">
+                        <Users size={18} className="mr-3 text-blue-400" />
+                        <div>
+                          <p className="text-sm font-medium">{studentCount} students</p>
+                          <p className="text-xs text-blue-300">Enrolled</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {classItem.description && (
+                      <p className="text-blue-300 text-lg mb-4 leading-relaxed">
+                        {classItem.description}
+                      </p>
                     )}
+
                     {classItem.course?.name && (
-                      <span className="flex items-center">
-                        <BookOpen size={14} className="mr-1" />
-                        {classItem.course.name}
+                      <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
+                        <BookOpen size={16} className="mr-2 text-blue-400" />
+                        <span className="text-blue-300 text-sm">{classItem.course.name}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col space-y-3 w-full lg:w-auto">
+                    {classItem.status === 'scheduled' && (
+                      <button
+                        onClick={() => handleStartVideoSession(classItem)}
+                        className="bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 group"
+                      >
+                        <Play size={20} className="mr-3" />
+                        Start Live Class
+                      </button>
+                    )}
+                    
+                    {activeSession && (
+                      <>
+                        <button
+                          onClick={() => handleJoinVideoSession(activeSession.meeting_id, classItem)}
+                          className="bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
+                        >
+                          <Video size={20} className="mr-3" />
+                          Join Live Class
+                        </button>
+                        <button
+                          onClick={() => copyClassLink(activeSession.meeting_id)}
+                          className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
+                        >
+                          <Share2 size={20} className="mr-3" />
+                          Copy Invite Link
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status & Quick Info */}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
+                  <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
+                    <span className={`px-4 py-2 rounded-full text-xs font-bold ${
+                      classItem.status === "scheduled" 
+                        ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
+                        : classItem.status === "active"
+                        ? "bg-green-500/20 text-green-300 border border-green-500/30"
+                        : classItem.status === "completed"
+                        ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                        : "bg-red-500/20 text-red-300 border border-red-500/30"
+                    }`}>
+                      {classItem.status?.toUpperCase()}
+                    </span>
+                    
+                    {activeSession && (
+                      <span className="flex items-center text-green-400 text-sm">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
+                        Session active for {Math.round((new Date() - new Date(activeSession.started_at)) / 60000)}min
                       </span>
                     )}
                   </div>
-                  {classItem.description && (
-                    <p className="text-blue-300 text-sm mt-2">{classItem.description}</p>
-                  )}
-                </div>
-                <div className="flex space-x-2 self-end md:self-auto">
-                  {classItem.status === 'scheduled' && (
-                    <button
-                      onClick={() => handleStartVideoSession(classItem)}
-                      className="p-3 rounded-lg bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 flex items-center text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 group"
-                      title="Start Class Session"
-                    >
-                      <Play size={18} className="mr-2" />
-                      Start Class
-                    </button>
-                  )}
-                  {classItem.status === 'active' && classItem.video_sessions?.[0] && (
-                    <button
-                      onClick={() => handleJoinVideoSession(classItem.video_sessions[0].meeting_id, classItem)}
-                      className="p-3 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 flex items-center text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-                      title="Join Class Session"
-                    >
-                      <Video size={18} className="mr-2" />
-                      Join Class
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-              {/* Class Status & Info */}
-              <div className="mt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-                <div className="flex items-center space-x-4 text-sm">
-                  <span className="text-blue-300">
-                    👥 Students: {classItem.students_classes?.length || 0}
-                    {classItem.max_students && ` / ${classItem.max_students}`}
-                  </span>
                   
-                  {classItem.video_sessions?.[0] && (
-                    <span className="flex items-center text-green-400">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
-                      Live Now
+                  <div className="flex items-center space-x-2 text-blue-300 text-sm">
+                    <User size={14} />
+                    <span>
+                      {studentCount} student{studentCount !== 1 ? 's' : ''} enrolled
                     </span>
-                  )}
+                  </div>
                 </div>
-                
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  classItem.status === "scheduled" 
-                    ? "bg-yellow-500/20 text-yellow-300" 
-                    : classItem.status === "active"
-                    ? "bg-green-500/20 text-green-300"
-                    : classItem.status === "completed"
-                    ? "bg-blue-500/20 text-blue-300"
-                    : "bg-red-500/20 text-red-300"
-                }`}>
-                  {classItem.status?.toUpperCase()}
-                </span>
               </div>
-
-              {/* Quick Actions */}
-              {classItem.status === 'active' && classItem.video_sessions?.[0] && (
-                <div className="mt-3 flex space-x-2">
-                  <button
-                    onClick={() => handleJoinVideoSession(classItem.video_sessions[0].meeting_id, classItem)}
-                    className="flex-1 bg-blue-600 hover:bg-blue-500 py-2 px-3 rounded text-sm text-white flex items-center justify-center"
-                  >
-                    <Video size={14} className="mr-2" />
-                    Join Video Call
-                  </button>
-                  <button
-                    onClick={copyMeetingLink}
-                    className="flex-1 bg-purple-600 hover:bg-purple-500 py-2 px-3 rounded text-sm text-white flex items-center justify-center"
-                  
-
->
-                    <Share2 size={14} className="mr-2" />
-                    Share Link
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        <div className="text-center py-12">
-          <BookOpen size={48} className="mx-auto text-blue-400 mb-3" />
-          <p className="text-blue-200">No classes found</p>
+        <div className="text-center py-16">
+          <BookOpen size={64} className="mx-auto text-blue-400 mb-4 opacity-50" />
+          <h3 className="text-2xl font-bold text-white mb-2">No Classes Scheduled</h3>
+          <p className="text-blue-300 text-lg max-w-md mx-auto">
+            You don't have any classes scheduled yet. Create a new class to get started with live teaching sessions.
+          </p>
         </div>
       )}
     </div>
   );
 };
-
   const StudentsTab = ({ students, loading }) => (
     <div>
       <h3 className="text-lg font-semibold text-white mb-4">My Students ({students.length})</h3>
