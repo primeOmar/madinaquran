@@ -807,13 +807,56 @@ export default function TeacherDashboard() {
   ];
 
   // Tab Components
-  const ClassesTab = ({ classes, onStartSession, onJoinSession, formatDateTime }) => (
+  const ClassesTab = ({ classes, onStartSession, onJoinSession, formatDateTime }) => {
+  const [activeVideoCall, setActiveVideoCall] = useState(null);
+
+  const handleStartVideoSession = async (classItem) => {
+    try {
+      const session = await teacherApi.startVideoSession(classItem.id);
+      
+      // Open video call in a modal instead of new tab
+      setActiveVideoCall({
+        meetingId: session.meeting_id,
+        class: classItem,
+        isTeacher: true
+      });
+      
+      toast.success('Class session started! Students can now join.');
+    } catch (error) {
+      toast.error(`Failed to start session: ${error.message}`);
+    }
+  };
+
+  const handleJoinVideoSession = (meetingId, classItem) => {
+    setActiveVideoCall({
+      meetingId: meetingId,
+      class: classItem,
+      isTeacher: true
+    });
+  };
+
+  const handleLeaveVideoCall = () => {
+    setActiveVideoCall(null);
+    toast.info('You left the video call');
+  };
+
+  return (
     <div>
+      {/* Video Call Modal */}
+      {activeVideoCall && (
+        <VideoCall
+          meetingId={activeVideoCall.meetingId}
+          user={user}
+          isTeacher={activeVideoCall.isTeacher}
+          onLeave={handleLeaveVideoCall}
+        />
+      )}
+
       <h3 className="text-lg font-semibold text-white mb-4">My Classes</h3>
       {classes.length > 0 ? (
         <div className="grid gap-4">
           {classes.map((classItem) => (
-            <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors">
+            <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4 hover:bg-white/15 transition-colors group">
               <div className="flex flex-col md:flex-row justify-between items-start gap-4">
                 <div className="flex-1">
                   <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
@@ -842,29 +885,43 @@ export default function TeacherDashboard() {
                 <div className="flex space-x-2 self-end md:self-auto">
                   {classItem.status === 'scheduled' && (
                     <button
-                      onClick={() => onStartSession(classItem.id)}
-                      className="p-2 rounded-lg bg-green-600 hover:bg-green-500 flex items-center text-white"
-                      title="Start Video Session"
+                      onClick={() => handleStartVideoSession(classItem)}
+                      className="p-3 rounded-lg bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 flex items-center text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 group"
+                      title="Start Class Session"
                     >
-                      <Play size={16} />
+                      <Play size={18} className="mr-2" />
+                      Start Class
                     </button>
                   )}
                   {classItem.status === 'active' && classItem.video_sessions?.[0] && (
                     <button
-                      onClick={() => onJoinSession(classItem.video_sessions[0].meeting_id)}
-                      className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 flex items-center text-white"
-                      title="Join Video Session"
+                      onClick={() => handleJoinVideoSession(classItem.video_sessions[0].meeting_id, classItem)}
+                      className="p-3 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 flex items-center text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
+                      title="Join Class Session"
                     >
-                      <Eye size={16} />
+                      <Video size={18} className="mr-2" />
+                      Join Class
                     </button>
                   )}
                 </div>
               </div>
+              
+              {/* Class Status & Info */}
               <div className="mt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-                <span className="text-sm text-blue-300">
-                  Students: {classItem.students_classes?.length || 0}
-                  {classItem.max_students && ` / ${classItem.max_students}`}
-                </span>
+                <div className="flex items-center space-x-4 text-sm">
+                  <span className="text-blue-300">
+                    👥 Students: {classItem.students_classes?.length || 0}
+                    {classItem.max_students && ` / ${classItem.max_students}`}
+                  </span>
+                  
+                  {classItem.video_sessions?.[0] && (
+                    <span className="flex items-center text-green-400">
+                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
+                      Live Now
+                    </span>
+                  )}
+                </div>
+                
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                   classItem.status === "scheduled" 
                     ? "bg-yellow-500/20 text-yellow-300" 
@@ -877,6 +934,28 @@ export default function TeacherDashboard() {
                   {classItem.status?.toUpperCase()}
                 </span>
               </div>
+
+              {/* Quick Actions */}
+              {classItem.status === 'active' && classItem.video_sessions?.[0] && (
+                <div className="mt-3 flex space-x-2">
+                  <button
+                    onClick={() => handleJoinVideoSession(classItem.video_sessions[0].meeting_id, classItem)}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 py-2 px-3 rounded text-sm text-white flex items-center justify-center"
+                  >
+                    <Video size={14} className="mr-2" />
+                    Join Video Call
+                  </button>
+                  <button
+                    onClick={copyMeetingLink}
+                    className="flex-1 bg-purple-600 hover:bg-purple-500 py-2 px-3 rounded text-sm text-white flex items-center justify-center"
+                  
+
+>
+                    <Share2 size={14} className="mr-2" />
+                    Share Link
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -888,6 +967,7 @@ export default function TeacherDashboard() {
       )}
     </div>
   );
+};
 
   const StudentsTab = ({ students, loading }) => (
     <div>
