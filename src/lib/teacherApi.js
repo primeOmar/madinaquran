@@ -114,10 +114,3 @@ export const teachervideoApi = {
 
  
   },
-
-
-// Helper function to get auth token
-const getAuthToken = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token;
-};
