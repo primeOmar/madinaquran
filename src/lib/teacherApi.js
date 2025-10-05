@@ -111,6 +111,3 @@ export const teachervideoApi = {
       throw error;
     }
   },
-
- 
-  },
