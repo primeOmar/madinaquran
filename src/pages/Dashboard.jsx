@@ -24,7 +24,7 @@ import {
   AlertCircle,
   PlayCircle,
   Mail,
-  RefreshCw,
+  RefreshCcw,
   Mic,
   Square,
   Play,
@@ -167,14 +167,19 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
   }
 };
 
+// STUDENT API WITH DEBUGGING
 const studentApi = {
   getMyNotifications: async (limit = 20, page = 1) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      console.log('🔔 [API] Starting to fetch notifications...');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
       
-      if (!user) {
+      if (userError || !user) {
+        console.error('❌ [API] User authentication failed:', userError);
         throw new Error('User not authenticated');
       }
+
+      console.log('👤 [API] User ID:', user.id);
 
       const from = (page - 1) * limit;
       const to = from + limit - 1;
@@ -186,7 +191,15 @@ const studentApi = {
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ [API] Supabase query error:', error);
+        throw error;
+      }
+
+      console.log('✅ [API] Notifications fetched successfully:', {
+        count: notifications?.length || 0,
+        data: notifications
+      });
 
       return {
         notifications: notifications || [],
@@ -196,7 +209,7 @@ const studentApi = {
         hasMore: (count || 0) > to + 1
       };
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      console.error('❌ [API] Error in getMyNotifications:', error);
       throw error;
     }
   },
@@ -777,6 +790,99 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
   );
 };
 
+// NOTIFICATIONS DROPDOWN COMPONENT
+const NotificationsDropdown = ({ 
+  isOpen, 
+  onClose, 
+  notifications, 
+  onNotificationClick, 
+  onMarkAllAsRead, 
+  onClearAll, 
+  onDeleteNotification 
+}) => {
+  const formatNotificationTime = (timestamp) => {
+    const now = new Date();
+    const notificationTime = new Date(timestamp);
+    const diffMs = now - notificationTime;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    
+    return notificationTime.toLocaleDateString();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
+      <div className="p-4 border-b border-green-700/30">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-white">Notifications</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={onMarkAllAsRead}
+              className="text-xs text-green-300 hover:text-white transition-colors"
+            >
+              Mark all read
+            </button>
+            <button
+              onClick={onClearAll}
+              className="text-xs text-red-300 hover:text-red-200 transition-colors"
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-h-96 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="p-4 text-center text-green-300 text-sm">
+            <Bell size={32} className="mx-auto mb-2 opacity-50" />
+            <p>No notifications yet</p>
+            <p className="text-xs mt-1">We'll notify you when something new arrives</p>
+          </div>
+        ) : (
+          notifications.map((notification) => (
+            <div
+              key={notification.id}
+              onClick={() => onNotificationClick(notification)}
+              className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
+                !notification.read ? 'bg-green-700/30' : ''
+              }`}
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <p className="text-white text-sm font-medium">
+                    {notification.title || 'Notification'}
+                  </p>
+                  <p className="text-green-300 text-xs mt-1">
+                    {notification.message || 'No message content'}
+                  </p>
+                  <p className="text-green-400 text-xs mt-2">
+                    {formatNotificationTime(notification.created_at)}
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => onDeleteNotification(notification.id, e)}
+                  className="text-red-300 hover:text-red-200 transition-colors ml-2 flex-shrink-0"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 // === MAIN DASHBOARD COMPONENT ===
 export default function Dashboard() {
   // State declarations
@@ -808,7 +914,7 @@ export default function Dashboard() {
   const [emailSent, setEmailSent] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isMobileNotificationsOpen, setIsMobileNotificationsOpen] = useState(false);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [progressStats, setProgressStats] = useState({
     completionRate: 0,
     streak: 0,
@@ -817,28 +923,74 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // Helper functions
-  const formatNotificationTime = (timestamp) => {
-    const now = new Date();
-    const notificationTime = new Date(timestamp);
-    const diffMs = now - notificationTime;
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    
-    return notificationTime.toLocaleDateString();
+  // Enhanced notification fetch with debugging
+  const fetchNotifications = async () => {
+    setLoadingNotifications(true);
+    try {
+      console.log('🔔 [Dashboard] Starting to fetch notifications...');
+      const notificationsData = await studentApi.getMyNotifications();
+      
+      console.log('📨 [Dashboard] Notifications data received:', notificationsData);
+      
+      // Ensure we're setting an array
+      const notificationsArray = Array.isArray(notificationsData?.notifications) 
+        ? notificationsData.notifications 
+        : [];
+      
+      console.log('📋 [Dashboard] Setting notifications state:', notificationsArray);
+      setNotifications(notificationsArray);
+      
+    } catch (error) {
+      console.error('❌ [Dashboard] Error fetching notifications:', error);
+      setNotifications([]);
+      toast.error('Failed to load notifications');
+    } finally {
+      setLoadingNotifications(false);
+    }
   };
 
-  // Notification handlers
+  // Enhanced student data fetch
+  const fetchStudentData = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        setStudentName(user.user_metadata?.full_name || 'Student');
+        setUserEmailVerified(user.email_confirmed_at !== null);
+        
+        console.log('👤 [Dashboard] User authenticated:', user.id);
+        
+        // Fetch all data including notifications
+        await Promise.all([
+          fetchStatsData(),
+          fetchClasses(),
+          fetchAssignments(),
+          fetchPayments(),
+          fetchNotifications() // Make sure this is included
+        ]);
+      } else {
+        console.error('❌ [Dashboard] No user found');
+      }
+    } catch (error) {
+      console.error('❌ [Dashboard] Error fetching student data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Enhanced notification handlers
   const handleMarkAllAsRead = async () => {
     try {
       await studentApi.markAllAsRead();
-      setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
+      
+      // Update local state
+      setNotifications(prev => prev.map(notification => ({ 
+        ...notification, 
+        read: true 
+      })));
+      
       toast.success('All notifications marked as read');
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -848,26 +1000,36 @@ export default function Dashboard() {
 
   const handleNotificationClick = async (notification) => {
     try {
+      console.log('📱 [Dashboard] Notification clicked:', notification);
+      
+      // Mark as read in database if not already read
       if (!notification.read) {
         await studentApi.markAsRead(notification.id);
       }
+
+      // Update local state
       setNotifications(prev => 
-        prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
+        prev.map(n => 
+          n.id === notification.id ? { ...n, read: true } : n
+        )
       );
-      setIsNotificationsOpen(false);
-      setIsMobileNotificationsOpen(false);
       
-      if (notification.data?.assignment_id) {
+      // Close notifications dropdown
+      setIsNotificationsOpen(false);
+      
+      // Navigate based on notification type
+      const data = notification.data || {};
+      if (data.assignment_id) {
         setActiveSection('assignments');
-      } else if (notification.data?.class_id) {
+      } else if (data.class_id) {
         setActiveSection('classes');
-      } else if (notification.data?.payment_id) {
+      } else if (data.payment_id) {
         setActiveSection('payments');
       }
     } catch (error) {
       console.error('Error handling notification click:', error);
+      // Still navigate even if marking as read fails
       setIsNotificationsOpen(false);
-      setIsMobileNotificationsOpen(false);
     }
   };
 
@@ -883,10 +1045,14 @@ export default function Dashboard() {
   };
 
   const handleDeleteNotification = async (notificationId, event) => {
-    event.stopPropagation();
+    event.stopPropagation(); // Prevent triggering the notification click
+    
     try {
       await studentApi.deleteNotification(notificationId);
+      
+      // Remove from local state
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
       toast.success('Notification deleted');
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -894,7 +1060,7 @@ export default function Dashboard() {
     }
   };
 
-  // API fetch functions
+  // Keep your existing API functions (fetchStatsData, fetchClasses, fetchAssignments, fetchPayments)
   const fetchStatsData = async () => {
     setLoadingStats(true);
     try {
@@ -984,41 +1150,6 @@ export default function Dashboard() {
       setPayments([]);
     } finally {
       setLoadingPayments(false);
-    }
-  };
-
-  const fetchNotifications = async () => {
-    try {
-      const notificationsData = await studentApi.getMyNotifications();
-      setNotifications(notificationsData.notifications || []);
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-      setNotifications([]);
-    }
-  };
-
-  const fetchStudentData = async () => {
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        setStudentName(user.user_metadata?.full_name || 'Student');
-        setUserEmailVerified(user.email_confirmed_at !== null);
-        
-        await Promise.all([
-          fetchStatsData(),
-          fetchClasses(),
-          fetchAssignments(),
-          fetchPayments(),
-          fetchNotifications()
-        ]);
-      }
-    } catch (error) {
-      console.error('Error fetching student data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1158,7 +1289,6 @@ export default function Dashboard() {
       setIsMobile(mobile);
       if (!mobile) {
         setIsSidebarOpen(false);
-        setIsMobileNotificationsOpen(false);
       }
     };
 
@@ -1167,10 +1297,12 @@ export default function Dashboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Auto-refresh notifications every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       fetchNotifications();
     }, 30000);
+
     return () => clearInterval(interval);
   }, []);
 
@@ -1284,13 +1416,7 @@ export default function Dashboard() {
                 {/* Notifications */}
                 <div className="relative">
                   <button
-                    onClick={() => {
-                      if (isMobile) {
-                        setIsMobileNotificationsOpen(true);
-                      } else {
-                        setIsNotificationsOpen(!isNotificationsOpen);
-                      }
-                    }}
+                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                     className="relative p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
                   >
                     <Bell size={20} />
@@ -1301,169 +1427,16 @@ export default function Dashboard() {
                     )}
                   </button>
 
-                  {/* Desktop Notifications Dropdown */}
-                  {!isMobile && isNotificationsOpen && (
-                    <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
-                      <div className="p-4 border-b border-green-700/30">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold text-white">Notifications</h3>
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={handleMarkAllAsRead}
-                              className="text-xs text-green-300 hover:text-white transition-colors"
-                            >
-                              Mark all read
-                            </button>
-                            <button
-                              onClick={handleClearAllNotifications}
-                              className="text-xs text-red-300 hover:text-red-200 transition-colors"
-                            >
-                              Clear all
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="max-h-96 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="p-4 text-center text-green-300 text-sm">
-                            No notifications
-                          </div>
-                        ) : (
-                          notifications.map((notification) => (
-                            <div
-                              key={notification.id}
-                              onClick={() => handleNotificationClick(notification)}
-                              className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
-                                !notification.read ? 'bg-green-700/30' : ''
-                              }`}
-                            >
-                              <div className="flex justify-between items-start">
-                                <div className="flex-1">
-                                  <p className="text-white text-sm font-medium">
-                                    {notification.title}
-                                  </p>
-                                  <p className="text-green-300 text-xs mt-1">
-                                    {notification.message}
-                                  </p>
-                                  <p className="text-green-400 text-xs mt-2">
-                                    {formatNotificationTime(notification.created_at)}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={(e) => handleDeleteNotification(notification.id, e)}
-                                  className="text-red-300 hover:text-red-200 transition-colors ml-2"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Mobile Full-Screen Notifications Modal */}
-                  {isMobile && isMobileNotificationsOpen && (
-                    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md">
-                      <motion.div 
-                        initial={{ opacity: 0, y: 50 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex flex-col h-full bg-green-900/95"
-                      >
-                        {/* Header */}
-                        <div className="flex items-center justify-between p-4 border-b border-green-700/30">
-                          <h3 className="text-xl font-bold text-white">Notifications</h3>
-                          <div className="flex items-center space-x-3">
-                            <button
-                              onClick={handleMarkAllAsRead}
-                              className="text-sm text-green-300 hover:text-white transition-colors px-3 py-1 bg-green-700/50 rounded-lg"
-                            >
-                              Mark all read
-                            </button>
-                            <button
-                              onClick={() => setIsMobileNotificationsOpen(false)}
-                              className="p-2 text-green-300 hover:text-white transition-colors"
-                            >
-                              <X size={20} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Notifications List */}
-                        <div className="flex-1 overflow-y-auto">
-                          {notifications.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                              <Bell size={48} className="text-green-400 mb-4" />
-                              <h4 className="text-white text-lg font-semibold mb-2">No notifications</h4>
-                              <p className="text-green-300 text-sm">You're all caught up!</p>
-                            </div>
-                          ) : (
-                            <div className="divide-y divide-green-700/30">
-                              {notifications.map((notification) => (
-                                <div
-                                  key={notification.id}
-                                  onClick={() => {
-                                    handleNotificationClick(notification);
-                                    setIsMobileNotificationsOpen(false);
-                                  }}
-                                  className={`p-4 cursor-pointer transition-colors hover:bg-green-700/50 ${
-                                    !notification.read ? 'bg-green-700/30' : ''
-                                  }`}
-                                >
-                                  <div className="flex justify-between items-start">
-                                    <div className="flex-1">
-                                      <div className="flex items-start justify-between">
-                                        <p className="text-white font-medium text-base mb-1">
-                                          {notification.title}
-                                        </p>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteNotification(notification.id, e);
-                                          }}
-                                          className="text-red-300 hover:text-red-200 transition-colors ml-3 p-1"
-                                        >
-                                          <Trash2 size={16} />
-                                        </button>
-                                      </div>
-                                      <p className="text-green-300 text-sm mb-2">
-                                        {notification.message}
-                                      </p>
-                                      <p className="text-green-400 text-xs">
-                                        {formatNotificationTime(notification.created_at)}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Footer Actions */}
-                        {notifications.length > 0 && (
-                          <div className="p-4 border-t border-green-700/30">
-                            <div className="flex space-x-3">
-                              <button
-                                onClick={handleClearAllNotifications}
-                                className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors text-sm font-medium"
-                              >
-                                Clear All Notifications
-                              </button>
-                              <button
-                                onClick={() => setIsMobileNotificationsOpen(false)}
-                                className="flex-1 py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium"
-                              >
-                                Close
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </motion.div>
-                    </div>
-                  )}
+                  {/* Notifications Dropdown */}
+                  <NotificationsDropdown
+                    isOpen={isNotificationsOpen}
+                    onClose={() => setIsNotificationsOpen(false)}
+                    notifications={notifications}
+                    onNotificationClick={handleNotificationClick}
+                    onMarkAllAsRead={handleMarkAllAsRead}
+                    onClearAll={handleClearAllNotifications}
+                    onDeleteNotification={handleDeleteNotification}
+                  />
                 </div>
 
                 {/* User Menu */}
