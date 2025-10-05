@@ -1,40 +1,61 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-// Agora Configuration Constants
+// Enhanced Agora Configuration with multiple fallback options
 const AGORA_CONFIG = {
   appId: process.env.NEXT_PUBLIC_AGORA_APP_ID,
   codec: 'h264',
   mode: 'rtc',
-  maxRetries: 3,
-  timeout: 10000,
+  maxRetries: 5,
+  timeout: 15000,
+  
+  // Multiple server endpoints for fallback
   serverUrls: [
     'wss://webrtc2.ap.agora.io',
     'wss://webrtc2.ap.sd-rtn.com',
-    'wss://webrtc2-1.ap.sd-rtn.com'
+    'wss://webrtc2-1.ap.sd-rtn.com',
+    'wss://webrtc2-2.ap.sd-rtn.com',
+    'wss://webrtc2-3.ap.sd-rtn.com',
+    'wss://webrtc2-4.ap.sd-rtn.com'
+  ],
+  
+  // Alternative gateway servers
+  gatewayServers: [
+    'https://webrtc2-ap-web-1.agora.io',
+    'https://webrtc2-ap-web-2.agora.io', 
+    'https://webrtc2-ap-web-3.agora.io'
   ]
 };
 
-// Error Mapping
+// Enhanced Error Mapping
 const AGORA_ERROR_MESSAGES = {
   'CAN_NOT_GET_GATEWAY_SERVER': {
-    userMessage: 'Network connection issue. Please check your internet connection.',
-    retryable: true
+    userMessage: 'Network connection issue. Please check your internet connection and try again.',
+    retryable: true,
+    fallback: true
   },
   'DYNAMIC_USE_STATIC_KEY': {
-    userMessage: 'Authentication error. Please refresh the page.',
-    retryable: true
+    userMessage: 'Authentication issue. Trying alternative connection method...',
+    retryable: true,
+    fallback: true
   },
   'INVALID_PARAMS': {
     userMessage: 'Configuration error. Please contact support.',
-    retryable: false
+    retryable: false,
+    fallback: false
+  },
+  'INVALID_TOKEN': {
+    userMessage: 'Session expired. Refreshing connection...',
+    retryable: true,
+    fallback: true
   },
   'DEFAULT': {
-    userMessage: 'An unexpected error occurred. Please try again.',
-    retryable: true
+    userMessage: 'Connection issue. Attempting to reconnect...',
+    retryable: true,
+    fallback: true
   }
 };
 
-// Agora Service Class
+// Enhanced Agora Service with advanced fallback strategies
 class AgoraProductionService {
   constructor() {
     this.client = null;
@@ -42,6 +63,9 @@ class AgoraProductionService {
     this.retryCount = 0;
     this.maxRetries = AGORA_CONFIG.maxRetries;
     this.eventListeners = new Map();
+    this.currentServerIndex = 0;
+    this.useTokenFallback = false;
+    this.connectionAttempts = 0;
   }
 
   async initializeClient() {
@@ -53,6 +77,9 @@ class AgoraProductionService {
         codec: AGORA_CONFIG.codec
       });
 
+      // Try to set custom gateway server (if supported)
+      await this.setCustomGateway();
+      
       this.setupEventListeners();
       this.isInitialized = true;
       
@@ -60,6 +87,23 @@ class AgoraProductionService {
     } catch (error) {
       console.error('❌ Failed to initialize Agora client:', error);
       throw this.normalizeError(error);
+    }
+  }
+
+  // Method to try different gateway servers
+  async setCustomGateway() {
+    if (!this.client || !AGORA_CONFIG.gatewayServers.length) return;
+
+    try {
+      const gatewayUrl = AGORA_CONFIG.gatewayServers[this.currentServerIndex];
+      console.log(`🔄 Trying gateway server: ${gatewayUrl}`);
+      
+      // Some Agora SDK versions support custom gateway configuration
+      if (this.client.setGateway) {
+        this.client.setGateway(gatewayUrl);
+      }
+    } catch (error) {
+      console.warn('Could not set custom gateway:', error);
     }
   }
 
@@ -84,9 +128,17 @@ class AgoraProductionService {
       console.log('❌ Token expired');
       this.emit('token-expired');
     });
+
+    // Additional error handling
+    this.client.on('exception', (event) => {
+      console.warn('Agora exception:', event);
+      this.emit('exception', event);
+    });
   }
 
   async joinChannelWithRetry(channelName, token, uid = null) {
+    this.connectionAttempts++;
+    
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         if (!this.isInitialized) {
@@ -94,28 +146,52 @@ class AgoraProductionService {
         }
 
         console.log(`🎯 Joining "${channelName}" - attempt ${attempt}/${this.maxRetries}`);
+        console.log(`🔧 Using ${this.useTokenFallback ? 'token fallback' : 'normal token'} mode`);
+        
+        // Try with token first, then fallback to null if issues persist
+        const joinToken = this.useTokenFallback ? null : token;
         
         await this.client.join(
           AGORA_CONFIG.appId,
           channelName,
-          token,
+          joinToken,
           uid
         );
 
         console.log('✅ Successfully joined channel:', channelName);
         this.retryCount = 0;
-        this.emit('joined', { channelName, uid });
+        this.connectionAttempts = 0;
+        this.emit('joined', { channelName, uid, usedFallback: this.useTokenFallback });
         return;
 
       } catch (error) {
         console.error(`❌ Join attempt ${attempt} failed:`, error);
         
+        // Check if we should try token fallback
+        if ((error.code === 4096 || error.message?.includes('dynamic use static key')) && 
+            !this.useTokenFallback && attempt >= 2) {
+          console.log('🔄 Switching to token fallback mode');
+          this.useTokenFallback = true;
+          this.isInitialized = false;
+          continue;
+        }
+        
+        // Try next gateway server
+        if (attempt % 2 === 0 && this.currentServerIndex < AGORA_CONFIG.gatewayServers.length - 1) {
+          this.currentServerIndex++;
+          this.isInitialized = false;
+          console.log(`🔄 Switching to gateway server ${this.currentServerIndex + 1}`);
+        }
+        
         if (attempt === this.maxRetries) {
           throw this.normalizeError(error);
         }
 
-        // Exponential backoff
-        await this.delay(Math.pow(2, attempt) * 1000);
+        // Exponential backoff with jitter
+        const baseDelay = Math.pow(2, attempt) * 1000;
+        const jitter = Math.random() * 1000;
+        await this.delay(baseDelay + jitter);
+        
         this.isInitialized = false;
       }
     }
@@ -123,14 +199,21 @@ class AgoraProductionService {
 
   normalizeError(error) {
     const errorCode = error?.code || error?.message;
-    const errorInfo = AGORA_ERROR_MESSAGES[errorCode] || AGORA_ERROR_MESSAGES.DEFAULT;
+    let errorInfo = AGORA_ERROR_MESSAGES[errorCode] || AGORA_ERROR_MESSAGES.DEFAULT;
+    
+    // Special handling for gateway errors
+    if (errorCode === 4096 || error.message?.includes('dynamic use static key')) {
+      errorInfo = AGORA_ERROR_MESSAGES.CAN_NOT_GET_GATEWAY_SERVER;
+    }
     
     return {
       originalError: error,
       code: errorCode,
       message: error?.message || 'Unknown error',
       userMessage: errorInfo.userMessage,
-      retryable: errorInfo.retryable
+      retryable: errorInfo.retryable,
+      supportsFallback: errorInfo.fallback,
+      connectionAttempts: this.connectionAttempts
     };
   }
 
@@ -164,6 +247,8 @@ class AgoraProductionService {
     }
     
     this.isInitialized = false;
+    // Rotate to next gateway server
+    this.currentServerIndex = (this.currentServerIndex + 1) % AGORA_CONFIG.gatewayServers.length;
     await this.initializeClient();
   }
 
@@ -217,16 +302,29 @@ class AgoraProductionService {
     this.eventListeners.clear();
     this.isInitialized = false;
     this.retryCount = 0;
+    this.connectionAttempts = 0;
+  }
+
+  // Get connection stats
+  getConnectionStats() {
+    return {
+      retryCount: this.retryCount,
+      connectionAttempts: this.connectionAttempts,
+      currentGateway: AGORA_CONFIG.gatewayServers[this.currentServerIndex],
+      usingTokenFallback: this.useTokenFallback,
+      maxRetries: this.maxRetries
+    };
   }
 }
 
-// React Hook
+// Enhanced React Hook
 export const useAgoraProduction = (options = {}) => {
   const {
     onError,
     onJoined,
     onLeft,
     onConnectionStateChange,
+    onFallbackMode,
     autoJoin = false,
     channelName: initialChannelName,
     token: initialToken
@@ -236,24 +334,32 @@ export const useAgoraProduction = (options = {}) => {
     isConnected: false,
     isConnecting: false,
     connectionError: null,
-    connectionState: 'DISCONNECTED'
+    connectionState: 'DISCONNECTED',
+    isFallbackMode: false,
+    connectionStats: null
   });
 
   const agoraService = useRef(null);
   const localAudioTrack = useRef(null);
+  const localVideoTrack = useRef(null);
 
   // Initialize service
   useEffect(() => {
     agoraService.current = new AgoraProductionService();
 
-    // Event listeners
+    // Enhanced event listeners
     agoraService.current.on('joined', (data) => {
       setState(prev => ({ 
         ...prev, 
         isConnected: true, 
         isConnecting: false,
-        connectionError: null 
+        connectionError: null,
+        isFallbackMode: data.usedFallback || false,
+        connectionStats: agoraService.current.getConnectionStats()
       }));
+      if (data.usedFallback) {
+        onFallbackMode?.(true);
+      }
       onJoined?.(data);
     });
 
@@ -268,7 +374,11 @@ export const useAgoraProduction = (options = {}) => {
     });
 
     agoraService.current.on('connection-state-change', (data) => {
-      setState(prev => ({ ...prev, connectionState: data.current }));
+      setState(prev => ({ 
+        ...prev, 
+        connectionState: data.current,
+        connectionStats: agoraService.current.getConnectionStats()
+      }));
       onConnectionStateChange?.(data);
     });
 
@@ -277,7 +387,8 @@ export const useAgoraProduction = (options = {}) => {
         ...prev, 
         isConnected: false, 
         isConnecting: false,
-        connectionError: error 
+        connectionError: error,
+        connectionStats: agoraService.current.getConnectionStats()
       }));
       onError?.(error);
     });
@@ -297,6 +408,10 @@ export const useAgoraProduction = (options = {}) => {
       }));
     });
 
+    agoraService.current.on('exception', (event) => {
+      console.warn('Agora exception event:', event);
+    });
+
     return () => {
       if (agoraService.current) {
         agoraService.current.destroy();
@@ -304,8 +419,11 @@ export const useAgoraProduction = (options = {}) => {
       if (localAudioTrack.current) {
         localAudioTrack.current.close();
       }
+      if (localVideoTrack.current) {
+        localVideoTrack.current.close();
+      }
     };
-  }, [onError, onJoined, onLeft, onConnectionStateChange]);
+  }, [onError, onJoined, onLeft, onConnectionStateChange, onFallbackMode]);
 
   // Auto-join if enabled
   useEffect(() => {
@@ -315,30 +433,22 @@ export const useAgoraProduction = (options = {}) => {
   }, [autoJoin, initialChannelName, initialToken]);
 
   const joinChannel = useCallback(async (channelName, token, uid = null) => {
-    if (!channelName || !token) {
-      const error = new Error('Channel name and token are required');
+    if (!channelName) {
+      const error = new Error('Channel name is required');
       setState(prev => ({ ...prev, connectionError: error }));
       onError?.(error);
       return false;
     }
 
-    setState(prev => ({ ...prev, isConnecting: true, connectionError: null }));
+    setState(prev => ({ 
+      ...prev, 
+      isConnecting: true, 
+      connectionError: null,
+      connectionStats: agoraService.current?.getConnectionStats() || null
+    }));
 
     try {
       await agoraService.current.joinChannelWithRetry(channelName, token, uid);
-      
-      // Initialize local audio track after successful join
-      try {
-        const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-        const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
-        localAudioTrack.current = microphoneTrack;
-        
-        // Publish the track if needed
-        // await agoraService.current.client.publish([microphoneTrack]);
-      } catch (audioError) {
-        console.warn('Could not initialize microphone:', audioError);
-      }
-      
       return true;
     } catch (error) {
       console.error('Failed to join channel:', error);
@@ -346,7 +456,8 @@ export const useAgoraProduction = (options = {}) => {
         ...prev, 
         isConnecting: false, 
         isConnected: false,
-        connectionError: error 
+        connectionError: error,
+        connectionStats: agoraService.current?.getConnectionStats() || null
       }));
       onError?.(error);
       return false;
@@ -360,10 +471,14 @@ export const useAgoraProduction = (options = {}) => {
       connectionError: null 
     }));
 
-    // Clean up local audio track
+    // Clean up local tracks
     if (localAudioTrack.current) {
       localAudioTrack.current.close();
       localAudioTrack.current = null;
+    }
+    if (localVideoTrack.current) {
+      localVideoTrack.current.close();
+      localVideoTrack.current = null;
     }
 
     try {
@@ -375,11 +490,17 @@ export const useAgoraProduction = (options = {}) => {
   }, [onError]);
 
   const retryConnection = useCallback(async (channelName, token, uid = null) => {
-    setState(prev => ({ ...prev, connectionError: null }));
+    setState(prev => ({ 
+      ...prev, 
+      connectionError: null,
+      isConnecting: true 
+    }));
     return await joinChannel(channelName, token, uid);
   }, [joinChannel]);
 
-  const getLocalAudioTrack = useCallback(() => localAudioTrack.current, []);
+  const getConnectionStats = useCallback(() => {
+    return agoraService.current?.getConnectionStats() || null;
+  }, []);
 
   return {
     // State
@@ -389,105 +510,31 @@ export const useAgoraProduction = (options = {}) => {
     joinChannel,
     leaveChannel,
     retryConnection,
-    getLocalAudioTrack,
+    getConnectionStats,
+    
+    // Service instance (for advanced usage)
+    service: agoraService.current,
     
     // Utility
     isInitialized: agoraService.current?.isInitialized || false
   };
 };
 
-// Error Boundary Component (for use in class components)
-export class AgoraProductionErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { 
-      hasError: false,
-      error: null 
-    };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { 
-      hasError: true,
-      error 
-    };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('Agora Error Boundary caught an error:', error, errorInfo);
-  }
-
-  handleRetry = () => {
-    this.setState({ hasError: false, error: null });
-    this.props.onRetry?.();
-  };
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '2rem',
-          background: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: '8px',
-          margin: '1rem 0'
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <h3 style={{ color: '#dc2626', marginBottom: '0.5rem' }}>
-              Audio Service Unavailable
-            </h3>
-            <p style={{ marginBottom: '1rem' }}>
-              We're having trouble connecting to the audio service. This might be due to network issues.
-            </p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button 
-                onClick={this.handleRetry}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: '#2563eb',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer'
-                }}
-              >
-                Try Again
-              </button>
-              <button 
-                onClick={() => window.location.reload()}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: '#6b7280',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer'
-                }}
-              >
-                Reload Page
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
 // Quick Start Hook for simple usage
-export const useAgoraQuickStart = (channelName, token) => {
+export const useAgoraQuickStart = (channelName, token, options = {}) => {
   return useAgoraProduction({
     autoJoin: true,
     channelName,
     token,
     onError: (error) => {
       console.error('Agora QuickStart Error:', error);
-    }
+      options.onError?.(error);
+    },
+    onFallbackMode: (isFallback) => {
+      console.log(`🔄 ${isFallback ? 'Using' : 'Disabling'} fallback mode`);
+      options.onFallbackMode?.(isFallback);
+    },
+    ...options
   });
 };
 
