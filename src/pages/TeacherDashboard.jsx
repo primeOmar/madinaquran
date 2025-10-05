@@ -4,7 +4,7 @@ import {
   Users, BarChart3, Home, Settings, LogOut, Bell,
   Search, Filter, Plus, MessageCircle, FileText, 
   FileCheck, FileEdit, GraduationCap, Award, CheckCircle, 
-  XCircle, Edit, Trash2, Download, Upload, Send,
+  XCircle, Edit, Trash2, Download, Upload, Send,Share2,
   ChevronDown, Menu, X, Mic, Square, RefreshCw
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
