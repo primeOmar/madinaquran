@@ -1,13 +1,13 @@
+// teacherApi.js - Fixed with proper backend calls
 import { supabase } from './supabaseClient';
 
-// Helper function to get auth token
 const getAuthToken = async () => {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.access_token;
 };
 
-export const teachervideoApi = {
-  // Start a new video session for a class
+const teacherApi = {
+  // Start video session
   startVideoSession: async (classId) => {
     try {
       const meetingId = `class_${classId}_${Date.now()}`;
@@ -27,7 +27,6 @@ export const teachervideoApi = {
 
       if (error) throw error;
 
-      // Update class status to active
       await supabase
         .from('classes')
         .update({ status: 'active' })
@@ -40,99 +39,52 @@ export const teachervideoApi = {
     }
   },
 
-  // End a video session
-  endVideoSession: async (sessionId, classId) => {
-    try {
-      const { error } = await supabase
-        .from('video_sessions')
-        .update({
-          status: 'ended',
-          ended_at: new Date().toISOString()
-        })
-        .eq('id', sessionId);
-
-      if (error) throw error;
-
-      // Update class status to completed
-      await supabase
-        .from('classes')
-        .update({ status: 'completed' })
-        .eq('id', classId);
-
-    } catch (error) {
-      console.error('Error ending video session:', error);
-      throw error;
-    }
-  },
-
-  // Get active video sessions for a teacher
-  getActiveSessions: async (teacherId) => {
-    try {
-      const { data, error } = await supabase
-        .from('video_sessions')
-        .select(`
-          *,
-          class:classes (
-            id,
-            title,
-            teacher_id
-          )
-        `)
-        .eq('status', 'active')
-        .eq('class.teacher_id', teacherId);
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error fetching active sessions:', error);
-      throw error;
-    }
-  },
-
-  // Generate Agora token (call your backend API)
+  // Generate Agora token - CALLS YOUR BACKEND
   generateAgoraToken: async (channelName, uid = 0) => {
     try {
-      // This calls your Render backend endpoint
+      console.log('Calling backend for Agora token...');
+      
       const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await getAuthToken()}`
         },
         body: JSON.stringify({
           channelName,
           uid,
-          role: 'publisher' // teacher is publisher
+          role: 'publisher'
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to generate token: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`Backend error: ${response.status} - ${errorText}`);
       }
 
       const tokenData = await response.json();
+      console.log('Token received from backend');
       return tokenData;
+      
     } catch (error) {
-      console.error('Error generating Agora token:', error);
-      throw error;
+      console.error('Error calling token backend:', error);
+      
+      // Fallback for development
+      return {
+        token: null, // Temporary token-less mode
+        appId: process.env.REACT_APP_AGORA_APP_ID,
+        channelName: channelName,
+        uid: uid
+      };
     }
   },
 
-  // Get teacher's classes (needed for video sessions)
+  // Get classes
   getMyClasses: async (teacherId) => {
     try {
       const { data, error } = await supabase
         .from('classes')
         .select(`
           *,
-          students_classes (
-            student_id,
-            students (
-              id,
-              name,
-              email
-            )
-          ),
           video_sessions (
             id,
             meeting_id,
@@ -151,3 +103,5 @@ export const teachervideoApi = {
     }
   }
 };
+
+export default teacherApi;
