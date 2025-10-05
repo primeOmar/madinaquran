@@ -1,7 +1,7 @@
 // teacherApi.js - With fallback and timeout handling
 import { supabase } from './supabaseClient';
 
-const teacherApi = {
+const teachervideoApi = {
   // Start video session (on Render)
   startVideoSession: async (classId) => {
     try {
@@ -126,4 +126,4 @@ const teacherApi = {
   }
 };
 
-export default teacherApi;
+export default teachervideoApi;
