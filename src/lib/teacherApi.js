@@ -6,7 +6,7 @@ const getAuthToken = async () => {
   return session?.access_token;
 };
 
-const teacherApi = {
+const teachervideoApi = {
   // Start video session
   startVideoSession: async (classId) => {
     try {
@@ -104,4 +104,4 @@ const teacherApi = {
   }
 };
 
-export default teacherApi;
+export default teachervideoApi;
