@@ -1,58 +1,123 @@
 import { supabase } from './supabaseClient';
 
-export const teacherApi = {
-  // Get teacher's assigned students
-  getMyStudents: async (teacherId) => {
+export const teachervideoApi = {
+  // Start a new video session for a class
+  startVideoSession: async (classId) => {
     try {
+      const meetingId = `class_${classId}_${Date.now()}`;
+      
       const { data, error } = await supabase
-        .from('students')
-        .select('*')
-        .eq('teacher_id', teacherId)
-        .order('name', { ascending: true });
+        .from('video_sessions')
+        .insert([
+          {
+            class_id: classId,
+            meeting_id: meetingId,
+            status: 'active',
+            started_at: new Date().toISOString()
+          }
+        ])
+        .select()
+        .single();
 
       if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error fetching teacher students:', error);
-      throw error;
-    }
-  },
 
-  // Get teacher's classes
-  getMyClasses: async (teacherId) => {
-    try {
-      const { data, error } = await supabase
+      // Update class status to active
+      await supabase
         .from('classes')
-        .select('*')
-        .eq('teacher_id', teacherId)
-        .order('scheduled_date', { ascending: true });
+        .update({ status: 'active' })
+        .eq('id', classId);
 
-      if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching teacher classes:', error);
+      console.error('Error starting video session:', error);
       throw error;
     }
   },
 
-  // Get assignments submitted to teacher
-  getAssignments: async (teacherId) => {
+  // End a video session
+  endVideoSession: async (sessionId, classId) => {
+    try {
+      const { error } = await supabase
+        .from('video_sessions')
+        .update({
+          status: 'ended',
+          ended_at: new Date().toISOString()
+        })
+        .eq('id', sessionId);
+
+      if (error) throw error;
+
+      // Update class status to completed
+      await supabase
+        .from('classes')
+        .update({ status: 'completed' })
+        .eq('id', classId);
+
+    } catch (error) {
+      console.error('Error ending video session:', error);
+      throw error;
+    }
+  },
+
+  // Get active video sessions for a teacher
+  getActiveSessions: async (teacherId) => {
     try {
       const { data, error } = await supabase
-        .from('assignments')
+        .from('video_sessions')
         .select(`
           *,
-          student:student_id (name, email),
-          class:class_id (title)
+          class:classes (
+            id,
+            title,
+            teacher_id
+          )
         `)
-        .eq('teacher_id', teacherId)
-        .order('submitted_at', { ascending: false });
+        .eq('status', 'active')
+        .eq('class.teacher_id', teacherId);
 
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching assignments:', error);
+      console.error('Error fetching active sessions:', error);
       throw error;
     }
-  }
+  },
+
+  // Generate Agora token (call your backend API)
+  generateAgoraToken: async (channelName, uid = 0) => {
+    try {
+      // This calls your Render backend endpoint
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await getAuthToken()}`
+        },
+        body: JSON.stringify({
+          channelName,
+          uid,
+          role: 'publisher' // teacher is publisher
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to generate token: ${response.statusText}`);
+      }
+
+      const tokenData = await response.json();
+      return tokenData;
+    } catch (error) {
+      console.error('Error generating Agora token:', error);
+      throw error;
+    }
+  },
+
+ 
+  },
+
+
+// Helper function to get auth token
+const getAuthToken = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token;
 };
