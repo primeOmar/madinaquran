@@ -3,7 +3,6 @@ import { useState, useEffect, useRef } from "react";
 import { makeApiRequest } from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard,
   FileText,
   CreditCard,
   ClipboardList,
@@ -41,8 +40,6 @@ import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 
 // === UTILITY FUNCTIONS ===
-
-// Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -130,15 +127,8 @@ const useAudioRecorder = () => {
   };
 };
 
-// Audio upload function
 const uploadAudioToSupabase = async (audioBlob, fileName) => {
   try {
-    console.log('🎯 [Upload] Starting audio upload...', {
-      blob_size: audioBlob.size,
-      blob_type: audioBlob.type,
-      file_name: fileName
-    });
-
     const audioFile = new File([audioBlob], fileName, { 
       type: 'audio/wav',
       lastModified: Date.now()
@@ -159,9 +149,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
       });
 
     if (error) {
-      if (error.message.includes('row-level security policy')) {
-        throw new Error('Storage permissions issue. Please contact admin to configure bucket policies.');
-      }
       throw new Error(`Upload failed: ${error.message}`);
     }
 
@@ -180,9 +167,7 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
   }
 };
 
-// Student API functions for notifications
 const studentApi = {
-  // Get notifications for current student
   getMyNotifications: async (limit = 20, page = 1) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -216,7 +201,6 @@ const studentApi = {
     }
   },
 
-  // Mark notification as read
   markAsRead: async (notificationId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -244,7 +228,6 @@ const studentApi = {
     }
   },
 
-  // Mark all notifications as read
   markAllAsRead: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -271,7 +254,6 @@ const studentApi = {
     }
   },
 
-  // Get unread notification count
   getUnreadCount: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -294,7 +276,6 @@ const studentApi = {
     }
   },
 
-  // Delete notification
   deleteNotification: async (notificationId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -319,7 +300,6 @@ const studentApi = {
     }
   },
 
-  // Clear all notifications
   clearAllNotifications: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -343,27 +323,7 @@ const studentApi = {
   }
 };
 
-// Simple DollarSign component
-const DollarSign = ({ size = 16, className = "" }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    className={className} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round"
-  >
-    <line x1="12" y1="1" x2="12" y2="23"></line>
-    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-  </svg>
-);
-
 // === REACT COMPONENTS ===
-
-// Audio Player Component
 const AudioPlayer = ({ audioUrl, onDelete }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -449,7 +409,6 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
   );
 };
 
-// Assignment Submission Modal
 const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) => {
   const [submitting, setSubmitting] = useState(false);
   const [submissionText, setSubmissionText] = useState('');
@@ -607,7 +566,6 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
   );
 };
 
-// Assignment Item Component
 const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
   const [showSubmissionModal, setShowSubmissionModal] = useState(false);
 
@@ -720,7 +678,6 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
   );
 };
 
-// Class Item Component
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinClass }) => {
   const timeInfo = getTimeUntilClass(classItem.scheduled_date);
   const isClassStarted = timeInfo.status === 'started';
@@ -826,7 +783,6 @@ export default function Dashboard() {
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
-  const [exams, setExams] = useState([]);
   const [stats, setStats] = useState([
     { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
     { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
@@ -860,15 +816,7 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // Helper functions for notifications
-  const getNotificationType = (notification) => {
-    const data = notification.data || {};
-    if (data.assignment_id) return 'assignment';
-    if (data.class_id) return 'class';
-    if (data.payment_id) return 'payment';
-    return 'info';
-  };
-
+  // Helper functions
   const formatNotificationTime = (timestamp) => {
     const now = new Date();
     const notificationTime = new Date(timestamp);
@@ -889,13 +837,7 @@ export default function Dashboard() {
   const handleMarkAllAsRead = async () => {
     try {
       await studentApi.markAllAsRead();
-      
-      // Update local state
-      setNotifications(prev => prev.map(notification => ({ 
-        ...notification, 
-        read: true 
-      })));
-      
+      setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
       toast.success('All notifications marked as read');
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -905,21 +847,14 @@ export default function Dashboard() {
 
   const handleNotificationClick = async (notification) => {
     try {
-      // Mark as read in database if not already read
       if (!notification.read) {
         await studentApi.markAsRead(notification.id);
       }
-
-      // Update local state
       setNotifications(prev => 
-        prev.map(n => 
-          n.id === notification.id ? { ...n, read: true } : n
-        )
+        prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
       );
-      
       setIsNotificationsOpen(false);
       
-      // Navigate based on notification type
       if (notification.data?.assignment_id) {
         setActiveSection('assignments');
       } else if (notification.data?.class_id) {
@@ -929,7 +864,6 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Error handling notification click:', error);
-      // Still navigate even if marking as read fails
       setIsNotificationsOpen(false);
     }
   };
@@ -946,14 +880,10 @@ export default function Dashboard() {
   };
 
   const handleDeleteNotification = async (notificationId, event) => {
-    event.stopPropagation(); // Prevent triggering the notification click
-    
+    event.stopPropagation();
     try {
       await studentApi.deleteNotification(notificationId);
-      
-      // Remove from local state
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
-      
       toast.success('Notification deleted');
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -1019,14 +949,7 @@ export default function Dashboard() {
     setLoadingClasses(true);
     try {
       const classesData = await makeApiRequest('/api/student/classes');
-      
-      if (Array.isArray(classesData)) {
-        setClasses(classesData);
-      } else if (classesData && Array.isArray(classesData.classes)) {
-        setClasses(classesData.classes);
-      } else {
-        setClasses([]);
-      }
+      setClasses(Array.isArray(classesData) ? classesData : classesData?.classes || []);
     } catch (error) {
       console.error('Error fetching classes:', error);
       setClasses([]);
@@ -1039,14 +962,7 @@ export default function Dashboard() {
     setLoadingAssignments(true);
     try {
       const assignmentsData = await makeApiRequest('/api/student/assignments');
-      
-      if (Array.isArray(assignmentsData)) {
-        setAssignments(assignmentsData);
-      } else if (assignmentsData && Array.isArray(assignmentsData.assignments)) {
-        setAssignments(assignmentsData.assignments);
-      } else {
-        setAssignments([]);
-      }
+      setAssignments(Array.isArray(assignmentsData) ? assignmentsData : assignmentsData?.assignments || []);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       setAssignments([]);
@@ -1059,14 +975,7 @@ export default function Dashboard() {
     setLoadingPayments(true);
     try {
       const paymentsData = await makeApiRequest('/api/student/payments');
-      
-      if (Array.isArray(paymentsData)) {
-        setPayments(paymentsData);
-      } else if (paymentsData && Array.isArray(paymentsData.payments)) {
-        setPayments(paymentsData.payments);
-      } else {
-        setPayments([]);
-      }
+      setPayments(Array.isArray(paymentsData) ? paymentsData : paymentsData?.payments || []);
     } catch (error) {
       console.error('Error fetching payments:', error);
       setPayments([]);
@@ -1094,7 +1003,6 @@ export default function Dashboard() {
         setStudentName(user.user_metadata?.full_name || 'Student');
         setUserEmailVerified(user.email_confirmed_at !== null);
         
-        // Fetch all data in parallel
         await Promise.all([
           fetchStatsData(),
           fetchClasses(),
@@ -1159,7 +1067,6 @@ export default function Dashboard() {
 
       if (result.success) {
         toast.success('Assignment submitted successfully!');
-        // Refresh assignments to show updated status
         await fetchAssignments();
       } else {
         throw new Error(result.error || 'Failed to submit assignment');
@@ -1210,8 +1117,6 @@ export default function Dashboard() {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      
-      // Redirect to login page
       window.location.href = '/login';
     } catch (error) {
       console.error('Error logging out:', error);
@@ -1229,7 +1134,6 @@ export default function Dashboard() {
       });
 
       if (error) throw error;
-      
       setEmailSent(true);
       toast.success('Verification email sent! Check your inbox.');
     } catch (error) {
@@ -1249,9 +1153,7 @@ export default function Dashboard() {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (!mobile) {
-        setIsSidebarOpen(false);
-      }
+      if (!mobile) setIsSidebarOpen(false);
     };
 
     handleResize();
@@ -1259,12 +1161,10 @@ export default function Dashboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Auto-refresh notifications every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       fetchNotifications();
     }, 30000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -1280,534 +1180,521 @@ export default function Dashboard() {
     );
   }
 
- // Main dashboard render
-return (
-  <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-emerald-900 flex">
-    {/* Email verification banner - Fixed position */}
-    {!userEmailVerified && (
-      <div className="fixed top-0 left-0 right-0 bg-yellow-600 text-white px-4 py-3 z-50">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between">
-          <div className="flex items-center mb-2 md:mb-0">
-            <AlertCircle className="mr-2" size={20} />
-            <span>Please verify your email address to access all features.</span>
-          </div>
-          <button
-            onClick={handleResendVerification}
-            disabled={resendingEmail || emailSent}
-            className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-          >
-            {resendingEmail ? 'Sending...' : emailSent ? 'Email Sent!' : 'Resend Verification'}
-          </button>
-        </div>
-      </div>
-    )}
-
-    {/* Sidebar */}
-    <div className={`
-      fixed inset-y-0 left-0 z-40 w-64 bg-green-800/90 backdrop-blur-lg transform transition-transform duration-300 ease-in-out
-      ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      md:translate-x-0 md:relative md:flex-shrink-0
-      ${!userEmailVerified ? 'mt-12' : ''}
-    `}>
-      <div className="flex flex-col h-full">
-        {/* Logo */}
-        <div className="p-6 border-b border-green-700/30">
-          <h1 className="text-2xl font-bold text-white">EduPlatform</h1>
-          <p className="text-green-300 text-sm">Student Dashboard</p>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-2">
-          {[
-            { id: "classes", label: "My Classes", icon: Video },
-            { id: "assignments", label: "Assignments", icon: FileText },
-            { id: "exams", label: "Exams & Tests", icon: ClipboardList },
-            { id: "payments", label: "Payments", icon: CreditCard },
-            { id: "progress", label: "My Progress", icon: TrendingUp },
-          ].map((item) => (
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-emerald-900 flex">
+      {/* Email verification banner */}
+      {!userEmailVerified && (
+        <div className="fixed top-0 left-0 right-0 bg-yellow-600 text-white px-4 py-3 z-50">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between">
+            <div className="flex items-center mb-2 md:mb-0">
+              <AlertCircle className="mr-2" size={20} />
+              <span>Please verify your email address to access all features.</span>
+            </div>
             <button
-              key={item.id}
-              onClick={() => {
-                setActiveSection(item.id);
-                if (isMobile) setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 ${
-                activeSection === item.id
-                  ? "bg-green-700 text-white shadow-lg"
-                  : "text-green-200 hover:bg-green-700/50 hover:text-white"
-              }`}
+              onClick={handleResendVerification}
+              disabled={resendingEmail || emailSent}
+              className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
             >
-              <item.icon className="mr-3" size={20} />
-              {item.label}
+              {resendingEmail ? 'Sending...' : emailSent ? 'Email Sent!' : 'Resend Verification'}
             </button>
-          ))}
-        </nav>
+          </div>
+        </div>
+      )}
 
-        {/* User section */}
-        <div className="p-4 border-t border-green-700/30">
-          <div className="flex items-center space-x-3 p-3 rounded-lg bg-green-700/30">
-            <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
-              <User size={20} className="text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm truncate">{studentName}</p>
-              <p className="text-green-300 text-xs truncate">Student</p>
+      {/* Sidebar */}
+      <div className={`
+        fixed inset-y-0 left-0 z-40 w-64 bg-green-800/90 backdrop-blur-lg transform transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0 md:relative
+      `}>
+        <div className="flex flex-col h-full">
+          <div className="p-6 border-b border-green-700/30">
+            <h1 className="text-2xl font-bold text-white">EduPlatform</h1>
+            <p className="text-green-300 text-sm">Student Dashboard</p>
+          </div>
+
+          <nav className="flex-1 p-4 space-y-2">
+            {[
+              { id: "classes", label: "My Classes", icon: Video },
+              { id: "assignments", label: "Assignments", icon: FileText },
+              { id: "exams", label: "Exams & Tests", icon: ClipboardList },
+              { id: "payments", label: "Payments", icon: CreditCard },
+              { id: "progress", label: "My Progress", icon: TrendingUp },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveSection(item.id);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 ${
+                  activeSection === item.id
+                    ? "bg-green-700 text-white shadow-lg"
+                    : "text-green-200 hover:bg-green-700/50 hover:text-white"
+                }`}
+              >
+                <item.icon className="mr-3" size={20} />
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="p-4 border-t border-green-700/30">
+            <div className="flex items-center space-x-3 p-3 rounded-lg bg-green-700/30">
+              <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
+                <User size={20} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-medium text-sm truncate">{studentName}</p>
+                <p className="text-green-300 text-xs truncate">Student</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-
-    {/* Main content area */}
-    <div className="flex-1 flex flex-col min-h-screen md:ml-0">
-      {/* Header */}
-      <header className={`bg-green-800/50 backdrop-blur-lg border-b border-green-700/30 sticky top-0 z-30 ${!userEmailVerified ? 'mt-12' : ''}`}>
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="md:hidden p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
-              >
-                {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-              </button>
-              <h2 className="text-2xl font-bold text-white capitalize">
-                {activeSection === 'classes' && 'My Classes'}
-                {activeSection === 'assignments' && 'Assignments'}
-                {activeSection === 'exams' && 'Exams & Tests'}
-                {activeSection === 'payments' && 'Payments'}
-                {activeSection === 'progress' && 'My Progress'}
-              </h2>
-            </div>
-
-            <div className="flex items-center space-x-4">
-              {/* Notifications */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                  className="relative p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
-                >
-                  <Bell size={20} />
-                  {notifications.filter(n => !n.read).length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                      {notifications.filter(n => !n.read).length}
-                    </span>
-                  )}
-                </button>
-
-                {/* Notifications dropdown */}
-                {isNotificationsOpen && (
-                  <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
-                    <div className="p-4 border-b border-green-700/30">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-semibold text-white">Notifications</h3>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={handleMarkAllAsRead}
-                            className="text-xs text-green-300 hover:text-white transition-colors"
-                          >
-                            Mark all read
-                          </button>
-                          <button
-                            onClick={handleClearAllNotifications}
-                            className="text-xs text-red-300 hover:text-red-200 transition-colors"
-                          >
-                            Clear all
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="max-h-96 overflow-y-auto">
-                      {notifications.length === 0 ? (
-                        <div className="p-4 text-center text-green-300 text-sm">
-                          No notifications
-                        </div>
-                      ) : (
-                        notifications.map((notification) => (
-                          <div
-                            key={notification.id}
-                            onClick={() => handleNotificationClick(notification)}
-                            className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
-                              !notification.read ? 'bg-green-700/30' : ''
-                            }`}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="flex-1">
-                                <p className="text-white text-sm font-medium">
-                                  {notification.title}
-                                </p>
-                                <p className="text-green-300 text-xs mt-1">
-                                  {notification.message}
-                                </p>
-                                <p className="text-green-400 text-xs mt-2">
-                                  {formatNotificationTime(notification.created_at)}
-                                </p>
-                              </div>
-                              <button
-                                onClick={(e) => handleDeleteNotification(notification.id, e)}
-                                className="text-red-300 hover:text-red-200 transition-colors ml-2"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* User menu */}
-              <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center space-x-3 p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
-                >
-                  <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
-                    <User size={16} className="text-white" />
-                  </div>
-                  <ChevronDown size={16} className="text-green-300" />
-                </button>
-
-                {userMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
-                    <div className="p-2">
-                      <button className="w-full flex items-center px-3 py-2 text-sm text-green-200 hover:bg-green-700/50 rounded-lg transition-colors">
-                        <Settings className="mr-2" size={16} />
-                        Settings
-                      </button>
-                      <button
-                        onClick={handleLogout}
-                        disabled={isLoggingOut}
-                        className="w-full flex items-center px-3 py-2 text-sm text-red-300 hover:bg-red-500/20 rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {isLoggingOut ? (
-                          <Loader2 className="animate-spin mr-2" size={16} />
-                        ) : (
-                          <LogOut className="mr-2" size={16} />
-                        )}
-                        {isLoggingOut ? 'Logging out...' : 'Logout'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
 
       {/* Main content */}
-      <main className="flex-1 p-6 overflow-auto">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.map((stat, index) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: index * 0.1 }}
-              className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6 hover:bg-green-800/50 transition-all duration-300 hover:scale-105"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-300 text-sm font-medium">{stat.label}</p>
-                  <p className="text-white text-2xl font-bold mt-2">{stat.value}</p>
-                  <p className="text-green-400 text-xs mt-1">{stat.change} from last week</p>
+      <div className="flex-1 flex flex-col min-h-screen md:ml-0">
+        <header className="bg-green-800/50 backdrop-blur-lg border-b border-green-700/30 sticky top-0 z-30">
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  className="md:hidden p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+                >
+                  {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+                </button>
+                <h2 className="text-2xl font-bold text-white capitalize">
+                  {activeSection === 'classes' && 'My Classes'}
+                  {activeSection === 'assignments' && 'Assignments'}
+                  {activeSection === 'exams' && 'Exams & Tests'}
+                  {activeSection === 'payments' && 'Payments'}
+                  {activeSection === 'progress' && 'My Progress'}
+                </h2>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <div className="relative">
+                  <button
+                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                    className="relative p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+                  >
+                    <Bell size={20} />
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                        {notifications.filter(n => !n.read).length}
+                      </span>
+                    )}
+                  </button>
+
+                  {isNotificationsOpen && (
+                    <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
+                      <div className="p-4 border-b border-green-700/30">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-white">Notifications</h3>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={handleMarkAllAsRead}
+                              className="text-xs text-green-300 hover:text-white transition-colors"
+                            >
+                              Mark all read
+                            </button>
+                            <button
+                              onClick={handleClearAllNotifications}
+                              className="text-xs text-red-300 hover:text-red-200 transition-colors"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="max-h-96 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="p-4 text-center text-green-300 text-sm">
+                            No notifications
+                          </div>
+                        ) : (
+                          notifications.map((notification) => (
+                            <div
+                              key={notification.id}
+                              onClick={() => handleNotificationClick(notification)}
+                              className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
+                                !notification.read ? 'bg-green-700/30' : ''
+                              }`}
+                            >
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <p className="text-white text-sm font-medium">
+                                    {notification.title}
+                                  </p>
+                                  <p className="text-green-300 text-xs mt-1">
+                                    {notification.message}
+                                  </p>
+                                  <p className="text-green-400 text-xs mt-2">
+                                    {formatNotificationTime(notification.created_at)}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={(e) => handleDeleteNotification(notification.id, e)}
+                                  className="text-red-300 hover:text-red-200 transition-colors ml-2"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="p-3 bg-green-700/50 rounded-lg">
-                  <stat.icon className="text-green-300" size={24} />
+
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center space-x-3 p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+                  >
+                    <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                      <User size={16} className="text-white" />
+                    </div>
+                    <ChevronDown size={16} className="text-green-300" />
+                  </button>
+
+                  {userMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-48 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
+                      <div className="p-2">
+                        <button className="w-full flex items-center px-3 py-2 text-sm text-green-200 hover:bg-green-700/50 rounded-lg transition-colors">
+                          <Settings className="mr-2" size={16} />
+                          Settings
+                        </button>
+                        <button
+                          onClick={handleLogout}
+                          disabled={isLoggingOut}
+                          className="w-full flex items-center px-3 py-2 text-sm text-red-300 hover:bg-red-500/20 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {isLoggingOut ? (
+                            <Loader2 className="animate-spin mr-2" size={16} />
+                          ) : (
+                            <LogOut className="mr-2" size={16} />
+                          )}
+                          {isLoggingOut ? 'Logging out...' : 'Logout'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* Progress Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.4 }}
-          className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6 mb-8"
-        >
-          <h3 className="text-xl font-bold text-white mb-4 flex items-center">
-            <TrendingUp className="mr-2" size={24} />
-            Learning Progress
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-green-700/30 rounded-lg">
-              <div className="text-2xl font-bold text-white">{progressStats.completionRate}%</div>
-              <div className="text-green-300 text-sm">Completion Rate</div>
-            </div>
-            <div className="text-center p-4 bg-green-700/30 rounded-lg">
-              <div className="text-2xl font-bold text-white">{progressStats.streak} days</div>
-              <div className="text-green-300 text-sm">Learning Streak</div>
-            </div>
-            <div className="text-center p-4 bg-green-700/30 rounded-lg">
-              <div className="text-2xl font-bold text-white">Level {progressStats.level}</div>
-              <div className="text-green-300 text-sm">Current Level</div>
-            </div>
-            <div className="text-center p-4 bg-green-700/30 rounded-lg">
-              <div className="text-2xl font-bold text-white">{progressStats.points} pts</div>
-              <div className="text-green-300 text-sm">{progressStats.nextLevel} to next level</div>
             </div>
           </div>
-        </motion.div>
+        </header>
 
-        {/* Dynamic Content Sections */}
-        <AnimatePresence mode="wait">
-          {activeSection === 'classes' && (
-            <motion.section
-              key="classes"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
-            >
-              <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-bold text-white">My Classes</h3>
-                <button 
-                  onClick={fetchClasses}
-                  className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
-                >
-                  <RefreshCw className="mr-2" size={16} />
-                  Refresh
-                </button>
+        <main className="flex-1 p-6 overflow-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {stats.map((stat, index) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.1 }}
+                className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6 hover:bg-green-800/50 transition-all duration-300 hover:scale-105"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-green-300 text-sm font-medium">{stat.label}</p>
+                    <p className="text-white text-2xl font-bold mt-2">{stat.value}</p>
+                    <p className="text-green-400 text-xs mt-1">{stat.change} from last week</p>
+                  </div>
+                  <div className="p-3 bg-green-700/50 rounded-lg">
+                    <stat.icon className="text-green-300" size={24} />
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.4 }}
+            className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6 mb-8"
+          >
+            <h3 className="text-xl font-bold text-white mb-4 flex items-center">
+              <TrendingUp className="mr-2" size={24} />
+              Learning Progress
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-green-700/30 rounded-lg">
+                <div className="text-2xl font-bold text-white">{progressStats.completionRate}%</div>
+                <div className="text-green-300 text-sm">Completion Rate</div>
               </div>
+              <div className="text-center p-4 bg-green-700/30 rounded-lg">
+                <div className="text-2xl font-bold text-white">{progressStats.streak} days</div>
+                <div className="text-green-300 text-sm">Learning Streak</div>
+              </div>
+              <div className="text-center p-4 bg-green-700/30 rounded-lg">
+                <div className="text-2xl font-bold text-white">Level {progressStats.level}</div>
+                <div className="text-green-300 text-sm">Current Level</div>
+              </div>
+              <div className="text-center p-4 bg-green-700/30 rounded-lg">
+                <div className="text-2xl font-bold text-white">{progressStats.points} pts</div>
+                <div className="text-green-300 text-sm">{progressStats.nextLevel} to next level</div>
+              </div>
+            </div>
+          </motion.div>
 
-              {loadingClasses ? (
-                <div className="text-center py-12">
-                  <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-                  <p className="text-green-200 mt-4">Loading classes...</p>
-                </div>
-              ) : classes.length === 0 ? (
-                <div className="text-center py-12 bg-green-800/30 rounded-xl">
-                  <Video className="mx-auto text-green-400" size={48} />
-                  <h4 className="text-white text-xl font-semibold mt-4">No classes scheduled</h4>
-                  <p className="text-green-300 mt-2">Your upcoming classes will appear here.</p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {classes.map((classItem) => (
-                    <ClassItem
-                      key={classItem.id}
-                      classItem={classItem}
-                      formatDate={formatDate}
-                      formatTime={formatTime}
-                      getTimeUntilClass={getTimeUntilClass}
-                      joinClass={handleJoinClass}
-                    />
-                  ))}
-                </div>
-              )}
-            </motion.section>
-          )}
-
-          {activeSection === 'assignments' && (
-            <motion.section
-              key="assignments"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
-            >
-              <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-bold text-white">Assignments</h3>
-                <div className="flex space-x-3">
-                  <select className="bg-green-800/50 border border-green-700/30 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                    <option>All Status</option>
-                    <option>Pending</option>
-                    <option>Submitted</option>
-                    <option>Graded</option>
-                  </select>
+          <AnimatePresence mode="wait">
+            {activeSection === 'classes' && (
+              <motion.section
+                key="classes"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-white">My Classes</h3>
                   <button 
-                    onClick={fetchAssignments}
+                    onClick={fetchClasses}
                     className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
                   >
                     <RefreshCw className="mr-2" size={16} />
                     Refresh
                   </button>
                 </div>
-              </div>
 
-              {loadingAssignments ? (
-                <div className="text-center py-12">
-                  <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-                  <p className="text-green-200 mt-4">Loading assignments...</p>
-                </div>
-              ) : assignments.length === 0 ? (
-                <div className="text-center py-12 bg-green-800/30 rounded-xl">
-                  <FileText className="mx-auto text-green-400" size={48} />
-                  <h4 className="text-white text-xl font-semibold mt-4">No assignments</h4>
-                  <p className="text-green-300 mt-2">Your assignments will appear here.</p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {assignments.map((assignment) => (
-                    <AssignmentItem
-                      key={assignment.id}
-                      assignment={assignment}
-                      onSubmitAssignment={handleSubmitAssignment}
-                      formatDate={formatDate}
-                    />
-                  ))}
-                </div>
-              )}
-            </motion.section>
-          )}
+                {loadingClasses ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
+                    <p className="text-green-200 mt-4">Loading classes...</p>
+                  </div>
+                ) : classes.length === 0 ? (
+                  <div className="text-center py-12 bg-green-800/30 rounded-xl">
+                    <Video className="mx-auto text-green-400" size={48} />
+                    <h4 className="text-white text-xl font-semibold mt-4">No classes scheduled</h4>
+                    <p className="text-green-300 mt-2">Your upcoming classes will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {classes.map((classItem) => (
+                      <ClassItem
+                        key={classItem.id}
+                        classItem={classItem}
+                        formatDate={formatDate}
+                        formatTime={formatTime}
+                        getTimeUntilClass={getTimeUntilClass}
+                        joinClass={handleJoinClass}
+                      />
+                    ))}
+                  </div>
+                )}
+              </motion.section>
+            )}
 
-          {activeSection === 'payments' && (
-            <motion.section
-              key="payments"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
-            >
-              <h3 className="text-2xl font-bold text-white">Payment History</h3>
-              
-              {loadingPayments ? (
-                <div className="text-center py-12">
-                  <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-                  <p className="text-green-200 mt-4">Loading payments...</p>
+            {activeSection === 'assignments' && (
+              <motion.section
+                key="assignments"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-bold text-white">Assignments</h3>
+                  <div className="flex space-x-3">
+                    <select className="bg-green-800/50 border border-green-700/30 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                      <option>All Status</option>
+                      <option>Pending</option>
+                      <option>Submitted</option>
+                      <option>Graded</option>
+                    </select>
+                    <button 
+                      onClick={fetchAssignments}
+                      className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
+                    >
+                      <RefreshCw className="mr-2" size={16} />
+                      Refresh
+                    </button>
+                  </div>
                 </div>
-              ) : payments.length === 0 ? (
-                <div className="text-center py-12 bg-green-800/30 rounded-xl">
-                  <CreditCard className="mx-auto text-green-400" size={48} />
-                  <h4 className="text-white text-xl font-semibold mt-4">No payment history</h4>
-                  <p className="text-green-300 mt-2">Your payment records will appear here.</p>
-                </div>
-              ) : (
-                <div className="bg-green-800/30 rounded-xl overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-green-700/50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                          Description
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                          Amount
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-green-700/30">
-                      {payments.map((payment) => (
-                        <tr key={payment.id} className="hover:bg-green-700/20 transition-colors">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                            {formatDate(payment.created_at)}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-green-200">
-                            {payment.description}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                            ${payment.amount}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              payment.status === 'completed' 
-                                ? 'bg-green-900/50 text-green-300'
-                                : payment.status === 'pending'
-                                ? 'bg-yellow-900/50 text-yellow-300'
-                                : 'bg-red-900/50 text-red-300'
-                            }`}>
-                              {payment.status}
-                            </span>
-                          </td>
+
+                {loadingAssignments ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
+                    <p className="text-green-200 mt-4">Loading assignments...</p>
+                  </div>
+                ) : assignments.length === 0 ? (
+                  <div className="text-center py-12 bg-green-800/30 rounded-xl">
+                    <FileText className="mx-auto text-green-400" size={48} />
+                    <h4 className="text-white text-xl font-semibold mt-4">No assignments</h4>
+                    <p className="text-green-300 mt-2">Your assignments will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {assignments.map((assignment) => (
+                      <AssignmentItem
+                        key={assignment.id}
+                        assignment={assignment}
+                        onSubmitAssignment={handleSubmitAssignment}
+                        formatDate={formatDate}
+                      />
+                    ))}
+                  </div>
+                )}
+              </motion.section>
+            )}
+
+            {activeSection === 'payments' && (
+              <motion.section
+                key="payments"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <h3 className="text-2xl font-bold text-white">Payment History</h3>
+                
+                {loadingPayments ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
+                    <p className="text-green-200 mt-4">Loading payments...</p>
+                  </div>
+                ) : payments.length === 0 ? (
+                  <div className="text-center py-12 bg-green-800/30 rounded-xl">
+                    <CreditCard className="mx-auto text-green-400" size={48} />
+                    <h4 className="text-white text-xl font-semibold mt-4">No payment history</h4>
+                    <p className="text-green-300 mt-2">Your payment records will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="bg-green-800/30 rounded-xl overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-green-700/50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
+                            Date
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
+                            Description
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
+                            Amount
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
+                            Status
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </motion.section>
-          )}
+                      </thead>
+                      <tbody className="divide-y divide-green-700/30">
+                        {payments.map((payment) => (
+                          <tr key={payment.id} className="hover:bg-green-700/20 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                              {formatDate(payment.created_at)}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-green-200">
+                              {payment.description}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                              ${payment.amount}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                payment.status === 'completed' 
+                                  ? 'bg-green-900/50 text-green-300'
+                                  : payment.status === 'pending'
+                                  ? 'bg-yellow-900/50 text-yellow-300'
+                                  : 'bg-red-900/50 text-red-300'
+                              }`}>
+                                {payment.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </motion.section>
+            )}
 
-          {activeSection === 'progress' && (
-            <motion.section
-              key="progress"
+            {activeSection === 'progress' && (
+              <motion.section
+                key="progress"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <h3 className="text-2xl font-bold text-white">Detailed Progress</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6">
+                    <h4 className="text-lg font-semibold text-white mb-4">Weekly Activity</h4>
+                    <div className="h-64 flex items-center justify-center text-green-300">
+                      Activity chart will be implemented here
+                    </div>
+                  </div>
+                  <div className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6">
+                    <h4 className="text-lg font-semibold text-white mb-4">Subject Performance</h4>
+                    <div className="h-64 flex items-center justify-center text-green-300">
+                      Performance chart will be implemented here
+                    </div>
+                  </div>
+                </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          {hasTeacher && (
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
+              transition={{ duration: 0.3, delay: 0.6 }}
+              className="mt-8 bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6"
             >
-              <h3 className="text-2xl font-bold text-white">Detailed Progress</h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6">
-                  <h4 className="text-lg font-semibold text-white mb-4">Weekly Activity</h4>
-                  <div className="h-64 flex items-center justify-center text-green-300">
-                    Activity chart will be implemented here
-                  </div>
-                </div>
-                <div className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6">
-                  <h4 className="text-lg font-semibold text-white mb-4">Subject Performance</h4>
-                  <div className="h-64 flex items-center justify-center text-green-300">
-                    Performance chart will be implemented here
-                  </div>
+              <h3 className="text-xl font-bold text-white mb-4 flex items-center">
+                <Mail className="mr-2" size={24} />
+                Contact Your Teacher
+              </h3>
+              <div className="space-y-4">
+                <textarea
+                  value={contactMessage}
+                  onChange={(e) => setContactMessage(e.target.value)}
+                  placeholder="Type your message to the teacher here..."
+                  rows="4"
+                  className="w-full p-4 rounded-lg bg-green-800/50 border border-green-700/30 text-white placeholder-green-300 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
+                />
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={sendingMessage || !contactMessage.trim()}
+                    className="bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed py-2 px-6 rounded-lg flex items-center transition-all duration-200"
+                  >
+                    {sendingMessage ? (
+                      <>
+                        <Loader2 className="animate-spin mr-2" size={16} />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="mr-2" size={16} />
+                        Send Message
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
-            </motion.section>
+            </motion.div>
           )}
-        </AnimatePresence>
+        </main>
+      </div>
 
-        {/* Contact Teacher Section */}
-        {hasTeacher && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.6 }}
-            className="mt-8 bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6"
-          >
-            <h3 className="text-xl font-bold text-white mb-4 flex items-center">
-              <Mail className="mr-2" size={24} />
-              Contact Your Teacher
-            </h3>
-            <div className="space-y-4">
-              <textarea
-                value={contactMessage}
-                onChange={(e) => setContactMessage(e.target.value)}
-                placeholder="Type your message to the teacher here..."
-                rows="4"
-                className="w-full p-4 rounded-lg bg-green-800/50 border border-green-700/30 text-white placeholder-green-300 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSendMessage}
-                  disabled={sendingMessage || !contactMessage.trim()}
-                  className="bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed py-2 px-6 rounded-lg flex items-center transition-all duration-200"
-                >
-                  {sendingMessage ? (
-                    <>
-                      <Loader2 className="animate-spin mr-2" size={16} />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Mail className="mr-2" size={16} />
-                      Send Message
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </main>
+      {/* Mobile sidebar overlay */}
+      {isSidebarOpen && isMobile && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
     </div>
-
-    {/* Mobile sidebar overlay */}
-    {isSidebarOpen && isMobile && (
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
-        onClick={() => setIsSidebarOpen(false)}
-      />
-    )}
-  </div>
-);
+  );
+}
