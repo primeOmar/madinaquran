@@ -1,13 +1,8 @@
-// teacherApi.js - Fixed with proper backend calls
+// teacherApi.js - With fallback and timeout handling
 import { supabase } from './supabaseClient';
 
-const getAuthToken = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token;
-};
-
-const teachervideoApi = {
-  // Start video session
+const teacherApi = {
+  // Start video session (on Render)
   startVideoSession: async (classId) => {
     try {
       const meetingId = `class_${classId}_${Date.now()}`;
@@ -27,6 +22,7 @@ const teachervideoApi = {
 
       if (error) throw error;
 
+      // Update class status
       await supabase
         .from('classes')
         .update({ status: 'active' })
@@ -39,16 +35,17 @@ const teachervideoApi = {
     }
   },
 
-  // Generate Agora token - CALLS YOUR BACKEND
+  // Smart token generation with multiple fallbacks
   generateAgoraToken: async (channelName, uid = 0) => {
+    const timeout = 8000; // 8 second timeout
+    
     try {
-      console.log('Calling backend for Agora token...');
-      
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-token`, {
+      console.log('🔄 Getting token from Render backend...');
+
+      // Try Render backend first (primary)
+      const renderPromise = fetch(`${process.env.REACT_APP_RENDER_URL}/api/agora/generate-token`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           channelName,
           uid,
@@ -56,29 +53,42 @@ const teachervideoApi = {
         })
       });
 
+      // Race between fetch and timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), timeout)
+      );
+
+      const response = await Promise.race([renderPromise, timeoutPromise]);
+      
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Backend error: ${response.status} - ${errorText}`);
+        throw new Error(`Render backend error: ${response.status}`);
       }
 
       const tokenData = await response.json();
-      console.log('Token received from backend');
-      return tokenData;
       
+      if (tokenData.success) {
+        console.log('✅ Token from Render backend');
+        return tokenData;
+      } else {
+        throw new Error('Render backend returned error');
+      }
+
     } catch (error) {
-      console.error('Error calling token backend:', error);
+      console.log('⚠️ Render backend failed, using development mode:', error.message);
       
-      // Fallback for development
+      // Fallback: Development mode (no token)
       return {
-        token: null, // Temporary token-less mode
+        success: true,
+        token: null, // Token-less mode for development
         appId: process.env.REACT_APP_AGORA_APP_ID,
         channelName: channelName,
-        uid: uid
+        uid: uid,
+        isFallback: true
       };
     }
   },
 
-  // Get classes
+  // Get classes (from Render/Supabase)
   getMyClasses: async (teacherId) => {
     try {
       const { data, error } = await supabase
@@ -101,7 +111,19 @@ const teachervideoApi = {
       console.error('Error fetching teacher classes:', error);
       throw error;
     }
+  },
+
+  // Check video service health
+  checkVideoHealth: async () => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_RENDER_URL}/api/agora/health`, {
+        timeout: 5000
+      });
+      return await response.json();
+    } catch (error) {
+      return { status: 'unavailable', error: error.message };
+    }
   }
 };
 
-export default teachervideoApi;
+export default teacherApi;
