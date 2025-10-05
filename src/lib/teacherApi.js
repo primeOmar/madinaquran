@@ -7,7 +7,6 @@ const getAuthToken = async () => {
 };
 
 export const teacherApi = {
- 
   // Start a new video session for a class
   startVideoSession: async (classId) => {
     try {
@@ -118,3 +117,37 @@ export const teacherApi = {
       throw error;
     }
   },
+
+  // Get teacher's classes (needed for video sessions)
+  getMyClasses: async (teacherId) => {
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .select(`
+          *,
+          students_classes (
+            student_id,
+            students (
+              id,
+              name,
+              email
+            )
+          ),
+          video_sessions (
+            id,
+            meeting_id,
+            status,
+            created_at
+          )
+        `)
+        .eq('teacher_id', teacherId)
+        .order('scheduled_date', { ascending: true });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching teacher classes:', error);
+      throw error;
+    }
+  }
+};
