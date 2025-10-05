@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
-import { teacherApi } from '../lib/teacherApi';
+import { teachervideoApi } from '../lib/teacherApi';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
 import VideoCall from '../components/VideoCall'
