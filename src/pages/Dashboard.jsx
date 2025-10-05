@@ -568,6 +568,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
 
 const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
   const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+  const [isMobileNotificationsOpen, setIsMobileNotificationsOpen] = useState(false);
 
   const isSubmitted = assignment.submissions?.[0]?.status === "submitted" || 
                      assignment.submissions?.[0]?.status === "graded";
@@ -1276,80 +1277,190 @@ export default function Dashboard() {
 
               <div className="flex items-center space-x-4">
                 <div className="relative">
-                  <button
-                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                    className="relative p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
-                  >
-                    <Bell size={20} />
-                    {notifications.filter(n => !n.read).length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                        {notifications.filter(n => !n.read).length}
-                      </span>
-                    )}
-                  </button>
+  <button
+    onClick={() => {
+      if (isMobile) {
+        setIsMobileNotificationsOpen(true);
+      } else {
+        setIsNotificationsOpen(!isNotificationsOpen);
+      }
+    }}
+    className="relative p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+  >
+    <Bell size={20} />
+    {notifications.filter(n => !n.read).length > 0 && (
+      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+        {notifications.filter(n => !n.read).length}
+      </span>
+    )}
+  </button>
 
-                  {isNotificationsOpen && (
-                    <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
-                      <div className="p-4 border-b border-green-700/30">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold text-white">Notifications</h3>
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={handleMarkAllAsRead}
-                              className="text-xs text-green-300 hover:text-white transition-colors"
-                            >
-                              Mark all read
-                            </button>
-                            <button
-                              onClick={handleClearAllNotifications}
-                              className="text-xs text-red-300 hover:text-red-200 transition-colors"
-                            >
-                              Clear all
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+  {/* Desktop Notifications Dropdown */}
+  {!isMobile && isNotificationsOpen && (
+    <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
+      <div className="p-4 border-b border-green-700/30">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-white">Notifications</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={handleMarkAllAsRead}
+              className="text-xs text-green-300 hover:text-white transition-colors"
+            >
+              Mark all read
+            </button>
+            <button
+              onClick={handleClearAllNotifications}
+              className="text-xs text-red-300 hover:text-red-200 transition-colors"
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
+      </div>
 
-                      <div className="max-h-96 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="p-4 text-center text-green-300 text-sm">
-                            No notifications
-                          </div>
-                        ) : (
-                          notifications.map((notification) => (
-                            <div
-                              key={notification.id}
-                              onClick={() => handleNotificationClick(notification)}
-                              className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
-                                !notification.read ? 'bg-green-700/30' : ''
-                              }`}
-                            >
-                              <div className="flex justify-between items-start">
-                                <div className="flex-1">
-                                  <p className="text-white text-sm font-medium">
-                                    {notification.title}
-                                  </p>
-                                  <p className="text-green-300 text-xs mt-1">
-                                    {notification.message}
-                                  </p>
-                                  <p className="text-green-400 text-xs mt-2">
-                                    {formatNotificationTime(notification.created_at)}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={(e) => handleDeleteNotification(notification.id, e)}
-                                  className="text-red-300 hover:text-red-200 transition-colors ml-2"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
+      <div className="max-h-96 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="p-4 text-center text-green-300 text-sm">
+            No notifications
+          </div>
+        ) : (
+          notifications.map((notification) => (
+            <div
+              key={notification.id}
+              onClick={() => handleNotificationClick(notification)}
+              className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
+                !notification.read ? 'bg-green-700/30' : ''
+              }`}
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <p className="text-white text-sm font-medium">
+                    {notification.title}
+                  </p>
+                  <p className="text-green-300 text-xs mt-1">
+                    {notification.message}
+                  </p>
+                  <p className="text-green-400 text-xs mt-2">
+                    {formatNotificationTime(notification.created_at)}
+                  </p>
                 </div>
+                <button
+                  onClick={(e) => handleDeleteNotification(notification.id, e)}
+                  className="text-red-300 hover:text-red-200 transition-colors ml-2"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )}
+
+  {/* Mobile Full-Screen Notifications Modal */}
+  {isMobile && isMobileNotificationsOpen && (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md">
+      <motion.div 
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 50 }}
+        className="flex flex-col h-full bg-green-900/95"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-green-700/30">
+          <h3 className="text-xl font-bold text-white">Notifications</h3>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleMarkAllAsRead}
+              className="text-sm text-green-300 hover:text-white transition-colors px-3 py-1 bg-green-700/50 rounded-lg"
+            >
+              Mark all read
+            </button>
+            <button
+              onClick={() => setIsMobileNotificationsOpen(false)}
+              className="p-2 text-green-300 hover:text-white transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Notifications List */}
+        <div className="flex-1 overflow-y-auto">
+          {notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center p-8">
+              <Bell size={48} className="text-green-400 mb-4" />
+              <h4 className="text-white text-lg font-semibold mb-2">No notifications</h4>
+              <p className="text-green-300 text-sm">You're all caught up!</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-green-700/30">
+              {notifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  onClick={() => {
+                    handleNotificationClick(notification);
+                    setIsMobileNotificationsOpen(false);
+                  }}
+                  className={`p-4 cursor-pointer transition-colors hover:bg-green-700/50 ${
+                    !notification.read ? 'bg-green-700/30' : ''
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between">
+                        <p className="text-white font-medium text-base mb-1">
+                          {notification.title}
+                        </p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteNotification(notification.id, e);
+                          }}
+                          className="text-red-300 hover:text-red-200 transition-colors ml-3 p-1"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <p className="text-green-300 text-sm mb-2">
+                        {notification.message}
+                      </p>
+                      <p className="text-green-400 text-xs">
+                        {formatNotificationTime(notification.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions */}
+        {notifications.length > 0 && (
+          <div className="p-4 border-t border-green-700/30">
+            <div className="flex space-x-3">
+              <button
+                onClick={handleClearAllNotifications}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors text-sm font-medium"
+              >
+                Clear All Notifications
+              </button>
+              <button
+                onClick={() => setIsMobileNotificationsOpen(false)}
+                className="flex-1 py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  )}
+</div>
+
 
                 <div className="relative">
                   <button
