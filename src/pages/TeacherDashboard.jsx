@@ -809,15 +809,52 @@ export default function TeacherDashboard() {
   ];
 
   // Tab Components
- const ClassesTab = ({ classes, formatDateTime }) => {
+ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
   const [activeVideoCall, setActiveVideoCall] = useState(null);
-  const [startingSession, setStartingSession] = useState(null); // Track which class is starting
+  const [startingSession, setStartingSession] = useState(null);
+  const [endingSession, setEndingSession] = useState(null);
   const { user } = useAuth();
 
+  // Enhanced end session function
+  const handleEndVideoSession = async (classItem, session) => {
+    try {
+      setEndingSession(classItem.id);
+      
+      // 1. End the video session via API
+      await teacherApi.endVideoSession(session.meeting_id);
+      
+      // 2. Notify students that class has ended
+      await teacherApi.notifyClassEnded(classItem.id, {
+        meeting_id: session.meeting_id,
+        class_title: classItem.title,
+        duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
+      });
+      
+      // 3. Close the video call if it's open
+      if (activeVideoCall && activeVideoCall.meetingId === session.meeting_id) {
+        setActiveVideoCall(null);
+      }
+      
+      // 4. Show success message
+      toast.success('Class session ended successfully! Students have been notified.');
+      
+      // 5. Call refresh callback to update the UI
+      if (onClassEnded) {
+        onClassEnded();
+      }
+      
+    } catch (error) {
+      console.error('Error ending video session:', error);
+      toast.error(`Failed to end session: ${error.message}`);
+    } finally {
+      setEndingSession(null);
+    }
+  };
+
+  // Enhanced start session function
   const handleStartVideoSession = async (classItem) => {
     try {
-      setStartingSession(classItem.id); // Show loading for this specific class
-      
+      setStartingSession(classItem.id);
       const session = await teacherApi.startVideoSession(classItem.id);
       
       setActiveVideoCall({
@@ -826,10 +863,10 @@ export default function TeacherDashboard() {
         isTeacher: true
       });
       
-      setStartingSession(null); // Clear loading state
+      setStartingSession(null);
       toast.success('Class session started! Students can now join.');
     } catch (error) {
-      setStartingSession(null); // Clear loading state on error
+      setStartingSession(null);
       toast.error(`Failed to start session: ${error.message}`);
     }
   };
@@ -853,21 +890,60 @@ export default function TeacherDashboard() {
     toast.success('Class link copied to clipboard!');
   };
 
+  // Function to force end all sessions (emergency)
+  const handleForceEndAllSessions = async () => {
+    try {
+      const activeClasses = classes.filter(cls => 
+        cls.video_sessions?.some(s => s.status === 'active')
+      );
+      
+      for (const classItem of activeClasses) {
+        const activeSession = classItem.video_sessions.find(s => s.status === 'active');
+        if (activeSession) {
+          await handleEndVideoSession(classItem, activeSession);
+        }
+      }
+      
+      toast.success('All active sessions have been ended.');
+    } catch (error) {
+      toast.error('Error ending sessions: ' + error.message);
+    }
+  };
+
   return (
     <div>
-      {/* Video Call Modal - Only shows when teacher explicitly starts/joins */}
+      {/* Video Call Modal */}
       {activeVideoCall && (
         <VideoCall
           meetingId={activeVideoCall.meetingId}
           user={user}
           isTeacher={activeVideoCall.isTeacher}
           onLeave={handleLeaveVideoCall}
+          onSessionEnded={() => {
+            // This callback is called when the teacher ends the session from within the VideoCall component
+            const classItem = activeVideoCall.class;
+            const activeSession = classItem.video_sessions?.find(s => s.status === 'active');
+            if (activeSession) {
+              handleEndVideoSession(classItem, activeSession);
+            }
+          }}
         />
       )}
 
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-2xl font-bold text-white">My Classes</h3>
         <div className="flex items-center space-x-4">
+          {/* Show emergency end button if there are active sessions */}
+          {classes.some(cls => cls.video_sessions?.some(s => s.status === 'active')) && (
+            <button
+              onClick={handleForceEndAllSessions}
+              className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white text-sm flex items-center"
+              title="Force end all active sessions"
+            >
+              <X size={16} className="mr-2" />
+              End All Sessions
+            </button>
+          )}
           <div className="flex items-center space-x-2 text-blue-300">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
             <span className="text-sm">Live sessions available</span>
@@ -881,6 +957,7 @@ export default function TeacherDashboard() {
             const activeSession = classItem.video_sessions?.find(s => s.status === 'active');
             const studentCount = classItem.students_classes?.length || 0;
             const isStartingThisSession = startingSession === classItem.id;
+            const isEndingThisSession = endingSession === classItem.id;
 
             return (
               <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6 hover:from-blue-900/60 hover:to-purple-900/60 transition-all duration-300 group">
@@ -926,6 +1003,26 @@ export default function TeacherDashboard() {
                       </div>
                     </div>
 
+                    {/* Session Info for Active Sessions */}
+                    {activeSession && (
+                      <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-green-300 font-medium">Session Started</p>
+                            <p className="text-green-200">
+                              {new Date(activeSession.started_at).toLocaleTimeString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-green-300 font-medium">Duration</p>
+                            <p className="text-green-200">
+                              {Math.round((new Date() - new Date(activeSession.started_at)) / 60000)} minutes
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {classItem.description && (
                       <p className="text-blue-300 text-lg mb-4 leading-relaxed">
                         {classItem.description}
@@ -941,7 +1038,7 @@ export default function TeacherDashboard() {
                   </div>
 
                   <div className="flex flex-col space-y-3 w-full lg:w-auto">
-                    {/* Start Session Button - Only for scheduled classes without active session */}
+                    {/* Start Session Button */}
                     {classItem.status === 'scheduled' && !activeSession && (
                       <button
                         onClick={() => handleStartVideoSession(classItem)}
@@ -962,7 +1059,7 @@ export default function TeacherDashboard() {
                       </button>
                     )}
                     
-                    {/* Join Session Button - Only when there's an active session */}
+                    {/* Active Session Buttons */}
                     {activeSession && (
                       <>
                         <button
@@ -972,6 +1069,7 @@ export default function TeacherDashboard() {
                           <Video size={20} className="mr-3" />
                           Join Live Class
                         </button>
+                        
                         <button
                           onClick={() => copyClassLink(activeSession.meeting_id)}
                           className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
@@ -979,27 +1077,26 @@ export default function TeacherDashboard() {
                           <Share2 size={20} className="mr-3" />
                           Copy Invite Link
                         </button>
+                        
+                        {/* End Session Button */}
+                        <button
+                          onClick={() => handleEndVideoSession(classItem, activeSession)}
+                          disabled={isEndingThisSession}
+                          className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        >
+                          {isEndingThisSession ? (
+                            <>
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                              Ending Session...
+                            </>
+                          ) : (
+                            <>
+                              <X size={20} className="mr-3" />
+                              End Class Session
+                            </>
+                          )}
+                        </button>
                       </>
-                    )}
-
-                    {/* End Session Button - For teacher to end active session */}
-                    {activeSession && (
-                      <button
-                        onClick={async () => {
-                          try {
-                            await teacherApi.endVideoSession(activeSession.meeting_id);
-                            toast.success('Class session ended');
-                            // Reload classes to update the UI
-                            // You might want to add a reload function here
-                          } catch (error) {
-                            toast.error('Failed to end session');
-                          }
-                        }}
-                        className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-                      >
-                        <X size={20} className="mr-3" />
-                        End Session
-                      </button>
                     )}
                   </div>
                 </div>
@@ -1032,6 +1129,11 @@ export default function TeacherDashboard() {
                     <span>
                       {studentCount} student{studentCount !== 1 ? 's' : ''} enrolled
                     </span>
+                    {activeSession && (
+                      <span className="text-green-400">
+                        • Live session active
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
