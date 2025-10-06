@@ -1,11 +1,11 @@
-// teacherApi.js - Agora and Video Calls Only
+// teacherApi.js - Complete with all video functions
 import { supabase } from './supabaseClient';
 
 // ✅ YOUR AGORA APP ID
 const AGORA_APP_ID = '5355da02bb0d48579214912e0d31193f';
 
 // Agora Token Generation
-const generateAgoraToken = async (channelName, uid = 0) => {
+export const generateAgoraToken = async (channelName, uid = 0) => {
   try {
     console.log('🚀 Starting Agora token generation...');
     console.log('✅ Using App ID:', AGORA_APP_ID);
@@ -30,7 +30,7 @@ const generateAgoraToken = async (channelName, uid = 0) => {
       }
     }
 
-    // Fallback: Token-less mode (Agora allows this for development)
+    // Fallback: Token-less mode
     console.log('🎯 Using Agora token-less mode');
     return {
       token: null,
@@ -44,7 +44,7 @@ const generateAgoraToken = async (channelName, uid = 0) => {
   } catch (error) {
     console.error('❌ Token generation failed:', error);
     
-    // Final fallback - always return the App ID
+    // Final fallback
     return {
       token: null,
       appId: AGORA_APP_ID,
@@ -57,7 +57,7 @@ const generateAgoraToken = async (channelName, uid = 0) => {
 };
 
 // Start Video Session
-const startVideoSession = async (classId) => {
+export const startVideoSession = async (classId) => {
   try {
     const meetingId = `class_${classId}_${Date.now()}`;
     
@@ -76,7 +76,6 @@ const startVideoSession = async (classId) => {
 
     if (error) throw error;
 
-    // Update class status to active
     await supabase
       .from('classes')
       .update({ status: 'active' })
@@ -91,18 +90,23 @@ const startVideoSession = async (classId) => {
 };
 
 // End Video Session
-const endVideoSession = async (meetingId) => {
+export const endVideoSession = async (meetingId) => {
   try {
-    // First try to find the session by meeting_id
+    console.log('🛑 Ending video session:', meetingId);
+    
+    // Find session by meeting_id
     const { data: session, error: findError } = await supabase
       .from('video_sessions')
       .select('*')
       .eq('meeting_id', meetingId)
       .single();
 
-    if (findError) throw findError;
+    if (findError) {
+      console.error('❌ Session not found:', findError);
+      throw findError;
+    }
 
-    // Update session status to ended
+    // Update session status
     const { error: updateError } = await supabase
       .from('video_sessions')
       .update({
@@ -113,7 +117,7 @@ const endVideoSession = async (meetingId) => {
 
     if (updateError) throw updateError;
 
-    // Update class status back to scheduled if session has a class_id
+    // Update class status
     if (session.class_id) {
       await supabase
         .from('classes')
@@ -121,7 +125,7 @@ const endVideoSession = async (meetingId) => {
         .eq('id', session.class_id);
     }
 
-    console.log('✅ Video session ended:', meetingId);
+    console.log('✅ Video session ended successfully');
     return { success: true, message: 'Session ended successfully' };
   } catch (error) {
     console.error('❌ Error ending video session:', error);
@@ -129,8 +133,8 @@ const endVideoSession = async (meetingId) => {
   }
 };
 
-// Get Active Video Sessions for a Class
-const getActiveVideoSessions = async (classId) => {
+// Get Active Video Sessions
+export const getActiveVideoSessions = async (classId) => {
   try {
     const { data, error } = await supabase
       .from('video_sessions')
@@ -147,10 +151,9 @@ const getActiveVideoSessions = async (classId) => {
   }
 };
 
-// Notify Students that Class Has Ended
-const notifyClassEnded = async (classId, sessionData) => {
+// Notify Students
+export const notifyClassEnded = async (classId, sessionData) => {
   try {
-    // Get all students in the class
     const { data: enrollments, error: enrollmentError } = await supabase
       .from('students_classes')
       .select('student_id')
@@ -158,7 +161,6 @@ const notifyClassEnded = async (classId, sessionData) => {
 
     if (enrollmentError) throw enrollmentError;
 
-    // Create notifications for each student
     const notifications = enrollments.map(enrollment => ({
       student_id: enrollment.student_id,
       title: 'Class Session Ended',
@@ -176,7 +178,7 @@ const notifyClassEnded = async (classId, sessionData) => {
       if (notificationError) throw notificationError;
     }
 
-    console.log(`✅ Notified ${notifications.length} students about class end`);
+    console.log(`✅ Notified ${notifications.length} students`);
     return { success: true, notified_count: notifications.length };
   } catch (error) {
     console.error('❌ Error notifying students:', error);
@@ -184,8 +186,8 @@ const notifyClassEnded = async (classId, sessionData) => {
   }
 };
 
-// Get Teacher Classes (needed for video sessions)
-const getMyClasses = async (teacherId) => {
+// Get Teacher Classes
+export const getMyClasses = async (teacherId) => {
   try {
     const { data, error } = await supabase
       .from('classes')
@@ -204,21 +206,18 @@ const getMyClasses = async (teacherId) => {
   }
 };
 
-// Main API Object - Only Video & Agora Functions
+// Main API Object
 const teachervideoApi = {
-  // Agora Functions
   generateAgoraToken,
-  
-  // Video Session Functions
   startVideoSession,
   endVideoSession,
   getActiveVideoSessions,
   notifyClassEnded,
-  
-  // Class Functions (needed for video sessions)
   getMyClasses
 };
 
-console.log('🔧 teachervideoApi loaded with Agora App ID:', AGORA_APP_ID);
-console.log('🔧 Available functions:', Object.keys(teachervideoApi));
+// Debug: Check if all functions are properly attached
+console.log('🔧 teachervideoApi loaded with functions:', Object.keys(teachervideoApi));
+console.log('🔧 endVideoSession function type:', typeof teachervideoApi.endVideoSession);
+
 export default teachervideoApi;
