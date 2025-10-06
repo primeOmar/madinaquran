@@ -809,13 +809,15 @@ export default function TeacherDashboard() {
   ];
 
   // Tab Components
-  // In your TeacherDashboard.jsx - Updated ClassesTab component
-const ClassesTab = ({ classes, formatDateTime }) => {
+ const ClassesTab = ({ classes, formatDateTime }) => {
   const [activeVideoCall, setActiveVideoCall] = useState(null);
+  const [startingSession, setStartingSession] = useState(null); // Track which class is starting
   const { user } = useAuth();
 
   const handleStartVideoSession = async (classItem) => {
     try {
+      setStartingSession(classItem.id); // Show loading for this specific class
+      
       const session = await teacherApi.startVideoSession(classItem.id);
       
       setActiveVideoCall({
@@ -824,8 +826,10 @@ const ClassesTab = ({ classes, formatDateTime }) => {
         isTeacher: true
       });
       
+      setStartingSession(null); // Clear loading state
       toast.success('Class session started! Students can now join.');
     } catch (error) {
+      setStartingSession(null); // Clear loading state on error
       toast.error(`Failed to start session: ${error.message}`);
     }
   };
@@ -851,7 +855,7 @@ const ClassesTab = ({ classes, formatDateTime }) => {
 
   return (
     <div>
-      {/* Video Call Modal */}
+      {/* Video Call Modal - Only shows when teacher explicitly starts/joins */}
       {activeVideoCall && (
         <VideoCall
           meetingId={activeVideoCall.meetingId}
@@ -876,6 +880,7 @@ const ClassesTab = ({ classes, formatDateTime }) => {
           {classes.map((classItem) => {
             const activeSession = classItem.video_sessions?.find(s => s.status === 'active');
             const studentCount = classItem.students_classes?.length || 0;
+            const isStartingThisSession = startingSession === classItem.id;
 
             return (
               <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6 hover:from-blue-900/60 hover:to-purple-900/60 transition-all duration-300 group">
@@ -936,16 +941,28 @@ const ClassesTab = ({ classes, formatDateTime }) => {
                   </div>
 
                   <div className="flex flex-col space-y-3 w-full lg:w-auto">
-                    {classItem.status === 'scheduled' && (
+                    {/* Start Session Button - Only for scheduled classes without active session */}
+                    {classItem.status === 'scheduled' && !activeSession && (
                       <button
                         onClick={() => handleStartVideoSession(classItem)}
-                        className="bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 group"
+                        disabled={isStartingThisSession}
+                        className="bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                       >
-                        <Play size={20} className="mr-3" />
-                        Start Live Class
+                        {isStartingThisSession ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                            Starting Session...
+                          </>
+                        ) : (
+                          <>
+                            <Play size={20} className="mr-3" />
+                            Start Live Class
+                          </>
+                        )}
                       </button>
                     )}
                     
+                    {/* Join Session Button - Only when there's an active session */}
                     {activeSession && (
                       <>
                         <button
@@ -963,6 +980,26 @@ const ClassesTab = ({ classes, formatDateTime }) => {
                           Copy Invite Link
                         </button>
                       </>
+                    )}
+
+                    {/* End Session Button - For teacher to end active session */}
+                    {activeSession && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await teacherApi.endVideoSession(activeSession.meeting_id);
+                            toast.success('Class session ended');
+                            // Reload classes to update the UI
+                            // You might want to add a reload function here
+                          } catch (error) {
+                            toast.error('Failed to end session');
+                          }
+                        }}
+                        className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
+                      >
+                        <X size={20} className="mr-3" />
+                        End Session
+                      </button>
                     )}
                   </div>
                 </div>
