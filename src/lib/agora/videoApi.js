@@ -1,4 +1,4 @@
-import { supabase } from '../../supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const AGORA_APP_ID = '5355da02bb0d48579214912e0d31193f';
 
