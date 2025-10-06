@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/supabaseClient';
-import { endVideoSession, startVideoSession, generateAgoraToken } from '../lib/teacherApi';
+import videoApi from '../lib/videoApi';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
 import VideoCall from '../components/VideoCall'
@@ -815,42 +815,37 @@ export default function TeacherDashboard() {
   const [endingSession, setEndingSession] = useState(null);
   const { user } = useAuth();
 
-  // Enhanced end session function
   const handleEndVideoSession = async (classItem, session) => {
-    try {
-      setEndingSession(classItem.id);
-      
-      // 1. End the video session via API
-      await teacherApi.endVideoSession(session.meeting_id);
-      
-      // 2. Notify students that class has ended
-      await teacherApi.notifyClassEnded(classItem.id, {
-        meeting_id: session.meeting_id,
-        class_title: classItem.title,
-        duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
-      });
-      
-      // 3. Close the video call if it's open
-      if (activeVideoCall && activeVideoCall.meetingId === session.meeting_id) {
-        setActiveVideoCall(null);
-      }
-      
-      // 4. Show success message
-      toast.success('Class session ended successfully! Students have been notified.');
-      
-      // 5. Call refresh callback to update the UI
-      if (onClassEnded) {
-        onClassEnded();
-      }
-      
-    } catch (error) {
-      console.error('Error ending video session:', error);
-      toast.error(`Failed to end session: ${error.message}`);
-    } finally {
-      setEndingSession(null);
+  try {
+    console.log('🛑 Attempting to end session...');
+    console.log('🔧 videoApi object:', videoApi);
+    console.log('🔧 endVideoSession function:', videoApi.endVideoSession);
+    
+    if (typeof videoApi.endVideoSession !== 'function') {
+      throw new Error('endVideoSession is not a function!');
     }
-  };
-
+    
+    // Call the function
+    await videoApi.endVideoSession(session.meeting_id);
+    
+    // Notify students
+    await videoApi.notifyClassEnded(classItem.id, {
+      meeting_id: session.meeting_id,
+      class_title: classItem.title,
+      duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
+    });
+    
+    toast.success('Class session ended successfully!');
+    
+    // Refresh data
+    await loadTeacherData();
+    
+  } catch (error) {
+    console.error('❌ Error ending video session:', error);
+    toast.error(`Failed to end session: ${error.message}`);
+  }
+};
+   
   // Enhanced start session function
   const handleStartVideoSession = async (classItem) => {
     try {
