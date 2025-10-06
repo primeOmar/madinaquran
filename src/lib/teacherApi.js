@@ -133,6 +133,78 @@ const teachervideoApi = {
     }
   }
 };
+ endVideoSession: async (meetingId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/video-sessions/${meetingId}/end`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await getToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to end session: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error ending video session:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get active video sessions for a class
+   */
+  getActiveVideoSessions: async (classId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/classes/${classId}/active-sessions`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${await getToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get active sessions: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting active sessions:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Notify students that class has ended
+   */
+  notifyClassEnded: async (classId, sessionData) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/classes/${classId}/notify-ended`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await getToken()}`
+        },
+        body: JSON.stringify({
+          session_data: sessionData,
+          ended_at: new Date().toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to notify students: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error notifying students:', error);
+      throw error;
+    }
+  }
+};
 
 console.log('🔧 teachervideoApi loaded with Agora App ID:', AGORA_APP_ID);
 export default teachervideoApi;
