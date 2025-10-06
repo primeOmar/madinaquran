@@ -220,4 +220,5 @@ const teachervideoApi = {
 };
 
 console.log('🔧 teachervideoApi loaded with Agora App ID:', AGORA_APP_ID);
+console.log('🔧 Available functions:', Object.keys(teachervideoApi));
 export default teachervideoApi;
