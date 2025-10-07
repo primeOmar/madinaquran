@@ -14,7 +14,7 @@ import { toast } from 'react-toastify';
 import useAgoraProduction from '../hooks/useAgoraProduction';
 
 // ✅ Import video API
-import videoApi from '../lib/videoApi';
+import videoApi from '../lib/agora/videoApi';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
