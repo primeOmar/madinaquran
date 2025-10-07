@@ -816,41 +816,35 @@ export default function TeacherDashboard() {
   const { user } = useAuth();
 
   const handleEndVideoSession = async (classItem, session) => {
-  try {
-    console.log('🛑 Attempting to end session...');
-    console.log('🔧 videoApi object:', videoApi);
-    console.log('🔧 endVideoSession function:', videoApi.endVideoSession);
-    
-    if (typeof videoApi.endVideoSession !== 'function') {
-      throw new Error('endVideoSession is not a function!');
+    try {
+      setEndingSession(classItem.id);
+      
+      await videoApi.endVideoSession(session.meeting_id);
+      
+      await videoApi.notifyClassEnded(classItem.id, {
+        meeting_id: session.meeting_id,
+        class_title: classItem.title,
+        duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
+      });
+      
+      toast.success('Class session ended successfully!');
+      
+      if (onClassEnded) {
+        onClassEnded();
+      }
+      
+    } catch (error) {
+      console.error('Error ending video session:', error);
+      toast.error(`Failed to end session: ${error.message}`);
+    } finally {
+      setEndingSession(null);
     }
-    
-    // Call the function
-    await videoApi.endVideoSession(session.meeting_id);
-    
-    // Notify students
-    await videoApi.notifyClassEnded(classItem.id, {
-      meeting_id: session.meeting_id,
-      class_title: classItem.title,
-      duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
-    });
-    
-    toast.success('Class session ended successfully!');
-    
-    // Refresh data
-    await loadTeacherData();
-    
-  } catch (error) {
-    console.error('❌ Error ending video session:', error);
-    toast.error(`Failed to end session: ${error.message}`);
-  }
-};
-   
-  // Enhanced start session function
+  };
+
   const handleStartVideoSession = async (classItem) => {
     try {
       setStartingSession(classItem.id);
-      const session = await teacherApi.startVideoSession(classItem.id);
+      const session = await videoApi.startVideoSession(classItem.id);
       
       setActiveVideoCall({
         meetingId: session.meeting_id,
@@ -885,7 +879,6 @@ export default function TeacherDashboard() {
     toast.success('Class link copied to clipboard!');
   };
 
-  // Function to force end all sessions (emergency)
   const handleForceEndAllSessions = async () => {
     try {
       const activeClasses = classes.filter(cls => 
@@ -915,7 +908,6 @@ export default function TeacherDashboard() {
           isTeacher={activeVideoCall.isTeacher}
           onLeave={handleLeaveVideoCall}
           onSessionEnded={() => {
-            // This callback is called when the teacher ends the session from within the VideoCall component
             const classItem = activeVideoCall.class;
             const activeSession = classItem.video_sessions?.find(s => s.status === 'active');
             if (activeSession) {
@@ -925,10 +917,10 @@ export default function TeacherDashboard() {
         />
       )}
 
+      {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-2xl font-bold text-white">My Classes</h3>
         <div className="flex items-center space-x-4">
-          {/* Show emergency end button if there are active sessions */}
           {classes.some(cls => cls.video_sessions?.some(s => s.status === 'active')) && (
             <button
               onClick={handleForceEndAllSessions}
@@ -946,6 +938,7 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
+      {/* Classes List */}
       {classes.length > 0 ? (
         <div className="grid gap-6">
           {classes.map((classItem) => {
@@ -956,7 +949,11 @@ export default function TeacherDashboard() {
 
             return (
               <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6 hover:from-blue-900/60 hover:to-purple-900/60 transition-all duration-300 group">
+                
+                {/* Class Header */}
                 <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+                  
+                  {/* Class Info */}
                   <div className="flex-1">
                     <div className="flex items-start justify-between mb-4">
                       <h4 className="font-bold text-2xl text-white group-hover:text-blue-200 transition-colors">
@@ -970,6 +967,7 @@ export default function TeacherDashboard() {
                       )}
                     </div>
                     
+                    {/* Class Details */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                       <div className="flex items-center text-blue-200">
                         <Calendar size={18} className="mr-3 text-blue-400" />
@@ -998,7 +996,7 @@ export default function TeacherDashboard() {
                       </div>
                     </div>
 
-                    {/* Session Info for Active Sessions */}
+                    {/* Active Session Info */}
                     {activeSession && (
                       <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
                         <div className="grid grid-cols-2 gap-4 text-sm">
@@ -1018,12 +1016,14 @@ export default function TeacherDashboard() {
                       </div>
                     )}
 
+                    {/* Class Description */}
                     {classItem.description && (
                       <p className="text-blue-300 text-lg mb-4 leading-relaxed">
                         {classItem.description}
                       </p>
                     )}
 
+                    {/* Course Name */}
                     {classItem.course?.name && (
                       <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
                         <BookOpen size={16} className="mr-2 text-blue-400" />
@@ -1032,6 +1032,7 @@ export default function TeacherDashboard() {
                     )}
                   </div>
 
+                  {/* Action Buttons */}
                   <div className="flex flex-col space-y-3 w-full lg:w-auto">
                     {/* Start Session Button */}
                     {classItem.status === 'scheduled' && !activeSession && (
@@ -1073,7 +1074,6 @@ export default function TeacherDashboard() {
                           Copy Invite Link
                         </button>
                         
-                        {/* End Session Button */}
                         <button
                           onClick={() => handleEndVideoSession(classItem, activeSession)}
                           disabled={isEndingThisSession}
@@ -1096,7 +1096,7 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                {/* Status & Quick Info */}
+                {/* Status Footer */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
                   <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
                     <span className={`px-4 py-2 rounded-full text-xs font-bold ${
