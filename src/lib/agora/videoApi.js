@@ -1,5 +1,5 @@
 // lib/videoApi.js - PRODUCTION READY
-import api from './api';
+import api from '../api';
 
 // Get API base URL - works in both development and production
 const getApiBaseUrl = () => {
