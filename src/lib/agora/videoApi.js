@@ -5,7 +5,7 @@ import api from './api';
 const getApiBaseUrl = () => {
   // In development, use the backend server URL
   if (process.env.NODE_ENV === 'development') {
-    return process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
+    return process.env.REACT_APP_API_BASE_URL || 'https://madina-quran-backend.onrender.com';
   }
   
   // In production, use relative path (same domain) or configured URL
