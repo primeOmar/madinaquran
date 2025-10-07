@@ -1,15 +1,15 @@
-// lib/videoApi.js - PRODUCTION READY
-import api from '../api';
+// lib/videoApi.js - REACT + EXPRESS PRODUCTION READY
+import api from './api';
 
 // Get API base URL - works in both development and production
 const getApiBaseUrl = () => {
-  // In browser environment (client-side)
-  if (typeof window !== 'undefined') {
-    // Use relative path for same-domain deployment, or full URL for separate backend
-    return process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  // In development, use the backend server URL
+  if (process.env.NODE_ENV === 'development') {
+    return process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
   }
-  // Server-side (if using Next.js API routes)
-  return '';
+  
+  // In production, use relative path (same domain) or configured URL
+  return process.env.REACT_APP_API_BASE_URL || '';
 };
 
 const videoApi = {
@@ -18,9 +18,14 @@ const videoApi = {
       console.log('🔐 Requesting token for:', { meetingId, userId });
       
       const apiBaseUrl = getApiBaseUrl();
-      const endpoint = `${apiBaseUrl}/api/agora/generate-token`;
+      // Use relative path in production, full URL in development
+      const endpoint = apiBaseUrl 
+        ? `${apiBaseUrl}/api/agora/generate-token`
+        : '/api/agora/generate-token';
       
       console.log('🌐 Calling endpoint:', endpoint);
+      console.log('�️ Environment:', process.env.NODE_ENV);
+      console.log('🔧 API Base URL:', apiBaseUrl);
 
       const response = await api.post(endpoint, {
         channelName: meetingId,
@@ -71,7 +76,8 @@ const videoApi = {
       }
       
       // Fallback to frontend appId if available
-      const fallbackAppId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+      const fallbackAppId = process.env.REACT_APP_AGORA_APP_ID;
+      console.log('🔄 Using fallback App ID:', !!fallbackAppId);
       
       return {
         token: null,
@@ -85,9 +91,11 @@ const videoApi = {
   async endVideoSession(meetingId) {
     try {
       const apiBaseUrl = getApiBaseUrl();
-      const response = await api.post(`${apiBaseUrl}/api/agora/end-session`, {
-        meetingId
-      });
+      const endpoint = apiBaseUrl 
+        ? `${apiBaseUrl}/api/agora/end-session`
+        : '/api/agora/end-session';
+      
+      const response = await api.post(endpoint, { meetingId });
       return response.data;
     } catch (error) {
       console.error('Error ending video session:', error);
@@ -99,11 +107,31 @@ const videoApi = {
   async checkVideoHealth() {
     try {
       const apiBaseUrl = getApiBaseUrl();
-      const response = await api.get(`${apiBaseUrl}/api/agora/health`);
+      const endpoint = apiBaseUrl 
+        ? `${apiBaseUrl}/api/agora/health`
+        : '/api/agora/health';
+      
+      const response = await api.get(endpoint);
       return response.data;
     } catch (error) {
       console.error('Video health check failed:', error);
       return { status: 'unhealthy', error: error.message };
+    }
+  },
+
+  // Test connection
+  async testConnection() {
+    try {
+      const apiBaseUrl = getApiBaseUrl();
+      const endpoint = apiBaseUrl 
+        ? `${apiBaseUrl}/api/health`
+        : '/api/health';
+      
+      const response = await api.get(endpoint);
+      return response.data;
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      throw error;
     }
   }
 };
