@@ -1,212 +1,111 @@
-import { supabase } from '../supabaseClient';
+// lib/videoApi.js - PRODUCTION READY
+import api from './api';
 
-const AGORA_APP_ID = '5355da02bb0d48579214912e0d31193f';
+// Get API base URL - works in both development and production
+const getApiBaseUrl = () => {
+  // In browser environment (client-side)
+  if (typeof window !== 'undefined') {
+    // Use relative path for same-domain deployment, or full URL for separate backend
+    return process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  }
+  // Server-side (if using Next.js API routes)
+  return '';
+};
 
-// Simple object with all functions directly defined
 const videoApi = {
-    generateAgoraToken: async (channelName, uid = 0) => {
+  async generateAgoraToken(meetingId, userId) {
     try {
-      console.log('🚀 Generating Agora token for channel:', channelName);
+      console.log('🔐 Requesting token for:', { meetingId, userId });
       
-      // ALWAYS return the App ID, even if token generation fails
-      const baseResponse = {
-        appId: AGORA_APP_ID, // This is the critical fix
-        channelName: channelName,
-        uid: uid,
-        success: true
-      };
+      const apiBaseUrl = getApiBaseUrl();
+      const endpoint = `${apiBaseUrl}/api/agora/generate-token`;
+      
+      console.log('🌐 Calling endpoint:', endpoint);
 
-      // Try backend token generation
-      if (process.env.REACT_APP_RENDER_URL) {
-        try {
-          console.log('🔄 Trying backend token generation...');
-          const response = await fetch(`${process.env.REACT_APP_RENDER_URL}/api/agora/generate-token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              channelName, 
-              uid, 
-              role: 'publisher',
-              appId: AGORA_APP_ID 
-            })
-          });
+      const response = await api.post(endpoint, {
+        channelName: meetingId,
+        uid: userId.toString(),
+        role: 'publisher'
+      });
 
-          if (response.ok) {
-            const tokenData = await response.json();
-            console.log('✅ Token from backend');
-            return { ...baseResponse, ...tokenData };
-          }
-        } catch (error) {
-          console.log('⚠️ Backend unavailable, using fallback');
-        }
+      console.log('✅ Token response:', {
+        success: response.data.success,
+        hasToken: !!response.data.token,
+        hasAppId: !!response.data.appId,
+        appId: response.data.appId ? '***' + response.data.appId.slice(-4) : 'MISSING',
+        isFallback: response.data.isFallback
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to generate token');
       }
 
-      // Fallback: Token-less mode
-      console.log('🎯 Using Agora token-less mode');
+      if (!response.data.appId) {
+        console.error('❌ Backend returned empty appId');
+        throw new Error('Agora App ID not provided by server');
+      }
+
       return {
-        ...baseResponse,
-        token: null,
-        isFallback: true
+        token: response.data.token,
+        appId: response.data.appId,
+        isFallback: response.data.isFallback || false
       };
 
     } catch (error) {
       console.error('❌ Token generation failed:', error);
       
-      // CRITICAL: Always return appId even on error
+      // Detailed error logging
+      if (error.response) {
+        // Server responded with error status
+        console.error('🚨 Server error:', {
+          status: error.response.status,
+          data: error.response.data,
+          url: error.response.config?.url
+        });
+      } else if (error.request) {
+        // No response received
+        console.error('🚨 No response from server:', error.request);
+      } else {
+        // Other errors
+        console.error('🚨 Request setup error:', error.message);
+      }
+      
+      // Fallback to frontend appId if available
+      const fallbackAppId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+      
       return {
-        appId: AGORA_APP_ID,
-        channelName: channelName,
-        uid: uid,
         token: null,
+        appId: fallbackAppId,
         isFallback: true,
-        success: true
+        error: error.message
       };
     }
-  },  startVideoSession: async (classId) => {
+  },
+
+  async endVideoSession(meetingId) {
     try {
-      const meetingId = `class_${classId}_${Date.now()}`;
-      
-      const { data, error } = await supabase
-        .from('video_sessions')
-        .insert([
-          {
-            class_id: classId,
-            meeting_id: meetingId,
-            status: 'active',
-            started_at: new Date().toISOString()
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      await supabase
-        .from('classes')
-        .update({ status: 'active' })
-        .eq('id', classId);
-
-      console.log('✅ Video session started:', meetingId);
-      return data;
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await api.post(`${apiBaseUrl}/api/agora/end-session`, {
+        meetingId
+      });
+      return response.data;
     } catch (error) {
-      console.error('❌ Error starting video session:', error);
+      console.error('Error ending video session:', error);
       throw error;
     }
   },
 
-  endVideoSession: async (meetingId) => {
+  // Health check
+  async checkVideoHealth() {
     try {
-      console.log('🛑 Ending video session:', meetingId);
-      
-      // Find session by meeting_id
-      const { data: session, error: findError } = await supabase
-        .from('video_sessions')
-        .select('*')
-        .eq('meeting_id', meetingId)
-        .single();
-
-      if (findError) throw findError;
-
-      // Update session status
-      const { error: updateError } = await supabase
-        .from('video_sessions')
-        .update({
-          status: 'ended',
-          ended_at: new Date().toISOString()
-        })
-        .eq('meeting_id', meetingId);
-
-      if (updateError) throw updateError;
-
-      // Update class status
-      if (session.class_id) {
-        await supabase
-          .from('classes')
-          .update({ status: 'scheduled' })
-          .eq('id', session.class_id);
-      }
-
-      console.log('✅ Video session ended successfully');
-      return { success: true, message: 'Session ended successfully' };
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await api.get(`${apiBaseUrl}/api/agora/health`);
+      return response.data;
     } catch (error) {
-      console.error('❌ Error ending video session:', error);
-      throw error;
-    }
-  },
-
-  getActiveVideoSessions: async (classId) => {
-    try {
-      const { data, error } = await supabase
-        .from('video_sessions')
-        .select('*')
-        .eq('class_id', classId)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('❌ Error getting active sessions:', error);
-      throw error;
-    }
-  },
-
-  notifyClassEnded: async (classId, sessionData) => {
-    try {
-      const { data: enrollments, error: enrollmentError } = await supabase
-        .from('students_classes')
-        .select('student_id')
-        .eq('class_id', classId);
-
-      if (enrollmentError) throw enrollmentError;
-
-      const notifications = enrollments.map(enrollment => ({
-        student_id: enrollment.student_id,
-        title: 'Class Session Ended',
-        message: `The class session has ended. Duration: ${sessionData.duration} minutes.`,
-        type: 'info',
-        data: sessionData,
-        created_at: new Date().toISOString()
-      }));
-
-      if (notifications.length > 0) {
-        const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert(notifications);
-
-        if (notificationError) throw notificationError;
-      }
-
-      console.log(`✅ Notified ${notifications.length} students`);
-      return { success: true, notified_count: notifications.length };
-    } catch (error) {
-      console.error('❌ Error notifying students:', error);
-      throw error;
-    }
-  },
-
-  getMyClasses: async (teacherId) => {
-    try {
-      const { data, error } = await supabase
-        .from('classes')
-        .select(`
-          *,
-          video_sessions (*)
-        `)
-        .eq('teacher_id', teacherId)
-        .order('scheduled_date', { ascending: true });
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('❌ Error fetching teacher classes:', error);
-      throw error;
+      console.error('Video health check failed:', error);
+      return { status: 'unhealthy', error: error.message };
     }
   }
 };
-
-// Debug log
-console.log('🎯 videoApi loaded with functions:', Object.keys(videoApi));
-console.log('🎯 endVideoSession type:', typeof videoApi.endVideoSession);
 
 export default videoApi;
