@@ -1,16 +1,8 @@
 // lib/videoApi.js - REACT + EXPRESS PRODUCTION READY
 import api from './api';
 
-// Get API base URL - works in both development and production
-const getApiBaseUrl = () => {
-  // In development, use the backend server URL
-  if (process.env.NODE_ENV === 'development') {
-    return process.env.REACT_APP_API_BASE_URL || 'https://madina-quran-backend.onrender.com';
-  }
-  
-  // In production, use relative path (same domain) or configured URL
-  return process.env.REACT_APP_API_BASE_URL || '';
-};
+const BACKEND_URL = 'https://madina-quran-backend.onrender.com'; 
+const AGORA_APP_ID = '5355da02bb0d48579214912e0d31193f';
 
 const videoApi = {
   async generateAgoraToken(meetingId, userId) {
