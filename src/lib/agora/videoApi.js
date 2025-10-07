@@ -1,23 +1,27 @@
-// lib/videoApi.js - REACT + EXPRESS PRODUCTION READY
 import api from './api';
 
-const BACKEND_URL = 'https://madina-quran-backend.onrender.com'; 
-const AGORA_APP_ID = '5355da02bb0d48579214912e0d31193f';
+
+const config = {
+
+  backendUrl: 'https://madina-quran-backend.onrender.com',
+
+  agoraAppId: '5355da02bb0d48579214912e0d31193f' 
+};
+
+console.log('🔧 Video API Config:', {
+  backendUrl: config.backendUrl,
+  hasAppId: !!config.agoraAppId,
+  environment: process.env.NODE_ENV
+});
 
 const videoApi = {
   async generateAgoraToken(meetingId, userId) {
     try {
       console.log('🔐 Requesting token for:', { meetingId, userId });
       
-      const apiBaseUrl = getApiBaseUrl();
-      // Use relative path in production, full URL in development
-      const endpoint = apiBaseUrl 
-        ? `${apiBaseUrl}/api/agora/generate-token`
-        : '/api/agora/generate-token';
-      
-      console.log('🌐 Calling endpoint:', endpoint);
-      console.log('�️ Environment:', process.env.NODE_ENV);
-      console.log('🔧 API Base URL:', apiBaseUrl);
+      // Use the hardcoded backend URL
+      const endpoint = `${config.backendUrl}/api/agora/generate-token`;
+      console.log('🌐 Calling backend endpoint:', endpoint);
 
       const response = await api.post(endpoint, {
         channelName: meetingId,
@@ -25,12 +29,11 @@ const videoApi = {
         role: 'publisher'
       });
 
-      console.log('✅ Token response:', {
+      console.log('✅ Backend response received:', {
         success: response.data.success,
         hasToken: !!response.data.token,
         hasAppId: !!response.data.appId,
-        appId: response.data.appId ? '***' + response.data.appId.slice(-4) : 'MISSING',
-        isFallback: response.data.isFallback
+        appId: response.data.appId ? '***' + response.data.appId.slice(-4) : 'MISSING'
       });
 
       if (!response.data.success) {
@@ -49,31 +52,19 @@ const videoApi = {
       };
 
     } catch (error) {
-      console.error('❌ Token generation failed:', error);
+      console.error('❌ Token generation failed:', error.message);
       
-      // Detailed error logging
-      if (error.response) {
-        // Server responded with error status
-        console.error('🚨 Server error:', {
-          status: error.response.status,
-          data: error.response.data,
-          url: error.response.config?.url
-        });
-      } else if (error.request) {
-        // No response received
-        console.error('🚨 No response from server:', error.request);
-      } else {
-        // Other errors
-        console.error('🚨 Request setup error:', error.message);
+      // Always fallback to our hardcoded Agora App ID
+      console.log('🔄 Falling back to configured Agora App ID');
+      
+      if (!config.agoraAppId || config.agoraAppId === 'your_actual_agora_app_id_here') {
+        console.error('❌ CRITICAL: No Agora App ID configured!');
+        throw new Error('Agora service not configured. Please contact support.');
       }
-      
-      // Fallback to frontend appId if available
-      const fallbackAppId = process.env.REACT_APP_AGORA_APP_ID;
-      console.log('🔄 Using fallback App ID:', !!fallbackAppId);
       
       return {
         token: null,
-        appId: fallbackAppId,
+        appId: config.agoraAppId,
         isFallback: true,
         error: error.message
       };
@@ -82,11 +73,7 @@ const videoApi = {
 
   async endVideoSession(meetingId) {
     try {
-      const apiBaseUrl = getApiBaseUrl();
-      const endpoint = apiBaseUrl 
-        ? `${apiBaseUrl}/api/agora/end-session`
-        : '/api/agora/end-session';
-      
+      const endpoint = `${config.backendUrl}/api/agora/end-session`;
       const response = await api.post(endpoint, { meetingId });
       return response.data;
     } catch (error) {
@@ -98,11 +85,7 @@ const videoApi = {
   // Health check
   async checkVideoHealth() {
     try {
-      const apiBaseUrl = getApiBaseUrl();
-      const endpoint = apiBaseUrl 
-        ? `${apiBaseUrl}/api/agora/health`
-        : '/api/agora/health';
-      
+      const endpoint = `${config.backendUrl}/api/agora/health`;
       const response = await api.get(endpoint);
       return response.data;
     } catch (error) {
@@ -111,21 +94,28 @@ const videoApi = {
     }
   },
 
-  // Test connection
-  async testConnection() {
+  // Test backend connection
+  async testBackendConnection() {
     try {
-      const apiBaseUrl = getApiBaseUrl();
-      const endpoint = apiBaseUrl 
-        ? `${apiBaseUrl}/api/health`
-        : '/api/health';
-      
-      const response = await api.get(endpoint);
-      return response.data;
+      const response = await api.get(`${config.backendUrl}/api/health`);
+      return {
+        connected: true,
+        data: response.data
+      };
     } catch (error) {
-      console.error('Connection test failed:', error);
-      throw error;
+      return {
+        connected: false,
+        error: error.message
+      };
     }
   }
 };
+
+// Test connection on import in development
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  videoApi.testBackendConnection().then(result => {
+    console.log('🔗 Backend Connection Test:', result);
+  });
+}
 
 export default videoApi;
