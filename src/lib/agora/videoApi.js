@@ -4,48 +4,65 @@ const AGORA_APP_ID = '5355da02bb0d48579214912e0d31193f';
 
 // Simple object with all functions directly defined
 const videoApi = {
-  generateAgoraToken: async (channelName, uid = 0) => {
+    generateAgoraToken: async (channelName, uid = 0) => {
     try {
-      console.log('🚀 Generating Agora token for:', channelName);
+      console.log('🚀 Generating Agora token for channel:', channelName);
       
+      // ALWAYS return the App ID, even if token generation fails
+      const baseResponse = {
+        appId: AGORA_APP_ID, // This is the critical fix
+        channelName: channelName,
+        uid: uid,
+        success: true
+      };
+
+      // Try backend token generation
       if (process.env.REACT_APP_RENDER_URL) {
         try {
+          console.log('🔄 Trying backend token generation...');
           const response = await fetch(`${process.env.REACT_APP_RENDER_URL}/api/agora/generate-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ channelName, uid, role: 'publisher' })
+            body: JSON.stringify({ 
+              channelName, 
+              uid, 
+              role: 'publisher',
+              appId: AGORA_APP_ID 
+            })
           });
 
           if (response.ok) {
-            return await response.json();
+            const tokenData = await response.json();
+            console.log('✅ Token from backend');
+            return { ...baseResponse, ...tokenData };
           }
         } catch (error) {
-          console.log('⚠️ Backend unavailable');
+          console.log('⚠️ Backend unavailable, using fallback');
         }
       }
 
+      // Fallback: Token-less mode
+      console.log('🎯 Using Agora token-less mode');
       return {
+        ...baseResponse,
         token: null,
-        appId: AGORA_APP_ID,
-        channelName: channelName,
-        uid: uid,
-        isFallback: true,
-        success: true
+        isFallback: true
       };
+
     } catch (error) {
       console.error('❌ Token generation failed:', error);
+      
+      // CRITICAL: Always return appId even on error
       return {
-        token: null,
         appId: AGORA_APP_ID,
         channelName: channelName,
         uid: uid,
+        token: null,
         isFallback: true,
         success: true
       };
     }
-  },
-
-  startVideoSession: async (classId) => {
+  },  startVideoSession: async (classId) => {
     try {
       const meetingId = `class_${classId}_${Date.now()}`;
       
