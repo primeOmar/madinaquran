@@ -1,7 +1,6 @@
 // lib/videoApi.js - VERIFIED WORKING VERSION
 import api from './api';
 
-// ✅ VERIFIED CONFIGURATION - Replace with your actual values
 const config = {
  
   agoraAppId: '5c0225ce9a19445f95a2685647258468', 
