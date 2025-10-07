@@ -6,17 +6,17 @@ import {
   UserPlus, MoreVertical, Crown, Mic2, UserX,
   MessageSquare, MonitorOff, Share2, Grid3X3,
   Airplay, Cast, Zap, Satellite, Wifi, Radio,
-  X, Maximize2, Minimize2, Volume2, VolumeX
+  X, Maximize2, Minimize2, Volume2, VolumeX, User
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 // ✅ Import the production-ready Agora hook
 import useAgoraProduction from '../hooks/useAgoraProduction';
 
-// ✅ FIXED IMPORT - Use teachervideoApi consistently
-import teachervideoApi from '../lib/teacherApi';
+// ✅ Import video API
+import videoApi from '../lib/videoApi';
 
-const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
+const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const [localVideoTrack, setLocalVideoTrack] = useState(null);
   const [remoteUsers, setRemoteUsers] = useState([]);
@@ -31,7 +31,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
   const [videoQuality, setVideoQuality] = useState('720p');
   const [layout, setLayout] = useState('grid');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [activeSpeakers, setActiveSpeakers] = useState(new Set());
   const [isFallbackMode, setIsFallbackMode] = useState(false);
 
   const localPlayerRef = useRef(null);
@@ -159,21 +158,25 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
         console.log('🚀 Starting Agora initialization...');
 
         // ✅ VERIFY FUNCTION EXISTS BEFORE CALLING
-        if (typeof teachervideoApi.generateAgoraToken !== 'function') {
+        if (typeof videoApi.generateAgoraToken !== 'function') {
           throw new Error('generateAgoraToken is not available - check import');
         }
 
         // ✅ GET TOKEN WITH ERROR HANDLING
         console.log('🔐 Requesting Agora token...');
-        const tokenData = await teachervideoApi.generateAgoraToken(meetingId, user.id);
+        const tokenData = await videoApi.generateAgoraToken(meetingId, user.id);
         console.log('✅ Token data received:', tokenData);
 
-        if (!tokenData.appId) {
-          throw new Error('Agora App ID not configured');
+        // ✅ CRITICAL: Ensure appId exists with fallback
+        const appId = tokenData.appId;
+        if (!appId) {
+          throw new Error('Agora App ID is undefined. Token data: ' + JSON.stringify(tokenData));
         }
 
+        console.log('🔧 Using App ID:', appId);
+
         // Check if we're in fallback mode
-        if (tokenData.isFallback || tokenData.isDevelopment) {
+        if (tokenData.isFallback) {
           setIsFallbackMode(true);
           console.log('⚠️ Using fallback/development mode');
         }
@@ -218,6 +221,37 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
     }
     if (screenTrackRef.current) {
       screenTrackRef.current.close();
+    }
+  };
+
+  // End session function for teachers
+  const handleEndSession = async () => {
+    if (!isTeacher) return;
+    
+    try {
+      // Show confirmation dialog
+      const confirmEnd = window.confirm(
+        'Are you sure you want to end this class session? All students will be disconnected.'
+      );
+      
+      if (!confirmEnd) return;
+
+      // Call the API to end the session
+      await videoApi.endVideoSession(meetingId);
+      
+      // Notify parent component
+      if (onSessionEnded) {
+        onSessionEnded();
+      }
+      
+      // Leave the call
+      await handleLeave();
+      
+      toast.success('Class session ended successfully!');
+      
+    } catch (error) {
+      console.error('Error ending session:', error);
+      toast.error('Failed to end session. Please try again.');
     }
   };
 
@@ -321,16 +355,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
   const handleLeave = async () => {
     try {
       handleCleanup();
-      
-      // End session if teacher
-      if (isTeacher) {
-        try {
-          await teachervideoApi.endVideoSession(meetingId);
-        } catch (error) {
-          console.error('Error ending session:', error);
-        }
-      }
-      
       await leaveChannel();
     } catch (error) {
       console.error('Error leaving call:', error);
@@ -343,7 +367,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
       setError(null);
       setIsLoading(true);
       
-      const tokenData = await teachervideoApi.generateAgoraToken(meetingId, user.id);
+      const tokenData = await videoApi.generateAgoraToken(meetingId, user.id);
       const success = await retryConnection(meetingId, tokenData.token, user.id);
       
       if (success) {
@@ -802,10 +826,22 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false }) => {
             {isScreenSharing ? <MonitorOff size={24} /> : <ScreenShare size={24} />}
           </button>
 
-          {/* Leave Call */}
+          {/* End Session Button - Only for teachers */}
+          {isTeacher && (
+            <button
+              onClick={handleEndSession}
+              className="p-4 rounded-full bg-red-600 hover:bg-red-500 transition-all duration-200 transform hover:scale-105 flex items-center space-x-2"
+              title="End Class Session"
+            >
+              <X size={24} />
+              <span className="text-sm">End Class</span>
+            </button>
+          )}
+
+          {/* Leave Call Button */}
           <button
             onClick={handleLeave}
-            className="p-4 rounded-full bg-red-600 hover:bg-red-500 transition-all duration-200 transform hover:scale-105"
+            className="p-4 rounded-full bg-gray-600 hover:bg-gray-500 transition-all duration-200 transform hover:scale-105"
           >
             <Phone size={24} className="transform rotate-135" />
           </button>
