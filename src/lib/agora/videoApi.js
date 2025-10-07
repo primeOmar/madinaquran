@@ -4,14 +4,14 @@ import api from './api';
 // ✅ VERIFIED CONFIGURATION - Replace with your actual values
 const config = {
  
-  agoraAppId: '5355da02bb0d48579214912e0d31193f', 
+  agoraAppId: '5c0225ce9a19445f95a2685647258468', 
   
   backendUrl: 'https://madina-quran-backend.onrender.com'
 };
 
 // Validate configuration on import
 console.log('🔧 Video API Configuration:', {
-  hasAppId: !!config.agoraAppId && config.agoraAppId !== '5355da02bb0d48579214912e0d31193f',
+  hasAppId: !!config.agoraAppId && config.agoraAppId !== '5c0225ce9a19445f95a2685647258468',
   appIdPreview: config.agoraAppId ? '***' + config.agoraAppId.slice(-4) : 'MISSING',
   backendUrl: config.backendUrl
 });
@@ -22,7 +22,7 @@ const videoApi = {
       console.log('🔐 Generating token for meeting:', meetingId);
       
       // First, validate our App ID
-      if (!config.agoraAppId || config.agoraAppId === '5355da02bb0d48579214912e0d31193f') {
+      if (!config.agoraAppId || config.agoraAppId === '5c0225ce9a19445f95a2685647258468') {
         throw new Error('Agora App ID not configured. Please update videoApi.js with your actual App ID.');
       }
       
