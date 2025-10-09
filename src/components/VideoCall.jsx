@@ -42,6 +42,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   const screenTrackRef = useRef(null);
   const containerRef = useRef(null);
 
+  // ✅ EMERGENCY FALLBACK - Add this near your state declarations
+  const EMERGENCY_APP_ID = videoApi.getEmergencyAppId();
+
   // ✅ Use the production-ready Agora hook with proper appId handling
   const {
     isConnected,
@@ -74,7 +77,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     }
   });
 
-  // ✅ Initialize Agora connection
+  // ✅ Initialize Agora connection - FIXED VERSION
   useEffect(() => {
     const initVideoCall = async () => {
       try {
@@ -110,12 +113,12 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         console.log('🎯 Channel:', meetingId);
         console.log('👤 User ID:', user.id);
 
-        // Store Agora configuration
+        // ✅ Store Agora configuration IMMEDIATELY
         setAgoraConfig({
-          appId,
+          appId: appId.trim(), // Ensure no whitespace
           token: tokenData.token,
           channel: meetingId,
-          uid: user.id
+          uid: user.id.toString() // Ensure string format
         });
 
         // Check if we're in fallback mode
@@ -142,14 +145,20 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
   }, [meetingId, user]);
 
-  // ✅ Join channel when Agora config is ready
+  // ✅ Join channel when Agora config is ready - FIXED VERSION
   useEffect(() => {
     const joinAgoraChannel = async () => {
       if (!agoraConfig) return;
 
       try {
+        // ✅ CRITICAL: Emergency appId fallback
+        const finalAppId = agoraConfig.appId || EMERGENCY_APP_ID;
+        if (!finalAppId) {
+          throw new Error('No Agora App ID available. Cannot join channel.');
+        }
+
         console.log('🔗 Joining Agora channel with config:', {
-          appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'undefined',
+          appId: finalAppId ? '***' + finalAppId.slice(-4) : 'undefined',
           channel: agoraConfig.channel,
           uid: agoraConfig.uid
         });
@@ -175,7 +184,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     joinAgoraChannel();
-  }, [agoraConfig, joinChannel]);
+  }, [agoraConfig, joinChannel, EMERGENCY_APP_ID]);
 
   // ✅ Setup Agora event listeners
   const setupAgoraEvents = useCallback(() => {
@@ -467,6 +476,25 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     }
   };
 
+  // ✅ Add debug button to test configuration
+  const debugConfiguration = () => {
+    console.log('🔍 DEBUG CONFIGURATION:');
+    console.log('📱 Agora Config:', agoraConfig);
+    console.log('🆔 Emergency App ID:', EMERGENCY_APP_ID);
+    console.log('🔗 Service Available:', !!service);
+    console.log('📞 Is Connected:', isConnected);
+    console.log('🔄 Is Connecting:', isConnecting);
+    
+    // Test token generation
+    videoApi.generateAgoraToken(meetingId, user.id).then(tokenData => {
+      console.log('🎯 Token Test Result:', {
+        hasAppId: !!tokenData.appId,
+        appIdLength: tokenData.appId?.length,
+        isFallback: tokenData.isFallback
+      });
+    });
+  };
+
   // Render video players based on layout
   const renderVideoPlayers = () => {
     const allUsers = [
@@ -479,11 +507,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       },
       ...remoteUsers
     ];
-
-    // ... (render logic remains the same as before)
-    if (layout === 'spotlight') {
-      // ... spotlight layout
-    }
 
     // Grid layout (default)
     return (
@@ -557,8 +580,16 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
               <p className="text-xs text-gray-400">App ID: {agoraConfig.appId ? '✓ Configured' : '✗ Missing'}</p>
               <p className="text-xs text-gray-400">Channel: {agoraConfig.channel}</p>
               <p className="text-xs text-gray-400">User: {agoraConfig.uid}</p>
+              <p className="text-xs text-gray-400">Fallback Mode: {isFallbackMode ? 'Yes' : 'No'}</p>
             </div>
           )}
+          {/* Debug button */}
+          <button
+            onClick={debugConfiguration}
+            className="mt-4 bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg text-white text-sm"
+          >
+            Debug Configuration
+          </button>
         </div>
       </div>
     );
@@ -582,6 +613,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
               <p className="text-xs text-gray-400">App ID: {agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'Missing'}</p>
               <p className="text-xs text-gray-400">Channel: {agoraConfig.channel}</p>
               <p className="text-xs text-gray-400">Token: {agoraConfig.token ? 'Present' : 'Missing'}</p>
+              <p className="text-xs text-gray-400">Fallback Mode: {isFallbackMode ? 'Yes' : 'No'}</p>
             </div>
           )}
           <div className="flex space-x-3 justify-center">
@@ -597,13 +629,18 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
             >
               Go Back
             </button>
+            <button
+              onClick={debugConfiguration}
+              className="bg-yellow-600 hover:bg-yellow-500 px-6 py-2 rounded-lg text-white transition-colors"
+            >
+              Debug
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // ... (rest of the JSX remains the same)
   return (
     <div 
       ref={containerRef}
@@ -657,6 +694,15 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
             }`}
           >
             <Users size={20} />
+          </button>
+
+          {/* Debug button in header */}
+          <button
+            onClick={debugConfiguration}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-gray-300"
+            title="Debug Configuration"
+          >
+            <Zap size={20} />
           </button>
 
           <button
