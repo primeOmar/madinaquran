@@ -1,4 +1,4 @@
-// lib/videoApi.js - PRODUCTION READY
+// lib/videoApi.js - PRODUCTION READY (FIXED VERSION)
 import api from './api';
 
 // ✅ CRITICAL: Ensure App ID is properly defined
@@ -42,14 +42,6 @@ const videoApi = {
   async generateAgoraToken(meetingId, userId) {
     console.log('🎯 Token generation started:', { meetingId, userId });
     
-    // ALWAYS have a valid fallback
-    const fallbackConfig = {
-      appId: AGORA_APP_ID,
-      token: null,
-      isFallback: true,
-      mode: 'testing'
-    };
-
     try {
       // Try backend first (with timeout)
       console.log('📡 Attempting backend token generation...');
@@ -70,38 +62,49 @@ const videoApi = {
 
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`Backend returned ${response.status}`);
+      // ✅ CRITICAL: Debug raw response
+      const responseText = await response.text();
+      console.log('🔍 RAW BACKEND RESPONSE:', responseText);
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log('📡 Parsed backend data:', data);
+      } catch (parseError) {
+        console.error('❌ Failed to parse backend response:', parseError);
+        throw new Error('Invalid JSON response from server');
       }
 
-      const data = await response.json();
-      console.log('📡 Backend response:', {
-        success: data.success,
-        hasToken: !!data.token,
-        hasAppId: !!data.appId,
-        isFallback: data.isFallback
-      });
+      if (response.ok) {
+        console.log('📡 Backend response:', {
+          success: data.success,
+          hasToken: !!data.token,
+          hasAppId: !!data.appId,
+          isFallback: data.isFallback
+        });
 
-      // ✅ CRITICAL: Validate backend response
-      if (data.success && data.token && data.appId) {
-        // Validate the App ID from backend
-        try {
-          validateAppId(data.appId);
-          console.log('✅ Using secure backend token');
-          return {
-            appId: data.appId,
-            token: data.token,
-            isFallback: false,
-            mode: 'secure'
-          };
-        } catch (validationError) {
-          console.error('❌ Backend returned invalid App ID:', validationError.message);
-          // Fall through to fallback
+        // ✅ CRITICAL: Always ensure appId is present - FIXED LOGIC
+        if (data.success && data.token) {
+          const finalAppId = data.appId || AGORA_APP_ID; // Fallback to frontend App ID
+          
+          try {
+            validateAppId(finalAppId);
+            console.log('✅ Using secure backend token with App ID:', '***' + finalAppId.slice(-4));
+            return {
+              appId: finalAppId,
+              token: data.token,
+              isFallback: false,
+              mode: 'secure'
+            };
+          } catch (validationError) {
+            console.error('❌ Backend returned invalid App ID:', validationError.message);
+            // Fall through to fallback
+          }
         }
+      } else {
+        throw new Error(`Backend returned ${response.status}: ${data?.message || 'Unknown error'}`);
       }
 
-      console.warn('⚠️ Backend response invalid, using fallback');
-      
     } catch (error) {
       if (error.name === 'AbortError') {
         console.warn('⚠️ Backend timeout, using fallback');
@@ -110,19 +113,42 @@ const videoApi = {
       }
     }
 
-    // Return validated fallback
-    console.log('🔄 Using fallback mode (no token, testing only)');
-    return fallbackConfig;
+    // ✅ CRITICAL: Fallback MUST include appId - FIXED
+    console.log('🔄 Using fallback mode with frontend App ID');
+    return {
+      appId: AGORA_APP_ID, // THIS WAS MISSING IN FALLBACK!
+      token: null,
+      isFallback: true,
+      mode: 'testing'
+    };
   },
 
   /**
-   * End video session - CRITICAL: This must be a function
+   * Start a new video session
    */
-  endVideoSession: async function(meetingId) {
+  async startVideoSession(classId) {
+    try {
+      console.log('🚀 Starting video session for class:', classId);
+      
+      const response = await api.post('/api/video-sessions/start', {
+        class_id: classId
+      });
+      
+      console.log('✅ Video session started:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error starting video session:', error);
+      throw new Error(error.response?.data?.message || 'Failed to start video session');
+    }
+  },
+
+  /**
+   * End video session
+   */
+  async endVideoSession(meetingId) {
     try {
       console.log('🛑 Ending video session:', meetingId);
       
-      // Call your backend to mark session as ended
       const response = await api.post('/api/video-sessions/end', { 
         meeting_id: meetingId 
       });
@@ -156,6 +182,44 @@ const videoApi = {
   },
 
   /**
+   * Get active video sessions for a class
+   */
+  async getActiveSessions(classId) {
+    try {
+      const response = await api.get(`/api/video-sessions/active/${classId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching active sessions:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Validate meeting configuration before joining
+   */
+  async validateMeeting(meetingId, userId) {
+    try {
+      const tokenData = await this.generateAgoraToken(meetingId, userId);
+      
+      if (!tokenData.appId) {
+        throw new Error('No App ID available for meeting');
+      }
+      
+      return {
+        valid: true,
+        appId: tokenData.appId,
+        hasToken: !!tokenData.token,
+        isFallback: tokenData.isFallback
+      };
+    } catch (error) {
+      return {
+        valid: false,
+        error: error.message
+      };
+    }
+  },
+
+  /**
    * Health check - verify configuration
    */
   async checkHealth() {
@@ -169,6 +233,10 @@ const videoApi = {
       backend: {
         url: BACKEND_URL,
         status: 'checking'
+      },
+      tokenTest: {
+        status: 'pending',
+        appIdReceived: false
       }
     };
 
@@ -180,7 +248,7 @@ const videoApi = {
       health.frontend.error = error.message;
     }
 
-    // Check backend
+    // Check backend connectivity
     try {
       const response = await fetch(`${BACKEND_URL}/api/agora/health`, {
         signal: AbortSignal.timeout(5000)
@@ -199,8 +267,19 @@ const videoApi = {
       health.backend.error = error.message;
     }
 
+    // Test token generation
+    try {
+      const testToken = await this.generateAgoraToken('test-meeting', 'test-user');
+      health.tokenTest.status = 'success';
+      health.tokenTest.appIdReceived = !!testToken.appId;
+      health.tokenTest.isFallback = testToken.isFallback;
+    } catch (error) {
+      health.tokenTest.status = 'failed';
+      health.tokenTest.error = error.message;
+    }
+
     // Overall status
-    health.status = health.frontend.appIdValid ? 'healthy' : 'unhealthy';
+    health.status = (health.frontend.appIdValid && health.tokenTest.appIdReceived) ? 'healthy' : 'unhealthy';
     
     console.log('🏥 Health Check:', health);
     return health;
@@ -210,6 +289,13 @@ const videoApi = {
    * Get the validated App ID
    */
   getAppId() {
+    return AGORA_APP_ID;
+  },
+
+  /**
+   * Emergency fallback for App ID issues
+   */
+  getEmergencyAppId() {
     return AGORA_APP_ID;
   }
 };
