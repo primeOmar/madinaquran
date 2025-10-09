@@ -15,6 +15,7 @@ import useAgoraProduction from '../hooks/useAgoraProduction';
 
 // ✅ Import video API
 import videoApi from '../lib/agora/videoApi';
+import debugAgoraConnection from '../lib/videoDebugHelper';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   // State management
