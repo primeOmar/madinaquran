@@ -5,7 +5,7 @@ async function debugAgoraConnection(meetingId, userId) {
   try {
     // 1. Check videoApi module
     console.log('📦 Step 1: Checking videoApi module...');
-    const videoApi = await import('./videoApi'); // Note: relative path changed
+    const videoApi = await import('./agora/videoApi'); 
     console.log('✅ videoApi imported:', {
       hasDefault: !!videoApi.default,
       hasGenerateToken: typeof videoApi.default?.generateAgoraToken,
