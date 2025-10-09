@@ -16,6 +16,16 @@ import useAgoraProduction from '../hooks/useAgoraProduction';
 // ✅ Import video API
 import videoApi from '../lib/agora/videoApi';
 import debugAgoraConnection from '../lib/videoDebugHelper';
+const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
+  // Add log counters at the component level
+  const logCountRef = useRef({
+    hookDebug: 0,
+    configUpdate: 0,
+    stateDebug: 0,
+    joinDebug: 0
+  });
+
+  const MAX_LOGS = 5;
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   // State management
