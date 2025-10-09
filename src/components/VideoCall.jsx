@@ -77,59 +77,108 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     }
   });
 
-  // ✅ Initialize Agora connection - FIXED VERSION
+  // ✅ CRITICAL DEBUG: Check what the hook is actually receiving
+  useEffect(() => {
+    console.log('🔍 HOOK DEBUG - App ID Flow:', {
+      // What the component has
+      componentAppId: agoraConfig?.appId,
+      componentHasAppId: !!agoraConfig?.appId,
+      componentAppIdLength: agoraConfig?.appId?.length,
+      componentAppIdType: typeof agoraConfig?.appId,
+      
+      // What the hook reports
+      hookDebug: service?.debug,
+      
+      // Hook state
+      isConnecting,
+      isConnected,
+      connectionError
+    });
+  }, [agoraConfig, service, isConnecting, isConnected, connectionError]);
+
+  // ✅ REAL-TIME MONITOR: Track Agora config changes
+  useEffect(() => {
+    if (agoraConfig) {
+      console.log('🔄 AGORA CONFIG UPDATED:', {
+        appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'MISSING',
+        hasAppId: !!agoraConfig.appId,
+        appIdLength: agoraConfig.appId?.length,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [agoraConfig]);
+
+  // ✅ Initialize Agora connection - ENHANCED DEBUG VERSION
   useEffect(() => {
     const initVideoCall = async () => {
       try {
         setIsLoading(true);
         setError(null);
 
-        console.log('🚀 Starting Agora initialization...');
+        console.log('🚀 STARTING AGORA INIT - Detailed debug:');
+        console.log('📋 Input params:', { meetingId, userId: user?.id, userName: user?.name });
 
-        // ✅ Validate required props
-        if (!meetingId || !user?.id) {
-          throw new Error('Meeting ID and User ID are required');
-        }
-
-        // ✅ GET TOKEN WITH PROPER ERROR HANDLING
+        // ✅ GET TOKEN WITH ENHANCED DEBUGGING
         console.log('🔐 Requesting Agora token...');
         const tokenData = await videoApi.generateAgoraToken(meetingId, user.id);
-        console.log('✅ Token data received:', tokenData);
+        
+        console.log('✅ TOKEN RESPONSE - Full analysis:', {
+          tokenData,
+          hasAppId: !!tokenData.appId,
+          appId: tokenData.appId ? '***' + tokenData.appId.slice(-4) : 'MISSING',
+          appIdLength: tokenData.appId?.length,
+          appIdType: typeof tokenData.appId,
+          hasToken: !!tokenData.token,
+          tokenLength: tokenData.token?.length,
+          isFallback: tokenData.isFallback,
+          mode: tokenData.mode
+        });
 
-        // ✅ CRITICAL: Validate appId exists and is not empty
+        // ✅ CRITICAL: Enhanced App ID validation
         const appId = tokenData.appId;
         if (!appId) {
-          console.error('❌ Agora App ID is missing:', tokenData);
-          throw new Error('Agora App ID is required but was not provided. Please check your server configuration.');
+          const error = new Error('CRITICAL: Agora App ID is missing in token response');
+          console.error('❌', error.message, { fullTokenData: tokenData });
+          throw error;
         }
 
         if (appId === '""' || appId === "''" || appId.trim() === '') {
-          console.error('❌ Agora App ID is empty string:', tokenData);
-          throw new Error('Agora App ID is empty. Please check your environment variables.');
+          const error = new Error('CRITICAL: Agora App ID is empty string');
+          console.error('❌', error.message, { appId });
+          throw error;
         }
 
-        console.log('🔧 Using App ID:', appId);
-        console.log('🔑 Token available:', !!tokenData.token);
-        console.log('🎯 Channel:', meetingId);
-        console.log('👤 User ID:', user.id);
-
-        // ✅ Store Agora configuration IMMEDIATELY
-        setAgoraConfig({
-          appId: appId.trim(), // Ensure no whitespace
-          token: tokenData.token,
+        // ✅ Store Agora configuration with validation
+        const finalAppId = appId.trim();
+        console.log('💾 STORING CONFIG - Final values:', {
+          appId: '***' + finalAppId.slice(-4),
+          appIdLength: finalAppId.length,
           channel: meetingId,
-          uid: user.id.toString() // Ensure string format
+          uid: user.id.toString(),
+          hasToken: !!tokenData.token
         });
 
-        // Check if we're in fallback mode
+        setAgoraConfig({
+          appId: finalAppId,
+          token: tokenData.token,
+          channel: meetingId,
+          uid: user.id.toString()
+        });
+
         if (tokenData.isFallback) {
           setIsFallbackMode(true);
-          console.log('⚠️ Using fallback/development mode');
+          console.log('⚠️ FALLBACK MODE ACTIVATED');
         }
 
       } catch (error) {
-        console.error('❌ Error initializing video call:', error);
-        const errorMsg = error.message || 'Failed to join video call';
+        console.error('❌ INIT ERROR - Complete failure analysis:', {
+          error: error.message,
+          stack: error.stack,
+          meetingId,
+          userId: user?.id,
+          timestamp: new Date().toISOString()
+        });
+        const errorMsg = error.message || 'Failed to initialize video call';
         setError(errorMsg);
         toast.error(errorMsg);
         setIsLoading(false);
@@ -137,28 +186,62 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     if (meetingId && user) {
+      console.log('🎬 INIT TRIGGERED - Meeting and user available');
       initVideoCall();
+    } else {
+      console.log('⏸️ INIT SKIPPED - Missing:', {
+        meetingId: !!meetingId,
+        user: !!user,
+        userId: user?.id
+      });
     }
 
     return () => {
+      console.log('🧹 Cleanup triggered');
       handleCleanup();
     };
   }, [meetingId, user]);
 
-  // ✅ Join channel when Agora config is ready - FIXED VERSION
+  // ✅ ENHANCED DEBUG: Join channel with detailed logging
   useEffect(() => {
     const joinAgoraChannel = async () => {
-      if (!agoraConfig) return;
+      if (!agoraConfig) {
+        console.log('⏳ joinAgoraChannel: Waiting for agoraConfig...');
+        return;
+      }
 
       try {
-        // ✅ CRITICAL: Emergency appId fallback
+        // ✅ CRITICAL DEBUG: Check everything before joining
+        console.log('🔍 JOIN DEBUG - Pre-join validation:', {
+          agoraConfig: {
+            appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'UNDEFINED',
+            appIdExists: !!agoraConfig.appId,
+            appIdLength: agoraConfig.appId?.length,
+            channel: agoraConfig.channel,
+            hasToken: !!agoraConfig.token,
+            uid: agoraConfig.uid
+          },
+          emergencyAppId: EMERGENCY_APP_ID ? '***' + EMERGENCY_APP_ID.slice(-4) : 'MISSING',
+          finalAppId: (agoraConfig.appId || EMERGENCY_APP_ID) ? '***' + (agoraConfig.appId || EMERGENCY_APP_ID).slice(-4) : 'BOTH MISSING',
+          joinChannelFunction: typeof joinChannel,
+          serviceReady: !!service,
+          serviceInitialized: service?.isInitialized
+        });
+
+        // ✅ CRITICAL: Emergency appId fallback with validation
         const finalAppId = agoraConfig.appId || EMERGENCY_APP_ID;
         if (!finalAppId) {
-          throw new Error('No Agora App ID available. Cannot join channel.');
+          const error = new Error('CRITICAL: No Agora App ID available from any source');
+          console.error('❌', error.message, {
+            configAppId: agoraConfig.appId,
+            emergencyAppId: EMERGENCY_APP_ID
+          });
+          throw error;
         }
 
-        console.log('🔗 Joining Agora channel with config:', {
-          appId: finalAppId ? '***' + finalAppId.slice(-4) : 'undefined',
+        console.log('🔗 FINAL - Joining Agora channel with:', {
+          appId: '***' + finalAppId.slice(-4),
+          appIdLength: finalAppId.length,
           channel: agoraConfig.channel,
           uid: agoraConfig.uid
         });
@@ -169,14 +252,23 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           agoraConfig.uid
         );
         
+        console.log('🎯 joinChannel result:', success);
+        
         if (!success) {
-          throw new Error('Failed to join channel - joinChannel returned false');
+          throw new Error('joinChannel returned false - check hook implementation');
         }
 
-        console.log('✅ Channel join initiated successfully');
-
       } catch (error) {
-        console.error('❌ Error joining Agora channel:', error);
+        console.error('❌ JOIN ERROR - Detailed failure:', {
+          errorMessage: error.message,
+          errorStack: error.stack,
+          configAtError: {
+            hasAppId: !!agoraConfig?.appId,
+            appIdLength: agoraConfig?.appId?.length,
+            hasToken: !!agoraConfig?.token
+          },
+          timestamp: new Date().toISOString()
+        });
         setError(error.message);
         toast.error(`Failed to join: ${error.message}`);
         setIsLoading(false);
@@ -184,7 +276,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     joinAgoraChannel();
-  }, [agoraConfig, joinChannel, EMERGENCY_APP_ID]);
+  }, [agoraConfig, joinChannel, EMERGENCY_APP_ID, service]);
 
   // ✅ Setup Agora event listeners
   const setupAgoraEvents = useCallback(() => {
@@ -348,6 +440,56 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     });
   }, [isLoading, isConnected, isConnecting, error, agoraConfig, remoteUsers, participants]);
 
+  // ✅ ENHANCED DEBUG: Comprehensive configuration check
+  const debugConfiguration = () => {
+    console.group('🔍 COMPREHENSIVE DEBUG CONFIGURATION');
+    
+    console.log('📱 Agora Config:', {
+      raw: agoraConfig,
+      appId: agoraConfig?.appId ? '***' + agoraConfig.appId.slice(-4) : 'MISSING',
+      appIdLength: agoraConfig?.appId?.length,
+      appIdType: typeof agoraConfig?.appId,
+      channel: agoraConfig?.channel,
+      uid: agoraConfig?.uid,
+      hasToken: !!agoraConfig?.token
+    });
+    
+    console.log('🆔 Emergency App ID:', {
+      value: EMERGENCY_APP_ID ? '***' + EMERGENCY_APP_ID.slice(-4) : 'MISSING',
+      length: EMERGENCY_APP_ID?.length,
+      type: typeof EMERGENCY_APP_ID
+    });
+    
+    console.log('🔗 Service Status:', {
+      available: !!service,
+      initialized: service?.isInitialized,
+      client: !!service?.client,
+      debug: service?.debug
+    });
+    
+    console.log('📊 Connection State:', {
+      isConnected,
+      isConnecting,
+      connectionError,
+      connectionState: service?.connectionState
+    });
+    
+    // Test token generation in real-time
+    videoApi.generateAgoraToken(meetingId, user.id).then(tokenData => {
+      console.log('🎯 LIVE TOKEN TEST:', {
+        hasAppId: !!tokenData.appId,
+        appId: tokenData.appId ? '***' + tokenData.appId.slice(-4) : 'MISSING',
+        appIdLength: tokenData.appId?.length,
+        isFallback: tokenData.isFallback,
+        mode: tokenData.mode
+      });
+    }).catch(error => {
+      console.error('❌ LIVE TOKEN TEST FAILED:', error);
+    });
+    
+    console.groupEnd();
+  };
+
   // Rest of the component functions remain the same...
   const handleEndSession = async () => {
     if (!isTeacher) return;
@@ -474,25 +616,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       console.error('Retry failed:', error);
       setError(error.message);
     }
-  };
-
-  // ✅ Add debug button to test configuration
-  const debugConfiguration = () => {
-    console.log('🔍 DEBUG CONFIGURATION:');
-    console.log('📱 Agora Config:', agoraConfig);
-    console.log('🆔 Emergency App ID:', EMERGENCY_APP_ID);
-    console.log('🔗 Service Available:', !!service);
-    console.log('📞 Is Connected:', isConnected);
-    console.log('🔄 Is Connecting:', isConnecting);
-    
-    // Test token generation
-    videoApi.generateAgoraToken(meetingId, user.id).then(tokenData => {
-      console.log('🎯 Token Test Result:', {
-        hasAppId: !!tokenData.appId,
-        appIdLength: tokenData.appId?.length,
-        isFallback: tokenData.isFallback
-      });
-    });
   };
 
   // Render video players based on layout
