@@ -16,18 +16,35 @@ import useAgoraProduction from '../hooks/useAgoraProduction';
 // ✅ Import video API
 import videoApi from '../lib/agora/videoApi';
 import debugAgoraConnection from '../lib/videoDebugHelper';
+
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
-  // Add log counters at the component level
+  // Log counter with limits
   const logCountRef = useRef({
     hookDebug: 0,
     configUpdate: 0,
     stateDebug: 0,
-    joinDebug: 0
+    joinDebug: 0,
+    tokenDebug: 0,
+    initDebug: 0,
+    serviceDebug: 0,
+    connectionDebug: 0
   });
 
   const MAX_LOGS = 5;
 
-const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
+  const canLog = (logType) => {
+    if (logCountRef.current[logType] < MAX_LOGS) {
+      logCountRef.current[logType]++;
+      return true;
+    }
+    // Log once when hitting the limit
+    if (logCountRef.current[logType] === MAX_LOGS) {
+      console.log(`🔇 ${logType} logs limited to ${MAX_LOGS} occurrences`);
+      logCountRef.current[logType]++;
+    }
+    return false;
+  };
+
   // State management
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const [localVideoTrack, setLocalVideoTrack] = useState(null);
@@ -72,43 +89,46 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       toast.error(`Connection error: ${error.userMessage}`);
     },
     onJoined: (data) => {
-      console.log('✅ Successfully joined channel:', data);
+      if (canLog('joinDebug')) {
+        console.log('✅ Successfully joined channel:', data);
+      }
       setIsLoading(false);
       initializeLocalTracks();
       toast.success('Connected to video call!');
     },
     onLeft: () => {
-      console.log('🔚 Left channel');
+      if (canLog('connectionDebug')) {
+        console.log('🔚 Left channel');
+      }
       handleCleanup();
       onLeave();
     },
     onConnectionStateChange: (state) => {
-      console.log('Connection state:', state);
+      if (canLog('connectionDebug')) {
+        console.log('Connection state:', state);
+      }
     }
   });
 
   // ✅ CRITICAL DEBUG: Check what the hook is actually receiving
   useEffect(() => {
-    console.log('🔍 HOOK DEBUG - App ID Flow:', {
-      // What the component has
-      componentAppId: agoraConfig?.appId,
-      componentHasAppId: !!agoraConfig?.appId,
-      componentAppIdLength: agoraConfig?.appId?.length,
-      componentAppIdType: typeof agoraConfig?.appId,
-      
-      // What the hook reports
-      hookDebug: service?.debug,
-      
-      // Hook state
-      isConnecting,
-      isConnected,
-      connectionError
-    });
+    if (canLog('hookDebug')) {
+      console.log('🔍 HOOK DEBUG - App ID Flow:', {
+        componentAppId: agoraConfig?.appId,
+        componentHasAppId: !!agoraConfig?.appId,
+        componentAppIdLength: agoraConfig?.appId?.length,
+        componentAppIdType: typeof agoraConfig?.appId,
+        hookDebug: service?.debug,
+        isConnecting,
+        isConnected,
+        connectionError
+      });
+    }
   }, [agoraConfig, service, isConnecting, isConnected, connectionError]);
 
   // ✅ REAL-TIME MONITOR: Track Agora config changes
   useEffect(() => {
-    if (agoraConfig) {
+    if (agoraConfig && canLog('configUpdate')) {
       console.log('🔄 AGORA CONFIG UPDATED:', {
         appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'MISSING',
         hasAppId: !!agoraConfig.appId,
@@ -125,24 +145,31 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         setIsLoading(true);
         setError(null);
 
-        console.log('🚀 STARTING AGORA INIT - Detailed debug:');
-        console.log('📋 Input params:', { meetingId, userId: user?.id, userName: user?.name });
+        if (canLog('initDebug')) {
+          console.log('🚀 STARTING AGORA INIT - Detailed debug:');
+          console.log('📋 Input params:', { meetingId, userId: user?.id, userName: user?.name });
+        }
 
         // ✅ GET TOKEN WITH ENHANCED DEBUGGING
-        console.log('🔐 Requesting Agora token...');
+        if (canLog('tokenDebug')) {
+          console.log('🔐 Requesting Agora token...');
+        }
+        
         const tokenData = await videoApi.generateAgoraToken(meetingId, user.id);
         
-        console.log('✅ TOKEN RESPONSE - Full analysis:', {
-          tokenData,
-          hasAppId: !!tokenData.appId,
-          appId: tokenData.appId ? '***' + tokenData.appId.slice(-4) : 'MISSING',
-          appIdLength: tokenData.appId?.length,
-          appIdType: typeof tokenData.appId,
-          hasToken: !!tokenData.token,
-          tokenLength: tokenData.token?.length,
-          isFallback: tokenData.isFallback,
-          mode: tokenData.mode
-        });
+        if (canLog('tokenDebug')) {
+          console.log('✅ TOKEN RESPONSE - Full analysis:', {
+            tokenData,
+            hasAppId: !!tokenData.appId,
+            appId: tokenData.appId ? '***' + tokenData.appId.slice(-4) : 'MISSING',
+            appIdLength: tokenData.appId?.length,
+            appIdType: typeof tokenData.appId,
+            hasToken: !!tokenData.token,
+            tokenLength: tokenData.token?.length,
+            isFallback: tokenData.isFallback,
+            mode: tokenData.mode
+          });
+        }
 
         // ✅ CRITICAL: Enhanced App ID validation
         const appId = tokenData.appId;
@@ -160,13 +187,16 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
         // ✅ Store Agora configuration with validation
         const finalAppId = appId.trim();
-        console.log('💾 STORING CONFIG - Final values:', {
-          appId: '***' + finalAppId.slice(-4),
-          appIdLength: finalAppId.length,
-          channel: meetingId,
-          uid: user.id.toString(),
-          hasToken: !!tokenData.token
-        });
+        
+        if (canLog('configUpdate')) {
+          console.log('💾 STORING CONFIG - Final values:', {
+            appId: '***' + finalAppId.slice(-4),
+            appIdLength: finalAppId.length,
+            channel: meetingId,
+            uid: user.id.toString(),
+            hasToken: !!tokenData.token
+          });
+        }
 
         setAgoraConfig({
           appId: finalAppId,
@@ -177,7 +207,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
         if (tokenData.isFallback) {
           setIsFallbackMode(true);
-          console.log('⚠️ FALLBACK MODE ACTIVATED');
+          if (canLog('initDebug')) {
+            console.log('⚠️ FALLBACK MODE ACTIVATED');
+          }
         }
 
       } catch (error) {
@@ -196,18 +228,24 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     if (meetingId && user) {
-      console.log('🎬 INIT TRIGGERED - Meeting and user available');
+      if (canLog('initDebug')) {
+        console.log('🎬 INIT TRIGGERED - Meeting and user available');
+      }
       initVideoCall();
     } else {
-      console.log('⏸️ INIT SKIPPED - Missing:', {
-        meetingId: !!meetingId,
-        user: !!user,
-        userId: user?.id
-      });
+      if (canLog('initDebug')) {
+        console.log('⏸️ INIT SKIPPED - Missing:', {
+          meetingId: !!meetingId,
+          user: !!user,
+          userId: user?.id
+        });
+      }
     }
 
     return () => {
-      console.log('🧹 Cleanup triggered');
+      if (canLog('connectionDebug')) {
+        console.log('🧹 Cleanup triggered');
+      }
       handleCleanup();
     };
   }, [meetingId, user]);
@@ -216,27 +254,31 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   useEffect(() => {
     const joinAgoraChannel = async () => {
       if (!agoraConfig) {
-        console.log('⏳ joinAgoraChannel: Waiting for agoraConfig...');
+        if (canLog('joinDebug')) {
+          console.log('⏳ joinAgoraChannel: Waiting for agoraConfig...');
+        }
         return;
       }
 
       try {
         // ✅ CRITICAL DEBUG: Check everything before joining
-        console.log('🔍 JOIN DEBUG - Pre-join validation:', {
-          agoraConfig: {
-            appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'UNDEFINED',
-            appIdExists: !!agoraConfig.appId,
-            appIdLength: agoraConfig.appId?.length,
-            channel: agoraConfig.channel,
-            hasToken: !!agoraConfig.token,
-            uid: agoraConfig.uid
-          },
-          emergencyAppId: EMERGENCY_APP_ID ? '***' + EMERGENCY_APP_ID.slice(-4) : 'MISSING',
-          finalAppId: (agoraConfig.appId || EMERGENCY_APP_ID) ? '***' + (agoraConfig.appId || EMERGENCY_APP_ID).slice(-4) : 'BOTH MISSING',
-          joinChannelFunction: typeof joinChannel,
-          serviceReady: !!service,
-          serviceInitialized: service?.isInitialized
-        });
+        if (canLog('joinDebug')) {
+          console.log('🔍 JOIN DEBUG - Pre-join validation:', {
+            agoraConfig: {
+              appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'UNDEFINED',
+              appIdExists: !!agoraConfig.appId,
+              appIdLength: agoraConfig.appId?.length,
+              channel: agoraConfig.channel,
+              hasToken: !!agoraConfig.token,
+              uid: agoraConfig.uid
+            },
+            emergencyAppId: EMERGENCY_APP_ID ? '***' + EMERGENCY_APP_ID.slice(-4) : 'MISSING',
+            finalAppId: (agoraConfig.appId || EMERGENCY_APP_ID) ? '***' + (agoraConfig.appId || EMERGENCY_APP_ID).slice(-4) : 'BOTH MISSING',
+            joinChannelFunction: typeof joinChannel,
+            serviceReady: !!service,
+            serviceInitialized: service?.isInitialized
+          });
+        }
 
         // ✅ CRITICAL: Emergency appId fallback with validation
         const finalAppId = agoraConfig.appId || EMERGENCY_APP_ID;
@@ -249,12 +291,14 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           throw error;
         }
 
-        console.log('🔗 FINAL - Joining Agora channel with:', {
-          appId: '***' + finalAppId.slice(-4),
-          appIdLength: finalAppId.length,
-          channel: agoraConfig.channel,
-          uid: agoraConfig.uid
-        });
+        if (canLog('joinDebug')) {
+          console.log('🔗 FINAL - Joining Agora channel with:', {
+            appId: '***' + finalAppId.slice(-4),
+            appIdLength: finalAppId.length,
+            channel: agoraConfig.channel,
+            uid: agoraConfig.uid
+          });
+        }
 
         const success = await joinChannel(
           agoraConfig.channel,
@@ -262,7 +306,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           agoraConfig.uid
         );
         
-        console.log('🎯 joinChannel result:', success);
+        if (canLog('joinDebug')) {
+          console.log('🎯 joinChannel result:', success);
+        }
         
         if (!success) {
           throw new Error('joinChannel returned false - check hook implementation');
@@ -291,15 +337,22 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   // ✅ Setup Agora event listeners
   const setupAgoraEvents = useCallback(() => {
     if (!service?.client) {
-      console.log('⏳ Agora client not ready yet, waiting...');
+      if (canLog('serviceDebug')) {
+        console.log('⏳ Agora client not ready yet, waiting...');
+      }
       return;
     }
 
-    console.log('🎧 Setting up Agora event listeners');
+    if (canLog('serviceDebug')) {
+      console.log('🎧 Setting up Agora event listeners');
+    }
 
     const handleUserPublished = async (user, mediaType) => {
       try {
-        console.log('📹 User published:', user.uid, mediaType);
+        if (canLog('serviceDebug')) {
+          console.log('📹 User published:', user.uid, mediaType);
+        }
+        
         await service.client.subscribe(user, mediaType);
         
         if (mediaType === 'video') {
@@ -319,12 +372,16 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     const handleUserUnpublished = (user) => {
-      console.log('📹 User unpublished:', user.uid);
+      if (canLog('serviceDebug')) {
+        console.log('📹 User unpublished:', user.uid);
+      }
       setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
     };
 
     const handleUserJoined = (user) => {
-      console.log('👤 User joined:', user.uid);
+      if (canLog('serviceDebug')) {
+        console.log('👤 User joined:', user.uid);
+      }
       const newParticipant = {
         uid: user.uid,
         name: `Student ${user.uid}`,
@@ -336,7 +393,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     const handleUserLeft = (user) => {
-      console.log('👤 User left:', user.uid);
+      if (canLog('serviceDebug')) {
+        console.log('👤 User left:', user.uid);
+      }
       setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
       setParticipants(prev => prev.filter(p => p.uid !== user.uid));
       toast.info('Student left the class');
@@ -348,7 +407,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     service.client.on('user-joined', handleUserJoined);
     service.client.on('user-left', handleUserLeft);
     service.client.on('connection-state-change', (state) => {
-      console.log('🔗 Connection state changed:', state);
+      if (canLog('connectionDebug')) {
+        console.log('🔗 Connection state changed:', state);
+      }
     });
 
     // Return cleanup function
@@ -373,7 +434,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   // ✅ Initialize local media tracks
   const initializeLocalTracks = async () => {
     try {
-      console.log('🎬 Initializing local media tracks...');
+      if (canLog('serviceDebug')) {
+        console.log('🎬 Initializing local media tracks...');
+      }
       
       // Dynamic import for code splitting
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
@@ -400,9 +463,13 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
       // Publish tracks if client is available and connected
       if (service?.client && isConnected) {
-        console.log('📤 Publishing local tracks...');
+        if (canLog('serviceDebug')) {
+          console.log('📤 Publishing local tracks...');
+        }
         await service.client.publish([audioTrack, videoTrack]);
-        console.log('✅ Local tracks published successfully');
+        if (canLog('serviceDebug')) {
+          console.log('✅ Local tracks published successfully');
+        }
       }
       
     } catch (error) {
@@ -413,7 +480,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
   // ✅ Cleanup function
   const handleCleanup = useCallback(() => {
-    console.log('🧹 Cleaning up video call resources...');
+    if (canLog('connectionDebug')) {
+      console.log('🧹 Cleaning up video call resources...');
+    }
     
     // Close local tracks
     if (localAudioTrack) {
@@ -435,19 +504,21 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
   // ✅ Debug component state
   useEffect(() => {
-    console.log('🔍 VideoCall State:', {
-      isLoading,
-      isConnected,
-      isConnecting,
-      error,
-      agoraConfig: agoraConfig ? {
-        appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'undefined',
-        channel: agoraConfig.channel,
-        hasToken: !!agoraConfig.token
-      } : 'null',
-      remoteUsers: remoteUsers.length,
-      participants: participants.length
-    });
+    if (canLog('stateDebug')) {
+      console.log('🔍 VideoCall State:', {
+        isLoading,
+        isConnected,
+        isConnecting,
+        error,
+        agoraConfig: agoraConfig ? {
+          appId: agoraConfig.appId ? '***' + agoraConfig.appId.slice(-4) : 'undefined',
+          channel: agoraConfig.channel,
+          hasToken: !!agoraConfig.token
+        } : 'null',
+        remoteUsers: remoteUsers.length,
+        participants: participants.length
+      });
+    }
   }, [isLoading, isConnected, isConnecting, error, agoraConfig, remoteUsers, participants]);
 
   // ✅ ENHANCED DEBUG: Comprehensive configuration check
