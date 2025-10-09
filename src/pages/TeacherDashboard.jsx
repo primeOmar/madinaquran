@@ -12,7 +12,8 @@ import { teacherApi } from '../lib/supabaseClient';
 import videoApi from '../lib/agora/videoApi';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
-import VideoCall from '../components/VideoCall'
+import VideoCall from '../components/VideoCall';
+import debugAgoraConnection from '../lib/videoDebugHelper';
 
 // Format time utility function
 const formatTime = (seconds) => {
