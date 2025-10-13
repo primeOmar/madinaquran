@@ -1,62 +1,39 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-// Agora Configuration (without appId - will be passed dynamically)
+// Agora Configuration
 const AGORA_CONFIG = {
   codec: 'h264',
   mode: 'rtc',
-  maxRetries: 5,
-  timeout: 15000,
-  
-  // Multiple server endpoints for fallback
+  maxRetries: 3, // Reduced from 5
+  timeout: 10000, // Reduced from 15000
   serverUrls: [
     'wss://webrtc2.ap.agora.io',
     'wss://webrtc2.ap.sd-rtn.com',
-    'wss://webrtc2-1.ap.sd-rtn.com',
-    'wss://webrtc2-2.ap.sd-rtn.com',
-    'wss://webrtc2-3.ap.sd-rtn.com',
-    'wss://webrtc2-4.ap.sd-rtn.com'
-  ],
-  
-  // Alternative gateway servers
-  gatewayServers: [
-    'https://webrtc2-ap-web-1.agora.io',
-    'https://webrtc2-ap-web-2.agora.io', 
-    'https://webrtc2-ap-web-3.agora.io'
   ]
 };
 
 // Enhanced Error Mapping
 const AGORA_ERROR_MESSAGES = {
   'CAN_NOT_GET_GATEWAY_SERVER': {
-    userMessage: 'Network connection issue. Please check your internet connection and try again.',
+    userMessage: 'Network connection issue. Please check your internet.',
     retryable: true,
     fallback: true
   },
   'DYNAMIC_USE_STATIC_KEY': {
-    userMessage: 'Authentication issue. Trying alternative connection method...',
-    retryable: true,
-    fallback: true
-  },
-  'INVALID_PARAMS': {
-    userMessage: 'Configuration error. Please contact support.',
-    retryable: false,
-    fallback: false
-  },
-  'INVALID_TOKEN': {
-    userMessage: 'Session expired. Refreshing connection...',
+    userMessage: 'Authentication issue. Reconnecting...',
     retryable: true,
     fallback: true
   },
   'DEFAULT': {
-    userMessage: 'Connection issue. Attempting to reconnect...',
+    userMessage: 'Connection issue. Please try again.',
     retryable: true,
     fallback: true
   }
 };
 
-// Enhanced Agora Service with dynamic appId support
+// SILENT Agora Service
 class AgoraProductionService {
-  constructor(appId) {  // ✅ CRITICAL: Accept appId as parameter
+  constructor(appId) {
     this.client = null;
     this.isInitialized = false;
     this.retryCount = 0;
@@ -65,17 +42,18 @@ class AgoraProductionService {
     this.currentServerIndex = 0;
     this.useTokenFallback = false;
     this.connectionAttempts = 0;
-    this.appId = appId; // ✅ CRITICAL: Store the dynamic appId
+    this.appId = appId;
     
-    console.log('🔧 Agora Service initialized with App ID:', 
-      appId ? '***' + appId.slice(-4) : 'UNDEFINED - THIS WILL CAUSE ERRORS');
+    // ✅ MINIMAL LOGGING: Only log critical initialization issues
+    if (!appId) {
+      console.error('❌ Agora App ID is required but was not provided');
+    }
   }
 
   async initializeClient() {
     try {
-      // ✅ Validate appId before proceeding
       if (!this.appId) {
-        throw new Error('Agora App ID is required but was not provided');
+        throw new Error('Agora App ID is required');
       }
 
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
@@ -85,42 +63,24 @@ class AgoraProductionService {
         codec: AGORA_CONFIG.codec
       });
 
-      // Try to set custom gateway server (if supported)
-      await this.setCustomGateway();
-      
       this.setupEventListeners();
       this.isInitialized = true;
       
-      console.log('✅ Agora client initialized successfully');
       return this.client;
     } catch (error) {
-      console.error('❌ Failed to initialize Agora client:', error);
       throw this.normalizeError(error);
-    }
-  }
-
-  // Method to try different gateway servers
-  async setCustomGateway() {
-    if (!this.client || !AGORA_CONFIG.gatewayServers.length) return;
-
-    try {
-      const gatewayUrl = AGORA_CONFIG.gatewayServers[this.currentServerIndex];
-      console.log(`🔄 Trying gateway server: ${gatewayUrl}`);
-      
-      // Some Agora SDK versions support custom gateway configuration
-      if (this.client.setGateway) {
-        this.client.setGateway(gatewayUrl);
-      }
-    } catch (error) {
-      console.warn('Could not set custom gateway:', error);
     }
   }
 
   setupEventListeners() {
     if (!this.client) return;
 
+    // ✅ MINIMAL LOGGING: Only log state changes that matter
     this.client.on('connection-state-change', (curState, prevState) => {
-      console.log(`🔗 Agora connection: ${prevState} → ${curState}`);
+      // Only log important transitions
+      if (curState === 'DISCONNECTED' || curState === 'CONNECTED') {
+        console.log(`Agora: ${prevState} → ${curState}`);
+      }
       this.emit('connection-state-change', { current: curState, previous: prevState });
       
       if (curState === 'DISCONNECTED') {
@@ -129,18 +89,14 @@ class AgoraProductionService {
     });
 
     this.client.on('token-privilege-will-expire', () => {
-      console.log('🕒 Token will expire soon');
       this.emit('token-will-expire');
     });
 
     this.client.on('token-privilege-did-expire', () => {
-      console.log('❌ Token expired');
       this.emit('token-expired');
     });
 
-    // Additional error handling
     this.client.on('exception', (event) => {
-      console.warn('Agora exception:', event);
       this.emit('exception', event);
     });
   }
@@ -148,7 +104,6 @@ class AgoraProductionService {
   async joinChannelWithRetry(channelName, token, uid = null) {
     this.connectionAttempts++;
     
-    // ✅ CRITICAL: Validate appId before joining
     if (!this.appId) {
       throw new Error('Cannot join channel: Agora App ID is missing');
     }
@@ -159,59 +114,55 @@ class AgoraProductionService {
           await this.initializeClient();
         }
 
-        console.log(`🎯 Joining "${channelName}" - attempt ${attempt}/${this.maxRetries}`);
-        console.log(`🔧 Using ${this.useTokenFallback ? 'token fallback' : 'normal token'} mode`);
-        console.log(`🔑 App ID: ${this.appId ? '***' + this.appId.slice(-4) : 'MISSING'}`);
-        
-        // Try with token first, then fallback to null if issues persist
+        // ✅ MINIMAL LOGGING: Only log first and last attempts
+        if (attempt === 1) {
+          console.log(`Joining channel: ${channelName}`);
+        }
+
         const joinToken = this.useTokenFallback ? null : token;
         
-        // ✅ CRITICAL: Use this.appId (dynamic) instead of AGORA_CONFIG.appId (static)
         await this.client.join(
-          this.appId, // ✅ FIXED: Use instance appId
+          this.appId,
           channelName,
           joinToken,
           uid
         );
 
-        console.log('✅ Successfully joined channel:', channelName);
+        // ✅ SUCCESS: Log once
+        console.log('✅ Joined channel successfully');
         this.retryCount = 0;
         this.connectionAttempts = 0;
         this.emit('joined', { 
           channelName, 
           uid, 
-          usedFallback: this.useTokenFallback,
-          appId: this.appId ? '***' + this.appId.slice(-4) : 'unknown'
+          usedFallback: this.useTokenFallback
         });
         return;
 
       } catch (error) {
-        console.error(`❌ Join attempt ${attempt} failed:`, error);
-        
+        // ✅ MINIMAL LOGGING: Only log final failure
+        if (attempt === this.maxRetries) {
+          console.error(`Failed to join after ${this.maxRetries} attempts:`, error.message);
+          throw this.normalizeError(error);
+        }
+
         // Check if we should try token fallback
         if ((error.code === 4096 || error.message?.includes('dynamic use static key')) && 
             !this.useTokenFallback && attempt >= 2) {
-          console.log('🔄 Switching to token fallback mode');
           this.useTokenFallback = true;
           this.isInitialized = false;
           continue;
         }
         
         // Try next gateway server
-        if (attempt % 2 === 0 && this.currentServerIndex < AGORA_CONFIG.gatewayServers.length - 1) {
+        if (attempt % 2 === 0 && this.currentServerIndex < AGORA_CONFIG.serverUrls.length - 1) {
           this.currentServerIndex++;
           this.isInitialized = false;
-          console.log(`🔄 Switching to gateway server ${this.currentServerIndex + 1}`);
         }
         
-        if (attempt === this.maxRetries) {
-          throw this.normalizeError(error);
-        }
-
-        // Exponential backoff with jitter
+        // Exponential backoff
         const baseDelay = Math.pow(2, attempt) * 1000;
-        const jitter = Math.random() * 1000;
-        await this.delay(baseDelay + jitter);
+        await this.delay(baseDelay);
         
         this.isInitialized = false;
       }
@@ -222,7 +173,6 @@ class AgoraProductionService {
     const errorCode = error?.code || error?.message;
     let errorInfo = AGORA_ERROR_MESSAGES[errorCode] || AGORA_ERROR_MESSAGES.DEFAULT;
     
-    // Special handling for gateway errors
     if (errorCode === 4096 || error.message?.includes('dynamic use static key')) {
       errorInfo = AGORA_ERROR_MESSAGES.CAN_NOT_GET_GATEWAY_SERVER;
     }
@@ -233,28 +183,21 @@ class AgoraProductionService {
       message: error?.message || 'Unknown error',
       userMessage: errorInfo.userMessage,
       retryable: errorInfo.retryable,
-      supportsFallback: errorInfo.fallback,
-      connectionAttempts: this.connectionAttempts,
-      appId: this.appId ? '***' + this.appId.slice(-4) : 'missing' // ✅ Include appId in error for debugging
+      supportsFallback: errorInfo.fallback
     };
   }
 
   async handleDisconnection() {
-    console.log('🔄 Handling disconnection...');
-    
     if (this.retryCount < this.maxRetries) {
       this.retryCount++;
-      console.log(`Attempting reconnection (${this.retryCount}/${this.maxRetries})`);
       
       try {
         await this.reconnect();
         this.emit('reconnected');
       } catch (error) {
-        console.error('Reconnection failed:', error);
         this.emit('reconnection-failed', error);
       }
     } else {
-      console.error('Max reconnection attempts reached');
       this.emit('connection-lost');
     }
   }
@@ -264,13 +207,12 @@ class AgoraProductionService {
       try {
         await this.client.leave();
       } catch (error) {
-        console.warn('Error during leave on reconnect:', error);
+        // Silent fail
       }
     }
     
     this.isInitialized = false;
-    // Rotate to next gateway server
-    this.currentServerIndex = (this.currentServerIndex + 1) % AGORA_CONFIG.gatewayServers.length;
+    this.currentServerIndex = (this.currentServerIndex + 1) % AGORA_CONFIG.serverUrls.length;
     await this.initializeClient();
   }
 
@@ -278,10 +220,8 @@ class AgoraProductionService {
     if (this.client) {
       try {
         await this.client.leave();
-        console.log('✅ Successfully left channel');
         this.emit('left');
       } catch (error) {
-        console.error('Error leaving channel:', error);
         throw this.normalizeError(error);
       }
     }
@@ -307,7 +247,7 @@ class AgoraProductionService {
         try {
           callback(data);
         } catch (error) {
-          console.error(`Error in event listener for ${event}:`, error);
+          // Silent fail for event listener errors
         }
       });
     }
@@ -327,23 +267,20 @@ class AgoraProductionService {
     this.connectionAttempts = 0;
   }
 
-  // Get connection stats
   getConnectionStats() {
     return {
       retryCount: this.retryCount,
       connectionAttempts: this.connectionAttempts,
-      currentGateway: AGORA_CONFIG.gatewayServers[this.currentServerIndex],
       usingTokenFallback: this.useTokenFallback,
-      maxRetries: this.maxRetries,
-      appId: this.appId ? '***' + this.appId.slice(-4) : 'missing' // ✅ Include appId in stats
+      maxRetries: this.maxRetries
     };
   }
 }
 
-// Enhanced React Hook with dynamic appId support
+// SILENT React Hook
 export const useAgoraProduction = (options = {}) => {
   const {
-    appId, // ✅ CRITICAL: appId is now a required prop from parent component
+    appId,
     onError,
     onJoined,
     onLeft,
@@ -359,34 +296,23 @@ export const useAgoraProduction = (options = {}) => {
     isConnecting: false,
     connectionError: null,
     connectionState: 'DISCONNECTED',
-    isFallbackMode: false,
-    connectionStats: null
+    isFallbackMode: false
   });
 
   const agoraService = useRef(null);
-  const localAudioTrack = useRef(null);
-  const localVideoTrack = useRef(null);
 
-  // Initialize service with dynamic appId
+  // Initialize service
   useEffect(() => {
-    // ✅ CRITICAL: Pass appId to service constructor
     agoraService.current = new AgoraProductionService(appId);
 
-    console.log('🎯 Agora hook initialized with:', {
-      appId: appId ? '***' + appId.slice(-4) : 'UNDEFINED - THIS WILL FAIL',
-      hasAppId: !!appId,
-      appIdLength: appId?.length
-    });
-
-    // Enhanced event listeners
+    // Event listeners with minimal logging
     agoraService.current.on('joined', (data) => {
       setState(prev => ({ 
         ...prev, 
         isConnected: true, 
         isConnecting: false,
         connectionError: null,
-        isFallbackMode: data.usedFallback || false,
-        connectionStats: agoraService.current.getConnectionStats()
+        isFallbackMode: data.usedFallback || false
       }));
       if (data.usedFallback) {
         onFallbackMode?.(true);
@@ -407,8 +333,7 @@ export const useAgoraProduction = (options = {}) => {
     agoraService.current.on('connection-state-change', (data) => {
       setState(prev => ({ 
         ...prev, 
-        connectionState: data.current,
-        connectionStats: agoraService.current.getConnectionStats()
+        connectionState: data.current
       }));
       onConnectionStateChange?.(data);
     });
@@ -418,14 +343,13 @@ export const useAgoraProduction = (options = {}) => {
         ...prev, 
         isConnected: false, 
         isConnecting: false,
-        connectionError: error,
-        connectionStats: agoraService.current.getConnectionStats()
+        connectionError: error
       }));
       onError?.(error);
     });
 
     agoraService.current.on('token-will-expire', () => {
-      console.log('🕒 Token will expire - implement renewal logic');
+      // Silent - implement renewal if needed
     });
 
     agoraService.current.on('token-expired', () => {
@@ -433,42 +357,29 @@ export const useAgoraProduction = (options = {}) => {
         ...prev, 
         isConnected: false,
         connectionError: {
-          userMessage: 'Session expired. Please refresh the page.',
+          userMessage: 'Session expired. Please refresh.',
           retryable: true
         }
       }));
-    });
-
-    agoraService.current.on('exception', (event) => {
-      console.warn('Agora exception event:', event);
     });
 
     return () => {
       if (agoraService.current) {
         agoraService.current.destroy();
       }
-      if (localAudioTrack.current) {
-        localAudioTrack.current.close();
-      }
-      if (localVideoTrack.current) {
-        localVideoTrack.current.close();
-      }
     };
-  }, [appId, onError, onJoined, onLeft, onConnectionStateChange, onFallbackMode]); // ✅ Include appId in dependencies
+  }, [appId, onError, onJoined, onLeft, onConnectionStateChange, onFallbackMode]);
 
   // Auto-join if enabled
   useEffect(() => {
-    if (autoJoin && initialChannelName && initialToken && appId) { // ✅ Check appId exists
-      console.log('🚀 Auto-joining channel with appId:', appId ? '***' + appId.slice(-4) : 'MISSING');
+    if (autoJoin && initialChannelName && initialToken && appId) {
       joinChannel(initialChannelName, initialToken);
     }
-  }, [autoJoin, initialChannelName, initialToken, appId]); // ✅ Include appId in dependencies
+  }, [autoJoin, initialChannelName, initialToken, appId]);
 
   const joinChannel = useCallback(async (channelName, token, uid = null) => {
-    // ✅ Validate appId exists before attempting to join
     if (!appId) {
       const error = new Error('Cannot join channel: Agora App ID is missing');
-      console.error('❌ Join failed:', error.message);
       setState(prev => ({ ...prev, connectionError: error }));
       onError?.(error);
       return false;
@@ -484,26 +395,23 @@ export const useAgoraProduction = (options = {}) => {
     setState(prev => ({ 
       ...prev, 
       isConnecting: true, 
-      connectionError: null,
-      connectionStats: agoraService.current?.getConnectionStats() || null
+      connectionError: null
     }));
 
     try {
       await agoraService.current.joinChannelWithRetry(channelName, token, uid);
       return true;
     } catch (error) {
-      console.error('Failed to join channel:', error);
       setState(prev => ({ 
         ...prev, 
         isConnecting: false, 
         isConnected: false,
-        connectionError: error,
-        connectionStats: agoraService.current?.getConnectionStats() || null
+        connectionError: error
       }));
       onError?.(error);
       return false;
     }
-  }, [appId, onError]); // ✅ Include appId in dependencies
+  }, [appId, onError]);
 
   const leaveChannel = useCallback(async () => {
     setState(prev => ({ 
@@ -512,20 +420,9 @@ export const useAgoraProduction = (options = {}) => {
       connectionError: null 
     }));
 
-    // Clean up local tracks
-    if (localAudioTrack.current) {
-      localAudioTrack.current.close();
-      localAudioTrack.current = null;
-    }
-    if (localVideoTrack.current) {
-      localVideoTrack.current.close();
-      localVideoTrack.current = null;
-    }
-
     try {
       await agoraService.current.leaveChannel();
     } catch (error) {
-      console.error('Error leaving channel:', error);
       onError?.(error);
     }
   }, [onError]);
@@ -539,42 +436,14 @@ export const useAgoraProduction = (options = {}) => {
     return await joinChannel(channelName, token, uid);
   }, [joinChannel]);
 
-  const getConnectionStats = useCallback(() => {
-    return agoraService.current?.getConnectionStats() || null;
-  }, []);
-
   return {
-    // State
     ...state,
-    
-    // Actions
     joinChannel,
     leaveChannel,
     retryConnection,
-    getConnectionStats,
-    
-    // Service instance (for advanced usage)
     service: agoraService.current,
-    
-    // Utility
-    isInitialized: agoraService.current?.isInitialized || false,
-    
-    // Debug info
-    debug: {
-      appId: appId ? '***' + appId.slice(-4) : 'missing',
-      hasAppId: !!appId
-    }
+    isInitialized: agoraService.current?.isInitialized || false
   };
-};
-
-// Quick Start Hook for simple usage
-export const useAgoraQuickStart = (channelName, token, options = {}) => {
-  return useAgoraProduction({
-    autoJoin: true,
-    channelName,
-    token,
-    ...options
-  });
 };
 
 export default useAgoraProduction;
