@@ -173,7 +173,7 @@ const videoApi = {
     try {
       console.log('🛑 Ending video session:', meetingId);
       
-      const response = await api.post('/api/video-sessions/end', { 
+      const response = await api.post('/api/agora/end', { 
         meeting_id: meetingId 
       }, {
         timeout: 8000 // Shorter timeout
@@ -214,7 +214,7 @@ const videoApi = {
     try {
       console.log('📢 Notifying students class ended:', classId);
       
-      await api.post('/api/classes/notify-ended', {
+      await api.post('api/teacher/notify-ended', {
         class_id: classId,
         session_info: sessionInfo
       }, {
