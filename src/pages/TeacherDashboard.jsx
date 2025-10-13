@@ -851,28 +851,46 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
 
   // ✅ PRODUCTION: Start video session - MINIMAL LOGGING
   const handleStartVideoSession = async (classItem) => {
-    try {
-      setStartingSession(classItem.id);
-      
-      console.log('🚀 Starting video session for class:', classItem.title);
-      
-      const session = await videoApi.startVideoSession(classItem.id);
-      
-      setActiveVideoCall({
-        meetingId: session.meeting_id,
-        class: classItem,
-        isTeacher: true
-      });
-      
-      toast.success('Video class starting...');
-      
-    } catch (error) {
-      console.error('Start video error:', error.message);
-      toast.error('Failed to start video session');
-    } finally {
-      setStartingSession(null);
+  try {
+    setStartingSession(classItem.id);
+    setError(null);
+
+    const session = await videoApi.startVideoSession(classItem.id);
+    
+    // ✅ CHECK FOR ERRORS FROM VIDEOAPI
+    if (!session.success) {
+      throw new Error(session.error);
     }
-  };
+
+    setActiveVideoCall({
+      meetingId: session.meeting_id,
+      class: classItem,
+      isTeacher: true,
+      appId: session.appId
+    });
+    
+    toast.success('Video class starting...');
+    
+  } catch (error) {
+    console.error('Start video failed:', error.message);
+    
+    // ✅ SHOW ACTUAL ERROR TO USER
+    let userMessage = 'Failed to start video call';
+    
+    if (error.message.includes('VIDEO_SERVICE_UNAVAILABLE')) {
+      userMessage = 'Video service is currently unavailable. Please contact support.';
+    } else if (error.message.includes('CLASS_ID_REQUIRED')) {
+      userMessage = 'Invalid class configuration';
+    }
+    
+    setError(userMessage);
+    toast.error(userMessage);
+  } finally {
+    setStartingSession(null);
+  }
+};
+
+
 
   // ✅ PRODUCTION: Join video session - MINIMAL LOGGING
   const handleJoinVideoSession = (meetingId, classItem) => {
