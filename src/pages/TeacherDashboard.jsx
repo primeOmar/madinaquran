@@ -814,170 +814,416 @@ export default function TeacherDashboard() {
 const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
   const [activeVideoCall, setActiveVideoCall] = useState(null);
   const [startingSession, setStartingSession] = useState(null);
+  const [endingSession, setEndingSession] = useState(null);
+  const [deletingClass, setDeletingClass] = useState(null);
   const { user } = useAuth();
 
+  // ✅ PRODUCTION: Sort and filter classes
+  const { upcomingClasses, completedClasses } = useMemo(() => {
+    const now = new Date();
+    
+    const sortedClasses = [...classes].sort((a, b) => {
+      const dateA = new Date(a.scheduled_date);
+      const dateB = new Date(b.scheduled_date);
+      return dateA - dateB; // Earliest first
+    });
+
+    const upcoming = sortedClasses.filter(cls => {
+      const classTime = new Date(cls.scheduled_date);
+      const timeDiff = classTime - now;
+      const hoursDiff = timeDiff / (1000 * 60 * 60);
+      
+      // Class is upcoming if it's in the future OR within 2 hours of start time
+      return hoursDiff > -2 && cls.status === 'scheduled';
+    });
+
+    const completed = sortedClasses.filter(cls => {
+      const classTime = new Date(cls.scheduled_date);
+      const timeDiff = classTime - now;
+      const hoursDiff = timeDiff / (1000 * 60 * 60);
+      
+      // Class is completed if it's more than 2 hours past start time
+      return hoursDiff <= -2 || cls.status === 'completed';
+    });
+
+    return { upcomingClasses: upcoming, completedClasses: completed };
+  }, [classes]);
+
+  // ✅ PRODUCTION: Start video session - MINIMAL LOGGING
   const handleStartVideoSession = async (classItem) => {
     try {
       setStartingSession(classItem.id);
       
-      // SIMPLIFIED: Just get meeting ID and start video call
+      console.log('🚀 Starting video session for class:', classItem.title);
+      
       const session = await videoApi.startVideoSession(classItem.id);
       
-      // Immediately open video call
       setActiveVideoCall({
         meetingId: session.meeting_id,
         class: classItem,
-        isTeacher: true,
-        appId: session.appId
+        isTeacher: true
       });
       
-      toast.success('Video class started! Opening video call...');
+      toast.success('Video class starting...');
       
     } catch (error) {
-      console.error('Error starting video session:', error);
+      console.error('Start video error:', error.message);
       toast.error('Failed to start video session');
     } finally {
       setStartingSession(null);
     }
   };
 
-  const handleJoinVideoSession = async (meetingId, classItem) => {
-    try {
-      // SIMPLIFIED: Just join the video call
-      setActiveVideoCall({
-        meetingId: meetingId,
-        class: classItem,
-        isTeacher: true,
-        appId: AGORA_APP_ID
-      });
-      
-      toast.success('Joining video call...');
-    } catch (error) {
-      console.error('Error joining video session:', error);
-      toast.error('Failed to join video call');
-    }
+  // ✅ PRODUCTION: Join video session - MINIMAL LOGGING
+  const handleJoinVideoSession = (meetingId, classItem) => {
+    console.log('🎯 Joining video session:', meetingId);
+    
+    setActiveVideoCall({
+      meetingId: meetingId,
+      class: classItem,
+      isTeacher: true
+    });
+    
+    toast.success('Joining video call...');
   };
 
-  const handleLeaveVideoCall = () => {
-    setActiveVideoCall(null);
-    toast.info('You left the video call');
-  };
-
-  // SIMPLIFIED: Remove all complex session management
+  // ✅ PRODUCTION: End video session - MINIMAL LOGGING
   const handleEndVideoSession = async (classItem, session) => {
     try {
+      setEndingSession(classItem.id);
+      
       await videoApi.endVideoSession(session.meeting_id);
+      
+      // Silent notification - don't wait for response
+      videoApi.notifyClassEnded(classItem.id, {
+        meeting_id: session.meeting_id,
+        class_title: classItem.title,
+        duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
+      }).catch(() => {}); // Ignore errors
+      
       toast.success('Class session ended!');
       
       if (onClassEnded) {
         onClassEnded();
       }
+      
     } catch (error) {
-      console.error('Error ending session:', error);
-      toast.success('Class session ended!');
+      console.error('End session error:', error.message);
+      toast.error('Failed to end session');
+    } finally {
+      setEndingSession(null);
     }
+  };
+
+  // ✅ PRODUCTION: Delete class - MINIMAL LOGGING
+  const handleDeleteClass = async (classId) => {
+    try {
+      setDeletingClass(classId);
+      await teacherApi.deleteClass(classId);
+      toast.success('Class deleted successfully');
+      
+      if (onClassEnded) {
+        onClassEnded();
+      }
+    } catch (error) {
+      console.error('Delete class error:', error.message);
+      toast.error('Failed to delete class');
+    } finally {
+      setDeletingClass(null);
+    }
+  };
+
+  const handleLeaveVideoCall = () => {
+    setActiveVideoCall(null);
+  };
+
+  const copyClassLink = (meetingId) => {
+    const link = `${window.location.origin}/join-class/${meetingId}`;
+    navigator.clipboard.writeText(link);
+    toast.success('Class link copied!');
+  };
+
+  // ✅ PRODUCTION: Check if class can start video
+  const canStartVideo = (classItem) => {
+    const classTime = new Date(classItem.scheduled_date);
+    const now = new Date();
+    const timeDiff = classTime - now;
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    // Allow video start if class is scheduled and within 2 hours of start time
+    return classItem.status === 'scheduled' && hoursDiff > -2;
+  };
+
+  // ✅ PRODUCTION: Check if class has active session
+  const hasActiveSession = (classItem) => {
+    return classItem.video_sessions?.some(s => s.status === 'active');
   };
 
   return (
     <div>
-      {/* Video Call Modal - This should actually start the video */}
+      {/* Video Call Modal */}
       {activeVideoCall && (
         <VideoCall
           meetingId={activeVideoCall.meetingId}
           user={user}
           isTeacher={activeVideoCall.isTeacher}
           onLeave={handleLeaveVideoCall}
-          appId={activeVideoCall.appId}
         />
       )}
 
-      {/* Rest of your ClassesTab UI */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-2xl font-bold text-white">My Classes</h3>
+        <div className="text-blue-300 text-sm">
+          {upcomingClasses.length} upcoming • {completedClasses.length} completed
+        </div>
       </div>
 
-      {classes.length > 0 ? (
-        <div className="grid gap-6">
-          {classes.map((classItem) => {
-            const activeSession = classItem.video_sessions?.find(s => s.status === 'active');
-            const isStartingThisSession = startingSession === classItem.id;
+      {/* Upcoming Classes */}
+      {upcomingClasses.length > 0 && (
+        <div className="mb-8">
+          <h4 className="text-lg font-semibold text-white mb-4">Upcoming Classes</h4>
+          <div className="grid gap-6">
+            {upcomingClasses.map((classItem) => {
+              const activeSession = hasActiveSession(classItem);
+              const studentCount = classItem.students_classes?.length || 0;
+              const canStart = canStartVideo(classItem);
+              const isStarting = startingSession === classItem.id;
+              const isEnding = endingSession === classItem.id;
+              const isDeleting = deletingClass === classItem.id;
 
-            return (
-              <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6">
-                
-                <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+              return (
+                <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6">
                   
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between mb-4">
-                      <h4 className="font-bold text-2xl text-white">{classItem.title}</h4>
+                  <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+                    
+                    {/* Class Info */}
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-4">
+                        <h4 className="font-bold text-2xl text-white">{classItem.title}</h4>
+                        {activeSession && (
+                          <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
+                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                            <span className="text-red-300 text-sm font-medium">LIVE</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                        <div className="flex items-center text-blue-200">
+                          <Calendar size={18} className="mr-3 text-blue-400" />
+                          <div>
+                            <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
+                            <p className="text-xs text-blue-300">Scheduled Time</p>
+                          </div>
+                        </div>
+                        
+                        {classItem.duration && (
+                          <div className="flex items-center text-blue-200">
+                            <Clock size={18} className="mr-3 text-blue-400" />
+                            <div>
+                              <p className="text-sm font-medium">{classItem.duration} minutes</p>
+                              <p className="text-xs text-blue-300">Duration</p>
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="flex items-center text-blue-200">
+                          <Users size={18} className="mr-3 text-blue-400" />
+                          <div>
+                            <p className="text-sm font-medium">{studentCount} students</p>
+                            <p className="text-xs text-blue-300">Enrolled</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Active Session Info */}
                       {activeSession && (
-                        <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                          <span className="text-red-300 text-sm font-medium">LIVE</span>
+                        <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <p className="text-green-300 font-medium">Session Started</p>
+                              <p className="text-green-200">
+                                {new Date(classItem.video_sessions.find(s => s.status === 'active').started_at).toLocaleTimeString()}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-green-300 font-medium">Duration</p>
+                              <p className="text-green-200">
+                                {Math.round((new Date() - new Date(classItem.video_sessions.find(s => s.status === 'active').started_at)) / 60000)} minutes
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Class Description */}
+                      {classItem.description && (
+                        <p className="text-blue-300 text-lg mb-4">{classItem.description}</p>
+                      )}
+
+                      {/* Course Name */}
+                      {classItem.course?.name && (
+                        <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
+                          <BookOpen size={16} className="mr-2 text-blue-400" />
+                          <span className="text-blue-300 text-sm">{classItem.course.name}</span>
                         </div>
                       )}
                     </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                      <div className="flex items-center text-blue-200">
-                        <Calendar size={18} className="mr-3 text-blue-400" />
-                        <div>
-                          <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
-                          <p className="text-xs text-blue-300">Scheduled Time</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center text-blue-200">
-                        <Users size={18} className="mr-3 text-blue-400" />
-                        <div>
-                          <p className="text-sm font-medium">{classItem.students_classes?.length || 0} students</p>
-                          <p className="text-xs text-blue-300">Enrolled</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* SIMPLIFIED Action Buttons */}
-                  <div className="flex flex-col space-y-3 w-full lg:w-auto">
-                    {!activeSession && (
+                    {/* Action Buttons */}
+                    <div className="flex flex-col space-y-3 w-full lg:w-auto">
+                      {/* Start Session Button - Only show if class can start */}
+                      {canStart && !activeSession && (
+                        <button
+                          onClick={() => handleStartVideoSession(classItem)}
+                          disabled={isStarting}
+                          className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                        >
+                          {isStarting ? (
+                            <>
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                              Starting...
+                            </>
+                          ) : (
+                            <>
+                              <Play size={20} className="mr-3" />
+                              Start Video Class
+                            </>
+                          )}
+                        </button>
+                      )}
+                      
+                      {/* Active Session Buttons */}
+                      {activeSession && (
+                        <>
+                          <button
+                            onClick={() => handleJoinVideoSession(
+                              classItem.video_sessions.find(s => s.status === 'active').meeting_id, 
+                              classItem
+                            )}
+                            className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
+                          >
+                            <Video size={20} className="mr-3" />
+                            Join Live Class
+                          </button>
+                          
+                          <button
+                            onClick={() => copyClassLink(
+                              classItem.video_sessions.find(s => s.status === 'active').meeting_id
+                            )}
+                            className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
+                          >
+                            <Share2 size={20} className="mr-3" />
+                            Copy Invite Link
+                          </button>
+                          
+                          <button
+                            onClick={() => handleEndVideoSession(
+                              classItem, 
+                              classItem.video_sessions.find(s => s.status === 'active')
+                            )}
+                            disabled={isEnding}
+                            className="bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                          >
+                            {isEnding ? (
+                              <>
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                                Ending...
+                              </>
+                            ) : (
+                              <>
+                                <X size={20} className="mr-3" />
+                                End Class Session
+                              </>
+                            )}
+                          </button>
+                        </>
+                      )}
+
+                      {/* Delete Class Button */}
                       <button
-                        onClick={() => handleStartVideoSession(classItem)}
-                        disabled={isStartingThisSession}
-                        className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                        onClick={() => handleDeleteClass(classItem.id)}
+                        disabled={isDeleting}
+                        className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center justify-center disabled:opacity-50"
                       >
-                        {isStartingThisSession ? (
+                        {isDeleting ? (
                           <>
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                            Starting...
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Deleting...
                           </>
                         ) : (
                           <>
-                            <Play size={20} className="mr-3" />
-                            Start Video Class
+                            <Trash2 size={16} className="mr-2" />
+                            Delete Class
                           </>
                         )}
                       </button>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* Status Footer */}
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
+                    <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
+                      <span className={`px-4 py-2 rounded-full text-xs font-bold ${
+                        classItem.status === "scheduled" 
+                          ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
+                          : classItem.status === "active"
+                          ? "bg-green-500/20 text-green-300 border border-green-500/30"
+                          : classItem.status === "completed"
+                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                          : "bg-red-500/20 text-red-300 border border-red-500/30"
+                      }`}>
+                        {classItem.status?.toUpperCase()}
+                      </span>
+                      
+                      {activeSession && (
+                        <span className="flex items-center text-green-400 text-sm">
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
+                          Session active
+                        </span>
+                      )}
+                    </div>
                     
-                    {activeSession && (
-                      <button
-                        onClick={() => handleJoinVideoSession(activeSession.meeting_id, classItem)}
-                        className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
-                      >
-                        <Video size={20} className="mr-3" />
-                        Join Live Class
-                      </button>
-                    )}
+                    <div className="flex items-center space-x-2 text-blue-300 text-sm">
+                      <User size={14} />
+                      <span>
+                        {studentCount} student{studentCount !== 1 ? 's' : ''} enrolled
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      ) : (
+      )}
+
+      {/* Completed Classes */}
+      {completedClasses.length > 0 && (
+        <div>
+          <h4 className="text-lg font-semibold text-white mb-4">Completed Classes</h4>
+          <div className="grid gap-4">
+            {completedClasses.map((classItem) => (
+              <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
+                <h4 className="font-bold text-white">{classItem.title}</h4>
+                <p className="text-blue-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
+                <p className="text-blue-200 text-sm">Students: {classItem.students_classes?.length || 0}</p>
+                <div className="mt-3 bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs inline-block">
+                  COMPLETED
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No Classes */}
+      {classes.length === 0 && (
         <div className="text-center py-16">
           <BookOpen size={64} className="mx-auto text-blue-400 mb-4 opacity-50" />
           <h3 className="text-2xl font-bold text-white mb-2">No Classes Scheduled</h3>
+          <p className="text-blue-300 text-lg">You don't have any classes scheduled yet.</p>
         </div>
       )}
     </div>
