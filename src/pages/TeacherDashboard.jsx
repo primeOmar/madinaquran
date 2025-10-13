@@ -816,6 +816,7 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
   const [startingSession, setStartingSession] = useState(null);
   const [endingSession, setEndingSession] = useState(null);
   const [deletingClass, setDeletingClass] = useState(null);
+  const [error, setError] = useState(null);
   const { user } = useAuth();
 
   // ✅ PRODUCTION: Sort and filter classes
