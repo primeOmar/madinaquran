@@ -324,6 +324,7 @@ export default function TeacherDashboard() {
     students: true, 
     assignments: true 
   });
+  const [deletingClass, setDeletingClass] = useState(null);
   const [submissions, setSubmissions] = useState([]);
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
   const [activeGradingTab, setActiveGradingTab] = useState('pending');
@@ -814,6 +815,7 @@ export default function TeacherDashboard() {
   const [activeVideoCall, setActiveVideoCall] = useState(null);
   const [startingSession, setStartingSession] = useState(null);
   const [endingSession, setEndingSession] = useState(null);
+  const [deletingClass, setDeletingClass] = useState(null); // ADDED
   const { user } = useAuth();
 
   const handleEndVideoSession = async (classItem, session) => {
@@ -839,6 +841,22 @@ export default function TeacherDashboard() {
       toast.error(`Failed to end session: ${error.message}`);
     } finally {
       setEndingSession(null);
+    }
+  };
+
+  const handleDeleteClass = async (classId) => {
+    try {
+      setDeletingClass(classId);
+      await teacherApi.deleteClass(classId);
+      toast.success('Class deleted successfully');
+      // Reload classes
+      if (onClassEnded) {
+        onClassEnded();
+      }
+    } catch (error) {
+      toast.error(`Failed to delete class: ${error.message}`);
+    } finally {
+      setDeletingClass(null);
     }
   };
 
@@ -878,19 +896,6 @@ export default function TeacherDashboard() {
     const link = `${window.location.origin}/join-class/${meetingId}`;
     navigator.clipboard.writeText(link);
     toast.success('Class link copied to clipboard!');
-  };
-   const handleDeleteClass = async (classId) => {
-    try {
-      setDeletingClass(classId);
-      await teacherApi.deleteClass(classId);
-      toast.success('Class deleted successfully');
-      // Reload classes
-      loadTeacherData();
-    } catch (error) {
-      toast.error(`Failed to delete class: ${error.message}`);
-    } finally {
-      setDeletingClass(null);
-    }
   };
 
   const handleForceEndAllSessions = async () => {
@@ -960,6 +965,7 @@ export default function TeacherDashboard() {
             const studentCount = classItem.students_classes?.length || 0;
             const isStartingThisSession = startingSession === classItem.id;
             const isEndingThisSession = endingSession === classItem.id;
+            const isDeletingThisClass = deletingClass === classItem.id;
 
             return (
               <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6 hover:from-blue-900/60 hover:to-purple-900/60 transition-all duration-300 group">
@@ -1088,20 +1094,44 @@ export default function TeacherDashboard() {
                           Copy Invite Link
                         </button>
                         
-                         <button
-      onClick={() => handleDeleteClass(classItem.id)}
-      disabled={deletingClass === classItem.id}
-      className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center"
-    >
-      {deletingClass === classItem.id ? (
-        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-      ) : (
-        <Trash2 size={16} className="mr-2" />
-      )}
-      Delete
-    </button>
+                        <button
+                          onClick={() => handleEndVideoSession(classItem, activeSession)}
+                          disabled={isEndingThisSession}
+                          className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        >
+                          {isEndingThisSession ? (
+                            <>
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                              Ending Session...
+                            </>
+                          ) : (
+                            <>
+                              <X size={20} className="mr-3" />
+                              End Class Session
+                            </>
+                          )}
+                        </button>
                       </>
                     )}
+
+                    {/* Delete Class Button (Always visible) */}
+                    <button
+                      onClick={() => handleDeleteClass(classItem.id)}
+                      disabled={isDeletingThisClass}
+                      className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isDeletingThisClass ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={16} className="mr-2" />
+                          Delete Class
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
 
