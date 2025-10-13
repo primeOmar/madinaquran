@@ -1,356 +1,729 @@
-import api from './api';
+// routes/teacher.js
+// Teacher-specific routes for managing profiles, classes, students, and video sessions.
 
-// ✅ CRITICAL: Ensure App ID is properly defined
-const AGORA_APP_ID = '5c0225ce9a19445f95a2685647258468';
-const BACKEND_URL = 'https://madina-quran-backend.onrender.com';
+import express from 'express';
+import { supabase, clearCache, getCache, setCache } from '../server.js';
+import { requireAuth, requireTeacher } from '../middleware/auth.js';
+import { sanitizeInput } from '../utils/helpers.js';
 
-// Validate App ID format at startup
-function validateAppId(appId) {
-  if (!appId) {
-    throw new Error('❌ CRITICAL: Agora App ID is undefined');
-  }
-  
-  if (typeof appId !== 'string') {
-    throw new Error(`❌ CRITICAL: App ID must be string, got ${typeof appId}`);
-  }
-  
-  if (appId.length !== 32) {
-    throw new Error(`❌ CRITICAL: App ID should be 32 chars, got ${appId.length}`);
-  }
-  
-  if (!/^[a-f0-9]{32}$/i.test(appId)) {
-    throw new Error('❌ CRITICAL: App ID must be 32-char hex string');
-  }
-  
-  return true;
-}
+const router = express.Router();
 
-// Validate on load
-try {
-  validateAppId(AGORA_APP_ID);
-  console.log('✅ Agora App ID validated:', '***' + AGORA_APP_ID.slice(-4));
-} catch (error) {
-  console.error(error.message);
-  throw error; // Fail fast if App ID is invalid
-}
-
-const videoApi = {
-  /**
-   * Generate Agora token - tries backend first, falls back to client-only
-   */
-  async generateAgoraToken(meetingId, userId) {
-    console.log('🎯 Token generation started:', { meetingId, userId });
+// ✅ NOTIFY-ENDED ROUTE - PUBLIC (moved before auth middleware)
+router.post('/notify-ended', async (req, res) => {
+  try {
+    const { class_id, session_info } = req.body;
     
-    try {
-      // Try backend first (with timeout)
-      console.log('📡 Attempting backend token generation...');
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const response = await fetch(`${BACKEND_URL}/api/agora/generate-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channelName: meetingId,
-          uid: userId.toString(),
-          role: 'publisher'
-        }),
-        signal: controller.signal
-      });
+    console.log('📢 Notifying students class ended:', { class_id, session_info });
 
-      clearTimeout(timeoutId);
+    // Get students in this class
+    const { data: students, error: studentsError } = await supabase
+      .from('students_classes')
+      .select('student_id')
+      .eq('class_id', class_id);
 
-      // ✅ CRITICAL: Debug raw response
-      const responseText = await response.text();
-      console.log('🔍 RAW BACKEND RESPONSE:', responseText);
+    if (studentsError) {
+      console.error('Error fetching students:', studentsError);
+      return res.status(500).json({ error: 'Failed to fetch students' });
+    }
 
-      let data;
-      try {
-        data = JSON.parse(responseText);
-        console.log('📡 Parsed backend data:', data);
-      } catch (parseError) {
-        console.error('❌ Failed to parse backend response:', parseError);
-        throw new Error('Invalid JSON response from server');
+    // Send notifications to each student
+    if (students && students.length > 0) {
+      const notifications = students.map(student => ({
+        user_id: student.student_id,
+        title: 'Class Ended',
+        message: `Class "${session_info.class_title}" has ended.`,
+        type: 'info',
+        created_at: new Date().toISOString()
+      }));
+
+      const { error: notifyError } = await supabase
+        .from('notifications')
+        .insert(notifications);
+
+      if (notifyError) {
+        console.error('Error creating notifications:', notifyError);
+        return res.status(500).json({ error: 'Failed to create notifications' });
       }
+    }
 
-      if (response.ok) {
-        console.log('📡 Backend response:', {
-          success: data.success,
-          hasToken: !!data.token,
-          hasAppId: !!data.appId,
-          isFallback: data.isFallback
-        });
+    res.json({ 
+      success: true, 
+      notified: students?.length || 0,
+      message: `Notified ${students?.length || 0} students` 
+    });
+  } catch (error) {
+    console.error('Notify ended error:', error);
+    res.status(500).json({ error: 'Failed to notify students' });
+  }
+});
 
-        // ✅ CRITICAL: Always ensure appId is present - FIXED LOGIC
-        if (data.success && data.token) {
-          const finalAppId = data.appId || AGORA_APP_ID; // Fallback to frontend App ID
-          
-          try {
-            validateAppId(finalAppId);
-            console.log('✅ Using secure backend token with App ID:', '***' + finalAppId.slice(-4));
-            return {
-              appId: finalAppId,
-              token: data.token,
-              isFallback: false,
-              mode: 'secure'
-            };
-          } catch (validationError) {
-            console.error('❌ Backend returned invalid App ID:', validationError.message);
-            // Fall through to fallback
-          }
+// ✅ APPLY AUTHENTICATION MIDDLEWARE TO ALL OTHER TEACHER ROUTES
+router.use(requireAuth, requireTeacher);
+
+// Get teacher profile
+router.get('/profile', async (req, res) => {
+  try {
+    console.log('👤 Fetching teacher profile for:', req.user.email);
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('id, name, email, role, subject, status, created_at, updated_at')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error) {
+      console.error('❌ Error fetching teacher profile:', error);
+      return res.status(400).json({ error: 'Error fetching profile' });
+    }
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    res.json(profile);
+  } catch (error) {
+    console.error('❌ Error fetching teacher profile:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update teacher profile
+router.put('/profile', async (req, res) => {
+  try {
+    const { name, subject } = req.body;
+
+    if (!name && !subject) {
+      return res.status(400).json({ error: 'At least one field (name or subject) is required' });
+    }
+
+    const updates = {};
+    if (name) updates.name = sanitizeInput(name);
+    if (subject) updates.subject = sanitizeInput(subject);
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', req.user.id)
+      .eq('role', 'teacher')
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error updating teacher profile:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({
+      message: 'Profile updated successfully',
+      profile: data
+    });
+  } catch (error) {
+    console.error('❌ Error updating teacher profile:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get teacher's classes
+router.get('/classes', async (req, res) => {
+  try {
+    const { status, start_date, end_date, page = 1, limit = 50 } = req.query;
+
+    console.log('📚 Fetching classes for teacher:', req.user.id);
+
+    let query = supabase
+      .from('classes')
+      .select(`
+        id,
+        title,
+        scheduled_date,
+        duration,
+        max_students,
+        description,
+        status,
+        created_at,
+        updated_at,
+        students_classes (
+          student_id,
+          profiles!students_classes_student_id_fkey (
+            id,
+            name,
+            email
+          )
+        )
+      `)
+      .eq('teacher_id', req.user.id);
+
+    // Apply filters
+    if (status) query = query.eq('status', status);
+    if (start_date) query = query.gte('scheduled_date', start_date);
+    if (end_date) query = query.lte('scheduled_date', end_date);
+
+    // Pagination
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    query = query.order('scheduled_date', { ascending: true })
+                 .range(from, to);
+
+    const { data: classes, error, count } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching classes:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Transform data to include student information
+    const transformedClasses = classes.map(cls => ({
+      ...cls,
+      students: cls.students_classes.map(sc => ({
+        id: sc.profiles.id,
+        name: sc.profiles.name,
+        email: sc.profiles.email
+      }))
+    }));
+
+    res.json({
+      classes: transformedClasses,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching teacher classes:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get teacher's students
+router.get('/students', async (req, res) => {
+  try {
+    console.log('👥 Fetching students for teacher:', req.user.id);
+
+    const cacheKey = `teacher_${req.user.id}_students`;
+    const cachedData = getCache(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, email, course, status, created_at, updated_at')
+      .eq('role', 'student')
+      .eq('teacher_id', req.user.id)
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching students:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    setCache(cacheKey, data || []);
+
+    res.json(data || []);
+  } catch (error) {
+    console.error('❌ Error fetching teacher students:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete class
+router.delete('/:classId', async (req, res) => {
+  try {
+    const { classId } = req.params;
+    
+    // Check if class exists and belongs to teacher
+    const { data: classObj, error: classError } = await supabase
+      .from('classes')
+      .select('*')
+      .eq('id', classId)
+      .eq('teacher_id', req.user.id)
+      .single();
+
+    if (classError || !classObj) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    // Delete class (this will cascade to related records)
+    const { error: deleteError } = await supabase
+      .from('classes')
+      .delete()
+      .eq('id', classId);
+
+    if (deleteError) {
+      console.error('Delete class error:', deleteError);
+      return res.status(500).json({ error: 'Failed to delete class' });
+    }
+
+    res.json({ success: true, message: 'Class deleted successfully' });
+  } catch (error) {
+    console.error('Delete class error:', error);
+    res.status(500).json({ error: 'Failed to delete class' });
+  }
+});
+
+// Assignments endpoint
+router.post('/assignments', async (req, res) => {
+  try {
+    const { 
+      title, 
+      description, 
+      due_date, 
+      max_score, 
+      class_id, 
+      student_ids, 
+      for_all_students 
+    } = req.body;
+
+    if (!title || !due_date) {
+      return res.status(400).json({ error: 'Title and due date are required' });
+    }
+
+    let targetStudentIds = [];
+
+    if (for_all_students || student_ids === 'all') {
+      // For "all students" mode - get ALL students assigned to this teacher
+      const { data: teacherStudents, error: studentsError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('teacher_id', req.user.id)
+        .eq('role', 'student')
+        .eq('status', 'active');
+
+      if (studentsError) {
+        console.error('Error fetching teacher students:', studentsError);
+        return res.status(400).json({ error: 'Error fetching students assigned to teacher' });
+      }
+      
+      targetStudentIds = teacherStudents ? teacherStudents.map(student => student.id) : [];
+      
+      // If class_id is provided, verify it belongs to teacher (for categorization only)
+      if (class_id) {
+        const { data: classData, error: classError } = await supabase
+          .from('classes')
+          .select('id')
+          .eq('id', class_id)
+          .eq('teacher_id', req.user.id)
+          .single();
+
+        if (classError || !classData) {
+          return res.status(400).json({ error: 'Class not found or not authorized' });
         }
-      } else {
-        throw new Error(`Backend returned ${response.status}: ${data?.message || 'Unknown error'}`);
       }
+      
+    } else if (Array.isArray(student_ids) && student_ids.length > 0) {
+      // For specific students mode - verify students belong to this teacher
+      const { data: validStudents, error: studentsError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('teacher_id', req.user.id)
+        .eq('role', 'student')
+        .in('id', student_ids);
 
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        console.warn('⚠️ Backend timeout, using fallback');
-      } else {
-        console.warn('⚠️ Backend error:', error.message);
+      if (studentsError) {
+        console.error('Error verifying students:', studentsError);
+        return res.status(400).json({ error: 'Error verifying students' });
+      }
+      
+      targetStudentIds = validStudents ? validStudents.map(student => student.id) : [];
+      
+      // If class_id is provided, verify it belongs to teacher (for categorization only)
+      if (class_id) {
+        const { data: classData, error: classError } = await supabase
+          .from('classes')
+          .select('id')
+          .eq('id', class_id)
+          .eq('teacher_id', req.user.id)
+          .single();
+
+        if (classError || !classData) {
+          return res.status(400).json({ error: 'Class not found or not authorized' });
+        }
       }
     }
 
-    // ✅ CRITICAL: Fallback MUST include appId - FIXED
-    console.log('🔄 Using fallback mode with frontend App ID');
-    return {
-      appId: AGORA_APP_ID, // THIS WAS MISSING IN FALLBACK!
-      token: null,
-      isFallback: true,
-      mode: 'testing'
-    };
-  },
-
-  /**
-   * Join existing video session
-   */
-  async joinVideoSession(meetingId, userId) {
-    try {
-      console.log('🎯 Joining video session:', meetingId);
+    if (targetStudentIds.length === 0) {
+      console.log('No valid students found for assignment creation');
+      console.log('Teacher ID:', req.user.id);
+      console.log('Request data:', req.body);
       
-      // Validate meeting first
-      const validation = await this.validateMeeting(meetingId, userId);
-      if (!validation.valid) {
-        throw new Error(validation.error);
+      // Check if teacher has any students assigned
+      const { data: teacherStudents, error: checkError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('teacher_id', req.user.id)
+        .eq('role', 'student')
+        .eq('status', 'active');
+      
+      if (checkError) {
+        console.error('Error checking teacher students:', checkError);
       }
-
-      return {
-        success: true,
-        meetingId,
-        appId: validation.appId,
-        isFallback: validation.isFallback
-      };
-    } catch (error) {
-      console.error('❌ Error joining video session:', error);
-      throw new Error(`Failed to join session: ${error.message}`);
-    }
-  },
-
-  /**
-   * Start a new video session
-   */
-  async startVideoSession(classId) {
-    try {
-      console.log('🚀 Starting video session for class:', classId);
       
-      const response = await api.post('/api/video-sessions/start', {
-        class_id: classId
+      const hasStudents = teacherStudents && teacherStudents.length > 0;
+      
+      return res.status(400).json({ 
+        error: hasStudents 
+          ? 'No valid students selected for assignment' 
+          : 'No students are assigned to you yet. Please contact administration to assign students to your account.'
       });
-      
-      console.log('✅ Video session started:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error starting video session:', error);
-      throw new Error(error.response?.data?.message || 'Failed to start video session');
     }
-  },
 
-  /**
-   * End video session with 404 and auth handling
-   */
-  async endVideoSession(meetingId) {
-  try {
-    console.log('🛑 Ending video session:', meetingId);
-    
-    const response = await api.post('/api/agora/end', { 
-      meeting_id: meetingId 
-    }, {
-      timeout: 8000
+    // Create assignments for each student
+    const assignmentsToCreate = targetStudentIds.map(student_id => ({
+      title,
+      description,
+      due_date,
+      max_score: max_score || 100,
+      class_id: class_id || null, // Optional class categorization
+      teacher_id: req.user.id,
+      student_id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }));
+
+    const { data, error } = await supabase
+      .from('assignments')
+      .insert(assignmentsToCreate)
+      .select();
+
+    if (error) {
+      console.error('❌ Error creating assignments:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.status(201).json({
+      message: `Assignment created for ${targetStudentIds.length} students`,
+      assignments: data
     });
-    
-    console.log('✅ Session ended successfully');
-    return { success: true, data: response.data };
-  } catch (error) {
-    // If 500 error, backend has issues but session can still end
-    if (error.response?.status === 500) {
-      console.warn('⚠️ Backend error ending session, but proceeding');
-      return { 
-        success: true, 
-        warning: 'Session ended (backend error)',
-        fallback: true
-      };
-    }
-    
-    console.error('❌ Error ending session:', error);
-    return { success: false, error: error.message };
-  }
-},
 
-  /**
-   * Notify students that class has ended with 404 handling
-   */
- async notifyClassEnded(classId, sessionInfo) {
+  } catch (error) {
+    console.error('❌ Error creating assignment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get teacher's assigned assignments
+router.get('/assignments', async (req, res) => {
   try {
-    console.log('📢 Notifying students class ended:', classId);
+    const { student_id, class_id, page = 1, limit = 50 } = req.query;
     
-    await api.post('/api/teacher/notify-ended', {
-      class_id: classId,
-      session_info: sessionInfo
-    }, {
-      timeout: 5000
-    });
-    
-    return { success: true };
-  } catch (error) {
-    // If 401, auth issue - non-critical
-    if (error.response?.status === 401) {
-      console.warn('⚠️ Auth issue with notifications (non-critical)');
-      return { 
-        success: true, 
-        warning: 'Notifications skipped (auth)',
-        fallback: true
-      };
-    }
-    
-    console.error('❌ Error notifying students:', error);
-    return { success: false, error: error.message };
-  }
-},
+    console.log('📝 Fetching assignments for teacher:', req.user.id);
 
-  /**
-   * Get active video sessions for a class
-   */
-  async getActiveSessions(classId) {
-    try {
-      const response = await api.get(`/api/video-sessions/active/${classId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching active sessions:', error);
-      return [];
-    }
-  },
+    let query = supabase
+      .from('assignments')
+      .select(`
+        id,
+        title,
+        description,
+        due_date,
+        max_score,
+        created_at,
+        updated_at,
+        class_id,
+        student_id,
+        classes (
+          id,
+          title
+        ),
+        profiles:student_id (
+          id,
+          name,
+          email
+        )
+      `)
+      .eq('teacher_id', req.user.id);
 
-  /**
-   * Validate meeting configuration before joining
-   */
-  async validateMeeting(meetingId, userId) {
-    try {
-      const tokenData = await this.generateAgoraToken(meetingId, userId);
+    // Apply filters
+    if (student_id) query = query.eq('student_id', student_id);
+    if (class_id) query = query.eq('class_id', class_id);
+
+    // Pagination
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    query = query.order('created_at', { ascending: false })
+                 .range(from, to);
+
+    const { data: assignments, error, count } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching assignments:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Get submission counts for each assignment
+    const assignmentIds = assignments.map(a => a.id);
+    let submissionCounts = {};
+    
+    if (assignmentIds.length > 0) {
+      const { data: submissions, error: submissionError } = await supabase
+        .from('assignment_submissions')
+        .select('assignment_id, student_id, submitted_at, score')
+        .in('assignment_id', assignmentIds);
       
-      if (!tokenData.appId) {
-        throw new Error('No App ID available for meeting');
+      if (!submissionError && submissions) {
+        // Count submissions per assignment
+        submissionCounts = submissions.reduce((acc, submission) => {
+          if (!acc[submission.assignment_id]) {
+            acc[submission.assignment_id] = {
+              total: 0,
+              submitted: 0,
+              graded: 0
+            };
+          }
+          acc[submission.assignment_id].total++;
+          if (submission.submitted_at) acc[submission.assignment_id].submitted++;
+          if (submission.score !== null) acc[submission.assignment_id].graded++;
+          return acc;
+        }, {});
       }
+    }
+
+    // Transform data to include class, student, and submission information
+    const transformedAssignments = assignments.map(assignment => {
+      const submissions = submissionCounts[assignment.id] || { total: 0, submitted: 0, graded: 0 };
       
       return {
-        valid: true,
-        appId: tokenData.appId,
-        hasToken: !!tokenData.token,
-        isFallback: tokenData.isFallback
+        id: assignment.id,
+        title: assignment.title,
+        description: assignment.description,
+        due_date: assignment.due_date,
+        max_score: assignment.max_score,
+        created_at: assignment.created_at,
+        updated_at: assignment.updated_at,
+        class: assignment.classes ? {
+          id: assignment.classes.id,
+          title: assignment.classes.title
+        } : null,
+        student: assignment.profiles ? {
+          id: assignment.profiles.id,
+          name: assignment.profiles.name,
+          email: assignment.profiles.email
+        } : null,
+        // Add submission counts
+        student_count: 1, // Each assignment is for 1 student in current structure
+        submission_count: submissions.submitted,
+        graded_count: submissions.graded,
+        pending_count: submissions.total - submissions.graded
       };
-    } catch (error) {
-      return {
-        valid: false,
-        error: error.message
-      };
-    }
-  },
+    });
 
-  /**
-   * Health check - verify configuration
-   */
-  async checkHealth() {
-    const health = {
-      timestamp: new Date().toISOString(),
-      frontend: {
-        appId: AGORA_APP_ID ? '***' + AGORA_APP_ID.slice(-4) : 'MISSING',
-        appIdValid: false,
-        appIdLength: AGORA_APP_ID?.length || 0
-      },
-      backend: {
-        url: BACKEND_URL,
-        status: 'checking'
-      },
-      tokenTest: {
-        status: 'pending',
-        appIdReceived: false
-      }
-    };
-
-    // Check frontend App ID
-    try {
-      validateAppId(AGORA_APP_ID);
-      health.frontend.appIdValid = true;
-    } catch (error) {
-      health.frontend.error = error.message;
-    }
-
-    // Check backend connectivity
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/agora/health`, {
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        health.backend.status = 'connected';
-        health.backend.data = data;
-      } else {
-        health.backend.status = 'error';
-        health.backend.statusCode = response.status;
-      }
-    } catch (error) {
-      health.backend.status = 'disconnected';
-      health.backend.error = error.message;
-    }
-
-    // Test token generation
-    try {
-      const testToken = await this.generateAgoraToken('test-meeting', 'test-user');
-      health.tokenTest.status = 'success';
-      health.tokenTest.appIdReceived = !!testToken.appId;
-      health.tokenTest.isFallback = testToken.isFallback;
-    } catch (error) {
-      health.tokenTest.status = 'failed';
-      health.tokenTest.error = error.message;
-    }
-
-    // Overall status
-    health.status = (health.frontend.appIdValid && health.tokenTest.appIdReceived) ? 'healthy' : 'unhealthy';
-    
-    console.log('🏥 Health Check:', health);
-    return health;
-  },
-
-  /**
-   * Get the validated App ID
-   */
-  getAppId() {
-    return AGORA_APP_ID;
-  },
-
-  /**
-   * Emergency fallback for App ID issues
-   */
-  getEmergencyAppId() {
-    return AGORA_APP_ID;
+    res.json(transformedAssignments || []);
+  } catch (error) {
+    console.error('❌ Error fetching teacher assignments:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-};
+});
 
-// Export as default
-export default videoApi;
+// Grade an assignment submission
+router.put('/assignments/:id/grade', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { score, feedback } = req.body;
 
-// Also export for CommonJS compatibility
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = videoApi;
-}
+    // Verify assignment belongs to teacher and exists
+    const { data: assignment, error: assignmentError } = await supabase
+      .from('assignments')
+      .select('id, teacher_id')
+      .eq('id', id)
+      .eq('teacher_id', req.user.id)
+      .single();
+
+    if (assignmentError || !assignment) {
+      return res.status(404).json({ error: 'Assignment not found or not authorized' });
+    }
+
+    const { data, error } = await supabase
+      .from('assignments')
+      .update({
+        score: parseInt(score),
+        feedback,
+        status: 'graded',
+        graded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error grading assignment:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({
+      message: 'Assignment graded successfully',
+      assignment: data
+    });
+  } catch (error) {
+    console.error('❌ Error grading assignment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Start video session
+router.post('/video-sessions', async (req, res) => {
+  try {
+    const { class_id, meeting_id, agenda } = req.body;
+
+    if (!class_id || !meeting_id) {
+      return res.status(400).json({ error: 'Class ID and meeting ID are required' });
+    }
+
+    // Verify class belongs to teacher
+    const { data: classData, error: classError } = await supabase
+      .from('classes')
+      .select('id, title')
+      .eq('id', class_id)
+      .eq('teacher_id', req.user.id)
+      .single();
+
+    if (classError || !classData) {
+      console.error('❌ Error fetching class:', classError);
+      return res.status(400).json({ error: 'Class not found or not authorized' });
+    }
+
+    // Create video session
+    const { data, error } = await supabase
+      .from('video_sessions')
+      .insert([
+        {
+          class_id,
+          teacher_id: req.user.id,
+          meeting_id,
+          agenda,
+          status: 'active',
+          started_at: new Date().toISOString(),
+          channel_name: `channel_${class_id}_${Date.now()}`
+        }
+      ])
+      .select(`
+        id,
+        meeting_id,
+        class_id,
+        teacher_id,
+        status,
+        started_at,
+        channel_name,
+        agenda,
+        classes (
+          title
+        )
+      `)
+      .single();
+
+    if (error) {
+      console.error('❌ Error creating video session:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Clear cache for live sessions
+    clearCache('liveSessions');
+
+    res.status(201).json({
+      ...data,
+      title: data.classes?.title
+    });
+  } catch (error) {
+    console.error('❌ Error starting video session:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// End video session
+router.post('/video-sessions/:id/end', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify session belongs to teacher
+    const { data: session, error: sessionError } = await supabase
+      .from('video_sessions')
+      .select('id, teacher_id')
+      .eq('id', id)
+      .eq('teacher_id', req.user.id)
+      .single();
+
+    if (sessionError || !session) {
+      console.error('❌ Error fetching video session:', sessionError);
+      return res.status(400).json({ error: 'Video session not found or not authorized' });
+    }
+
+    const { data, error } = await supabase
+      .from('video_sessions')
+      .update({
+        status: 'ended',
+        ended_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error ending video session:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Clear cache
+    clearCache('liveSessions');
+
+    res.json({
+      message: 'Video session ended successfully',
+      session: data
+    });
+  } catch (error) {
+    console.error('❌ Error ending video session:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get teacher's video sessions
+router.get('/video-sessions', async (req, res) => {
+  try {
+    const { status, start_date, end_date } = req.query;
+
+    let query = supabase
+      .from('video_sessions')
+      .select(`
+        id,
+        meeting_id,
+        class_id,
+        teacher_id,
+        status,
+        started_at,
+        ended_at,
+        channel_name,
+        agenda,
+        classes (
+          title
+        )
+      `)
+      .eq('teacher_id', req.user.id);
+
+    if (status) query = query.eq('status', status);
+    if (start_date) query = query.gte('started_at', start_date);
+    if (end_date) query = query.lte('started_at', end_date);
+
+    query = query.order('started_at', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching video sessions:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    const sessions = data.map(session => ({
+      ...session,
+      title: session.classes?.title
+    }));
+
+    res.json(sessions);
+  } catch (error) {
+    console.error('❌ Error fetching video sessions:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;
