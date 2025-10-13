@@ -122,7 +122,30 @@ const videoApi = {
       mode: 'testing'
     };
   },
+/**
+ * Join existing video session
+ */
+async joinVideoSession(meetingId, userId) {
+  try {
+    console.log('🎯 Joining video session:', meetingId);
+    
+    // Validate meeting first
+    const validation = await this.validateMeeting(meetingId, userId);
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
 
+    return {
+      success: true,
+      meetingId,
+      appId: validation.appId,
+      isFallback: validation.isFallback
+    };
+  } catch (error) {
+    console.error('❌ Error joining video session:', error);
+    throw new Error(`Failed to join session: ${error.message}`);
+  }
+},
   /**
    * Start a new video session
    */
