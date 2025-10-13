@@ -989,6 +989,27 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
           onLeave={handleLeaveVideoCall}
         />
       )}
+          <div>
+      {/* ✅ Error Display */}
+      {error && (
+        <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <XCircle size={20} className="text-red-400 mr-3" />
+              <div>
+                <p className="text-red-300 font-medium">Video Call Error</p>
+                <p className="text-red-200 text-sm">{error}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-300 hover:text-white p-1"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
