@@ -819,30 +819,39 @@ export default function TeacherDashboard() {
   const { user } = useAuth();
 
   const handleEndVideoSession = async (classItem, session) => {
-    try {
-      setEndingSession(classItem.id);
-      
-      await videoApi.endVideoSession(session.meeting_id);
-      
-      await videoApi.notifyClassEnded(classItem.id, {
-        meeting_id: session.meeting_id,
-        class_title: classItem.title,
-        duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
-      });
-      
+  try {
+    setEndingSession(classItem.id);
+    
+    // 1. End Agora session (don't wait for backend)
+    const endResult = await videoApi.endVideoSession(session.meeting_id);
+    
+    // 2. Try to notify students (non-blocking)
+    videoApi.notifyClassEnded(classItem.id, {
+      meeting_id: session.meeting_id,
+      class_title: classItem.title,
+      duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
+    }).catch(err => {
+      console.warn('Notification failed (non-critical):', err);
+    });
+    
+    // Show success even if backend is slow
+    if (endResult.success) {
       toast.success('Class session ended successfully!');
-      
-      if (onClassEnded) {
-        onClassEnded();
-      }
-      
-    } catch (error) {
-      console.error('Error ending video session:', error);
-      toast.error(`Failed to end session: ${error.message}`);
-    } finally {
-      setEndingSession(null);
+    } else if (endResult.warning) {
+      toast.warning('Session ended (some features may be delayed)');
     }
-  };
+    
+    if (onClassEnded) {
+      onClassEnded();
+    }
+    
+  } catch (error) {
+    console.error('Error ending video session:', error);
+    toast.error(`Failed to end session: ${error.message}`);
+  } finally {
+    setEndingSession(null);
+  }
+};
 
   const handleDeleteClass = async (classId) => {
     try {
