@@ -4,7 +4,7 @@ import {
   Users, BarChart3, Home, Settings, LogOut, Bell,
   Search, Filter, Plus, MessageCircle, FileText, 
   FileCheck, FileEdit, GraduationCap, Award, CheckCircle, 
-  XCircle, Edit, Trash2, Download, Upload, Send,Share2,
+  XCircle, Edit, Trash2, Download, Upload, Send, Share2,
   ChevronDown, Menu, X, Mic, Square, RefreshCw
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
@@ -13,7 +13,6 @@ import videoApi from '../lib/agora/videoApi';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
 import VideoCall from '../components/VideoCall';
-import debugAgoraConnection from '../lib/videoDebugHelper';
 
 // Format time utility function
 const formatTime = (seconds) => {
@@ -28,9 +27,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [audioUrl, setAudioUrl] = useState(null);
-  const [duration, setDuration] = useState(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -52,11 +48,7 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         }
 
         setAudioUrl(processedUrl);
-        setDuration(null);
-        setCurrentTime(0);
-
       } catch (err) {
-        console.error('Error processing audio source:', err);
         setError(true);
         setIsLoading(false);
       }
@@ -65,41 +57,14 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
     processAudioSource();
   }, [src, retryCount]);
 
-  const handleAudioError = (errorEvent) => {
-    console.error('Audio player error:', errorEvent);
+  const handleAudioError = () => {
     setError(true);
     setIsLoading(false);
-  };
-
-  const handleAudioLoadStart = () => {
-    setIsLoading(true);
-  };
-
-  const handleAudioLoadedMetadata = () => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration);
-    }
   };
 
   const handleAudioCanPlay = () => {
     setIsLoading(false);
     setError(false);
-    if (audioRef.current && audioRef.current.duration) {
-      setDuration(audioRef.current.duration);
-    }
-  };
-
-  const handleAudioTimeUpdate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
-    }
-  };
-
-  const handleAudioPlay = () => setIsPlaying(true);
-  const handleAudioPause = () => setIsPlaying(false);
-  const handleAudioEnded = () => {
-    setIsPlaying(false);
-    setCurrentTime(0);
   };
 
   const handleRetry = () => {
@@ -112,13 +77,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         audioRef.current.load();
       }, 100);
     }
-  };
-
-  const formatDisplayTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return "0:00";
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (error || !audioUrl) {
@@ -156,32 +114,14 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
         className="w-full rounded-lg bg-blue-800/20"
         preload="metadata"
         onError={handleAudioError}
-        onLoadStart={handleAudioLoadStart}
-        onLoadedMetadata={handleAudioLoadedMetadata}
         onCanPlay={handleAudioCanPlay}
-        onTimeUpdate={handleAudioTimeUpdate}
-        onPlay={handleAudioPlay}
-        onPause={handleAudioPause}
-        onEnded={handleAudioEnded}
         crossOrigin="anonymous"
       >
         <source src={audioUrl} type="audio/webm" />
         <source src={audioUrl} type="audio/mp4" />
         <source src={audioUrl} type="audio/mpeg" />
-        <source src={audioUrl} type="audio/wav" />
-        <source src={audioUrl} type="audio/ogg" />
         Your browser does not support the audio element.
       </audio>
-
-      <div className="flex justify-between items-center mt-2 text-xs text-blue-300">
-        <div className="flex items-center space-x-2">
-          <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-green-400 animate-pulse' : 'bg-blue-400'}`}></span>
-          <span>
-            {isPlaying ? 'Playing' : 'Paused'} • 
-            {duration ? ` ${formatDisplayTime(duration)}` : ' Loading...'}
-          </span>
-        </div>
-      </div>
     </div>
   );
 };
@@ -189,7 +129,6 @@ const SafeAudioPlayer = ({ src, className = "" }) => {
 // Audio recording hook
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState(null);
   const [audioData, setAudioData] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef(null);
@@ -231,16 +170,11 @@ const useAudioRecorder = () => {
           });
           
           const dataUrl = await blobToBase64(blob);
-          setAudioBlob(blob);
           setAudioData(dataUrl);
           
-          stream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-          });
+          stream.getTracks().forEach(track => track.stop());
           
         } catch (error) {
-          console.error('Error processing recording:', error);
           toast.error('Failed to process audio recording');
         }
       };
@@ -254,11 +188,10 @@ const useAudioRecorder = () => {
       }, 1000);
 
     } catch (error) {
-      console.error('Error starting recording:', error);
       if (error.name === 'NotAllowedError') {
-        toast.error('Microphone access denied. Please allow microphone access in your browser settings.');
+        toast.error('Microphone access denied. Please allow microphone access.');
       } else {
-        toast.error('Failed to access microphone: ' + error.message);
+        toast.error('Failed to access microphone');
       }
     }
   };
@@ -274,7 +207,6 @@ const useAudioRecorder = () => {
   };
 
   const clearRecording = () => {
-    setAudioBlob(null);
     setAudioData(null);
     setRecordingTime(0);
   };
@@ -289,7 +221,6 @@ const useAudioRecorder = () => {
 
   return {
     isRecording,
-    audioBlob,
     audioData,
     recordingTime: formatTime(recordingTime),
     startRecording,
@@ -324,7 +255,6 @@ export default function TeacherDashboard() {
     students: true, 
     assignments: true 
   });
-  const [deletingClass, setDeletingClass] = useState(null);
   const [submissions, setSubmissions] = useState([]);
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
   const [activeGradingTab, setActiveGradingTab] = useState('pending');
@@ -356,15 +286,16 @@ export default function TeacherDashboard() {
   const [gradeData, setGradeData] = useState({ 
     score: '', 
     feedback: '', 
-    audioFeedbackData: '',
-    isRecording: false,
-    recordingTime: 0
+    audioFeedbackData: ''
   });
+
+  // Video call state - SIMPLIFIED
+  const [activeVideoCall, setActiveVideoCall] = useState(null);
+  const [videoCallError, setVideoCallError] = useState(null);
 
   // Audio recorder hook
   const {
     isRecording: audioIsRecording,
-    audioBlob,
     audioData,
     recordingTime: audioRecordingTime,
     startRecording,
@@ -397,7 +328,6 @@ export default function TeacherDashboard() {
       toast.success('Logged out successfully');
       navigate('/teacher-login');
     } catch (error) {
-      console.error('Error logging out:', error);
       toast.error('Failed to log out');
     }
   };
@@ -431,7 +361,6 @@ export default function TeacherDashboard() {
       }));
       
     } catch (error) {
-      console.error('Error loading submissions:', error);
       toast.error('Failed to load submissions');
     }
   };
@@ -501,7 +430,6 @@ export default function TeacherDashboard() {
       });
       
     } catch (error) {
-      console.error('Error loading teacher data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading({ classes: false, students: false, assignments: false });
@@ -514,19 +442,53 @@ export default function TeacherDashboard() {
     }
   }, [user]);
 
-  // Video session functions
-  const startVideoSession = async (classId) => {
+  // OPTIMIZED: Video session function with minimal logging
+  const handleStartVideoSession = async (classItem) => {
     try {
-      const session = await teacherApi.startVideoSession(classId);
-      toast.success('Video session started!');
-      window.open(`/video-call/${session.meeting_id}`, '_blank');
+      setVideoCallError(null);
+      
+      // Basic validation
+      if (!classItem?.id) {
+        throw new Error('Invalid class configuration');
+      }
+
+      if (!user?.id) {
+        throw new Error('User authentication required');
+      }
+
+      // Start video session
+      const session = await videoApi.startVideoSession(classItem.id);
+      
+      if (!session.success) {
+        throw new Error(session.error || 'Video service unavailable');
+      }
+
+      if (!session.meeting_id) {
+        throw new Error('Failed to create video meeting');
+      }
+
+      // Set active video call
+      setActiveVideoCall({
+        meetingId: session.meeting_id,
+        class: classItem,
+        isTeacher: true
+      });
+
+      toast.success('Video class starting...');
+
     } catch (error) {
-      toast.error(`Failed to start session: ${error.message}`);
+      const userMessage = error.message.includes('unavailable') 
+        ? 'Video service is currently unavailable. Please try again later.'
+        : 'Failed to start video class. Please check your connection.';
+      
+      setVideoCallError(userMessage);
+      toast.error(userMessage);
     }
   };
 
-  const joinVideoSession = (meetingId) => {
-    window.open(`/video-call/${meetingId}`, '_blank');
+  const handleLeaveVideoCall = () => {
+    setActiveVideoCall(null);
+    setVideoCallError(null);
   };
 
   // Assignment functions
@@ -590,7 +552,7 @@ export default function TeacherDashboard() {
       setIsCreatingAssignment(false);
       
       if (error.message.includes('No valid students')) {
-        toast.error('No students are assigned to you yet. Please contact administration to assign students to your account.');
+        toast.error('No students are assigned to you yet. Please contact administration.');
       } else if (error.message.includes('token') || error.message.includes('Unauthorized')) {
         toast.error('Session expired. Please log in again.');
         setTimeout(() => navigate('/teacher-login'), 2000);
@@ -605,7 +567,7 @@ export default function TeacherDashboard() {
       const assignmentsData = await teacherApi.getMyAssignments();
       setAssignments(assignmentsData);
     } catch (error) {
-      console.error('Error loading assignments:', error);
+      // Silent fail for assignments load
     }
   };
 
@@ -651,126 +613,120 @@ export default function TeacherDashboard() {
   };
 
   // Grade assignment function
- const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
-  setIsGrading(true);
-  try {
-    if (!score || isNaN(score) || score < 0) {
-      toast.error('Please enter a valid score');
-      setIsGrading(false);
-      return;
-    }
-    
-    const numericScore = parseInt(score);
-    const submissionToGrade = submissions.find(s => s.id === submissionId) || 
-                            pendingSubmissions.find(s => s.id === submissionId);
-    
-    if (!submissionToGrade) {
-      toast.error('Submission not found');
-      setIsGrading(false);
-      return;
-    }
-
-    let finalAudioFeedbackUrl = '';
-
-    if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
-      try {
-        if (typeof teacherApi.uploadAudioFeedback !== 'function') {
-          finalAudioFeedbackUrl = audioFeedbackData;
-        } else {
-          const response = await fetch(audioFeedbackData);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch audio data: ${response.status}`);
-          }
-          
-          const audioBlob = await response.blob();
-          const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
-            type: 'audio/webm'
-          });
-          
-          finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
-        }
-      } catch (uploadError) {
-        console.error('Failed to upload audio feedback:', uploadError);
-        toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
-        finalAudioFeedbackUrl = '';
-      }
-    } else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
-      finalAudioFeedbackUrl = audioFeedbackData;
-    }
-
-    // Update local state
-    const updatedSubmissions = submissions.map(sub => 
-      sub.id === submissionId 
-        ? { 
-            ...sub, 
-            grade: numericScore, 
-            feedback, 
-            audio_feedback_url: finalAudioFeedbackUrl,
-            graded_at: new Date().toISOString()
-          }
-        : sub
-    );
-
-    const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
-    setSubmissions(updatedSubmissions);
-    setPendingSubmissions(updatedPending);
-    
-    setStats(prev => ({
-      ...prev,
-      pendingSubmissions: updatedPending.length
-    }));
-    
-    // Call API to grade assignment
-    await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
-    
-    // Update student progress
-    if (submissionToGrade.student_id) {
-      await teacherApi.updateStudentProgress(submissionToGrade.student_id);
-    }
-    
-    // Send notification to student
+  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
+    setIsGrading(true);
     try {
-      const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
-      const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+      if (!score || isNaN(score) || score < 0) {
+        toast.error('Please enter a valid score');
+        setIsGrading(false);
+        return;
+      }
       
-      await teacherApi.sendNotification(submissionToGrade.student_id, {
-        title: 'Assignment Graded 📝',
-        message: `Your assignment "${assignmentTitle}" has been graded. You scored ${numericScore}/${maxScore}.${feedback ? ' Teacher left feedback.' : ''}`,
-        type: 'success',
-        data: {
-          submission_id: submissionId,
-          assignment_title: assignmentTitle,
-          score: numericScore,
-          max_score: maxScore,
-          has_feedback: !!feedback,
-          has_audio_feedback: !!finalAudioFeedbackUrl,
-          graded_at: new Date().toISOString(),
-          action_url: `/assignments/${submissionId}`
+      const numericScore = parseInt(score);
+      const submissionToGrade = submissions.find(s => s.id === submissionId) || 
+                              pendingSubmissions.find(s => s.id === submissionId);
+      
+      if (!submissionToGrade) {
+        toast.error('Submission not found');
+        setIsGrading(false);
+        return;
+      }
+
+      let finalAudioFeedbackUrl = '';
+
+      if (audioFeedbackData && audioFeedbackData.startsWith('data:audio/')) {
+        try {
+          if (typeof teacherApi.uploadAudioFeedback !== 'function') {
+            finalAudioFeedbackUrl = audioFeedbackData;
+          } else {
+            const response = await fetch(audioFeedbackData);
+            if (!response.ok) {
+              throw new Error('Failed to fetch audio data');
+            }
+            
+            const audioBlob = await response.blob();
+            const audioFile = new File([audioBlob], `feedback-${submissionId}-${Date.now()}.webm`, {
+              type: 'audio/webm'
+            });
+            
+            finalAudioFeedbackUrl = await teacherApi.uploadAudioFeedback(audioFile, submissionId);
+          }
+        } catch (uploadError) {
+          toast.warning('Audio feedback could not be saved, but written feedback was submitted.');
+          finalAudioFeedbackUrl = '';
         }
-      });
+      } else if (audioFeedbackData && audioFeedbackData.startsWith('https://')) {
+        finalAudioFeedbackUrl = audioFeedbackData;
+      }
+
+      // Update local state
+      const updatedSubmissions = submissions.map(sub => 
+        sub.id === submissionId 
+          ? { 
+              ...sub, 
+              grade: numericScore, 
+              feedback, 
+              audio_feedback_url: finalAudioFeedbackUrl,
+              graded_at: new Date().toISOString()
+            }
+          : sub
+      );
+
+      const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
+
+      setSubmissions(updatedSubmissions);
+      setPendingSubmissions(updatedPending);
       
-      console.log('✅ Notification sent to student:', submissionToGrade.student_id);
-    } catch (notificationError) {
-      console.warn('❌ Failed to send notification:', notificationError);
-      // Don't fail the grading process if notification fails
-      toast.warning('Assignment graded, but failed to send notification to student.');
+      setStats(prev => ({
+        ...prev,
+        pendingSubmissions: updatedPending.length
+      }));
+      
+      // Call API to grade assignment
+      await teacherApi.gradeAssignment(submissionId, numericScore, feedback, finalAudioFeedbackUrl);
+      
+      // Update student progress
+      if (submissionToGrade.student_id) {
+        await teacherApi.updateStudentProgress(submissionToGrade.student_id);
+      }
+      
+      // Send notification to student
+      try {
+        const assignmentTitle = submissionToGrade.assignment?.title || submissionToGrade.assignment_title || 'Assignment';
+        const maxScore = submissionToGrade.assignment?.max_score || submissionToGrade.assignment_max_score || 100;
+        
+        await teacherApi.sendNotification(submissionToGrade.student_id, {
+          title: 'Assignment Graded 📝',
+          message: `Your assignment "${assignmentTitle}" has been graded. You scored ${numericScore}/${maxScore}.${feedback ? ' Teacher left feedback.' : ''}`,
+          type: 'success',
+          data: {
+            submission_id: submissionId,
+            assignment_title: assignmentTitle,
+            score: numericScore,
+            max_score: maxScore,
+            has_feedback: !!feedback,
+            has_audio_feedback: !!finalAudioFeedbackUrl,
+            graded_at: new Date().toISOString(),
+            action_url: `/assignments/${submissionId}`
+          }
+        });
+      } catch (notificationError) {
+        toast.warning('Assignment graded, but failed to send notification to student.');
+      }
+      
+      toast.success('Assignment graded successfully!');
+      setGradingSubmission(null);
+      setSelectedSubmission(null);
+      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
+      clearRecording();
+      
+    } catch (error) {
+      toast.error(`Failed to grade assignment: ${error.message}`);
+      await loadSubmissions();
+    } finally {
+      setIsGrading(false);
     }
-    
-    toast.success('Assignment graded successfully! Notification sent to student.');
-    setGradingSubmission(null);
-    setSelectedSubmission(null);
-    setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
-    clearRecording();
-    
-  } catch (error) {
-    console.error('Grading error:', error);
-    toast.error(`Failed to grade assignment: ${error.message}`);
-    await loadSubmissions();
-  } finally {
-    setIsGrading(false);
-  }
-};
+  };
 
   // Utility functions
   const formatDateTime = (dateString) => {
@@ -811,465 +767,352 @@ export default function TeacherDashboard() {
   ];
 
   // Tab Components
-const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
-  const [activeVideoCall, setActiveVideoCall] = useState(null);
-  const [startingSession, setStartingSession] = useState(null);
-  const [endingSession, setEndingSession] = useState(null);
-  const [deletingClass, setDeletingClass] = useState(null);
-  const [error, setError] = useState(null);
-  const { user } = useAuth();
+  const ClassesTab = ({ classes, formatDateTime }) => {
+    const [startingSession, setStartingSession] = useState(null);
+    const [endingSession, setEndingSession] = useState(null);
+    const [deletingClass, setDeletingClass] = useState(null);
 
-  // ✅ PRODUCTION: Sort and filter classes
-  const { upcomingClasses, completedClasses } = useMemo(() => {
-    const now = new Date();
-    
-    const sortedClasses = [...classes].sort((a, b) => {
-      const dateA = new Date(a.scheduled_date);
-      const dateB = new Date(b.scheduled_date);
-      return dateA - dateB; // Earliest first
-    });
+    // Sort and filter classes
+    const { upcomingClasses, completedClasses } = useMemo(() => {
+      const now = new Date();
+      
+      const sortedClasses = [...classes].sort((a, b) => {
+        const dateA = new Date(a.scheduled_date);
+        const dateB = new Date(b.scheduled_date);
+        return dateA - dateB;
+      });
 
-    const upcoming = sortedClasses.filter(cls => {
-      const classTime = new Date(cls.scheduled_date);
+      const upcoming = sortedClasses.filter(cls => {
+        const classTime = new Date(cls.scheduled_date);
+        const timeDiff = classTime - now;
+        const hoursDiff = timeDiff / (1000 * 60 * 60);
+        
+        return hoursDiff > -2 && cls.status === 'scheduled';
+      });
+
+      const completed = sortedClasses.filter(cls => {
+        const classTime = new Date(cls.scheduled_date);
+        const timeDiff = classTime - now;
+        const hoursDiff = timeDiff / (1000 * 60 * 60);
+        
+        return hoursDiff <= -2 || cls.status === 'completed';
+      });
+
+      return { upcomingClasses: upcoming, completedClasses: completed };
+    }, [classes]);
+
+    // End video session
+    const handleEndVideoSession = async (classItem, session) => {
+      try {
+        setEndingSession(classItem.id);
+        
+        await videoApi.endVideoSession(session.meeting_id);
+        
+        toast.success('Class session ended!');
+        
+      } catch (error) {
+        toast.error('Failed to end session');
+      } finally {
+        setEndingSession(null);
+      }
+    };
+
+    // Delete class
+    const handleDeleteClass = async (classId) => {
+      try {
+        setDeletingClass(classId);
+        await teacherApi.deleteClass(classId);
+        toast.success('Class deleted successfully');
+        loadTeacherData();
+      } catch (error) {
+        toast.error('Failed to delete class');
+      } finally {
+        setDeletingClass(null);
+      }
+    };
+
+    const copyClassLink = (meetingId) => {
+      const link = `${window.location.origin}/join-class/${meetingId}`;
+      navigator.clipboard.writeText(link);
+      toast.success('Class link copied!');
+    };
+
+    // Check if class can start video
+    const canStartVideo = (classItem) => {
+      const classTime = new Date(classItem.scheduled_date);
+      const now = new Date();
       const timeDiff = classTime - now;
       const hoursDiff = timeDiff / (1000 * 60 * 60);
       
-      // Class is upcoming if it's in the future OR within 2 hours of start time
-      return hoursDiff > -2 && cls.status === 'scheduled';
-    });
+      return classItem.status === 'scheduled' && hoursDiff > -2;
+    };
 
-    const completed = sortedClasses.filter(cls => {
-      const classTime = new Date(cls.scheduled_date);
-      const timeDiff = classTime - now;
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      
-      // Class is completed if it's more than 2 hours past start time
-      return hoursDiff <= -2 || cls.status === 'completed';
-    });
+    // Check if class has active session
+    const hasActiveSession = (classItem) => {
+      return classItem.video_sessions?.some(s => s.status === 'active');
+    };
 
-    return { upcomingClasses: upcoming, completedClasses: completed };
-  }, [classes]);
+    return (
+      <div>
+        {/* Video Call Modal */}
+        {activeVideoCall && (
+          <VideoCall
+            meetingId={activeVideoCall.meetingId}
+            user={user}
+            isTeacher={activeVideoCall.isTeacher}
+            onLeave={handleLeaveVideoCall}
+          />
+        )}
 
-  // ✅ PRODUCTION: Start video session - MINIMAL LOGGING
-  const handleStartVideoSession = async (classItem) => {
-  try {
-    setStartingSession(classItem.id);
-    setError(null);
-
-    const session = await videoApi.startVideoSession(classItem.id);
-    
-    // ✅ CHECK FOR ERRORS FROM VIDEOAPI
-    if (!session.success) {
-      throw new Error(session.error);
-    }
-
-    setActiveVideoCall({
-      meetingId: session.meeting_id,
-      class: classItem,
-      isTeacher: true,
-      appId: session.appId
-    });
-    
-    toast.success('Video class starting...');
-    
-  } catch (error) {
-    console.error('Start video failed:', error.message);
-    
-    // ✅ SHOW ACTUAL ERROR TO USER
-    let userMessage = 'Failed to start video call';
-    
-    if (error.message.includes('VIDEO_SERVICE_UNAVAILABLE')) {
-      userMessage = 'Video service is currently unavailable. Please contact support.';
-    } else if (error.message.includes('CLASS_ID_REQUIRED')) {
-      userMessage = 'Invalid class configuration';
-    }
-    
-    setError(userMessage);
-    toast.error(userMessage);
-  } finally {
-    setStartingSession(null);
-  }
-};
-
-
-
-  // ✅ PRODUCTION: Join video session - MINIMAL LOGGING
-  const handleJoinVideoSession = (meetingId, classItem) => {
-    console.log('🎯 Joining video session:', meetingId);
-    
-    setActiveVideoCall({
-      meetingId: meetingId,
-      class: classItem,
-      isTeacher: true
-    });
-    
-    toast.success('Joining video call...');
-  };
-
-  // ✅ PRODUCTION: End video session - MINIMAL LOGGING
-  const handleEndVideoSession = async (classItem, session) => {
-    try {
-      setEndingSession(classItem.id);
-      
-      await videoApi.endVideoSession(session.meeting_id);
-      
-      // Silent notification - don't wait for response
-      videoApi.notifyClassEnded(classItem.id, {
-        meeting_id: session.meeting_id,
-        class_title: classItem.title,
-        duration: Math.round((new Date() - new Date(session.started_at)) / 60000)
-      }).catch(() => {}); // Ignore errors
-      
-      toast.success('Class session ended!');
-      
-      if (onClassEnded) {
-        onClassEnded();
-      }
-      
-    } catch (error) {
-      console.error('End session error:', error.message);
-      toast.error('Failed to end session');
-    } finally {
-      setEndingSession(null);
-    }
-  };
-
-  // ✅ PRODUCTION: Delete class - MINIMAL LOGGING
-  const handleDeleteClass = async (classId) => {
-    try {
-      setDeletingClass(classId);
-      await teacherApi.deleteClass(classId);
-      toast.success('Class deleted successfully');
-      
-      if (onClassEnded) {
-        onClassEnded();
-      }
-    } catch (error) {
-      console.error('Delete class error:', error.message);
-      toast.error('Failed to delete class');
-    } finally {
-      setDeletingClass(null);
-    }
-  };
-
-  const handleLeaveVideoCall = () => {
-    setActiveVideoCall(null);
-  };
-
-  const copyClassLink = (meetingId) => {
-    const link = `${window.location.origin}/join-class/${meetingId}`;
-    navigator.clipboard.writeText(link);
-    toast.success('Class link copied!');
-  };
-
-  // ✅ PRODUCTION: Check if class can start video
-  const canStartVideo = (classItem) => {
-    const classTime = new Date(classItem.scheduled_date);
-    const now = new Date();
-    const timeDiff = classTime - now;
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-    
-    // Allow video start if class is scheduled and within 2 hours of start time
-    return classItem.status === 'scheduled' && hoursDiff > -2;
-  };
-
-  // ✅ PRODUCTION: Check if class has active session
-  const hasActiveSession = (classItem) => {
-    return classItem.video_sessions?.some(s => s.status === 'active');
-  };
-
-  return (
-    <div>
-      {/* Video Call Modal */}
-      {activeVideoCall && (
-        <VideoCall
-          meetingId={activeVideoCall.meetingId}
-          user={user}
-          isTeacher={activeVideoCall.isTeacher}
-          onLeave={handleLeaveVideoCall}
-        />
-      )}
-          <div>
-      {/* ✅ Error Display */}
-      {error && (
-        <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <XCircle size={20} className="text-red-400 mr-3" />
-              <div>
-                <p className="text-red-300 font-medium">Video Call Error</p>
-                <p className="text-red-200 text-sm">{error}</p>
+        {/* Error Display */}
+        {videoCallError && (
+          <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <XCircle size={20} className="text-red-400 mr-3" />
+                <div>
+                  <p className="text-red-300 font-medium">Video Call Error</p>
+                  <p className="text-red-200 text-sm">{videoCallError}</p>
+                </div>
               </div>
+              <button
+                onClick={() => setVideoCallError(null)}
+                className="text-red-300 hover:text-white p-1"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-300 hover:text-white p-1"
-            >
-              <X size={16} />
-            </button>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-white">My Classes</h3>
+          <div className="text-blue-300 text-sm">
+            {upcomingClasses.length} upcoming • {completedClasses.length} completed
           </div>
         </div>
-      )}
 
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-2xl font-bold text-white">My Classes</h3>
-        <div className="text-blue-300 text-sm">
-          {upcomingClasses.length} upcoming • {completedClasses.length} completed
-        </div>
-      </div>
+        {/* Upcoming Classes */}
+        {upcomingClasses.length > 0 && (
+          <div className="mb-8">
+            <h4 className="text-lg font-semibold text-white mb-4">Upcoming Classes</h4>
+            <div className="grid gap-6">
+              {upcomingClasses.map((classItem) => {
+                const activeSession = hasActiveSession(classItem);
+                const studentCount = classItem.students_classes?.length || 0;
+                const canStart = canStartVideo(classItem);
+                const isStarting = startingSession === classItem.id;
+                const isEnding = endingSession === classItem.id;
+                const isDeleting = deletingClass === classItem.id;
 
-      {/* Upcoming Classes */}
-      {upcomingClasses.length > 0 && (
-        <div className="mb-8">
-          <h4 className="text-lg font-semibold text-white mb-4">Upcoming Classes</h4>
-          <div className="grid gap-6">
-            {upcomingClasses.map((classItem) => {
-              const activeSession = hasActiveSession(classItem);
-              const studentCount = classItem.students_classes?.length || 0;
-              const canStart = canStartVideo(classItem);
-              const isStarting = startingSession === classItem.id;
-              const isEnding = endingSession === classItem.id;
-              const isDeleting = deletingClass === classItem.id;
-
-              return (
-                <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6">
-                  
-                  <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+                return (
+                  <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6">
                     
-                    {/* Class Info */}
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-4">
-                        <h4 className="font-bold text-2xl text-white">{classItem.title}</h4>
-                        {activeSession && (
-                          <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
-                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                            <span className="text-red-300 text-sm font-medium">LIVE</span>
-                          </div>
-                        )}
-                      </div>
+                    <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                        <div className="flex items-center text-blue-200">
-                          <Calendar size={18} className="mr-3 text-blue-400" />
-                          <div>
-                            <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
-                            <p className="text-xs text-blue-300">Scheduled Time</p>
-                          </div>
-                        </div>
-                        
-                        {classItem.duration && (
-                          <div className="flex items-center text-blue-200">
-                            <Clock size={18} className="mr-3 text-blue-400" />
-                            <div>
-                              <p className="text-sm font-medium">{classItem.duration} minutes</p>
-                              <p className="text-xs text-blue-300">Duration</p>
+                      {/* Class Info */}
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between mb-4">
+                          <h4 className="font-bold text-2xl text-white">{classItem.title}</h4>
+                          {activeSession && (
+                            <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
+                              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                              <span className="text-red-300 text-sm font-medium">LIVE</span>
                             </div>
-                          </div>
-                        )}
-                        
-                        <div className="flex items-center text-blue-200">
-                          <Users size={18} className="mr-3 text-blue-400" />
-                          <div>
-                            <p className="text-sm font-medium">{studentCount} students</p>
-                            <p className="text-xs text-blue-300">Enrolled</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Active Session Info */}
-                      {activeSession && (
-                        <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <p className="text-green-300 font-medium">Session Started</p>
-                              <p className="text-green-200">
-                                {new Date(classItem.video_sessions.find(s => s.status === 'active').started_at).toLocaleTimeString()}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-green-300 font-medium">Duration</p>
-                              <p className="text-green-200">
-                                {Math.round((new Date() - new Date(classItem.video_sessions.find(s => s.status === 'active').started_at)) / 60000)} minutes
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Class Description */}
-                      {classItem.description && (
-                        <p className="text-blue-300 text-lg mb-4">{classItem.description}</p>
-                      )}
-
-                      {/* Course Name */}
-                      {classItem.course?.name && (
-                        <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
-                          <BookOpen size={16} className="mr-2 text-blue-400" />
-                          <span className="text-blue-300 text-sm">{classItem.course.name}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-col space-y-3 w-full lg:w-auto">
-                      {/* Start Session Button - Only show if class can start */}
-                      {canStart && !activeSession && (
-                        <button
-                          onClick={() => handleStartVideoSession(classItem)}
-                          disabled={isStarting}
-                          className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
-                        >
-                          {isStarting ? (
-                            <>
-                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                              Starting...
-                            </>
-                          ) : (
-                            <>
-                              <Play size={20} className="mr-3" />
-                              Start Video Class
-                            </>
                           )}
-                        </button>
-                      )}
-                      
-                      {/* Active Session Buttons */}
-                      {activeSession && (
-                        <>
-                          <button
-                            onClick={() => handleJoinVideoSession(
-                              classItem.video_sessions.find(s => s.status === 'active').meeting_id, 
-                              classItem
-                            )}
-                            className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
-                          >
-                            <Video size={20} className="mr-3" />
-                            Join Live Class
-                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                          <div className="flex items-center text-blue-200">
+                            <Calendar size={18} className="mr-3 text-blue-400" />
+                            <div>
+                              <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
+                              <p className="text-xs text-blue-300">Scheduled Time</p>
+                            </div>
+                          </div>
                           
-                          <button
-                            onClick={() => copyClassLink(
-                              classItem.video_sessions.find(s => s.status === 'active').meeting_id
-                            )}
-                            className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
-                          >
-                            <Share2 size={20} className="mr-3" />
-                            Copy Invite Link
-                          </button>
+                          {classItem.duration && (
+                            <div className="flex items-center text-blue-200">
+                              <Clock size={18} className="mr-3 text-blue-400" />
+                              <div>
+                                <p className="text-sm font-medium">{classItem.duration} minutes</p>
+                                <p className="text-xs text-blue-300">Duration</p>
+                              </div>
+                            </div>
+                          )}
                           
+                          <div className="flex items-center text-blue-200">
+                            <Users size={18} className="mr-3 text-blue-400" />
+                            <div>
+                              <p className="text-sm font-medium">{studentCount} students</p>
+                              <p className="text-xs text-blue-300">Enrolled</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Class Description */}
+                        {classItem.description && (
+                          <p className="text-blue-300 text-lg mb-4">{classItem.description}</p>
+                        )}
+
+                        {/* Course Name */}
+                        {classItem.course?.name && (
+                          <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
+                            <BookOpen size={16} className="mr-2 text-blue-400" />
+                            <span className="text-blue-300 text-sm">{classItem.course.name}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex flex-col space-y-3 w-full lg:w-auto">
+                        {/* Start Session Button - Only show if class can start */}
+                        {canStart && !activeSession && (
                           <button
-                            onClick={() => handleEndVideoSession(
-                              classItem, 
-                              classItem.video_sessions.find(s => s.status === 'active')
-                            )}
-                            disabled={isEnding}
-                            className="bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                            onClick={() => handleStartVideoSession(classItem)}
+                            disabled={isStarting}
+                            className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
                           >
-                            {isEnding ? (
+                            {isStarting ? (
                               <>
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                                Ending...
+                                Starting...
                               </>
                             ) : (
                               <>
-                                <X size={20} className="mr-3" />
-                                End Class Session
+                                <Play size={20} className="mr-3" />
+                                Start Video Class
                               </>
                             )}
                           </button>
-                        </>
-                      )}
-
-                      {/* Delete Class Button */}
-                      <button
-                        onClick={() => handleDeleteClass(classItem.id)}
-                        disabled={isDeleting}
-                        className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center justify-center disabled:opacity-50"
-                      >
-                        {isDeleting ? (
+                        )}
+                        
+                        {/* Active Session Buttons */}
+                        {activeSession && (
                           <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Deleting...
-                          </>
-                        ) : (
-                          <>
-                            <Trash2 size={16} className="mr-2" />
-                            Delete Class
+                            <button
+                              onClick={() => copyClassLink(
+                                classItem.video_sessions.find(s => s.status === 'active').meeting_id
+                              )}
+                              className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
+                            >
+                              <Share2 size={20} className="mr-3" />
+                              Copy Invite Link
+                            </button>
+                            
+                            <button
+                              onClick={() => handleEndVideoSession(
+                                classItem, 
+                                classItem.video_sessions.find(s => s.status === 'active')
+                              )}
+                              disabled={isEnding}
+                              className="bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                            >
+                              {isEnding ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                                  Ending...
+                                </>
+                              ) : (
+                                <>
+                                  <X size={20} className="mr-3" />
+                                  End Class Session
+                                </>
+                              )}
+                            </button>
                           </>
                         )}
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* Status Footer */}
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
-                    <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
-                      <span className={`px-4 py-2 rounded-full text-xs font-bold ${
-                        classItem.status === "scheduled" 
-                          ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
-                          : classItem.status === "active"
-                          ? "bg-green-500/20 text-green-300 border border-green-500/30"
-                          : classItem.status === "completed"
-                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                          : "bg-red-500/20 text-red-300 border border-red-500/30"
-                      }`}>
-                        {classItem.status?.toUpperCase()}
-                      </span>
-                      
-                      {activeSession && (
-                        <span className="flex items-center text-green-400 text-sm">
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
-                          Session active
+                        {/* Delete Class Button */}
+                        <button
+                          onClick={() => handleDeleteClass(classItem.id)}
+                          disabled={isDeleting}
+                          className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center justify-center disabled:opacity-50"
+                        >
+                          {isDeleting ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 size={16} className="mr-2" />
+                              Delete Class
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Status Footer */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
+                      <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
+                        <span className={`px-4 py-2 rounded-full text-xs font-bold ${
+                          classItem.status === "scheduled" 
+                            ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
+                            : classItem.status === "active"
+                            ? "bg-green-500/20 text-green-300 border border-green-500/30"
+                            : classItem.status === "completed"
+                            ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                            : "bg-red-500/20 text-red-300 border border-red-500/30"
+                        }`}>
+                          {classItem.status?.toUpperCase()}
                         </span>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center space-x-2 text-blue-300 text-sm">
-                      <User size={14} />
-                      <span>
-                        {studentCount} student{studentCount !== 1 ? 's' : ''} enrolled
-                      </span>
+                        
+                        {activeSession && (
+                          <span className="flex items-center text-green-400 text-sm">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
+                            Session active
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center space-x-2 text-blue-300 text-sm">
+                        <User size={14} />
+                        <span>
+                          {studentCount} student{studentCount !== 1 ? 's' : ''} enrolled
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Completed Classes */}
-      {completedClasses.length > 0 && (
-        <div>
-          <h4 className="text-lg font-semibold text-white mb-4">Completed Classes</h4>
-          <div className="grid gap-4">
-            {completedClasses.map((classItem) => (
-              <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
-                <h4 className="font-bold text-white">{classItem.title}</h4>
-                <p className="text-blue-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
-                <p className="text-blue-200 text-sm">Students: {classItem.students_classes?.length || 0}</p>
-                <div className="mt-3 bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs inline-block">
-                  COMPLETED
+        {/* Completed Classes */}
+        {completedClasses.length > 0 && (
+          <div>
+            <h4 className="text-lg font-semibold text-white mb-4">Completed Classes</h4>
+            <div className="grid gap-4">
+              {completedClasses.map((classItem) => (
+                <div key={classItem.id} className="bg-white/10 border border-white/20 rounded-lg p-4">
+                  <h4 className="font-bold text-white">{classItem.title}</h4>
+                  <p className="text-blue-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
+                  <p className="text-blue-200 text-sm">Students: {classItem.students_classes?.length || 0}</p>
+                  <div className="mt-3 bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs inline-block">
+                    COMPLETED
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* No Classes */}
-      {classes.length === 0 && (
-        <div className="text-center py-16">
-          <BookOpen size={64} className="mx-auto text-blue-400 mb-4 opacity-50" />
-          <h3 className="text-2xl font-bold text-white mb-2">No Classes Scheduled</h3>
-          <p className="text-blue-300 text-lg">You don't have any classes scheduled yet.</p>
-        </div>
-      )}
-    </div>
-  );
-};
-  
+        {/* No Classes */}
+        {classes.length === 0 && (
+          <div className="text-center py-16">
+            <BookOpen size={64} className="mx-auto text-blue-400 mb-4 opacity-50" />
+            <h3 className="text-2xl font-bold text-white mb-2">No Classes Scheduled</h3>
+            <p className="text-blue-300 text-lg">You don't have any classes scheduled yet.</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const StudentsTab = ({ students, loading }) => (
     <div>
       <h3 className="text-lg font-semibold text-white mb-4">My Students ({students.length})</h3>
@@ -1290,16 +1133,6 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
                   <p className="font-medium text-white">{student.name}</p>
                   <p className="text-blue-400 text-xs">Joined: {new Date(student.created_at).toLocaleDateString()}</p>
                 </div>
-              </div>
-              <div className="mt-3 flex space-x-2">
-                <button className="flex-1 bg-blue-600 hover:bg-blue-500 py-1 px-2 rounded text-sm text-white">
-                  <MessageCircle size={14} className="inline mr-1" />
-                  Message
-                </button>
-                <button className="flex-1 bg-green-600 hover:bg-green-500 py-1 px-2 rounded text-sm text-white">
-                  <FileText size={14} className="inline mr-1" />
-                  Progress
-                </button>
               </div>
             </div>
           ))}
@@ -1782,7 +1615,6 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
         const submission = await teacherApi.getSubmissionDetails(submissionId);
         setSelectedSubmission(submission);
       } catch (error) {
-        console.error('Error loading submission details:', error);
         toast.error('Failed to load submission details');
       }
     };
@@ -2167,8 +1999,6 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
           {activeTab === 'classes' && (
             <ClassesTab 
               classes={filteredClasses} 
-              onStartSession={startVideoSession}
-              onJoinSession={joinVideoSession}
               formatDateTime={formatDateTime}
             />
           )}
@@ -2194,7 +2024,7 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
               onStartGrading={(submission) => {
                 setGradingSubmission(submission);
                 setGradeData({ 
-                  score: submission.grade || '', 
+                  score: submission.score || '', 
                   feedback: submission.feedback || '',
                   audioFeedbackData: submission.audio_feedback_url || ''
                 });
@@ -2287,17 +2117,6 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
                   ))}
                 </select>
                 <p className="text-blue-300 text-xs mt-1">Optional: Categorize assignment by class</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-1">Subject</label>
-                <input
-                  type="text"
-                  value="Quran"
-                  readOnly
-                  className="w-full p-2 rounded-lg bg-blue-800/30 border border-blue-700/30 text-blue-300 cursor-not-allowed"
-                />
-                <p className="text-blue-300 text-xs mt-1">Subject is automatically set to Quran</p>
               </div>
 
               <div className="flex items-center">
@@ -2529,7 +2348,6 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
                                 setTimeout(() => {
                                   setGradeData(prev => ({
                                     ...prev, 
-                                    isRecording: false,
                                     audioFeedbackData: audioData
                                   }));
                                 }, 500);
@@ -2540,13 +2358,9 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
                                 }
                               } else {
                                 await startRecording();
-                                setGradeData(prev => ({...prev, isRecording: true}));
                                 
                                 const interval = setInterval(() => {
-                                  setGradeData(prev => ({
-                                    ...prev, 
-                                    recordingTime: prev.recordingTime + 1
-                                  }));
+                                  // Minimal state update for recording time
                                 }, 1000);
                                 
                                 setRecordingInterval(interval);
@@ -2570,30 +2384,7 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
                             </div>
                           </div>
                         </div>
-                        
-                        {audioIsRecording && (
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                            <span className="text-red-300 text-sm">Recording</span>
-                          </div>
-                        )}
                       </div>
-
-                      {audioIsRecording && (
-                        <div className="flex items-center space-x-1 h-4">
-                          {[...Array(8)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="flex-1 bg-green-500/30 rounded-full animate-pulse"
-                              style={{
-                                height: `${Math.random() * 12 + 4}px`,
-                                animationDelay: `${i * 0.1}s`,
-                                animationDuration: '0.6s'
-                              }}
-                            />
-                          ))}
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -2613,17 +2404,8 @@ const ClassesTab = ({ classes, formatDateTime, onClassEnded }) => {
                       <div className="bg-blue-900/50 p-3 rounded-lg">
                         <SafeAudioPlayer src={gradeData.audioFeedbackData || audioData} />
                       </div>
-                      
-                      <div className="text-blue-300 text-xs">
-                        Students will be able to listen to this audio feedback in their dashboard
-                      </div>
                     </div>
                   )}
-                </div>
-
-                <div className="mt-2 text-blue-300 text-xs">
-                  💡 <strong>Perfect for:</strong> Tajweed corrections, detailed explanations, 
-                  Quranic recitation feedback, or personalized encouragement
                 </div>
               </div>
             </div>
