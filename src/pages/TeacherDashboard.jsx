@@ -879,6 +879,19 @@ export default function TeacherDashboard() {
     navigator.clipboard.writeText(link);
     toast.success('Class link copied to clipboard!');
   };
+   const handleDeleteClass = async (classId) => {
+    try {
+      setDeletingClass(classId);
+      await teacherApi.deleteClass(classId);
+      toast.success('Class deleted successfully');
+      // Reload classes
+      loadTeacherData();
+    } catch (error) {
+      toast.error(`Failed to delete class: ${error.message}`);
+    } finally {
+      setDeletingClass(null);
+    }
+  };
 
   const handleForceEndAllSessions = async () => {
     try {
@@ -1075,23 +1088,18 @@ export default function TeacherDashboard() {
                           Copy Invite Link
                         </button>
                         
-                        <button
-                          onClick={() => handleEndVideoSession(classItem, activeSession)}
-                          disabled={isEndingThisSession}
-                          className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                        >
-                          {isEndingThisSession ? (
-                            <>
-                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                              Ending Session...
-                            </>
-                          ) : (
-                            <>
-                              <X size={20} className="mr-3" />
-                              End Class Session
-                            </>
-                          )}
-                        </button>
+                         <button
+      onClick={() => handleDeleteClass(classItem.id)}
+      disabled={deletingClass === classItem.id}
+      className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center"
+    >
+      {deletingClass === classItem.id ? (
+        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+      ) : (
+        <Trash2 size={16} className="mr-2" />
+      )}
+      Delete
+    </button>
                       </>
                     )}
                   </div>
