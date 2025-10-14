@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 
 // ✅ PRODUCTION: Import the production-ready video service
 import { useVideoCall } from '../hooks/useVideoCall';
-import videoApi from '../lib/agora/videoApi';
+import videoService from '../lib/videoService';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   // ✅ PRODUCTION: Use the production video call hook
