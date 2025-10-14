@@ -1,6 +1,6 @@
 // hooks/useVideoCall.js - PRODUCTION HOOK
 import { useState, useEffect, useRef } from 'react';
-import videoApi from '../lib/Agora/videoApi';
+import videoApi from '../lib/agora/videoApi';
 
 export const useVideoCall = () => {
   const [isLoading, setIsLoading] = useState(false);
