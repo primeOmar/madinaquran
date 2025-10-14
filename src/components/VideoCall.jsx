@@ -1,270 +1,93 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Video, VideoOff, Mic, MicOff, Phone, Users, ScreenShare, MonitorOff, X, Crown, User, Share2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
-// ✅ Import the production-ready Agora hook
-import useAgoraProduction from '../hooks/useAgoraProduction';
+// ✅ PRODUCTION: Import the production-ready video service
+import { useVideoCall } from '../hooks/useVideoCall';
 import videoApi from '../lib/agora/videoApi';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
-  // State management - SIMPLIFIED
-  const [localAudioTrack, setLocalAudioTrack] = useState(null);
-  const [localVideoTrack, setLocalVideoTrack] = useState(null);
-  const [remoteUsers, setRemoteUsers] = useState([]);
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [isVideoMuted, setIsVideoMuted] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+  // ✅ PRODUCTION: Use the production video call hook
+  const { 
+    startCall, 
+    joinCall, 
+    leaveCall, 
+    isLoading, 
+    error, 
+    isInCall,
+    localAudioTrack,
+    localVideoTrack,
+    remoteUsers,
+    isAudioMuted,
+    isVideoMuted,
+    toggleAudio,
+    toggleVideo,
+    toggleScreenShare,
+    isScreenSharing
+  } = useVideoCall();
+
+  // Local state for UI
   const [participants, setParticipants] = useState([]);
   const [isFallbackMode, setIsFallbackMode] = useState(false);
 
   // Refs
   const localPlayerRef = useRef(null);
   const remotePlayersRef = useRef({});
-  const screenTrackRef = useRef(null);
 
-  // ✅ PRODUCTION: Use the production-ready Agora hook with SIMPLIFIED config
-  const {
-    isConnected,
-    isConnecting,
-    connectionError,
-    joinChannel,
-    leaveChannel,
-    retryConnection,
-    service
-  } = useAgoraProduction({
-    // ✅ Pass essential config only
-    autoJoin: false, // We'll join manually
-    onError: (error) => {
-      console.error('Agora connection error:', error);
-      setError(error.userMessage || 'Connection failed');
-      setIsLoading(false);
-    },
-    onJoined: (data) => {
-      console.log('✅ Successfully joined channel');
-      setIsLoading(false);
-      initializeLocalTracks();
-      toast.success('Connected to video call!');
-    },
-    onLeft: () => {
-      console.log('🔚 Left channel');
-      handleCleanup();
-      onLeave?.();
-    }
-  });
-
-  // ✅ PRODUCTION: Initialize and join channel - SIMPLIFIED
+  // ✅ PRODUCTION: Initialize and join video call
   useEffect(() => {
-    const initAndJoin = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        console.log('🚀 Starting video call:', { meetingId, user: user?.name });
-
-        // ✅ Get token data
-        const tokenData = await videoApi.generateAgoraToken(meetingId, user?.id);
+    const joinVideoCall = async () => {
+      if (meetingId && user?.id) {
+        console.log('🚀 Starting video call:', { meetingId, user: user.name });
         
-        if (!tokenData.appId) {
-          throw new Error('No App ID available for video call');
+        const result = await joinCall(meetingId, user.id);
+        
+        if (!result.success) {
+          // Error is already handled by the hook, but we can add specific handling here
+          if (result.error.includes('RATE_LIMIT')) {
+            toast.error('Too many attempts. Please wait a minute.');
+          } else if (result.error.includes('AGORA_JOIN_FAILED')) {
+            toast.error('Unable to connect to video service. Please try again.');
+          }
+        } else {
+          console.log('✅ Successfully joined call:', result.meetingId);
+          toast.success('Connected to video call!');
         }
-
-        console.log('✅ Got Agora config:', {
-          appId: tokenData.appId ? '***' + tokenData.appId.slice(-4) : 'missing',
-          channel: meetingId,
-          hasToken: !!tokenData.token
-        });
-
-        if (tokenData.isFallback) {
-          setIsFallbackMode(true);
-        }
-
-        // ✅ Join channel immediately
-        const success = await joinChannel(
-          meetingId,
-          tokenData.token,
-          user?.id?.toString()
-        );
-
-        if (!success) {
-          throw new Error('Failed to join channel');
-        }
-
-      } catch (error) {
-        console.error('❌ Video call initialization failed:', error);
-        setError(error.message);
-        setIsLoading(false);
-        toast.error('Failed to start video call');
       }
     };
 
-    if (meetingId && user) {
-      initAndJoin();
-    }
+    joinVideoCall();
+  }, [meetingId, user, joinCall]);
 
-    return () => {
-      handleCleanup();
-    };
-  }, [meetingId, user, joinChannel]);
-
-  // ✅ PRODUCTION: Initialize local media tracks
-  const initializeLocalTracks = async () => {
-    try {
-      console.log('🎬 Initializing local media tracks...');
-      
-      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-      
-      // Create audio track
-      const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-      setLocalAudioTrack(audioTrack);
-      
-      // Create video track
-      const videoTrack = await AgoraRTC.createCameraVideoTrack();
-      setLocalVideoTrack(videoTrack);
-      
-      // Play local video
-      if (localPlayerRef.current) {
-        videoTrack.play(localPlayerRef.current);
-      }
-
-      // Publish tracks
-      if (service?.client && isConnected) {
-        await service.client.publish([audioTrack, videoTrack]);
-        console.log('✅ Local tracks published');
-      }
-      
-    } catch (error) {
-      console.error('Failed to initialize media:', error);
-      toast.error('Could not access camera/microphone');
-    }
-  };
-
-  // ✅ PRODUCTION: Setup Agora event listeners
+  // ✅ PRODUCTION: Setup participants tracking
   useEffect(() => {
-    if (!service?.client) return;
-
-    console.log('🎧 Setting up Agora event listeners');
-
-    const handleUserPublished = async (user, mediaType) => {
-      try {
-        await service.client.subscribe(user, mediaType);
-        
-        if (mediaType === 'video') {
-          setRemoteUsers(prev => {
-            const exists = prev.find(u => u.uid === user.uid);
-            return exists ? prev : [...prev, user];
-          });
-        }
-
-        if (mediaType === 'audio') {
-          user.audioTrack?.play();
-        }
-      } catch (error) {
-        console.error('Subscribe error:', error);
-      }
-    };
-
-    const handleUserUnpublished = (user) => {
-      setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
-    };
-
-    const handleUserJoined = (user) => {
-      const newParticipant = {
+    if (remoteUsers.length > 0) {
+      const newParticipants = remoteUsers.map(user => ({
         uid: user.uid,
         name: `Student ${user.uid}`,
         role: 'student',
         joinedAt: new Date()
-      };
-      setParticipants(prev => [...prev, newParticipant]);
-      toast.info('New student joined');
-    };
+      }));
+      
+      setParticipants(newParticipants);
+    }
+  }, [remoteUsers]);
 
-    const handleUserLeft = (user) => {
-      setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
-      setParticipants(prev => prev.filter(p => p.uid !== user.uid));
-      toast.info('Student left');
-    };
+  // ✅ PRODUCTION: Play local video when track is available
+  useEffect(() => {
+    if (localVideoTrack && localPlayerRef.current) {
+      localVideoTrack.play(localPlayerRef.current);
+    }
+  }, [localVideoTrack]);
 
-    // Add event listeners
-    service.client.on('user-published', handleUserPublished);
-    service.client.on('user-unpublished', handleUserUnpublished);
-    service.client.on('user-joined', handleUserJoined);
-    service.client.on('user-left', handleUserLeft);
-
-    // Cleanup
-    return () => {
-      if (service?.client) {
-        service.client.off('user-published', handleUserPublished);
-        service.client.off('user-unpublished', handleUserUnpublished);
-        service.client.off('user-joined', handleUserJoined);
-        service.client.off('user-left', handleUserLeft);
-      }
-    };
-  }, [service, isConnected]);
-
-  // ✅ PRODUCTION: Cleanup function
-  const handleCleanup = useCallback(() => {
-    console.log('🧹 Cleaning up resources...');
-    
-    // Close local tracks
-    [localAudioTrack, localVideoTrack, screenTrackRef.current].forEach(track => {
-      if (track) {
-        track.close();
+  // ✅ PRODUCTION: Play remote videos when tracks are available
+  useEffect(() => {
+    remoteUsers.forEach(user => {
+      if (user.videoTrack && remotePlayersRef.current[user.uid]) {
+        user.videoTrack.play(remotePlayersRef.current[user.uid]);
       }
     });
-
-    setLocalAudioTrack(null);
-    setLocalVideoTrack(null);
-    screenTrackRef.current = null;
-    remotePlayersRef.current = {};
-  }, [localAudioTrack, localVideoTrack]);
-
-  // ✅ PRODUCTION: Control functions
-  const toggleAudio = async () => {
-    if (localAudioTrack) {
-      await localAudioTrack.setEnabled(!isAudioMuted);
-      setIsAudioMuted(!isAudioMuted);
-    }
-  };
-
-  const toggleVideo = async () => {
-    if (localVideoTrack) {
-      await localVideoTrack.setEnabled(!isVideoMuted);
-      setIsVideoMuted(!isVideoMuted);
-    }
-  };
-
-  const toggleScreenShare = async () => {
-    try {
-      if (!isScreenSharing) {
-        const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-        const screenTrack = await AgoraRTC.createScreenVideoTrack();
-        
-        await service.client.unpublish(localVideoTrack);
-        await service.client.publish(screenTrack);
-        
-        screenTrackRef.current = screenTrack;
-        setIsScreenSharing(true);
-        toast.success('Screen sharing started');
-
-        screenTrack.on('track-ended', () => {
-          toggleScreenShare();
-        });
-      } else {
-        await service.client.unpublish(screenTrackRef.current);
-        await service.client.publish(localVideoTrack);
-        
-        screenTrackRef.current.close();
-        screenTrackRef.current = null;
-        setIsScreenSharing(false);
-        toast.info('Screen sharing stopped');
-      }
-    } catch (error) {
-      console.error('Screen share error:', error);
-      toast.error('Failed to share screen');
-    }
-  };
+  }, [remoteUsers]);
 
   const handleEndSession = async () => {
     if (!isTeacher) return;
@@ -274,7 +97,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       if (!confirmEnd) return;
 
       await videoApi.endVideoSession(meetingId);
-      await handleLeave();
+      await leaveCall();
       
       if (onSessionEnded) {
         onSessionEnded();
@@ -288,28 +111,17 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   };
 
   const handleLeave = async () => {
-    try {
-      handleCleanup();
-      await leaveChannel();
-    } catch (error) {
-      console.error('Error leaving call:', error);
-    }
+    await leaveCall();
+    onLeave?.();
   };
 
   const handleRetryConnection = async () => {
-    try {
-      setError(null);
-      setIsLoading(true);
+    if (meetingId && user?.id) {
+      const result = await joinCall(meetingId, user.id);
       
-      const tokenData = await videoApi.generateAgoraToken(meetingId, user.id);
-      const success = await retryConnection(meetingId, tokenData.token, user.id);
-      
-      if (success) {
+      if (result.success) {
         toast.success('Reconnected!');
       }
-    } catch (error) {
-      console.error('Retry failed:', error);
-      setError(error.message);
     }
   };
 
@@ -348,7 +160,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
               ref={user.uid === 'local' ? localPlayerRef : (el => {
                 if (el && user.uid !== 'local') {
                   remotePlayersRef.current[user.uid] = el;
-                  user.videoTrack?.play(el);
                 }
               })}
               className="w-full h-full rounded-xl bg-gray-700"
@@ -393,18 +204,19 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <h3 className="text-white text-xl mb-2">Joining Class...</h3>
           <p className="text-gray-400">Setting up your video and audio</p>
-          {isConnecting && (
-            <p className="text-blue-400 text-sm mt-2">Connecting...</p>
-          )}
         </div>
       </div>
     );
   }
 
   // ✅ PRODUCTION: Error state
-  if (error || connectionError) {
-    const displayError = error || connectionError?.userMessage || connectionError?.message;
-    
+  if (error) {
+    const displayError = error.includes('RATE_LIMIT') 
+      ? 'Too many attempts. Please wait a minute before trying again.'
+      : error.includes('AGORA_JOIN_FAILED')
+      ? 'Unable to connect to video service. Please try again.'
+      : error;
+
     return (
       <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50">
         <div className="text-center max-w-md">
@@ -439,9 +251,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       <div className="flex justify-between items-center p-4 bg-gray-800/90 backdrop-blur-lg border-b border-gray-700">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
-            <span className={isConnected ? 'text-green-400' : 'text-yellow-400'}>
-              {isConnected ? 'Live' : 'Connecting...'}
+            <div className={`w-3 h-3 rounded-full ${isInCall ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+            <span className={isInCall ? 'text-green-400' : 'text-yellow-400'}>
+              {isInCall ? 'Live' : isLoading ? 'Connecting...' : 'Disconnected'}
             </span>
           </div>
           
