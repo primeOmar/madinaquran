@@ -55,51 +55,40 @@ const videoApi = {
    * Join a video session (for students and teachers)
    */
   async joinVideoSession(meetingId, userId) {
-    try {
-      console.log('📡 API: Joining video session via /agora/join-session');
+  try {
+    console.log('🔍 FRONTEND: Attempting to join session:', { meetingId, userId });
+    console.log('🔍 FRONTEND: Full URL:', `${API_BASE_URL}/agora/join-session`);
 
-      const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          meeting_id: meetingId,
-          user_id: userId
-        })
-      });
+    const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        meeting_id: meetingId,
+        user_id: userId
+      })
+    });
 
-      const data = await response.json();
+    console.log('🔍 FRONTEND: Response status:', response.status);
+    
+    const data = await response.json();
+    console.log('🔍 FRONTEND: Response data:', data);
 
-      if (!response.ok) {
-        console.error('❌ API Error:', data);
-        throw new Error(data.error || 'Failed to join video session');
-      }
-
-      console.log('✅ API: Joined video session:', data);
-
-      return {
-        success: true,
-        meetingId: data.meeting_id || data.meetingId || meetingId,
-        channel: data.channel,
-        token: data.token,
-        appId: data.app_id || data.appId,
-        uid: data.uid || userId,
-        session: data.session,
-        class_title: data.class_title,
-        teacher_name: data.teacher_name,
-        user_role: data.user_role
-      };
-
-    } catch (error) {
-      console.error('❌ API: joinVideoSession failed:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to join video session'
-      };
+    if (!response.ok) {
+      console.error('❌ FRONTEND: API Error:', data);
+      throw new Error(data.error || 'Failed to join video session');
     }
-  },
+
+    console.log('✅ FRONTEND: Successfully joined session:', data);
+    return data;
+
+  } catch (error) {
+    console.error('❌ FRONTEND: joinVideoSession failed:', error);
+    throw error;
+  }
+},
 
   /**
    * Leave a video session
