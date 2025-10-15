@@ -37,7 +37,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         console.log('🚀 Starting video call:', { meetingId, userId: user.id });
         
         const result = isTeacher 
-          ? await joinCall(meetingId, user.id) // Teachers use the same joinCall
+          ? await joinCall(meetingId, user.id)
           : await joinCall(meetingId, user.id);
         
         if (!result.success) {
@@ -54,7 +54,14 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
 
     joinVideoCall();
-  }, [meetingId, user, joinCall, isTeacher]);
+
+    // Cleanup on unmount
+    return () => {
+      if (isInCall) {
+        leaveCall();
+      }
+    };
+  }, [meetingId, user, joinCall, isTeacher, isInCall, leaveCall]);
 
   // Setup participants tracking
   useEffect(() => {
@@ -178,7 +185,66 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
               className="w-full h-full rounded-xl bg-gray-700"
             />
             
-            {/* Screen Share */}
+            {/* Fallback when video is off */}
+            {(!remoteUser.videoTrack || (remoteUser.uid === 'local' && isVideoMuted)) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl">
+                <div className="text-center">
+                  <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3">
+                    <User size={40} className="text-white" />
+                  </div>
+                  <p className="text-white font-semibold text-lg">{remoteUser.name}</p>
+                </div>
+              </div>
+            )}
+            
+            {/* User info overlay */}
+            <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
+              <div className="bg-black/70 text-white px-3 py-1.5 rounded-lg text-sm backdrop-blur-sm flex items-center space-x-2">
+                <span className="font-medium">{remoteUser.name}</span>
+                {remoteUser.role === 'teacher' && <Crown size={14} className="text-yellow-400" />}
+              </div>
+            </div>
+
+            {/* Audio mute indicator */}
+            {(remoteUser.uid === 'local' && isAudioMuted) && (
+              <div className="absolute top-3 right-3 bg-red-500 p-2 rounded-full shadow-lg">
+                <MicOff size={16} className="text-white" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Render control bar
+  const renderControlBar = () => {
+    return (
+      <div className="bg-gray-800/90 backdrop-blur-lg border-t border-gray-700 px-6 py-4">
+        <div className="flex justify-center items-center space-x-4">
+          {/* Audio Control */}
+          <button
+            onClick={toggleAudio}
+            className={`p-4 rounded-full transition ${
+              isAudioMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'
+            }`}
+            title={isAudioMuted ? 'Unmute' : 'Mute'}
+          >
+            {isAudioMuted ? <MicOff size={24} /> : <Mic size={24} />}
+          </button>
+
+          {/* Video Control */}
+          <button
+            onClick={toggleVideo}
+            className={`p-4 rounded-full transition ${
+              isVideoMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'
+            }`}
+            title={isVideoMuted ? 'Turn on camera' : 'Turn off camera'}
+          >
+            {isVideoMuted ? <VideoOff size={24} /> : <Video size={24} />}
+          </button>
+
+          {/* Screen Share */}
           <button
             onClick={toggleScreenShare}
             className={`p-4 rounded-full transition ${
@@ -210,39 +276,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
             <Phone size={24} className="transform rotate-135" />
           </button>
         </div>
-      </div>
-    </div>
-  );
-};
-
-export default VideoCall;/* Fallback when video is off */}
-            {(!remoteUser.videoTrack || (remoteUser.uid === 'local' && isVideoMuted)) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl">
-                <div className="text-center">
-                  <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3">
-                    <User size={40} className="text-white" />
-                  </div>
-                  <p className="text-white font-semibold text-lg">{remoteUser.name}</p>
-                </div>
-              </div>
-            )}
-            
-            {/* User info overlay */}
-            <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
-              <div className="bg-black/70 text-white px-3 py-1.5 rounded-lg text-sm backdrop-blur-sm flex items-center space-x-2">
-                <span className="font-medium">{remoteUser.name}</span>
-                {remoteUser.role === 'teacher' && <Crown size={14} className="text-yellow-400" />}
-              </div>
-            </div>
-
-            {/* Audio mute indicator */}
-            {(remoteUser.uid === 'local' && isAudioMuted) && (
-              <div className="absolute top-3 right-3 bg-red-500 p-2 rounded-full shadow-lg">
-                <MicOff size={16} className="text-white" />
-              </div>
-            )}
-          </div>
-        ))}
       </div>
     );
   };
@@ -338,28 +371,9 @@ export default VideoCall;/* Fallback when video is off */}
       </div>
 
       {/* Control Bar */}
-      <div className="bg-gray-800/90 backdrop-blur-lg border-t border-gray-700 px-6 py-4">
-        <div className="flex justify-center items-center space-x-4">
-          {/* Audio Control */}
-          <button
-            onClick={toggleAudio}
-            className={`p-4 rounded-full transition ${
-              isAudioMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'
-            }`}
-            title={isAudioMuted ? 'Unmute' : 'Mute'}
-          >
-            {isAudioMuted ? <MicOff size={24} /> : <Mic size={24} />}
-          </button>
+      {renderControlBar()}
+    </div>
+  );
+};
 
-          {/* Video Control */}
-          <button
-            onClick={toggleVideo}
-            className={`p-4 rounded-full transition ${
-              isVideoMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'
-            }`}
-            title={isVideoMuted ? 'Turn on camera' : 'Turn off camera'}
-          >
-            {isVideoMuted ? <VideoOff size={24} /> : <Video size={24} />}
-          </button>
-
-          {
+export default VideoCall;
