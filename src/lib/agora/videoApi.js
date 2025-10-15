@@ -1,6 +1,6 @@
-// lib/agora/videoApi.js - PRODUCTION READY
+// lib/agora/videoApi.js - FIXED VERSION
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://madina-quran-backend.onrender.com';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://madina-quran-backend.onrender.com/api';
 
 const videoApi = {
   /**
@@ -11,6 +11,7 @@ const videoApi = {
   async startVideoSession(classId, userId) {
     try {
       console.log('📡 API: Starting video session:', { classId, userId });
+      console.log('🔗 Calling URL:', `${API_BASE_URL}/agora/start-session`); // DEBUG
 
       // Validate inputs
       if (!classId || !userId) {
@@ -18,7 +19,8 @@ const videoApi = {
         throw new Error('CLASS_ID_AND_USER_ID_REQUIRED');
       }
 
-      const response = await fetch(`${API_BASE_URL}/video/start-session`, {
+      // ✅ CORRECTED: Change from /video/start-session to /agora/start-session
+      const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -29,6 +31,13 @@ const videoApi = {
           user_id: userId
         })
       });
+
+      // Handle non-JSON responses
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server returned non-JSON: ${text.substring(0, 100)}`);
+      }
 
       const data = await response.json();
 
@@ -72,7 +81,8 @@ const videoApi = {
         throw new Error('MEETING_ID_AND_USER_ID_REQUIRED');
       }
 
-      const response = await fetch(`${API_BASE_URL}/video/join-session`, {
+      // ✅ CORRECTED: Change from /video/join-session to /agora/join-session
+      const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -118,7 +128,8 @@ const videoApi = {
     try {
       console.log('📡 API: Leaving video session');
 
-      const response = await fetch(`${API_BASE_URL}/video/leave-session`, {
+      // ✅ CORRECTED: Change from /video/leave-session to /agora/leave-session
+      const response = await fetch(`${API_BASE_URL}/agora/leave-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,7 +170,8 @@ const videoApi = {
         throw new Error('MEETING_ID_REQUIRED');
       }
 
-      const response = await fetch(`${API_BASE_URL}/video/end-session`, {
+      // ✅ CORRECTED: Change from /video/end-session to /agora/end-session
+      const response = await fetch(`${API_BASE_URL}/agora/end-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,7 +210,8 @@ const videoApi = {
    */
   async getActiveSessions() {
     try {
-      const response = await fetch(`${API_BASE_URL}/video/active-sessions`, {
+      // ✅ CORRECTED: Change from /video/active-sessions to /agora/active-sessions
+      const response = await fetch(`${API_BASE_URL}/agora/active-sessions`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
