@@ -91,7 +91,113 @@ button:focus-visible {
   scroll-behavior: smooth;
 }
 
+.video-call-container {
+  width: 100%;
+  height: 100vh;
+  background: #1a1a1a;
+  color: white;
+  display: flex;
+  flex-direction: column;
+}
 
+.video-call-header {
+  padding: 1rem;
+  background: #2d2d2d;
+  display: flex;
+  justify-content: between;
+  align-items: center;
+}
+
+.video-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.video-tile {
+  background: #3d3d3d;
+  border-radius: 8px;
+  position: relative;
+  aspect-ratio: 16/9;
+}
+
+.video-tile video {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.video-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.7));
+  padding: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+}
+
+.video-controls {
+  padding: 1rem;
+  background: #2d2d2d;
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.control-button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 50px;
+  background: #4a4a4a;
+  color: white;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.control-button:hover {
+  background: #5a5a5a;
+}
+
+.leave-button {
+  background: #e74c3c;
+}
+
+.leave-button:hover {
+  background: #c0392b;
+}
+
+.participants-sidebar {
+  width: 250px;
+  background: #2d2d2d;
+  padding: 1rem;
+}
+
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
 html {
   scroll-behavior: smooth;
 }
