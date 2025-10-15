@@ -1,231 +1,228 @@
-// lib/videoService.js - PRODUCTION FIXED VERSION
-import AgoraRTC from 'agora-rtc-sdk-ng';
+// lib/agora/videoApi.js - PRODUCTION READY
 
-const AGORA_APP_ID = '5c0225ce9a19445f95a2685647258468';
-
-// ✅ Global Agora engine instance
-let agoraEngine = null;
-let isInitialized = false;
-
-// ✅ Rate limiting
-const RATE_LIMIT = {
-  maxAttempts: 3,
-  attempts: new Map(),
-  timeWindow: 60000, // 1 minute
-};
-
-function checkRateLimit(operation, identifier) {
-  const key = `${operation}_${identifier}`;
-  const now = Date.now();
-  const attempt = RATE_LIMIT.attempts.get(key);
-  
-  if (attempt && (now - attempt.timestamp < RATE_LIMIT.timeWindow)) {
-    if (attempt.count >= RATE_LIMIT.maxAttempts) {
-      throw new Error(`RATE_LIMIT_EXCEEDED: Too many ${operation} attempts`);
-    }
-    attempt.count++;
-  } else {
-    RATE_LIMIT.attempts.set(key, { count: 1, timestamp: now });
-  }
-}
-
-// ✅ Validate App ID
-function validateAppId() {
-  if (!AGORA_APP_ID || AGORA_APP_ID.length !== 32) {
-    throw new Error('VIDEO_SERVICE_UNAVAILABLE: Invalid Agora configuration');
-  }
-  return AGORA_APP_ID;
-}
-
-// ✅ Initialize Agora Engine (Singleton)
-function initializeAgoraEngine() {
-  if (!agoraEngine) {
-    agoraEngine = AgoraRTC.createClient({ 
-      mode: "rtc", 
-      codec: "vp8" 
-    });
-    isInitialized = true;
-    console.log('✅ Agora engine initialized');
-  }
-  return agoraEngine;
-}
-
-// ✅ Clean channel name
-function cleanChannelName(name) {
-  if (!name) throw new Error('CHANNEL_NAME_REQUIRED');
-  return name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
-}
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
 const videoApi = {
   /**
-   * PRODUCTION: Start and join video session
+   * Start a video session (for teachers)
+   * @param {string|number} classId - The class ID
+   * @param {string|number} userId - The user ID
    */
   async startVideoSession(classId, userId) {
     try {
-      // ✅ Rate limiting
-      checkRateLimit('start_session', classId);
-      
-      // ✅ Validate inputs
+      console.log('📡 API: Starting video session:', { classId, userId });
+
+      // Validate inputs
       if (!classId || !userId) {
+        console.error('❌ Missing required parameters:', { classId, userId });
         throw new Error('CLASS_ID_AND_USER_ID_REQUIRED');
       }
 
-      // ✅ Validate App ID
-      const appId = validateAppId();
-      
-      // ✅ Generate meeting ID
-      const meetingId = `class_${classId}_${Date.now()}`;
-      const channel = cleanChannelName(meetingId);
-      
-      console.log('🚀 Starting video session:', { 
-        classId, 
-        channel, 
-        userId,
-        appId: '***' + appId.slice(-4) 
+      const response = await fetch(`${API_BASE_URL}/video/start-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          class_id: classId,
+          user_id: userId
+        })
       });
 
-      // ✅ Initialize Agora engine
-      const engine = initializeAgoraEngine();
-      
-      // ✅ JOIN THE CHANNEL with proper error handling
-      try {
-        await engine.join(appId, channel, null, userId);
-        console.log('✅ Successfully joined Agora channel:', channel);
-      } catch (joinError) {
-        console.error('❌ Agora join failed:', joinError);
-        throw new Error(`AGORA_JOIN_FAILED: ${joinError.message}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('❌ API Error:', data);
+        throw new Error(data.error || data.message || 'Failed to start video session');
       }
+
+      console.log('✅ API: Video session started:', data);
 
       return {
         success: true,
-        meetingId: meetingId,
-        appId: appId,
-        channel: channel,
-        uid: userId.toString(),
-        engine: engine
+        meetingId: data.meeting_id || data.meetingId,
+        channel: data.channel,
+        token: data.token,
+        appId: data.app_id || data.appId,
+        uid: data.uid || userId
       };
-      
+
     } catch (error) {
-      console.error('❌ Video session start failed:', error.message);
-      
+      console.error('❌ API: startVideoSession failed:', error);
       return {
         success: false,
-        error: error.message,
-        errorType: error.message.includes('RATE_LIMIT') ? 'rate_limit' : 
-                  error.message.includes('AGORA_JOIN_FAILED') ? 'agora_error' : 'validation'
+        error: error.message || 'Failed to start video session'
       };
     }
   },
 
   /**
-   * PRODUCTION: Join existing video session
+   * Join a video session (for students and teachers)
+   * @param {string} meetingId - The meeting ID
+   * @param {string|number} userId - The user ID
    */
   async joinVideoSession(meetingId, userId) {
     try {
-      // ✅ Rate limiting
-      checkRateLimit('join_session', `${meetingId}_${userId}`);
-      
-      // ✅ Validate inputs
+      console.log('📡 API: Joining video session:', { meetingId, userId });
+
+      // Validate inputs
       if (!meetingId || !userId) {
+        console.error('❌ Missing required parameters:', { meetingId, userId });
         throw new Error('MEETING_ID_AND_USER_ID_REQUIRED');
       }
 
-      // ✅ Validate App ID
-      const appId = validateAppId();
-      const channel = cleanChannelName(meetingId);
-      
-      console.log('🎯 Joining video session:', { 
-        meetingId, 
-        channel, 
-        userId,
-        appId: '***' + appId.slice(-4)
+      const response = await fetch(`${API_BASE_URL}/video/join-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId,
+          user_id: userId
+        })
       });
 
-      // ✅ Initialize Agora engine
-      const engine = initializeAgoraEngine();
-      
-      // ✅ JOIN THE CHANNEL
-      try {
-        await engine.join(appId, channel, null, userId);
-        console.log('✅ Successfully joined existing channel:', channel);
-      } catch (joinError) {
-        console.error('❌ Agora join failed:', joinError);
-        throw new Error(`AGORA_JOIN_FAILED: ${joinError.message}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('❌ API Error:', data);
+        throw new Error(data.error || data.message || 'Failed to join video session');
+      }
+
+      console.log('✅ API: Joined video session:', data);
+
+      return {
+        success: true,
+        meetingId: data.meeting_id || data.meetingId || meetingId,
+        channel: data.channel,
+        token: data.token,
+        appId: data.app_id || data.appId,
+        uid: data.uid || userId
+      };
+
+    } catch (error) {
+      console.error('❌ API: joinVideoSession failed:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to join video session'
+      };
+    }
+  },
+
+  /**
+   * Leave a video session
+   */
+  async leaveVideoSession() {
+    try {
+      console.log('📡 API: Leaving video session');
+
+      const response = await fetch(`${API_BASE_URL}/video/leave-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        console.warn('⚠️ API: Leave session warning:', data);
+        // Don't throw - leaving should always succeed on client side
+      }
+
+      console.log('✅ API: Left video session');
+
+      return {
+        success: true
+      };
+
+    } catch (error) {
+      console.warn('⚠️ API: leaveVideoSession failed:', error);
+      // Return success anyway - client-side cleanup is what matters
+      return {
+        success: true
+      };
+    }
+  },
+
+  /**
+   * End a video session (teacher only)
+   * @param {string} meetingId - The meeting ID
+   */
+  async endVideoSession(meetingId) {
+    try {
+      console.log('📡 API: Ending video session:', meetingId);
+
+      if (!meetingId) {
+        throw new Error('MEETING_ID_REQUIRED');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/video/end-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('❌ API Error:', data);
+        throw new Error(data.error || data.message || 'Failed to end video session');
+      }
+
+      console.log('✅ API: Video session ended:', data);
+
+      return {
+        success: true,
+        data
+      };
+
+    } catch (error) {
+      console.error('❌ API: endVideoSession failed:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to end video session'
+      };
+    }
+  },
+
+  /**
+   * Get active video sessions
+   */
+  async getActiveSessions() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/video/active-sessions`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get active sessions');
       }
 
       return {
         success: true,
-        meetingId: meetingId,
-        appId: appId,
-        channel: channel,
-        uid: userId.toString(),
-        engine: engine
+        sessions: data.sessions || []
       };
-      
+
     } catch (error) {
-      console.error('❌ Join session failed:', error.message);
-      
+      console.error('❌ API: getActiveSessions failed:', error);
       return {
         success: false,
         error: error.message,
-        errorType: error.message.includes('RATE_LIMIT') ? 'rate_limit' : 'agora_error'
-      };
-    }
-  },
-
-  /**
-   * PRODUCTION: Leave video session
-   */
-  async leaveVideoSession() {
-    try {
-      if (agoraEngine) {
-        await agoraEngine.leave();
-        console.log('✅ Left Agora channel');
-        
-        // Clean up local tracks if any
-        if (this.localTracks) {
-          this.localTracks.forEach(track => track.close());
-          this.localTracks = [];
-        }
-      }
-      return { success: true };
-    } catch (error) {
-      console.error('❌ Leave session failed:', error.message);
-      return { success: false, error: error.message };
-    }
-  },
-
-  /**
-   * PRODUCTION: Get Agora engine instance
-   */
-  getAgoraEngine() {
-    return agoraEngine;
-  },
-
-  /**
-   * PRODUCTION: Check if Agora is initialized
-   */
-  isAgoraInitialized() {
-    return isInitialized;
-  },
-
-  /**
-   * PRODUCTION: Health check
-   */
-  async checkHealth() {
-    try {
-      const appId = validateAppId();
-      return {
-        status: 'healthy',
-        agoraInitialized: isInitialized,
-        appId: '***' + appId.slice(-4),
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        error: error.message,
-        timestamp: new Date().toISOString()
+        sessions: []
       };
     }
   }
