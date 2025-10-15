@@ -54,10 +54,9 @@ const videoApi = {
   /**
    * Join a video session (for students and teachers)
    */
-  async joinVideoSession(meetingId, userId) {
+ async joinVideoSession(meetingId, userId) {
   try {
     console.log('🔍 FRONTEND: Attempting to join session:', { meetingId, userId });
-    console.log('🔍 FRONTEND: Full URL:', `${API_BASE_URL}/agora/join-session`);
 
     const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
       method: 'POST',
@@ -71,25 +70,29 @@ const videoApi = {
       })
     });
 
-    console.log('🔍 FRONTEND: Response status:', response.status);
-    
     const data = await response.json();
-    console.log('🔍 FRONTEND: Response data:', data);
+    console.log('🔍 FRONTEND: Join response:', data);
 
     if (!response.ok) {
-      console.error('❌ FRONTEND: API Error:', data);
       throw new Error(data.error || 'Failed to join video session');
     }
 
-    console.log('✅ FRONTEND: Successfully joined session:', data);
-    return data;
+    // Use the UID provided by the backend (it's now a valid integer)
+    return {
+      success: true,
+      meetingId: data.meeting_id,
+      channel: data.channel,
+      token: data.token,
+      appId: data.appId,
+      uid: data.uid, 
+      session: data.session
+    };
 
   } catch (error) {
     console.error('❌ FRONTEND: joinVideoSession failed:', error);
     throw error;
   }
 },
-
   /**
    * Leave a video session
    */
