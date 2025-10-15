@@ -1,6 +1,6 @@
 // lib/agora/videoApi.js - PRODUCTION READY
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://madina-quran-backend.onrender.com';
 
 const videoApi = {
   /**
