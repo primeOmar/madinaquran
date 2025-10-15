@@ -1,50 +1,33 @@
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
+import AgoraRTC from 'agora-rtc-sdk-ng';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isInCall, setIsInCall] = useState(false);
   const [localStream, setLocalStream] = useState(null);
-  const [remoteStreams, setRemoteStreams] = useState([]);
+  const [remoteUsers, setRemoteUsers] = useState([]);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
 
-  // Simple mock API call that doesn't require backend
-  const mockStartVideoSession = useCallback(async (classId, userId) => {
-    console.log('🎯 MOCK: Starting video session with:', { classId, userId });
-    
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Generate mock Agora config
-    return {
-      success: true,
-      appId: 'mock-app-id', // This would be your actual Agora App ID
-      channel: classId,
-      token: 'mock-token', // In real app, get from backend
-      uid: Math.floor(Math.random() * 100000),
-      meetingId: classId
+  const agoraClientRef = useRef(null);
+  const localTracksRef = useRef([]);
+
+  // Initialize Agora client
+  useEffect(() => {
+    if (!agoraClientRef.current) {
+      agoraClientRef.current = AgoraRTC.createClient({ 
+        mode: "rtc", 
+        codec: "vp8" 
+      });
+    }
+
+    return () => {
+      leaveCall();
     };
   }, []);
 
-  const mockJoinVideoSession = useCallback(async (meetingId, userId) => {
-    console.log('🎯 MOCK: Joining video session with:', { meetingId, userId });
-    
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Generate mock Agora config
-    return {
-      success: true,
-      appId: 'mock-app-id',
-      channel: meetingId,
-      token: 'mock-token',
-      uid: Math.floor(Math.random() * 100000),
-      meetingId: meetingId
-    };
-  }, []);
-
-  // Start video call without backend dependency
+  // REAL Agora connection
   const startVideoCall = useCallback(async () => {
     if (!meetingId || !user?.id || isInCall) return;
 
@@ -52,37 +35,60 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     setError(null);
 
     try {
-      console.log('🚀 Starting video call...', { meetingId, userId: user.id });
+      console.log('🚀 CONNECTING TO AGORA...', { meetingId, userId: user.id });
 
-      // Get user media first (camera and microphone)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
+      // Your Agora App ID - REPLACE WITH YOUR ACTUAL APP ID
+      const APP_ID = '5c0225ce9a19445f95a2685647258468'; 
+      
+      // Generate token - In production, get this from your backend
+      const token = null; // Or your token if you have one
+      
+      // Generate user ID
+      const uid = Math.floor(Math.random() * 100000);
 
-      setLocalStream(stream);
+      console.log('🔗 Joining Agora channel...', { APP_ID, channel: meetingId, uid });
+
+      // Join Agora channel
+      await agoraClientRef.current.join(APP_ID, meetingId, token, uid);
+      
+      console.log('✅ Joined Agora channel successfully');
+
+      // Create local tracks
+      console.log('🎥 Creating local audio/video tracks...');
+      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAudioTrack();
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+
+      localTracksRef.current = [microphoneTrack, cameraTrack];
+
+      // Publish tracks to channel
+      console.log('📤 Publishing tracks to channel...');
+      await agoraClientRef.current.publish(localTracksRef.current);
+
+      // Set up local video element
+      const localStream = {
+        audioTrack: microphoneTrack,
+        videoTrack: cameraTrack
+      };
+      setLocalStream(localStream);
+
+      // Set up event listeners for remote users
+      agoraClientRef.current.on('user-published', handleUserPublished);
+      agoraClientRef.current.on('user-unpublished', handleUserUnpublished);
+      agoraClientRef.current.on('user-left', handleUserLeft);
+
       setIsInCall(true);
-      
-      console.log('✅ Video call started successfully');
-      
-      // Simulate other participants joining (for demo purposes)
-      setTimeout(() => {
-        setRemoteStreams(prev => [...prev, 
-          { id: 'remote-1', name: 'Student 1' },
-          { id: 'remote-2', name: 'Student 2' }
-        ]);
-      }, 3000);
+      console.log('✅ Agora video call started successfully!');
 
     } catch (err) {
-      console.error('❌ Failed to start video call:', err);
+      console.error('❌ Agora connection failed:', err);
       
-      let errorMessage = 'Failed to start video call';
-      if (err.name === 'NotAllowedError') {
-        errorMessage = 'Camera/microphone permission denied';
-      } else if (err.name === 'NotFoundError') {
-        errorMessage = 'No camera/microphone found';
-      } else if (err.name === 'NotReadableError') {
+      let errorMessage = 'Failed to connect to video call';
+      if (err.name === 'NOT_READABLE') {
         errorMessage = 'Camera/microphone is already in use';
+      } else if (err.name === 'NOT_ALLOWED') {
+        errorMessage = 'Camera/microphone permission denied';
+      } else if (err.message?.includes('APP_ID')) {
+        errorMessage = 'Please set up your Agora App ID first';
       }
       
       setError(errorMessage);
@@ -90,6 +96,103 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       setIsLoading(false);
     }
   }, [meetingId, user?.id, isInCall]);
+
+  // Handle remote user publishing
+  const handleUserPublished = useCallback(async (user, mediaType) => {
+    console.log('👤 Remote user published:', user.uid, mediaType);
+    
+    await agoraClientRef.current.subscribe(user, mediaType);
+    
+    setRemoteUsers(prev => {
+      const existing = prev.find(u => u.uid === user.uid);
+      if (existing) {
+        return prev.map(u => 
+          u.uid === user.uid 
+            ? { ...u, [mediaType]: user[mediaType] }
+            : u
+        );
+      }
+      return [...prev, { 
+        uid: user.uid, 
+        [mediaType]: user[mediaType],
+        audioTrack: mediaType === 'audio' ? user.audioTrack : null,
+        videoTrack: mediaType === 'video' ? user.videoTrack : null
+      }];
+    });
+
+    // Play remote audio
+    if (mediaType === 'audio' && user.audioTrack) {
+      user.audioTrack.play();
+    }
+  }, []);
+
+  const handleUserUnpublished = useCallback((user, mediaType) => {
+    console.log('👤 Remote user unpublished:', user.uid, mediaType);
+    setRemoteUsers(prev => 
+      prev.map(u => 
+        u.uid === user.uid 
+          ? { ...u, [mediaType]: null }
+          : u
+      )
+    );
+  }, []);
+
+  const handleUserLeft = useCallback((user) => {
+    console.log('👤 Remote user left:', user.uid);
+    setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
+  }, []);
+
+  // Leave call properly
+  const leaveCall = useCallback(async () => {
+    console.log('🚪 Leaving Agora call...');
+    
+    try {
+      // Unpublish and close local tracks
+      if (localTracksRef.current.length > 0) {
+        localTracksRef.current.forEach(track => {
+          track.close();
+        });
+        localTracksRef.current = [];
+      }
+
+      // Leave channel
+      if (agoraClientRef.current) {
+        await agoraClientRef.current.leave();
+      }
+
+      // Reset state
+      setLocalStream(null);
+      setRemoteUsers([]);
+      setIsInCall(false);
+      setIsAudioMuted(false);
+      setIsVideoMuted(false);
+      setError(null);
+      
+      console.log('✅ Left Agora call successfully');
+      
+      if (onLeave) {
+        onLeave();
+      }
+    } catch (err) {
+      console.error('Error leaving call:', err);
+    }
+  }, [onLeave]);
+
+  // Toggle audio
+  const toggleAudio = useCallback(async () => {
+    if (localTracksRef.current[0]) { // microphone track
+      await localTracksRef.current[0].setEnabled(!isAudioMuted);
+      setIsAudioMuted(!isAudioMuted);
+    }
+  }, [isAudioMuted]);
+
+  // Toggle video
+  const toggleVideo = useCallback(async () => {
+    if (localTracksRef.current[1]) { // camera track
+      await localTracksRef.current[1].setEnabled(!isVideoMuted);
+      setIsVideoMuted(!isVideoMuted);
+    }
+  }, [isVideoMuted]);
 
   // Single join effect
   useEffect(() => {
@@ -108,70 +211,18 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
   }, [meetingId, user?.id, isInCall, startVideoCall]);
 
-  // Handle leave call
-  const handleLeaveCall = useCallback(async () => {
-    console.log('🚪 Leaving video call...');
-    
-    // Stop all media tracks
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
-    
-    // Reset state
-    setLocalStream(null);
-    setRemoteStreams([]);
-    setIsInCall(false);
-    setIsAudioMuted(false);
-    setIsVideoMuted(false);
-    setError(null);
-    
-    if (onLeave) {
-      onLeave();
-    }
-  }, [localStream, onLeave]);
-
-  // Toggle audio
-  const toggleAudio = useCallback(() => {
-    if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsAudioMuted(!isAudioMuted);
-    }
-  }, [localStream, isAudioMuted]);
-
-  // Toggle video
-  const toggleVideo = useCallback(() => {
-    if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsVideoMuted(!isVideoMuted);
-    }
-  }, [localStream, isVideoMuted]);
-
-  // Handle errors
-  useEffect(() => {
-    if (error) {
-      console.error('Video call error:', error);
-    }
-  }, [error]);
-
   // Debug logging
   useEffect(() => {
-    console.log('🔍 VideoCall Debug State:', {
+    console.log('🔍 Agora VideoCall State:', {
       meetingId,
-      userId: user?.id,
       isInCall,
       isLoading,
       error,
-      hasLocalStream: !!localStream,
-      remoteStreamsCount: remoteStreams.length,
+      localStream: !!localStream,
+      remoteUsers: remoteUsers.length,
       isTeacher
     });
-  }, [meetingId, user?.id, isInCall, isLoading, error, localStream, remoteStreams.length, isTeacher]);
+  }, [meetingId, isInCall, isLoading, error, localStream, remoteUsers.length, isTeacher]);
 
   // Render loading state
   if (isLoading) {
@@ -179,7 +230,8 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       <div className="video-call-container video-call-loading">
         <div className="loading-spinner">
           <div className="spinner"></div>
-          <p>{isTeacher ? 'Starting video call...' : 'Joining video call...'}</p>
+          <p>Connecting to Agora video call...</p>
+          <p className="loading-subtitle">This is REAL Agora connection</p>
         </div>
       </div>
     );
@@ -190,13 +242,23 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     return (
       <div className="video-call-container video-call-error">
         <div className="error-message">
-          <h3>Unable to {isTeacher ? 'start' : 'join'} video call</h3>
+          <h3>Agora Connection Failed</h3>
           <p>{error}</p>
+          {error.includes('APP_ID') && (
+            <div className="setup-instructions">
+              <h4>Setup Required:</h4>
+              <ol>
+                <li>Go to <a href="https://console.agora.io/" target="_blank">Agora Console</a></li>
+                <li>Create a project and get your App ID</li>
+                <li>Replace 'YOUR_AGORA_APP_ID' in the code</li>
+              </ol>
+            </div>
+          )}
           <div className="error-actions">
             <button onClick={startVideoCall} className="retry-button">
               Try Again
             </button>
-            <button onClick={handleLeaveCall} className="leave-button">
+            <button onClick={leaveCall} className="leave-button">
               Return to Dashboard
             </button>
           </div>
@@ -210,10 +272,11 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       {/* Header */}
       <div className="video-call-header">
         <div className="call-info">
-          <h3>Meeting: {meetingId}</h3>
+          <h3>🔴 LIVE: {meetingId}</h3>
           <span className="participant-count">
-            {remoteStreams.length + 1} participant{(remoteStreams.length + 1) !== 1 ? 's' : ''}
+            {remoteUsers.length + 1} participant{(remoteUsers.length + 1) !== 1 ? 's' : ''}
           </span>
+          <span className="agora-badge">Agora RTC</span>
         </div>
         
         {isTeacher && (
@@ -226,15 +289,15 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       {/* Video Grid */}
       <div className="video-grid">
         {/* Local Video */}
-        {localStream && (
+        {localStream?.videoTrack && (
           <div className="video-tile local-video">
-            <video
-              ref={video => {
-                if (video) video.srcObject = localStream;
+            <div 
+              ref={el => {
+                if (el && localStream.videoTrack) {
+                  localStream.videoTrack.play(el);
+                }
               }}
-              autoPlay
-              muted
-              playsInline
+              style={{ width: '100%', height: '100%' }}
             />
             <div className="video-overlay">
               <span className="user-name">You {isTeacher ? '(Teacher)' : ''}</span>
@@ -244,25 +307,36 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           </div>
         )}
 
-        {/* Remote Videos (mock for demo) */}
-        {remoteStreams.map((stream) => (
-          <div key={stream.id} className="video-tile remote-video">
-            <div className="video-placeholder">
-              <div className="avatar">
-                {stream.name.charAt(0)}
+        {/* Remote Videos - REAL Agora users */}
+        {remoteUsers.map((user) => (
+          <div key={user.uid} className="video-tile remote-video">
+            {user.videoTrack ? (
+              <div 
+                ref={el => {
+                  if (el && user.videoTrack) {
+                    user.videoTrack.play(el);
+                  }
+                }}
+                style={{ width: '100%', height: '100%' }}
+              />
+            ) : (
+              <div className="video-placeholder">
+                <div className="avatar">
+                  User
+                </div>
               </div>
-              <p>{stream.name}</p>
-            </div>
+            )}
             <div className="video-overlay">
-              <span className="user-name">{stream.name}</span>
+              <span className="user-name">User {user.uid}</span>
+              {!user.audioTrack && <span className="mute-indicator">🔇</span>}
             </div>
           </div>
         ))}
 
-        {/* Empty state when no videos */}
-        {!localStream && remoteStreams.length === 0 && (
+        {/* Empty state */}
+        {!localStream && remoteUsers.length === 0 && (
           <div className="no-videos-message">
-            <p>Waiting for participants to join...</p>
+            <p>Connecting to Agora...</p>
           </div>
         )}
       </div>
@@ -286,7 +360,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         </button>
 
         <button
-          onClick={() => console.log('Screen share not implemented in demo')}
+          onClick={() => console.log('Screen share - implement using Agora')}
           className="control-button"
           title="Share screen"
         >
@@ -294,7 +368,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         </button>
 
         <button
-          onClick={handleLeaveCall}
+          onClick={leaveCall}
           className="control-button leave-button"
           title="Leave call"
         >
@@ -304,21 +378,19 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
       {/* Participants List */}
       <div className="participants-sidebar">
-        <h4>Participants ({remoteStreams.length + 1})</h4>
+        <h4>Participants ({remoteUsers.length + 1})</h4>
         <div className="participants-list">
-          {/* Local user */}
           <div className="participant-item local-user">
             <span className="participant-name">
               You {isTeacher ? '(Teacher)' : ''}
               {isAudioMuted && ' 🔇'}
             </span>
           </div>
-          
-          {/* Remote users */}
-          {remoteStreams.map((stream) => (
-            <div key={stream.id} className="participant-item">
+          {remoteUsers.map((user) => (
+            <div key={user.uid} className="participant-item">
               <span className="participant-name">
-                {stream.name}
+                User {user.uid}
+                {!user.audioTrack && ' 🔇'}
               </span>
             </div>
           ))}
