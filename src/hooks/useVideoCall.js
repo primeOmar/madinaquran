@@ -1,4 +1,4 @@
-// hooks/useVideoCall.js - PRODUCTION READY
+// hooks/useVideoCall.js - FIXED VERSION
 import { useState, useEffect, useRef, useCallback } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import videoApi from '../lib/agora/videoApi';
@@ -14,33 +14,42 @@ export const useVideoCall = () => {
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
 
+  // Refs for proper state management
   const agoraEngineRef = useRef(null);
   const screenTrackRef = useRef(null);
   const originalVideoTrackRef = useRef(null);
+  const isJoiningRef = useRef(false);
+  const isLeavingRef = useRef(false);
+  const joinPromiseRef = useRef(null);
 
   // Initialize Agora client
   useEffect(() => {
     if (!agoraEngineRef.current) {
-      agoraEngineRef.current = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+      agoraEngineRef.current = AgoraRTC.createClient({ 
+        mode: "rtc", 
+        codec: "vp8" 
+      });
       
       // Setup event listeners
       agoraEngineRef.current.on("user-published", handleUserPublished);
       agoraEngineRef.current.on("user-unpublished", handleUserUnpublished);
       agoraEngineRef.current.on("user-left", handleUserLeft);
+      agoraEngineRef.current.on("connection-state-change", (state) => {
+        console.log('🔗 Agora connection state:', state);
+      });
     }
 
     return () => {
       // Cleanup on unmount
-      if (agoraEngineRef.current) {
-        agoraEngineRef.current.removeAllListeners();
-      }
-      cleanupTracks();
+      cleanup();
     };
   }, []);
 
   // Handle remote user publishing
   const handleUserPublished = useCallback(async (user, mediaType) => {
     try {
+      console.log('👤 User published:', { uid: user.uid, mediaType });
+      
       await agoraEngineRef.current.subscribe(user, mediaType);
       
       setRemoteUsers(prev => {
@@ -48,7 +57,12 @@ export const useVideoCall = () => {
         if (existingUser) {
           return prev.map(u => 
             u.uid === user.uid 
-              ? { ...u, [mediaType === 'audio' ? 'audioTrack' : 'videoTrack']: user[mediaType === 'audio' ? 'audioTrack' : 'videoTrack'] }
+              ? { 
+                  ...u, 
+                  [mediaType === 'audio' ? 'audioTrack' : 'videoTrack']: user[mediaType === 'audio' ? 'audioTrack' : 'videoTrack'],
+                  hasAudio: mediaType === 'audio' ? true : u.hasAudio,
+                  hasVideo: mediaType === 'video' ? true : u.hasVideo
+                }
               : u
           );
         }
@@ -56,13 +70,17 @@ export const useVideoCall = () => {
           uid: user.uid,
           audioTrack: mediaType === 'audio' ? user.audioTrack : null,
           videoTrack: mediaType === 'video' ? user.videoTrack : null,
+          hasAudio: mediaType === 'audio',
+          hasVideo: mediaType === 'video',
           name: `User ${user.uid}`
         }];
       });
 
       // Auto-play audio
       if (mediaType === 'audio' && user.audioTrack) {
-        user.audioTrack.play();
+        user.audioTrack.play().catch(err => 
+          console.warn('Could not auto-play audio:', err)
+        );
       }
     } catch (err) {
       console.error('Error subscribing to user:', err);
@@ -71,10 +89,17 @@ export const useVideoCall = () => {
 
   // Handle remote user unpublishing
   const handleUserUnpublished = useCallback((user, mediaType) => {
+    console.log('👤 User unpublished:', { uid: user.uid, mediaType });
+    
     setRemoteUsers(prev => 
       prev.map(u => 
         u.uid === user.uid 
-          ? { ...u, [mediaType === 'audio' ? 'audioTrack' : 'videoTrack']: null }
+          ? { 
+              ...u, 
+              [mediaType === 'audio' ? 'audioTrack' : 'videoTrack']: null,
+              hasAudio: mediaType === 'audio' ? false : u.hasAudio,
+              hasVideo: mediaType === 'video' ? false : u.hasVideo
+            }
           : u
       )
     );
@@ -82,11 +107,14 @@ export const useVideoCall = () => {
 
   // Handle remote user leaving
   const handleUserLeft = useCallback((user) => {
+    console.log('👤 User left:', user.uid);
     setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
   }, []);
 
   // Cleanup tracks
   const cleanupTracks = useCallback(() => {
+    console.log('🧹 Cleaning up tracks...');
+    
     if (localAudioTrack) {
       localAudioTrack.close();
       setLocalAudioTrack(null);
@@ -99,175 +127,279 @@ export const useVideoCall = () => {
       screenTrackRef.current.close();
       screenTrackRef.current = null;
     }
+    if (originalVideoTrackRef.current) {
+      originalVideoTrackRef.current.close();
+      originalVideoTrackRef.current = null;
+    }
   }, [localAudioTrack, localVideoTrack]);
+
+  // Complete cleanup
+  const cleanup = useCallback(async () => {
+    console.log('🧹 Complete cleanup...');
+    
+    try {
+      // Stop screen share first
+      if (isScreenSharing && screenTrackRef.current) {
+        await agoraEngineRef.current?.unpublish(screenTrackRef.current).catch(() => {});
+      }
+      
+      // Unpublish local tracks
+      if (localAudioTrack || localVideoTrack) {
+        await agoraEngineRef.current?.unpublish([localAudioTrack, localVideoTrack].filter(Boolean)).catch(() => {});
+      }
+      
+      // Leave channel
+      if (agoraEngineRef.current && agoraEngineRef.current.connectionState !== 'DISCONNECTED') {
+        await agoraEngineRef.current.leave().catch(() => {});
+      }
+      
+      // Cleanup tracks
+      cleanupTracks();
+      
+      // Reset state
+      setRemoteUsers([]);
+      setIsInCall(false);
+      setIsAudioMuted(false);
+      setIsVideoMuted(false);
+      setIsScreenSharing(false);
+      setError(null);
+      
+      isJoiningRef.current = false;
+      isLeavingRef.current = false;
+      joinPromiseRef.current = null;
+      
+    } catch (err) {
+      console.error('Error during cleanup:', err);
+    }
+  }, [localAudioTrack, localVideoTrack, isScreenSharing, cleanupTracks]);
+
+  // Check if already connected
+  const isAlreadyConnected = useCallback(() => {
+    return agoraEngineRef.current && 
+           agoraEngineRef.current.connectionState === 'CONNECTED';
+  }, []);
+
+  // Check if currently connecting
+  const isCurrentlyConnecting = useCallback(() => {
+    return isJoiningRef.current || 
+           (agoraEngineRef.current && 
+            agoraEngineRef.current.connectionState === 'CONNECTING');
+  }, []);
 
   // Start call (for teachers)
   const startCall = async (classId, userId) => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      console.log('🚀 Starting video session:', { classId, userId });
-
-      // Get Agora configuration from backend
-      const config = await videoApi.startVideoSession(classId, userId);
-      
-      if (!config.success) {
-        throw new Error(config.error || 'Failed to start video session');
-      }
-
-      console.log('✅ Got config:', config);
-
-      // Join Agora channel
-      await agoraEngineRef.current.join(
-        config.appId,
-        config.channel,
-        config.token,
-        userId
-      );
-
-      console.log('✅ Joined Agora channel');
-
-      // Create local tracks
-      const [microphoneTrack, cameraTrack] = await Promise.all([
-        AgoraRTC.createMicrophoneAudioTrack(),
-        AgoraRTC.createCameraVideoTrack()
-      ]);
-
-      console.log('✅ Created local tracks');
-
-      setLocalAudioTrack(microphoneTrack);
-      setLocalVideoTrack(cameraTrack);
-
-      // Publish tracks
-      await agoraEngineRef.current.publish([microphoneTrack, cameraTrack]);
-
-      console.log('✅ Published local tracks');
-
-      setIsInCall(true);
-
-      return {
-        success: true,
-        meetingId: config.meetingId,
-        channel: config.channel
-      };
-
-    } catch (err) {
-      console.error('❌ Video session start failed:', err);
-      const errorMessage = err.message || 'Failed to start video session';
-      setError(errorMessage);
-      
-      // Cleanup on error
-      cleanupTracks();
-      if (agoraEngineRef.current) {
-        await agoraEngineRef.current.leave().catch(() => {});
-      }
-
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsLoading(false);
+    // Prevent multiple simultaneous calls
+    if (isCurrentlyConnecting()) {
+      console.log('⏳ Start call already in progress, returning existing promise');
+      return joinPromiseRef.current;
     }
+
+    if (isAlreadyConnected()) {
+      console.log('✅ Already connected to call');
+      return { success: true };
+    }
+
+    setIsLoading(true);
+    setError(null);
+    isJoiningRef.current = true;
+
+    const joinPromise = (async () => {
+      try {
+        console.log('🚀 START CALL: Starting video session:', { classId, userId });
+
+        // Get Agora configuration from backend
+        const config = await videoApi.startVideoSession(classId, userId);
+        
+        if (!config.success) {
+          throw new Error(config.error || 'Failed to start video session');
+        }
+
+        console.log('✅ START CALL: Got config:', {
+          channel: config.channel,
+          uid: config.uid,
+          meetingId: config.meetingId
+        });
+
+        // Join Agora channel
+        console.log('🔗 START CALL: Joining Agora channel...');
+        const agoraUid = await agoraEngineRef.current.join(
+          config.appId,
+          config.channel,
+          config.token,
+          config.uid
+        );
+
+        console.log('✅ START CALL: Joined Agora channel, UID:', agoraUid);
+
+        // Create local tracks
+        console.log('🎥 START CALL: Creating local tracks...');
+        const [microphoneTrack, cameraTrack] = await Promise.all([
+          AgoraRTC.createMicrophoneAudioTrack().catch(err => {
+            console.error('Failed to create microphone track:', err);
+            throw new Error('Microphone access denied. Please allow microphone permissions.');
+          }),
+          AgoraRTC.createCameraVideoTrack().catch(err => {
+            console.error('Failed to create camera track:', err);
+            throw new Error('Camera access denied. Please allow camera permissions.');
+          })
+        ]);
+
+        setLocalAudioTrack(microphoneTrack);
+        setLocalVideoTrack(cameraTrack);
+
+        // Publish tracks
+        console.log('📤 START CALL: Publishing local tracks...');
+        await agoraEngineRef.current.publish([microphoneTrack, cameraTrack]);
+
+        console.log('✅ START CALL: Published local tracks');
+        setIsInCall(true);
+
+        return {
+          success: true,
+          meetingId: config.meetingId,
+          channel: config.channel,
+          uid: agoraUid
+        };
+
+      } catch (err) {
+        console.error('❌ START CALL: Video session start failed:', err);
+        const errorMessage = err.message || 'Failed to start video session';
+        setError(errorMessage);
+        
+        // Cleanup on error
+        await cleanup();
+        
+        return { success: false, error: errorMessage };
+      } finally {
+        setIsLoading(false);
+        isJoiningRef.current = false;
+        joinPromiseRef.current = null;
+      }
+    })();
+
+    joinPromiseRef.current = joinPromise;
+    return joinPromise;
   };
 
   // Join call (for students)
   const joinCall = async (meetingId, userId) => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      console.log('🚀 Joining video session:', { meetingId, userId });
-
-      // Get Agora configuration from backend
-      const config = await videoApi.joinVideoSession(meetingId, userId);
-      
-      if (!config.success) {
-        throw new Error(config.error || 'Failed to join video session');
-      }
-
-      console.log('✅ Got config:', config);
-
-      // Join Agora channel
-      await agoraEngineRef.current.join(
-        config.appId,
-        config.channel,
-        config.token,
-        userId
-      );
-
-      console.log('✅ Joined Agora channel');
-
-      // Create local tracks
-      const [microphoneTrack, cameraTrack] = await Promise.all([
-        AgoraRTC.createMicrophoneAudioTrack(),
-        AgoraRTC.createCameraVideoTrack()
-      ]);
-
-      console.log('✅ Created local tracks');
-
-      setLocalAudioTrack(microphoneTrack);
-      setLocalVideoTrack(cameraTrack);
-
-      // Publish tracks
-      await agoraEngineRef.current.publish([microphoneTrack, cameraTrack]);
-
-      console.log('✅ Published local tracks');
-
-      setIsInCall(true);
-
-      return {
-        success: true,
-        meetingId: config.meetingId || meetingId,
-        channel: config.channel
-      };
-
-    } catch (err) {
-      console.error('❌ Video session join failed:', err);
-      const errorMessage = err.message || 'Failed to join video session';
-      setError(errorMessage);
-      
-      // Cleanup on error
-      cleanupTracks();
-      if (agoraEngineRef.current) {
-        await agoraEngineRef.current.leave().catch(() => {});
-      }
-
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsLoading(false);
+    // Prevent multiple simultaneous joins
+    if (isCurrentlyConnecting()) {
+      console.log('⏳ Join already in progress, returning existing promise');
+      return joinPromiseRef.current;
     }
+
+    if (isAlreadyConnected()) {
+      console.log('✅ Already connected to call');
+      return { success: true };
+    }
+
+    setIsLoading(true);
+    setError(null);
+    isJoiningRef.current = true;
+
+    const joinPromise = (async () => {
+      try {
+        console.log('🚀 JOIN CALL: Joining video session:', { meetingId, userId });
+
+        // Get Agora configuration from backend
+        const config = await videoApi.joinVideoSession(meetingId, userId);
+        
+        if (!config.success) {
+          throw new Error(config.error || 'Failed to join video session');
+        }
+
+        console.log('✅ JOIN CALL: Got config:', {
+          channel: config.channel,
+          uid: config.uid,
+          meetingId: config.meetingId
+        });
+
+        // Join Agora channel
+        console.log('🔗 JOIN CALL: Joining Agora channel...');
+        const agoraUid = await agoraEngineRef.current.join(
+          config.appId,
+          config.channel,
+          config.token,
+          config.uid
+        );
+
+        console.log('✅ JOIN CALL: Joined Agora channel, UID:', agoraUid);
+
+        // Create local tracks
+        console.log('🎥 JOIN CALL: Creating local tracks...');
+        const [microphoneTrack, cameraTrack] = await Promise.all([
+          AgoraRTC.createMicrophoneAudioTrack().catch(err => {
+            console.error('Failed to create microphone track:', err);
+            throw new Error('Microphone access denied. Please allow microphone permissions.');
+          }),
+          AgoraRTC.createCameraVideoTrack().catch(err => {
+            console.error('Failed to create camera track:', err);
+            throw new Error('Camera access denied. Please allow camera permissions.');
+          })
+        ]);
+
+        setLocalAudioTrack(microphoneTrack);
+        setLocalVideoTrack(cameraTrack);
+
+        // Publish tracks
+        console.log('📤 JOIN CALL: Publishing local tracks...');
+        await agoraEngineRef.current.publish([microphoneTrack, cameraTrack]);
+
+        console.log('✅ JOIN CALL: Published local tracks');
+        setIsInCall(true);
+
+        return {
+          success: true,
+          meetingId: config.meetingId || meetingId,
+          channel: config.channel,
+          uid: agoraUid
+        };
+
+      } catch (err) {
+        console.error('❌ JOIN CALL: Video session join failed:', err);
+        const errorMessage = err.message || 'Failed to join video session';
+        setError(errorMessage);
+        
+        // Cleanup on error
+        await cleanup();
+        
+        return { success: false, error: errorMessage };
+      } finally {
+        setIsLoading(false);
+        isJoiningRef.current = false;
+        joinPromiseRef.current = null;
+      }
+    })();
+
+    joinPromiseRef.current = joinPromise;
+    return joinPromise;
   };
 
   // Leave call
   const leaveCall = async () => {
+    // Prevent multiple simultaneous leaves
+    if (isLeavingRef.current) {
+      console.log('⏳ Leave already in progress');
+      return { success: true };
+    }
+
+    isLeavingRef.current = true;
+    setIsLoading(true);
+
     try {
-      setIsLoading(true);
+      console.log('🚪 LEAVE CALL: Leaving call...');
 
-      // Unpublish tracks
-      if (localAudioTrack || localVideoTrack) {
-        await agoraEngineRef.current.unpublish([localAudioTrack, localVideoTrack].filter(Boolean));
-      }
+      await cleanup();
 
-      // Leave channel
-      await agoraEngineRef.current.leave();
-
-      // Cleanup
-      cleanupTracks();
-      setRemoteUsers([]);
-      setIsInCall(false);
-      setError(null);
-      setIsScreenSharing(false);
-
-      // Notify backend
-      await videoApi.leaveVideoSession().catch(err => 
-        console.warn('Failed to notify backend of leave:', err)
-      );
-
+      console.log('✅ LEAVE CALL: Successfully left call');
       return { success: true };
     } catch (err) {
-      console.error('Error leaving call:', err);
+      console.error('❌ LEAVE CALL: Error leaving call:', err);
       return { success: false, error: err.message };
     } finally {
       setIsLoading(false);
+      isLeavingRef.current = false;
     }
   };
 
@@ -278,6 +410,7 @@ export const useVideoCall = () => {
     try {
       await localAudioTrack.setEnabled(!isAudioMuted);
       setIsAudioMuted(!isAudioMuted);
+      console.log(isAudioMuted ? '🔇 Audio muted' : '🎤 Audio unmuted');
     } catch (err) {
       console.error('Error toggling audio:', err);
     }
@@ -290,6 +423,7 @@ export const useVideoCall = () => {
     try {
       await localVideoTrack.setEnabled(!isVideoMuted);
       setIsVideoMuted(!isVideoMuted);
+      console.log(isVideoMuted ? '📹 Video disabled' : '📹 Video enabled');
     } catch (err) {
       console.error('Error toggling video:', err);
     }
@@ -300,6 +434,8 @@ export const useVideoCall = () => {
     try {
       if (isScreenSharing) {
         // Stop screen sharing
+        console.log('🖥️ Stopping screen share...');
+        
         if (screenTrackRef.current) {
           await agoraEngineRef.current.unpublish(screenTrackRef.current);
           screenTrackRef.current.close();
@@ -314,9 +450,15 @@ export const useVideoCall = () => {
         }
 
         setIsScreenSharing(false);
+        console.log('✅ Screen share stopped');
       } else {
         // Start screen sharing
-        const screenTrack = await AgoraRTC.createScreenVideoTrack();
+        console.log('🖥️ Starting screen share...');
+        
+        const screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: "1080p_1",
+          optimizationMode: "detail"
+        });
         
         // Save original video track
         originalVideoTrackRef.current = localVideoTrack;
@@ -333,22 +475,28 @@ export const useVideoCall = () => {
 
         // Handle screen share stop
         screenTrack.on('track-ended', () => {
+          console.log('🖥️ Screen share ended by browser');
           toggleScreenShare();
         });
+
+        console.log('✅ Screen share started');
       }
     } catch (err) {
       console.error('Error toggling screen share:', err);
       setIsScreenSharing(false);
+      
+      if (err.name === 'NotAllowedError') {
+        setError('Screen share permission denied');
+      } else if (err.name === 'NotFoundError') {
+        setError('No screen share source available');
+      } else {
+        setError('Failed to start screen share');
+      }
     }
   }, [isScreenSharing, localVideoTrack]);
 
   return {
-    startCall,
-    joinCall,
-    leaveCall,
-    toggleAudio,
-    toggleVideo,
-    toggleScreenShare,
+    // State
     isLoading,
     error,
     isInCall,
@@ -357,6 +505,18 @@ export const useVideoCall = () => {
     remoteUsers,
     isAudioMuted,
     isVideoMuted,
-    isScreenSharing
+    isScreenSharing,
+    
+    // Actions
+    startCall,
+    joinCall,
+    leaveCall,
+    toggleAudio,
+    toggleVideo,
+    toggleScreenShare,
+    
+    // Utility functions (for debugging)
+    getConnectionState: () => agoraEngineRef.current?.connectionState,
+    isConnecting: isCurrentlyConnecting
   };
 };
