@@ -1,5 +1,6 @@
 // components/VideoCall.js
-import { useVideoCall } from '../hooks/useVideoCall'; // Adjust path based on your structure
+import React, { useEffect, useCallback } from 'react';
+import { useVideoCall } from '../hooks/useVideoCall';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   const { 
