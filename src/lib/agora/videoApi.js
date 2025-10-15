@@ -1,25 +1,15 @@
-// lib/agora/videoApi.js - FIXED VERSION
+// lib/agora/videoApi.js - UPDATED FOR COMPLETE INTEGRATION
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://madina-quran-backend.onrender.com/api';
+const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
 const videoApi = {
   /**
    * Start a video session (for teachers)
-   * @param {string|number} classId - The class ID
-   * @param {string|number} userId - The user ID
    */
   async startVideoSession(classId, userId) {
     try {
-      console.log('📡 API: Starting video session:', { classId, userId });
-      console.log('🔗 Calling URL:', `${API_BASE_URL}/agora/start-session`); // DEBUG
+      console.log('📡 API: Starting video session via /agora/start-session');
 
-      // Validate inputs
-      if (!classId || !userId) {
-        console.error('❌ Missing required parameters:', { classId, userId });
-        throw new Error('CLASS_ID_AND_USER_ID_REQUIRED');
-      }
-
-      // ✅ CORRECTED: Change from /video/start-session to /agora/start-session
       const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
         method: 'POST',
         headers: {
@@ -32,18 +22,11 @@ const videoApi = {
         })
       });
 
-      // Handle non-JSON responses
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        throw new Error(`Server returned non-JSON: ${text.substring(0, 100)}`);
-      }
-
       const data = await response.json();
 
       if (!response.ok) {
         console.error('❌ API Error:', data);
-        throw new Error(data.error || data.message || 'Failed to start video session');
+        throw new Error(data.error || 'Failed to start video session');
       }
 
       console.log('✅ API: Video session started:', data);
@@ -54,7 +37,9 @@ const videoApi = {
         channel: data.channel,
         token: data.token,
         appId: data.app_id || data.appId,
-        uid: data.uid || userId
+        uid: data.uid || userId,
+        session: data.session,
+        class_title: data.class_title
       };
 
     } catch (error) {
@@ -68,20 +53,11 @@ const videoApi = {
 
   /**
    * Join a video session (for students and teachers)
-   * @param {string} meetingId - The meeting ID
-   * @param {string|number} userId - The user ID
    */
   async joinVideoSession(meetingId, userId) {
     try {
-      console.log('📡 API: Joining video session:', { meetingId, userId });
+      console.log('📡 API: Joining video session via /agora/join-session');
 
-      // Validate inputs
-      if (!meetingId || !userId) {
-        console.error('❌ Missing required parameters:', { meetingId, userId });
-        throw new Error('MEETING_ID_AND_USER_ID_REQUIRED');
-      }
-
-      // ✅ CORRECTED: Change from /video/join-session to /agora/join-session
       const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
         method: 'POST',
         headers: {
@@ -98,7 +74,7 @@ const videoApi = {
 
       if (!response.ok) {
         console.error('❌ API Error:', data);
-        throw new Error(data.error || data.message || 'Failed to join video session');
+        throw new Error(data.error || 'Failed to join video session');
       }
 
       console.log('✅ API: Joined video session:', data);
@@ -109,7 +85,11 @@ const videoApi = {
         channel: data.channel,
         token: data.token,
         appId: data.app_id || data.appId,
-        uid: data.uid || userId
+        uid: data.uid || userId,
+        session: data.session,
+        class_title: data.class_title,
+        teacher_name: data.teacher_name,
+        user_role: data.user_role
       };
 
     } catch (error) {
@@ -124,26 +104,27 @@ const videoApi = {
   /**
    * Leave a video session
    */
-  async leaveVideoSession() {
+  async leaveVideoSession(meetingId, userId) {
     try {
-      console.log('📡 API: Leaving video session');
+      console.log('📡 API: Leaving video session via /agora/leave-session');
 
-      // ✅ CORRECTED: Change from /video/leave-session to /agora/leave-session
       const response = await fetch(`${API_BASE_URL}/agora/leave-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId,
+          user_id: userId
+        })
       });
 
-      if (!response.ok) {
+      // Don't throw errors for leave - it's optional
+      if (response.ok) {
         const data = await response.json();
-        console.warn('⚠️ API: Leave session warning:', data);
-        // Don't throw - leaving should always succeed on client side
+        console.log('✅ API: Left video session:', data);
       }
-
-      console.log('✅ API: Left video session');
 
       return {
         success: true
@@ -151,26 +132,19 @@ const videoApi = {
 
     } catch (error) {
       console.warn('⚠️ API: leaveVideoSession failed:', error);
-      // Return success anyway - client-side cleanup is what matters
       return {
-        success: true
+        success: true // Always return success for leave
       };
     }
   },
 
   /**
    * End a video session (teacher only)
-   * @param {string} meetingId - The meeting ID
    */
-  async endVideoSession(meetingId) {
+  async endVideoSession(meetingId, userId) {
     try {
-      console.log('📡 API: Ending video session:', meetingId);
+      console.log('📡 API: Ending video session via /agora/end-session');
 
-      if (!meetingId) {
-        throw new Error('MEETING_ID_REQUIRED');
-      }
-
-      // ✅ CORRECTED: Change from /video/end-session to /agora/end-session
       const response = await fetch(`${API_BASE_URL}/agora/end-session`, {
         method: 'POST',
         headers: {
@@ -178,7 +152,8 @@ const videoApi = {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          meeting_id: meetingId
+          meeting_id: meetingId,
+          user_id: userId
         })
       });
 
@@ -186,7 +161,7 @@ const videoApi = {
 
       if (!response.ok) {
         console.error('❌ API Error:', data);
-        throw new Error(data.error || data.message || 'Failed to end video session');
+        throw new Error(data.error || 'Failed to end video session');
       }
 
       console.log('✅ API: Video session ended:', data);
@@ -210,7 +185,6 @@ const videoApi = {
    */
   async getActiveSessions() {
     try {
-      // ✅ CORRECTED: Change from /video/active-sessions to /agora/active-sessions
       const response = await fetch(`${API_BASE_URL}/agora/active-sessions`, {
         method: 'GET',
         headers: {
@@ -236,6 +210,69 @@ const videoApi = {
         success: false,
         error: error.message,
         sessions: []
+      };
+    }
+  },
+
+  /**
+   * Generate Agora token directly
+   */
+  async generateToken(channelName, uid, role = 'publisher') {
+    try {
+      const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          channelName,
+          uid,
+          role
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate token');
+      }
+
+      return {
+        success: true,
+        token: data.token,
+        appId: data.appId,
+        channelName: data.channelName,
+        uid: data.uid
+      };
+
+    } catch (error) {
+      console.error('❌ API: generateToken failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
+  /**
+   * Check video service health
+   */
+  async checkHealth() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/agora/health`);
+      const data = await response.json();
+      
+      return {
+        success: true,
+        healthy: data.videoEnabled,
+        ...data
+      };
+    } catch (error) {
+      console.error('❌ API: checkHealth failed:', error);
+      return {
+        success: false,
+        healthy: false,
+        error: error.message
       };
     }
   }
