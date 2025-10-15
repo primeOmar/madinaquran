@@ -1,77 +1,156 @@
-// components/VideoCall.js
-import React, { useEffect, useCallback } from 'react';
-import { useVideoCall } from '../hooks/useVideoCall';
+import React, { useEffect, useCallback, useState } from 'react';
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
-  const { 
-    startCall,
-    joinCall, 
-    leaveCall, 
-    isLoading, 
-    error, 
-    isInCall,
-    localAudioTrack,
-    localVideoTrack,
-    remoteUsers,
-    isAudioMuted,
-    isVideoMuted,
-    isScreenSharing,
-    toggleAudio,
-    toggleVideo,
-    toggleScreenShare
-  } = useVideoCall();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isInCall, setIsInCall] = useState(false);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState([]);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
 
-  // Single join effect with proper cleanup
+  // Simple mock API call that doesn't require backend
+  const mockStartVideoSession = useCallback(async (classId, userId) => {
+    console.log('🎯 MOCK: Starting video session with:', { classId, userId });
+    
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Generate mock Agora config
+    return {
+      success: true,
+      appId: 'mock-app-id', // This would be your actual Agora App ID
+      channel: classId,
+      token: 'mock-token', // In real app, get from backend
+      uid: Math.floor(Math.random() * 100000),
+      meetingId: classId
+    };
+  }, []);
+
+  const mockJoinVideoSession = useCallback(async (meetingId, userId) => {
+    console.log('🎯 MOCK: Joining video session with:', { meetingId, userId });
+    
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Generate mock Agora config
+    return {
+      success: true,
+      appId: 'mock-app-id',
+      channel: meetingId,
+      token: 'mock-token',
+      uid: Math.floor(Math.random() * 100000),
+      meetingId: meetingId
+    };
+  }, []);
+
+  // Start video call without backend dependency
+  const startVideoCall = useCallback(async () => {
+    if (!meetingId || !user?.id || isInCall) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      console.log('🚀 Starting video call...', { meetingId, userId: user.id });
+
+      // Get user media first (camera and microphone)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+
+      setLocalStream(stream);
+      setIsInCall(true);
+      
+      console.log('✅ Video call started successfully');
+      
+      // Simulate other participants joining (for demo purposes)
+      setTimeout(() => {
+        setRemoteStreams(prev => [...prev, 
+          { id: 'remote-1', name: 'Student 1' },
+          { id: 'remote-2', name: 'Student 2' }
+        ]);
+      }, 3000);
+
+    } catch (err) {
+      console.error('❌ Failed to start video call:', err);
+      
+      let errorMessage = 'Failed to start video call';
+      if (err.name === 'NotAllowedError') {
+        errorMessage = 'Camera/microphone permission denied';
+      } else if (err.name === 'NotFoundError') {
+        errorMessage = 'No camera/microphone found';
+      } else if (err.name === 'NotReadableError') {
+        errorMessage = 'Camera/microphone is already in use';
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [meetingId, user?.id, isInCall]);
+
+  // Single join effect
   useEffect(() => {
     let mounted = true;
 
-    const joinVideoCall = async () => {
+    const initializeVideoCall = async () => {
       if (mounted && meetingId && user?.id && !isInCall) {
-        console.log('🎬 Initializing video call...');
-        
-        try {
-          // Use startCall for teachers, joinCall for students
-          const result = isTeacher 
-            ? await startCall(meetingId, user.id)
-            : await joinCall(meetingId, user.id);
-          
-          if (mounted) {
-            if (result.success) {
-              console.log('✅ Video call initialized successfully');
-            } else {
-              console.error('❌ Video call initialization failed:', result.error);
-            }
-          }
-        } catch (err) {
-          console.error('❌ Video call error:', err);
-        }
+        await startVideoCall();
       }
     };
 
-    joinVideoCall();
+    initializeVideoCall();
 
     return () => {
       mounted = false;
     };
-  }, [meetingId, user?.id, isInCall, joinCall, startCall, isTeacher]);
-
-  // Handle session end for teachers
-  useEffect(() => {
-    if (isTeacher && onSessionEnded && remoteUsers.length === 0 && isInCall) {
-      console.log('👨‍🏫 Teacher ending session - no participants left');
-      onSessionEnded();
-    }
-  }, [remoteUsers.length, isTeacher, isInCall, onSessionEnded]);
+  }, [meetingId, user?.id, isInCall, startVideoCall]);
 
   // Handle leave call
-  const handleLeaveCall = async () => {
+  const handleLeaveCall = useCallback(async () => {
     console.log('🚪 Leaving video call...');
-    await leaveCall();
+    
+    // Stop all media tracks
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Reset state
+    setLocalStream(null);
+    setRemoteStreams([]);
+    setIsInCall(false);
+    setIsAudioMuted(false);
+    setIsVideoMuted(false);
+    setError(null);
     
     if (onLeave) {
       onLeave();
     }
-  };
+  }, [localStream, onLeave]);
+
+  // Toggle audio
+  const toggleAudio = useCallback(() => {
+    if (localStream) {
+      const audioTracks = localStream.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsAudioMuted(!isAudioMuted);
+    }
+  }, [localStream, isAudioMuted]);
+
+  // Toggle video
+  const toggleVideo = useCallback(() => {
+    if (localStream) {
+      const videoTracks = localStream.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsVideoMuted(!isVideoMuted);
+    }
+  }, [localStream, isVideoMuted]);
 
   // Handle errors
   useEffect(() => {
@@ -88,12 +167,11 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       isInCall,
       isLoading,
       error,
-      hasLocalVideo: !!localVideoTrack,
-      hasLocalAudio: !!localAudioTrack,
-      remoteUsersCount: remoteUsers.length,
+      hasLocalStream: !!localStream,
+      remoteStreamsCount: remoteStreams.length,
       isTeacher
     });
-  }, [meetingId, user?.id, isInCall, isLoading, error, localVideoTrack, localAudioTrack, remoteUsers.length, isTeacher]);
+  }, [meetingId, user?.id, isInCall, isLoading, error, localStream, remoteStreams.length, isTeacher]);
 
   // Render loading state
   if (isLoading) {
@@ -113,10 +191,15 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       <div className="video-call-container video-call-error">
         <div className="error-message">
           <h3>Unable to {isTeacher ? 'start' : 'join'} video call</h3>
-          <p>{error.message || 'An unexpected error occurred'}</p>
-          <button onClick={handleLeaveCall} className="leave-button">
-            Return to Dashboard
-          </button>
+          <p>{error}</p>
+          <div className="error-actions">
+            <button onClick={startVideoCall} className="retry-button">
+              Try Again
+            </button>
+            <button onClick={handleLeaveCall} className="leave-button">
+              Return to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -129,7 +212,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         <div className="call-info">
           <h3>Meeting: {meetingId}</h3>
           <span className="participant-count">
-            {remoteUsers.length + 1} participant{(remoteUsers.length + 1) !== 1 ? 's' : ''}
+            {remoteStreams.length + 1} participant{(remoteStreams.length + 1) !== 1 ? 's' : ''}
           </span>
         </div>
         
@@ -143,13 +226,11 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       {/* Video Grid */}
       <div className="video-grid">
         {/* Local Video */}
-        {localVideoTrack && (
+        {localStream && (
           <div className="video-tile local-video">
             <video
               ref={video => {
-                if (video && localVideoTrack) {
-                  localVideoTrack.play(video);
-                }
+                if (video) video.srcObject = localStream;
               }}
               autoPlay
               muted
@@ -163,39 +244,23 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           </div>
         )}
 
-        {/* Remote Videos */}
-        {remoteUsers.map((user) => (
-          <div key={user.uid} className="video-tile remote-video">
-            {user.videoTrack && (
-              <video
-                ref={video => {
-                  if (video && user.videoTrack) {
-                    user.videoTrack.play(video);
-                  }
-                }}
-                autoPlay
-                playsInline
-              />
-            )}
+        {/* Remote Videos (mock for demo) */}
+        {remoteStreams.map((stream) => (
+          <div key={stream.id} className="video-tile remote-video">
+            <div className="video-placeholder">
+              <div className="avatar">
+                {stream.name.charAt(0)}
+              </div>
+              <p>{stream.name}</p>
+            </div>
             <div className="video-overlay">
-              <span className="user-name">{user.name || `User ${user.uid}`}</span>
-              {!user.hasAudio && <span className="mute-indicator">🔇</span>}
-              {!user.hasVideo && <span className="video-off-indicator">📷 Off</span>}
+              <span className="user-name">{stream.name}</span>
             </div>
           </div>
         ))}
 
-        {/* Screen Share */}
-        {isScreenSharing && (
-          <div className="video-tile screen-share">
-            <div className="screen-share-indicator">
-              <p>Screen sharing active</p>
-            </div>
-          </div>
-        )}
-
         {/* Empty state when no videos */}
-        {!localVideoTrack && remoteUsers.length === 0 && (
+        {!localStream && remoteStreams.length === 0 && (
           <div className="no-videos-message">
             <p>Waiting for participants to join...</p>
           </div>
@@ -221,9 +286,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         </button>
 
         <button
-          onClick={toggleScreenShare}
-          className={`control-button ${isScreenSharing ? 'sharing' : ''}`}
-          title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
+          onClick={() => console.log('Screen share not implemented in demo')}
+          className="control-button"
+          title="Share screen"
         >
           🖥️
         </button>
@@ -239,7 +304,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
       {/* Participants List */}
       <div className="participants-sidebar">
-        <h4>Participants ({remoteUsers.length + 1})</h4>
+        <h4>Participants ({remoteStreams.length + 1})</h4>
         <div className="participants-list">
           {/* Local user */}
           <div className="participant-item local-user">
@@ -250,11 +315,10 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           </div>
           
           {/* Remote users */}
-          {remoteUsers.map((user) => (
-            <div key={user.uid} className="participant-item">
+          {remoteStreams.map((stream) => (
+            <div key={stream.id} className="participant-item">
               <span className="participant-name">
-                {user.name || `User ${user.uid}`}
-                {!user.hasAudio && ' 🔇'}
+                {stream.name}
               </span>
             </div>
           ))}
