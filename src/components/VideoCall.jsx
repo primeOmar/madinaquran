@@ -1,16 +1,20 @@
+// components/VideoCall.js
+import { useVideoCall } from '../hooks/useVideoCall'; // Adjust path based on your structure
+
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   const { 
+    startCall,
     joinCall, 
     leaveCall, 
     isLoading, 
     error, 
     isInCall,
-    participants,
-    localStream,
-    remoteStreams,
-    screenShareStream,
-    isMuted,
-    isVideoOff,
+    localAudioTrack,
+    localVideoTrack,
+    remoteUsers,
+    isAudioMuted,
+    isVideoMuted,
+    isScreenSharing,
     toggleAudio,
     toggleVideo,
     toggleScreenShare
@@ -23,14 +27,22 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     const joinVideoCall = async () => {
       if (mounted && meetingId && user?.id && !isInCall) {
         console.log('🎬 Initializing video call...');
-        const result = await joinCall(meetingId, user.id);
         
-        if (mounted) {
-          if (result.success) {
-            console.log('✅ Video call initialized successfully');
-          } else {
-            console.error('❌ Video call initialization failed:', result.error);
+        try {
+          // Use startCall for teachers, joinCall for students
+          const result = isTeacher 
+            ? await startCall(meetingId, user.id)
+            : await joinCall(meetingId, user.id);
+          
+          if (mounted) {
+            if (result.success) {
+              console.log('✅ Video call initialized successfully');
+            } else {
+              console.error('❌ Video call initialization failed:', result.error);
+            }
           }
+        } catch (err) {
+          console.error('❌ Video call error:', err);
         }
       }
     };
@@ -40,25 +52,20 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     return () => {
       mounted = false;
     };
-  }, [meetingId, user?.id, isInCall, joinCall]);
+  }, [meetingId, user?.id, isInCall, joinCall, startCall, isTeacher]);
 
   // Handle session end for teachers
   useEffect(() => {
-    if (isTeacher && onSessionEnded && participants.length === 0 && isInCall) {
+    if (isTeacher && onSessionEnded && remoteUsers.length === 0 && isInCall) {
       console.log('👨‍🏫 Teacher ending session - no participants left');
       onSessionEnded();
     }
-  }, [participants.length, isTeacher, isInCall, onSessionEnded]);
+  }, [remoteUsers.length, isTeacher, isInCall, onSessionEnded]);
 
   // Handle leave call
   const handleLeaveCall = async () => {
     console.log('🚪 Leaving video call...');
     await leaveCall();
-    
-    // Clean up local stream
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
     
     if (onLeave) {
       onLeave();
@@ -69,9 +76,23 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   useEffect(() => {
     if (error) {
       console.error('Video call error:', error);
-      // You could show a toast notification here
     }
   }, [error]);
+
+  // Debug logging
+  useEffect(() => {
+    console.log('🔍 VideoCall Debug State:', {
+      meetingId,
+      userId: user?.id,
+      isInCall,
+      isLoading,
+      error,
+      hasLocalVideo: !!localVideoTrack,
+      hasLocalAudio: !!localAudioTrack,
+      remoteUsersCount: remoteUsers.length,
+      isTeacher
+    });
+  }, [meetingId, user?.id, isInCall, isLoading, error, localVideoTrack, localAudioTrack, remoteUsers.length, isTeacher]);
 
   // Render loading state
   if (isLoading) {
@@ -79,7 +100,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       <div className="video-call-container video-call-loading">
         <div className="loading-spinner">
           <div className="spinner"></div>
-          <p>Joining video call...</p>
+          <p>{isTeacher ? 'Starting video call...' : 'Joining video call...'}</p>
         </div>
       </div>
     );
@@ -90,7 +111,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     return (
       <div className="video-call-container video-call-error">
         <div className="error-message">
-          <h3>Unable to join video call</h3>
+          <h3>Unable to {isTeacher ? 'start' : 'join'} video call</h3>
           <p>{error.message || 'An unexpected error occurred'}</p>
           <button onClick={handleLeaveCall} className="leave-button">
             Return to Dashboard
@@ -107,7 +128,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         <div className="call-info">
           <h3>Meeting: {meetingId}</h3>
           <span className="participant-count">
-            {participants.length} participant{participants.length !== 1 ? 's' : ''}
+            {remoteUsers.length + 1} participant{(remoteUsers.length + 1) !== 1 ? 's' : ''}
           </span>
         </div>
         
@@ -121,11 +142,13 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       {/* Video Grid */}
       <div className="video-grid">
         {/* Local Video */}
-        {localStream && (
+        {localVideoTrack && (
           <div className="video-tile local-video">
             <video
               ref={video => {
-                if (video) video.srcObject = localStream;
+                if (video && localVideoTrack) {
+                  localVideoTrack.play(video);
+                }
               }}
               autoPlay
               muted
@@ -133,45 +156,45 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
             />
             <div className="video-overlay">
               <span className="user-name">You {isTeacher ? '(Teacher)' : ''}</span>
-              {isMuted && <span className="mute-indicator">🔇</span>}
+              {isAudioMuted && <span className="mute-indicator">🔇</span>}
+              {isVideoMuted && <span className="video-off-indicator">📷 Off</span>}
             </div>
           </div>
         )}
 
         {/* Remote Videos */}
-        {remoteStreams.map((stream, index) => (
-          <div key={stream.id || index} className="video-tile remote-video">
-            <video
-              ref={video => {
-                if (video) video.srcObject = stream;
-              }}
-              autoPlay
-              playsInline
-            />
+        {remoteUsers.map((user) => (
+          <div key={user.uid} className="video-tile remote-video">
+            {user.videoTrack && (
+              <video
+                ref={video => {
+                  if (video && user.videoTrack) {
+                    user.videoTrack.play(video);
+                  }
+                }}
+                autoPlay
+                playsInline
+              />
+            )}
             <div className="video-overlay">
-              <span className="user-name">Participant {index + 1}</span>
+              <span className="user-name">{user.name || `User ${user.uid}`}</span>
+              {!user.hasAudio && <span className="mute-indicator">🔇</span>}
+              {!user.hasVideo && <span className="video-off-indicator">📷 Off</span>}
             </div>
           </div>
         ))}
 
         {/* Screen Share */}
-        {screenShareStream && (
+        {isScreenSharing && (
           <div className="video-tile screen-share">
-            <video
-              ref={video => {
-                if (video) video.srcObject = screenShareStream;
-              }}
-              autoPlay
-              playsInline
-            />
-            <div className="video-overlay">
-              <span className="user-name">Screen Share</span>
+            <div className="screen-share-indicator">
+              <p>Screen sharing active</p>
             </div>
           </div>
         )}
 
         {/* Empty state when no videos */}
-        {!localStream && remoteStreams.length === 0 && (
+        {!localVideoTrack && remoteUsers.length === 0 && (
           <div className="no-videos-message">
             <p>Waiting for participants to join...</p>
           </div>
@@ -182,24 +205,24 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       <div className="video-controls">
         <button
           onClick={toggleAudio}
-          className={`control-button ${isMuted ? 'muted' : ''}`}
-          title={isMuted ? 'Unmute' : 'Mute'}
+          className={`control-button ${isAudioMuted ? 'muted' : ''}`}
+          title={isAudioMuted ? 'Unmute' : 'Mute'}
         >
-          {isMuted ? '🔇' : '🎤'}
+          {isAudioMuted ? '🔇' : '🎤'}
         </button>
 
         <button
           onClick={toggleVideo}
-          className={`control-button ${isVideoOff ? 'video-off' : ''}`}
-          title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+          className={`control-button ${isVideoMuted ? 'video-off' : ''}`}
+          title={isVideoMuted ? 'Turn on camera' : 'Turn off camera'}
         >
-          {isVideoOff ? '📷 Off' : '📹'}
+          {isVideoMuted ? '📷 Off' : '📹'}
         </button>
 
         <button
           onClick={toggleScreenShare}
-          className="control-button share-button"
-          title="Share screen"
+          className={`control-button ${isScreenSharing ? 'sharing' : ''}`}
+          title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
         >
           🖥️
         </button>
@@ -215,15 +238,23 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
       {/* Participants List */}
       <div className="participants-sidebar">
-        <h4>Participants ({participants.length})</h4>
+        <h4>Participants ({remoteUsers.length + 1})</h4>
         <div className="participants-list">
-          {participants.map((participant, index) => (
-            <div key={participant.id || index} className="participant-item">
+          {/* Local user */}
+          <div className="participant-item local-user">
+            <span className="participant-name">
+              You {isTeacher ? '(Teacher)' : ''}
+              {isAudioMuted && ' 🔇'}
+            </span>
+          </div>
+          
+          {/* Remote users */}
+          {remoteUsers.map((user) => (
+            <div key={user.uid} className="participant-item">
               <span className="participant-name">
-                {participant.name || `Participant ${index + 1}`}
-                {participant.isTeacher && ' 👨‍🏫'}
+                {user.name || `User ${user.uid}`}
+                {!user.hasAudio && ' 🔇'}
               </span>
-              {participant.isTalking && <span className="talking-indicator">🎤</span>}
             </div>
           ))}
         </div>
