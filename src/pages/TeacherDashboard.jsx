@@ -291,7 +291,8 @@ export default function TeacherDashboard() {
 
   // Video call state - SIMPLIFIED
   const [activeVideoCall, setActiveVideoCall] = useState(null);
-  const [videoCallError, setVideoCallError] = useState(null);
+const [videoCallError, setVideoCallError] = useState(null);
+
 
   // Audio recorder hook
   const {
@@ -443,54 +444,68 @@ export default function TeacherDashboard() {
   }, [user]);
 
   // OPTIMIZED: Video session function with minimal logging
-  const handleStartVideoSession = async (classItem) => {
-    try {
-      setVideoCallError(null);
-      
-      // Basic validation
-      if (!classItem?.id) {
-        throw new Error('Invalid class configuration');
-      }
-
-      if (!user?.id) {
-        throw new Error('User authentication required');
-      }
-
-      // Start video session
-      const session = await videoApi.startVideoSession(classItem.id);
-      
-      if (!session.success) {
-        throw new Error(session.error || 'Video service unavailable');
-      }
-
-      if (!session.meeting_id) {
-        throw new Error('Failed to create video meeting');
-      }
-
-      // Set active video call
-      setActiveVideoCall({
-        meetingId: session.meeting_id,
-        class: classItem,
-        isTeacher: true
-      });
-
-      toast.success('Video class starting...');
-
-    } catch (error) {
-      const userMessage = error.message.includes('unavailable') 
-        ? 'Video service is currently unavailable. Please try again later.'
-        : 'Failed to start video class. Please check your connection.';
-      
-      setVideoCallError(userMessage);
-      toast.error(userMessage);
+ const handleStartVideoSession = async (classItem) => {
+  try {
+    console.log('🎬 Starting video session for class:', classItem.id);
+    
+    // Validate required data
+    if (!classItem.id || !user?.id) {
+      throw new Error('CLASS_ID_AND_USER_ID_REQUIRED');
     }
-  };
 
-  const handleLeaveVideoCall = () => {
-    setActiveVideoCall(null);
-    setVideoCallError(null);
-  };
+    // Start video session via API
+    const result = await videoApi.startVideoSession(classItem.id, user.id);
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start video session');
+    }
 
+    console.log('✅ Video session started:', result);
+
+    // Set active video call state - this will render VideoCall component
+    setActiveVideoCall({
+      meetingId: result.meetingId,
+      classId: classItem.id,
+      isTeacher: true
+    });
+
+    toast.success('Starting video class...');
+
+  } catch (error) {
+    console.error('❌ Video session start failed:', error);
+    
+    const errorMessage = error.message === 'CLASS_ID_AND_USER_ID_REQUIRED'
+      ? 'Missing required information. Please try again.'
+      : error.message || 'Failed to start video session';
+    
+    setVideoCallError(errorMessage);
+    toast.error(errorMessage);
+  }
+};
+
+// Handler for leaving video call
+const handleLeaveVideoCall = async () => {
+  console.log('👋 Leaving video call');
+  setActiveVideoCall(null);
+  
+  // Reload class data to update status
+  if (loadTeacherData) {
+    await loadTeacherData();
+  }
+};
+
+  // Handler for session ended by teacher
+const handleSessionEnded = async () => {
+  console.log('🏁 Session ended');
+  setActiveVideoCall(null);
+  
+  // Reload class data
+  if (loadTeacherData) {
+    await loadTeacherData();
+  }
+  
+  toast.success('Class session ended successfully!');
+};
   // Assignment functions
   const createAssignment = async () => {
     try {
@@ -853,37 +868,31 @@ export default function TeacherDashboard() {
     };
 
     return (
-      <div>
-        {/* Video Call Modal */}
-        {activeVideoCall && (
-          <VideoCall
-            meetingId={activeVideoCall.meetingId}
-            user={user}
-            isTeacher={activeVideoCall.isTeacher}
-            onLeave={handleLeaveVideoCall}
-          />
-        )}
+ return (
+  <div>
+    {/* Video Call Modal - renders when activeVideoCall is set */}
+    {activeVideoCall && (
+      <VideoCall
+        meetingId={activeVideoCall.meetingId}
+        user={user}
+        isTeacher={activeVideoCall.isTeacher}
+        onLeave={handleLeaveVideoCall}
+        onSessionEnded={handleSessionEnded}
+      />
+    )}
 
-        {/* Error Display */}
-        {videoCallError && (
-          <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <XCircle size={20} className="text-red-400 mr-3" />
-                <div>
-                  <p className="text-red-300 font-medium">Video Call Error</p>
-                  <p className="text-red-200 text-sm">{videoCallError}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setVideoCallError(null)}
-                className="text-red-300 hover:text-white p-1"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+    {/*  ClassesTab component */}
+    <ClassesTab
+      classes={classes}
+      formatDateTime={formatDateTime}
+      handleStartVideoSession={handleStartVideoSession}
+      videoCallError={videoCallError}
+      setVideoCallError={setVideoCallError}
+      activeVideoCall={activeVideoCall}
+      user={user}
+      loadTeacherData={loadTeacherData}
+    />
+  </div>
 
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
