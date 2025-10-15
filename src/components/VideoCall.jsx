@@ -38,7 +38,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       console.log('🚀 CONNECTING TO AGORA...', { meetingId, userId: user.id });
 
       // Your Agora App ID - REPLACE WITH YOUR ACTUAL APP ID
-      const APP_ID = '5c0225ce9a19445f95a2685647258468'; 
+      const APP_ID = 'YOUR_AGORA_APP_ID'; // Get from https://console.agora.io/
       
       // Generate token - In production, get this from your backend
       const token = null; // Or your token if you have one
@@ -53,9 +53,9 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       
       console.log('✅ Joined Agora channel successfully');
 
-      // Create local tracks
+      // Create local tracks - FIXED: No duplicate variable declarations
       console.log('🎥 Creating local audio/video tracks...');
-      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAudioTrack();
+      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
       const cameraTrack = await AgoraRTC.createCameraVideoTrack();
 
       localTracksRef.current = [microphoneTrack, cameraTrack];
