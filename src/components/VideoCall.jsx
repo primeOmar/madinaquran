@@ -1,6 +1,5 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoApi from '../lib/agora/videoApi'; // Adjust path as needed
 
 const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -29,7 +28,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     };
   }, []);
 
-  // REAL Agora connection with backend integration
+  // SIMPLE Agora connection - NO BACKEND REQUIRED
   const startVideoCall = useCallback(async () => {
     if (!meetingId || !user?.id || isInCall || isJoiningRef.current) return;
 
@@ -38,52 +37,29 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     isJoiningRef.current = true;
 
     try {
-      console.log('🚀 CONNECTING TO AGORA WITH BACKEND...', { meetingId, userId: user.id, isTeacher });
+      console.log('🚀 STARTING SIMPLE VIDEO CALL...', { meetingId, userId: user.id });
 
-      // Get Agora configuration from backend
-      let config;
-      if (isTeacher) {
-        console.log('👨‍🏫 Teacher starting session...');
-        const result = await videoApi.startVideoSession(meetingId, user.id);
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to start video session');
-        }
-        config = result;
-      } else {
-        console.log('🎓 Student joining session...');
-        const result = await videoApi.joinVideoSession(meetingId, user.id);
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to join video session');
-        }
-        config = result;
+      // Your Agora App ID
+      const APP_ID = '5c0225ce9a19445f95a2685647258468';
+      
+      if (!APP_ID) {
+        throw new Error('Agora App ID not configured');
       }
 
-      console.log('✅ Backend config received:', {
-        appId: config.appId,
-        channel: config.channel,
-        hasToken: !!config.token,
-        uid: config.uid,
-        meetingId: config.meetingId
-      });
-
-      // Validate required config
-      if (!config.appId || !config.channel || !config.token) {
-        throw new Error('Invalid configuration from server');
-      }
+      // Generate a simple UID
+      const uid = Math.floor(Math.random() * 100000);
+      
+      // Use the meetingId as channel name (ensure it's valid)
+      const channelName = meetingId.replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64);
 
       console.log('🔗 Joining Agora channel...', { 
-        appId: config.appId, 
-        channel: config.channel, 
-        uid: config.uid 
+        appId: APP_ID, 
+        channel: channelName, 
+        uid 
       });
 
-      // Join Agora channel with backend configuration
-      await agoraClientRef.current.join(
-        config.appId,
-        config.channel,
-        config.token,
-        config.uid
-      );
+      // Join Agora channel with null token (works for testing)
+      await agoraClientRef.current.join(APP_ID, channelName, null, uid);
       
       console.log('✅ Joined Agora channel successfully');
 
@@ -133,10 +109,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         errorMessage = 'Camera/microphone is already in use by another application';
       } else if (err.name === 'NOT_ALLOWED' || err.message.includes('permission')) {
         errorMessage = 'Camera/microphone permission denied. Please allow permissions in your browser.';
-      } else if (err.message.includes('Class not found')) {
-        errorMessage = 'Class session not found. Please check the meeting ID.';
-      } else if (err.message.includes('Not authorized')) {
-        errorMessage = 'You are not authorized to join this session.';
       } else if (err.message.includes('token') || err.message.includes('Token')) {
         errorMessage = 'Authentication failed. Please try again.';
       }
@@ -150,7 +122,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       setIsLoading(false);
       isJoiningRef.current = false;
     }
-  }, [meetingId, user?.id, isInCall, isTeacher]);
+  }, [meetingId, user?.id, isInCall]);
 
   // Cleanup tracks only
   const cleanupTracks = useCallback(async () => {
@@ -259,20 +231,13 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       
       console.log('✅ Left Agora call successfully');
       
-      // Notify backend about leaving (optional)
-      try {
-        await videoApi.leaveVideoSession(meetingId, user?.id);
-      } catch (err) {
-        console.warn('Failed to notify backend about leaving:', err);
-      }
-      
       if (onLeave) {
         onLeave();
       }
     } catch (err) {
       console.error('Error leaving call:', err);
     }
-  }, [meetingId, user?.id, onLeave, cleanupTracks]);
+  }, [onLeave, cleanupTracks]);
 
   // Toggle audio
   const toggleAudio = useCallback(async () => {
@@ -299,23 +264,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       }
     }
   }, [isVideoMuted]);
-
-  // Handle session end for teachers
-  useEffect(() => {
-    if (isTeacher && onSessionEnded && remoteUsers.length === 0 && isInCall) {
-      console.log('👨‍🏫 Teacher ending session - no participants left');
-      const endSession = async () => {
-        try {
-          await videoApi.endVideoSession(meetingId, user.id);
-        } catch (err) {
-          console.error('Error ending session:', err);
-        } finally {
-          onSessionEnded();
-        }
-      };
-      endSession();
-    }
-  }, [remoteUsers.length, isTeacher, isInCall, onSessionEnded, meetingId, user?.id]);
 
   // Single join effect
   useEffect(() => {
@@ -354,8 +302,8 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       <div className="video-call-container video-call-loading">
         <div className="loading-spinner">
           <div className="spinner"></div>
-          <p>{isTeacher ? 'Starting video call...' : 'Joining video call...'}</p>
-          <p className="loading-subtitle">Connecting to Agora via backend</p>
+          <p>Starting video call...</p>
+          <p className="loading-subtitle">No backend required - Direct Agora connection</p>
         </div>
       </div>
     );
@@ -366,7 +314,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     return (
       <div className="video-call-container video-call-error">
         <div className="error-message">
-          <h3>Unable to {isTeacher ? 'start' : 'join'} video call</h3>
+          <h3>Unable to start video call</h3>
           <p>{error}</p>
           <div className="error-actions">
             <button onClick={startVideoCall} className="retry-button">
@@ -400,7 +348,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           <span className="participant-count">
             {remoteUsers.length + 1} participant{(remoteUsers.length + 1) !== 1 ? 's' : ''}
           </span>
-          <span className="agora-badge">Agora RTC + Backend</span>
+          <span className="agora-badge">Direct Agora Connection</span>
         </div>
         
         {isTeacher && (
