@@ -167,7 +167,89 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     throw error;
   }
 };
+//SORTCLASS
+const sortClasses = (classes) => {
+  if (!Array.isArray(classes)) return [];
+  
+  return classes.sort((a, b) => {
+    const now = new Date();
+    const classAStart = new Date(a.scheduled_date);
+    const classAEnd = new Date(a.end_date);
+    const classBStart = new Date(b.scheduled_date);
+    const classBEnd = new Date(b.end_date);
+    
+    // Check if classes are live (current time is between start and end)
+    const isALive = now >= classAStart && now <= classAEnd;
+    const isBLive = now >= classBStart && now <= classBEnd;
+    
+    // Check if classes are upcoming (future start time)
+    const isAUpcoming = classAStart > now;
+    const isBUpcoming = classBStart > now;
+    
+    // Check if classes are completed (end time has passed)
+    const isACompleted = classAEnd < now;
+    const isBCompleted = classBEnd < now;
+    
+    // Priority: Live > Upcoming > Completed
+    if (isALive && !isBLive) return -1;
+    if (isBLive && !isALive) return 1;
+    
+    // Both live - sort by which ends sooner
+    if (isALive && isBLive) {
+      return classAEnd - classBEnd;
+    }
+    
+    // Both upcoming - sort by which starts sooner
+    if (isAUpcoming && isBUpcoming) {
+      return classAStart - classBStart;
+    }
+    
+    // One upcoming, one completed
+    if (isAUpcoming && isBCompleted) return -1;
+    if (isBUpcoming && isACompleted) return 1;
+    
+    // Both completed - sort by most recent
+    if (isACompleted && isBCompleted) {
+      return classBEnd - classAEnd;
+    }
+    
+    return 0;
+  });
+};
 
+// Enhanced getTimeUntilClass function
+const getTimeUntilClass = (classDate, endDate) => {
+  const now = new Date();
+  const classTime = new Date(classDate);
+  const classEnd = new Date(endDate);
+  const diffMs = classTime - now;
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  // Check if class is currently live
+  if (now >= classTime && now <= classEnd) {
+    const timeLeft = classEnd - now;
+    const minsLeft = Math.floor(timeLeft / (1000 * 60));
+    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
+    
+    if (minsLeft < 60) {
+      return { status: 'live', text: `Live - Ends in ${minsLeft} minutes` };
+    } else {
+      return { status: 'live', text: `Live - Ends in ${hoursLeft} hours` };
+    }
+  } else if (classEnd < now) {
+    return { status: 'completed', text: 'Class completed' };
+  } else if (diffMins <= 0) {
+    return { status: 'starting', text: 'Starting now' };
+  } else if (diffMins < 60) {
+    return { status: 'upcoming', text: `Starts in ${diffMins} minutes` };
+  } else if (diffHours < 24) {
+    return { status: 'upcoming', text: `Starts in ${diffHours} hours` };
+  } else {
+    return { status: 'upcoming', text: `Starts in ${diffDays} days` };
+  }
+};
 // STUDENT API WITH DEBUGGING
 const studentApi = {
   getMyNotifications: async (limit = 20, page = 1) => {
@@ -693,10 +775,15 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 };
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinClass }) => {
-  const timeInfo = getTimeUntilClass(classItem.scheduled_date);
-  const isClassStarted = timeInfo.status === 'started';
-  const isClassCompleted = new Date(classItem.scheduled_date) < new Date();
-  const isUpcoming = !isClassStarted && !isClassCompleted;
+  const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
+  const isClassLive = timeInfo.status === 'live';
+  const isClassStarting = timeInfo.status === 'starting';
+  const isClassCompleted = timeInfo.status === 'completed';
+  const isUpcoming = timeInfo.status === 'upcoming';
+
+  // Check if teacher is live (you'll need to implement this based on your backend)
+  const isTeacherLive = classItem.teacher_status === 'online' || 
+                       classItem.video_session?.status === 'active';
 
   return (
     <motion.div
@@ -708,8 +795,10 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
       <div className={`p-4 rounded-lg border transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-xl ${
         isClassCompleted 
           ? 'bg-green-800/20 border-green-600/20' 
-          : isClassStarted
-          ? 'bg-blue-900/30 border-blue-600/30'
+          : isClassLive
+          ? 'bg-blue-900/30 border-blue-600/30 animate-pulse border-2'
+          : isClassStarting
+          ? 'bg-orange-900/30 border-orange-600/30 border-2'
           : 'bg-green-700/30 border-green-600/30'
       }`}>
         <div className="flex justify-between items-start">
@@ -721,15 +810,25 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
                 {isClassCompleted && (
                   <CheckCircle size={16} className="text-green-300 ml-2" />
                 )}
+                {isClassLive && (
+                  <div className="flex items-center ml-2">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-ping mr-1"></div>
+                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  </div>
+                )}
               </h4>
               <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                 isClassCompleted 
                   ? 'bg-green-900/50 text-green-300'
-                  : isClassStarted
-                  ? 'bg-blue-900/50 text-blue-300 animate-pulse'
+                  : isClassLive
+                  ? 'bg-red-900/50 text-red-300 animate-pulse'
+                  : isClassStarting
+                  ? 'bg-orange-900/50 text-orange-300'
                   : 'bg-yellow-900/50 text-yellow-300'
               }`}>
-                {isClassCompleted ? 'Completed' : isClassStarted ? 'Live Now' : 'Upcoming'}
+                {isClassCompleted ? 'Completed' : 
+                 isClassLive ? 'Live Now' : 
+                 isClassStarting ? 'Starting' : 'Upcoming'}
               </span>
             </div>
             
@@ -741,6 +840,9 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
               <span className="flex items-center mr-4 mb-2">
                 <User size={14} className="mr-1" />
                 {classItem.teacher?.name || 'Teacher'}
+                {isTeacherLive && (
+                  <div className="w-2 h-2 bg-green-500 rounded-full ml-1 animate-pulse"></div>
+                )}
               </span>
               <span className="flex items-center mr-4 mb-2">
                 <Calendar size={14} className="mr-1" />
@@ -748,20 +850,37 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
               </span>
             </div>
             
-            <div className="mt-2 text-sm text-green-300">
+            <div className={`mt-2 text-sm ${
+              isClassLive ? 'text-red-300 font-semibold' : 
+              isClassStarting ? 'text-orange-300' : 
+              'text-green-300'
+            }`}>
               {timeInfo.text}
+              {isClassLive && isTeacherLive && (
+                <span className="ml-2 text-green-300">• Teacher is online</span>
+              )}
             </div>
           </div>
         </div>
         
         <div className="mt-4 flex flex-wrap gap-2">
-          {isClassStarted && !isClassCompleted && (
+          {(isClassLive || isClassStarting) && isTeacherLive && (
             <button 
-              className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
+              className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200 shadow-lg"
               onClick={() => joinClass(classItem)}
             >
               <PlayCircle size={16} className="mr-1"/>
-              Join Class
+              Join Live Class
+            </button>
+          )}
+          
+          {(isClassLive || isClassStarting) && !isTeacherLive && (
+            <button 
+              className="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
+              onClick={() => joinClass(classItem)}
+            >
+              <PlayCircle size={16} className="mr-1"/>
+              Join Waiting Room
             </button>
           )}
           
@@ -778,12 +897,20 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, joinC
               Download Recording
             </button>
           )}
+          
+          <button className="bg-gray-600 hover:bg-gray-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
+            <MessageCircle size={16} className="mr-1"/>
+            View Details
+          </button>
         </div>
         
         {classItem.video_session && (
           <div className="mt-3 text-xs text-green-400 flex items-center">
             <ShieldCheck size={12} className="mr-1" />
-            Secure Meeting ID: {classItem.video_session.meeting_id}
+            Meeting ID: {classItem.video_session.meeting_id}
+            {isClassLive && (
+              <span className="ml-2 text-red-400">• LIVE SESSION ACTIVE</span>
+            )}
           </div>
         )}
       </div>
@@ -1212,13 +1339,49 @@ export default function Dashboard() {
     }
   };
 
-  const handleJoinClass = (classItem) => {
-    if (classItem.video_session?.meeting_url) {
-      window.open(classItem.video_session.meeting_url, '_blank');
-    } else {
-      toast.error('Meeting link not available');
+// Update your handleJoinClass function
+const handleJoinClass = async (classItem) => {
+  try {
+    // Check if class is live
+    const now = new Date();
+    const classStart = new Date(classItem.scheduled_date);
+    const classEnd = new Date(classItem.end_date);
+    
+    if (now < classStart) {
+      toast.info('Class has not started yet. Please wait for the scheduled time.');
+      return;
     }
-  };
+    
+    if (now > classEnd) {
+      toast.info('This class has already ended.');
+      return;
+    }
+
+    // Check if teacher is live (you'll need to implement this API call)
+    const teacherStatus = await makeApiRequest(`/api/classes/${classItem.id}/teacher-status`);
+    
+    if (!teacherStatus?.isOnline) {
+      toast.info('Teacher is not online yet. Please wait in the waiting room.');
+      // You can redirect to a waiting room page here
+      return;
+    }
+
+    // Join the video call
+    if (classItem.video_session?.meeting_url) {
+      window.open(classItem.video_session.meeting_url, '_blank', 'noopener,noreferrer');
+    } else if (classItem.video_session?.meeting_id) {
+      // If you have a meeting ID but no direct URL, construct it
+      const meetingUrl = `/video-call/${classItem.video_session.meeting_id}`;
+      window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      toast.error('Meeting link not available. Please contact your teacher.');
+    }
+    
+  } catch (error) {
+    console.error('Error joining class:', error);
+    toast.error('Failed to join class. Please try again.');
+  }
+};
 
   const handleSendMessage = async () => {
     if (!contactMessage.trim()) {
@@ -1538,53 +1701,132 @@ export default function Dashboard() {
 
           {/* Dynamic Content Sections */}
           <AnimatePresence mode="wait">
-            {activeSection === 'classes' && (
-              <motion.section
-                key="classes"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-6"
-              >
-                <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-bold text-white">My Classes</h3>
-                  <button 
-                    onClick={fetchClasses}
-                    className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
-                  >
-                    <RefreshCw className="mr-2" size={16} />
-                    Refresh
-                  </button>
-                </div>
+           {activeSection === 'classes' && (
+  <motion.section
+    key="classes"
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -20 }}
+    className="space-y-6"
+  >
+    <div className="flex justify-between items-center">
+      <h3 className="text-2xl font-bold text-white">My Classes</h3>
+      <div className="flex items-center space-x-4">
+        {/* Live Classes Counter */}
+        <div className="flex items-center space-x-2 bg-red-900/50 px-3 py-1 rounded-full">
+          <div className="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+          <span className="text-red-300 text-sm">
+            {classes.filter(c => {
+              const now = new Date();
+              const start = new Date(c.scheduled_date);
+              const end = new Date(c.end_date);
+              return now >= start && now <= end;
+            }).length} Live
+          </span>
+        </div>
+        
+        <button 
+          onClick={fetchClasses}
+          className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
+        >
+          <RefreshCw className="mr-2" size={16} />
+          Refresh
+        </button>
+      </div>
+    </div>
 
-                {loadingClasses ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-                    <p className="text-green-200 mt-4">Loading classes...</p>
-                  </div>
-                ) : classes.length === 0 ? (
-                  <div className="text-center py-12 bg-green-800/30 rounded-xl">
-                    <Video className="mx-auto text-green-400" size={48} />
-                    <h4 className="text-white text-xl font-semibold mt-4">No classes scheduled</h4>
-                    <p className="text-green-300 mt-2">Your upcoming classes will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {classes.map((classItem) => (
-                      <ClassItem
-                        key={classItem.id}
-                        classItem={classItem}
-                        formatDate={formatDate}
-                        formatTime={formatTime}
-                        getTimeUntilClass={getTimeUntilClass}
-                        joinClass={handleJoinClass}
-                      />
-                    ))}
-                  </div>
-                )}
-              </motion.section>
-            )}
+    {loadingClasses ? (
+      <div className="text-center py-12">
+        <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
+        <p className="text-green-200 mt-4">Loading classes...</p>
+      </div>
+    ) : classes.length === 0 ? (
+      <div className="text-center py-12 bg-green-800/30 rounded-xl">
+        <Video className="mx-auto text-green-400" size={48} />
+        <h4 className="text-white text-xl font-semibold mt-4">No classes scheduled</h4>
+        <p className="text-green-300 mt-2">Your upcoming classes will appear here.</p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {/* Live Classes Section */}
+        {classes.filter(c => {
+          const now = new Date();
+          const start = new Date(c.scheduled_date);
+          const end = new Date(c.end_date);
+          return now >= start && now <= end;
+        }).length > 0 && (
+          <div>
+            <h4 className="text-lg font-semibold text-white mb-3 flex items-center">
+              <div className="w-3 h-3 bg-red-500 rounded-full animate-ping mr-2"></div>
+              Live Classes
+            </h4>
+            <div className="grid gap-4">
+              {classes
+                .filter(c => {
+                  const now = new Date();
+                  const start = new Date(c.scheduled_date);
+                  const end = new Date(c.end_date);
+                  return now >= start && now <= end;
+                })
+                .map((classItem) => (
+                  <ClassItem
+                    key={classItem.id}
+                    classItem={classItem}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                    getTimeUntilClass={getTimeUntilClass}
+                    joinClass={handleJoinClass}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
 
+        {/* Upcoming Classes Section */}
+        {classes.filter(c => new Date(c.scheduled_date) > new Date()).length > 0 && (
+          <div>
+            <h4 className="text-lg font-semibold text-white mb-3">Upcoming Classes</h4>
+            <div className="grid gap-4">
+              {classes
+                .filter(c => new Date(c.scheduled_date) > new Date())
+                .map((classItem) => (
+                  <ClassItem
+                    key={classItem.id}
+                    classItem={classItem}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                    getTimeUntilClass={getTimeUntilClass}
+                    joinClass={handleJoinClass}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Completed Classes Section */}
+        {classes.filter(c => new Date(c.end_date) < new Date()).length > 0 && (
+          <div>
+            <h4 className="text-lg font-semibold text-white mb-3">Completed Classes</h4>
+            <div className="grid gap-4">
+              {classes
+                .filter(c => new Date(c.end_date) < new Date())
+                .map((classItem) => (
+                  <ClassItem
+                    key={classItem.id}
+                    classItem={classItem}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                    getTimeUntilClass={getTimeUntilClass}
+                    joinClass={handleJoinClass}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </motion.section>
+)}
             {activeSection === 'assignments' && (
               <motion.section
                 key="assignments"
