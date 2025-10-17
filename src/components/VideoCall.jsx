@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
-const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded }) => {
+const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded, isOpen = true }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isInCall, setIsInCall] = useState(false);
@@ -15,23 +15,31 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   const localTracksRef = useRef([]);
   const isJoiningRef = useRef(false);
   const videoElementsRef = useRef(new Map());
+  const isMountedRef = useRef(true);
 
   // Production Agora App ID
   const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID || '5c0225ce9a19445f95a2685647258468';
 
-  // Debug logging
+  // Debug: Log when component mounts/unmounts
   useEffect(() => {
-    console.log('🔍 VIDEO CALL DEBUG STATE:', {
-      isLoading,
-      isInCall,
-      localStream: !!localStream,
-      remoteUsers: remoteUsers.length,
-      error,
-      isVisible
-    });
-  }, [isLoading, isInCall, localStream, remoteUsers, error, isVisible]);
+    console.log('🎬 VideoCall Component MOUNTED', { isOpen, meetingId });
+    isMountedRef.current = true;
 
-  // Tab visibility handling
+    return () => {
+      console.log('🎬 VideoCall Component UNMOUNTING - This should not happen during call!');
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Fix 1: Prevent component unmounting when modal should be open
+  useEffect(() => {
+    if (!isOpen) {
+      console.log('🚫 Modal closed, leaving call');
+      leaveCall();
+    }
+  }, [isOpen]);
+
+  // Fix 2: Enhanced tab visibility handling
   useEffect(() => {
     const handleVisibilityChange = () => {
       const visible = document.visibilityState === 'visible';
@@ -39,33 +47,64 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       setIsVisible(visible);
       
       if (visible && isInCall) {
-        // Resume tracks when tab becomes visible
+        // Resume when tab becomes active
         resumeTracks();
-      } else if (!visible && isInCall) {
-        // Pause tracks when tab is hidden (optional)
-        pauseTracks();
       }
+      // Don't pause tracks when tab becomes inactive - this causes disconnection
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [isInCall]);
 
-  // Fullscreen modal effect
+  // Fix 3: Enhanced fullscreen modal with proper cleanup
   useEffect(() => {
-    // Prevent body scroll
-    const originalStyle = window.getComputedStyle(document.body).overflow;
+    console.log('🔄 Setting up fullscreen modal');
+    
+    // Store original styles
+    const originalOverflow = document.body.style.overflow;
+    const originalPosition = document.body.style.position;
+    
+    // Apply fullscreen styles
     document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+    document.body.style.height = '100%';
+    document.body.style.top = '0';
+    document.body.style.left = '0';
+
+    // Prevent accidental closure
+    const handleBeforeUnload = (e) => {
+      if (isInCall) {
+        e.preventDefault();
+        e.returnValue = 'You are in an active video call. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
-      document.body.style.overflow = originalStyle;
-      leaveCall();
+      console.log('🧹 Cleaning up fullscreen modal');
+      // Restore original styles
+      document.body.style.overflow = originalOverflow;
+      document.body.style.position = originalPosition;
+      document.body.style.width = '';
+      document.body.style.height = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []);
+  }, [isInCall]);
 
   // Initialize Agora client
   useEffect(() => {
     if (!agoraClientRef.current) {
+      console.log('🎯 Initializing Agora client');
       agoraClientRef.current = AgoraRTC.createClient({ 
         mode: "rtc", 
         codec: "vp8" 
@@ -74,17 +113,25 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       agoraClientRef.current.on('exception', (event) => {
         console.warn('Agora exception:', event);
       });
+
+      // Network quality monitoring
+      agoraClientRef.current.on('network-quality', (quality) => {
+        console.log('📊 Network quality:', quality);
+      });
     }
 
     return () => {
-      leaveCall();
+      // Only cleanup if component is truly unmounting
+      if (!isMountedRef.current) {
+        leaveCall();
+      }
     };
   }, []);
 
-  // Track management functions
+  // Track management
   const pauseTracks = useCallback(() => {
-    console.log('⏸️ Pausing tracks due to tab change');
-    localTracksRef.current.forEach(track => {
+    console.log('⏸️ Pausing tracks');
+    localTracksRef.current.forEach((track, index) => {
       if (track && track.setEnabled) {
         track.setEnabled(false);
       }
@@ -101,7 +148,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     }
   }, [isAudioMuted, isVideoMuted]);
 
-  // Enhanced video playback with error handling
+  // Enhanced video playback
   const playVideoTrack = useCallback((track, element, uid) => {
     if (!track || !element) {
       console.warn('❌ Cannot play track: missing track or element');
@@ -110,6 +157,10 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
 
     try {
       console.log(`🎬 Attempting to play video for user ${uid}`);
+      
+      // Clear previous content
+      element.innerHTML = '';
+      
       track.play(element, { 
         fit: 'cover',
         mirror: uid === 'local'
@@ -118,15 +169,23 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       }).catch(playError => {
         console.error(`❌ Failed to play video for user ${uid}:`, playError);
         
-        // Retry with user interaction
+        // Show user-friendly error in the video element
+        element.innerHTML = `
+          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;color:white;flex-direction:column;">
+            <div>⚠️ Video Playback Error</div>
+            <div style="font-size:12px;margin-top:10px;">Click to retry</div>
+          </div>
+        `;
+        
         const retryPlay = () => {
+          console.log('🔄 Retrying video playback after user interaction');
           track.play(element, { fit: 'cover' }).catch(e => {
             console.error(`❌ Retry failed for user ${uid}:`, e);
           });
-          document.removeEventListener('click', retryPlay);
+          element.removeEventListener('click', retryPlay);
         };
         
-        document.addEventListener('click', retryPlay);
+        element.addEventListener('click', retryPlay);
       });
     } catch (error) {
       console.error(`❌ Error in playVideoTrack for user ${uid}:`, error);
@@ -136,6 +195,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
   // Generate token
   const getAgoraToken = useCallback(async (channelName, uid) => {
     try {
+      console.log('🔐 Fetching Agora token...');
       const response = await fetch('https://madina-quran-backend.onrender.com/api/agora/generate-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,18 +204,32 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Token received');
         return data.token;
+      } else {
+        console.warn('❌ Token fetch failed, using null token');
       }
     } catch (error) {
-      console.warn('Failed to get token from backend, using null token');
+      console.warn('❌ Token fetch error, using null token:', error);
     }
     return null;
   }, []);
 
   // Debugged video call start
   const startVideoCall = useCallback(async () => {
+    if (!isMountedRef.current) {
+      console.log('⏸️ Component not mounted, skipping call start');
+      return;
+    }
+
     if (!meetingId || !user?.id || isInCall || isJoiningRef.current) {
-      console.log('⏸️ Start call prevented:', { meetingId, userId: user?.id, isInCall, isJoining: isJoiningRef.current });
+      console.log('⏸️ Start call prevented:', { 
+        meetingId, 
+        userId: user?.id, 
+        isInCall, 
+        isJoining: isJoiningRef.current,
+        mounted: isMountedRef.current
+      });
       return;
     }
 
@@ -164,7 +238,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     isJoiningRef.current = true;
 
     try {
-      console.log('🚀 STARTING VIDEO CALL DEBUG...');
+      console.log('🚀 STARTING VIDEO CALL...');
 
       if (!AGORA_APP_ID) {
         throw new Error('Agora App ID not configured');
@@ -174,48 +248,41 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
       const uid = String(Math.floor(Math.random() * 100000));
 
       console.log('🔗 Agora setup:', { 
-        appId: AGORA_APP_ID?.substring(0, 10) + '...', 
         channel: channelName, 
         uid 
       });
 
       const token = await getAgoraToken(channelName, uid);
 
-      // Join channel
+      // Join channel with timeout
       console.log('🔗 Joining channel...');
-      await agoraClientRef.current.join(AGORA_APP_ID, channelName, token, uid);
+      await Promise.race([
+        agoraClientRef.current.join(AGORA_APP_ID, channelName, token, uid),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Join timeout after 10s')), 10000)
+        )
+      ]);
       console.log('✅ Joined channel successfully');
 
-      // Create local tracks with better error handling
+      // Create local tracks
       console.log('🎥 Creating local tracks...');
       
-      let microphoneTrack, cameraTrack;
-      
-      try {
-        microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
+      const [microphoneTrack, cameraTrack] = await Promise.all([
+        AgoraRTC.createMicrophoneAudioTrack({
           AEC: true,
           ANS: true,
-          encoderConfig: {
-            sampleRate: 48000,
-            stereo: true
-          }
-        });
-        console.log('✅ Microphone track created');
-      } catch (micError) {
-        console.error('❌ Microphone error:', micError);
-        throw new Error('Microphone access required. Please allow microphone permissions.');
-      }
-
-      try {
-        cameraTrack = await AgoraRTC.createCameraVideoTrack({
+        }).catch(err => {
+          console.error('❌ Microphone error:', err);
+          throw new Error('Microphone access required. Please allow microphone permissions and refresh the page.');
+        }),
+        AgoraRTC.createCameraVideoTrack({
           encoderConfig: '720p_1',
           optimizationMode: 'motion'
-        });
-        console.log('✅ Camera track created');
-      } catch (camError) {
-        console.error('❌ Camera error:', camError);
-        throw new Error('Camera access required. Please allow camera permissions.');
-      }
+        }).catch(err => {
+          console.error('❌ Camera error:', err);
+          throw new Error('Camera access required. Please allow camera permissions and refresh the page.');
+        })
+      ]);
 
       localTracksRef.current = [microphoneTrack, cameraTrack];
 
@@ -244,20 +311,16 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     } catch (err) {
       console.error('❌ Video call start failed:', err);
       
-      let errorMessage = 'Failed to start video call';
+      let errorMessage = 'Failed to start video call. Please refresh and try again.';
       
-      if (err.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
-        errorMessage = 'Network error. Please check your internet connection.';
-      } else if (err.code === 'INVALID_APP_ID') {
-        errorMessage = 'Invalid app configuration. Please contact support.';
-      } else if (err.name === 'NOT_ALLOWED_ERROR') {
-        errorMessage = 'Camera/microphone permission denied. Please allow browser permissions.';
-      } else if (err.name === 'NOT_FOUND_ERROR') {
-        errorMessage = 'No camera/microphone detected.';
-      } else if (err.name === 'NOT_READABLE_ERROR') {
-        errorMessage = 'Camera/microphone is busy with another application.';
-      } else if (err.message) {
+      if (err.message.includes('timeout')) {
+        errorMessage = 'Connection timeout. Please check your internet connection.';
+      } else if (err.message.includes('permission') || err.name === 'NOT_ALLOWED_ERROR') {
+        errorMessage = 'Camera/microphone permission denied. Please allow permissions and refresh.';
+      } else if (err.message.includes('Microphone access') || err.message.includes('Camera access')) {
         errorMessage = err.message;
+      } else if (err.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
+        errorMessage = 'Network error. Please check your internet connection.';
       }
       
       setError(errorMessage);
@@ -300,15 +363,6 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         }];
       });
 
-      // Auto-play audio with user interaction requirement
-      if (mediaType === 'audio' && user.audioTrack) {
-        try {
-          user.audioTrack.play();
-        } catch (playError) {
-          console.warn('Audio autoplay blocked:', playError);
-        }
-      }
-
     } catch (err) {
       console.error('Error subscribing to user:', err);
     }
@@ -346,8 +400,8 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     if (localTracksRef.current.length > 0) {
       for (const track of localTracksRef.current) {
         try {
-          track.stop();
-          track.close();
+          if (track.stop) track.stop();
+          if (track.close) track.close();
         } catch (err) {
           console.warn('Error cleaning up track:', err);
         }
@@ -357,7 +411,7 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     setLocalStream(null);
   }, []);
 
-  // Leave call
+  // Leave call - FIXED to prevent automatic disconnection
   const leaveCall = useCallback(async () => {
     if (isJoiningRef.current) {
       console.log('⏳ Call join in progress, waiting...');
@@ -368,8 +422,8 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     
     try {
       // Unpublish tracks
-      if (localTracksRef.current.length > 0) {
-        await agoraClientRef.current?.unpublish(localTracksRef.current).catch(console.error);
+      if (localTracksRef.current.length > 0 && agoraClientRef.current) {
+        await agoraClientRef.current.unpublish(localTracksRef.current).catch(console.error);
       }
 
       // Leave channel
@@ -424,25 +478,29 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
     }
   }, [isVideoMuted]);
 
-  // Auto-join with better error handling
+  // Auto-join with better mounting check
   useEffect(() => {
     let mounted = true;
 
     const initializeVideoCall = async () => {
-      if (mounted && meetingId && user?.id && !isInCall && !isJoiningRef.current) {
+      if (mounted && meetingId && user?.id && !isInCall && !isJoiningRef.current && isMountedRef.current) {
         console.log('🔄 Auto-initializing video call...');
         await startVideoCall();
       }
     };
 
-    // Small delay to ensure component is mounted and permissions are ready
-    const timer = setTimeout(initializeVideoCall, 500);
+    const timer = setTimeout(initializeVideoCall, 1000);
 
     return () => {
       mounted = false;
       clearTimeout(timer);
     };
   }, [meetingId, user?.id, isInCall, startVideoCall]);
+
+  // Don't render if modal is not open
+  if (!isOpen) {
+    return null;
+  }
 
   // Render loading state
   if (isLoading) {
@@ -451,10 +509,10 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
         <div className="loading-spinner">
           <div className="spinner"></div>
           <p>Starting video call...</p>
-          <p className="loading-subtitle">Checking permissions...</p>
+          <p className="loading-subtitle">Meeting: {meetingId}</p>
           <div className="debug-info">
-            <p>Meeting: {meetingId}</p>
             <p>User: {user?.id}</p>
+            <p>Tab Active: {isVisible ? '✅' : '❌'}</p>
           </div>
         </div>
       </div>
@@ -472,10 +530,10 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           <div className="error-solutions">
             <h4>Quick Solutions:</h4>
             <ul>
-              <li>• Allow camera & microphone permissions</li>
-              <li>• Refresh the page and try again</li>
-              <li>• Check if another app is using camera</li>
-              <li>• Try a different browser (Chrome recommended)</li>
+              <li>• Refresh the page and allow permissions when prompted</li>
+              <li>• Check if camera/microphone are being used by another app</li>
+              <li>• Ensure stable internet connection</li>
+              <li>• Try using Google Chrome browser</li>
             </ul>
           </div>
 
@@ -487,21 +545,28 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
               🏠 Leave
             </button>
           </div>
+
+          <div className="debug-info" style={{marginTop: '20px', fontSize: '12px', opacity: '0.7'}}>
+            <p>Meeting: {meetingId} | User: {user?.id} | Tab: {isVisible ? 'Active' : 'Background'}</p>
+          </div>
         </div>
       </div>
     );
   }
 
+  const totalParticipants = remoteUsers.length + 1;
+
   return (
     <div className="video-call-fullscreen">
-      {/* Header */}
+      {/* Header with connection status */}
       <div className="video-call-header">
         <div className="call-info">
           <h3>🔴 LIVE: {meetingId}</h3>
           <span className="participant-count">
-            {remoteUsers.length + 1} participant{(remoteUsers.length + 1) !== 1 ? 's' : ''}
+            {totalParticipants} participant{totalParticipants !== 1 ? 's' : ''}
           </span>
-          {!isVisible && <span className="tab-warning">⚠️ Tab not active</span>}
+          {!isVisible && <span className="tab-warning">⚠️ Tab in background</span>}
+          <span className="quality-badge">HD Quality</span>
         </div>
         
         <div className="call-controls-top">
@@ -569,20 +634,22 @@ const VideoCall = ({ meetingId, user, onLeave, isTeacher = false, onSessionEnded
           </div>
         ))}
 
-        {/* Debug Info */}
-        {isInCall && (
+        {/* Debug Info - Only show in development */}
+        {process.env.NODE_ENV === 'development' && isInCall && (
           <div className="debug-panel">
-            <p>Local Stream: {localStream ? '✅' : '❌'}</p>
-            <p>Remote Users: {remoteUsers.length}</p>
-            <p>Tab Active: {isVisible ? '✅' : '❌'}</p>
+            <p>Local: {localStream ? '✅' : '❌'}</p>
+            <p>Remote: {remoteUsers.length}</p>
+            <p>Tab: {isVisible ? '✅' : '❌'}</p>
+            <p>Audio: {isAudioMuted ? '🔇' : '🎤'}</p>
+            <p>Video: {isVideoMuted ? '📷' : '📹'}</p>
           </div>
         )}
 
         {/* Empty state */}
-        {!localStream && remoteUsers.length === 0 && isInCall && (
+        {isInCall && localStream && remoteUsers.length === 0 && (
           <div className="no-videos-message">
-            <p>Waiting for participants to join...</p>
-            <p className="subtitle">Share meeting ID: <strong>{meetingId}</strong></p>
+            <p>Waiting for other participants to join...</p>
+            <p className="subtitle">Share this meeting ID: <strong>{meetingId}</strong></p>
           </div>
         )}
       </div>
