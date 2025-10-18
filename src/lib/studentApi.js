@@ -21,6 +21,12 @@ export const studentApi = {
           course,
           status,
           teacher_id,
+          progress,
+          attendance_rate,
+          overall_score,
+          completed_assignments,
+          total_assignments,
+          last_active,
           teacher:teacher_id (
             id,
             name,
@@ -32,6 +38,11 @@ export const studentApi = {
         .single();
 
       if (profileError) throw profileError;
+
+      // Verify user is a student
+      if (profile.role !== 'student') {
+        throw new Error('User is not a student');
+      }
 
       // Get all data in parallel
       const [classesData, assignmentsData, statsData, notificationsData] = await Promise.all([
@@ -67,9 +78,12 @@ export const studentApi = {
         .from('profiles')
         .select('teacher_id')
         .eq('id', user.id)
+        .eq('role', 'student')
         .single();
 
-      if (profileError || !profile?.teacher_id) {
+      if (profileError) throw profileError;
+      
+      if (!profile?.teacher_id) {
         return { classes: [], teacher: null };
       }
 
@@ -85,6 +99,9 @@ export const studentApi = {
           duration,
           status,
           teacher_id,
+          course_id,
+          max_students,
+          is_exam,
           teacher:teacher_id (
             name,
             email,
@@ -97,6 +114,9 @@ export const studentApi = {
             channel_name,
             started_at,
             ended_at
+          ),
+          courses (
+            name
           )
         `)
         .eq('teacher_id', profile.teacher_id)
@@ -114,8 +134,13 @@ export const studentApi = {
         duration: classItem.duration,
         status: classItem.status,
         teacher_id: classItem.teacher_id,
+        course_id: classItem.course_id,
+        max_students: classItem.max_students,
+        is_exam: classItem.is_exam,
         teacher_name: classItem.teacher?.name,
         teacher_email: classItem.teacher?.email,
+        teacher_subject: classItem.teacher?.subject,
+        course_name: classItem.courses?.name,
         video_session: classItem.video_sessions?.[0] || null
       }));
 
@@ -135,6 +160,17 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Verify user is a student
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.role !== 'student') {
+        throw new Error('User is not a student');
+      }
+
       // Get assignments for the student
       const { data: assignments, error: assignmentsError } = await supabase
         .from('assignments')
@@ -150,8 +186,13 @@ export const studentApi = {
           updated_at,
           teacher_id,
           class_id,
+          file_url,
           class:class_id (
             title
+          ),
+          teacher:teacher_id (
+            name,
+            email
           ),
           assignment_submissions (
             id,
@@ -161,7 +202,8 @@ export const studentApi = {
             score,
             feedback,
             submitted_at,
-            graded_at
+            graded_at,
+            audio_feedback_url
           )
         `)
         .eq('student_id', user.id)
@@ -174,7 +216,7 @@ export const studentApi = {
         const submission = assignment.assignment_submissions?.[0];
         
         // Determine assignment status
-        let status = 'assigned';
+        let status = assignment.status || 'assigned';
         if (submission) {
           status = submission.status || 'submitted';
           if (submission.score !== null) {
@@ -198,14 +240,19 @@ export const studentApi = {
           created_at: assignment.created_at,
           updated_at: assignment.updated_at,
           teacher_id: assignment.teacher_id,
+          teacher_name: assignment.teacher?.name,
           class_id: assignment.class_id,
           class_title: assignment.class?.title,
+          file_url: assignment.file_url,
           submissions: assignment.assignment_submissions || [],
           // For easy access to latest submission
           submission: submission || null,
           score: submission?.score,
+          grade: submission?.score, // Alias for score
           feedback: submission?.feedback,
-          submitted_at: submission?.submitted_at
+          audio_feedback_url: submission?.audio_feedback_url,
+          submitted_at: submission?.submitted_at,
+          graded_at: submission?.graded_at
         };
       });
 
@@ -223,6 +270,17 @@ export const studentApi = {
       if (!user) throw new Error('User not authenticated');
 
       const { assignment_id, submission_text, audio_url } = submissionData;
+
+      // Verify user is a student
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.role !== 'student') {
+        throw new Error('User is not a student');
+      }
 
       // Validate assignment exists and belongs to student
       const { data: assignment, error: assignmentError } = await supabase
@@ -244,6 +302,10 @@ export const studentApi = {
         .eq('student_id', user.id)
         .single();
 
+      // Determine if submission is late
+      const isLate = assignment.due_date && new Date(assignment.due_date) < new Date();
+      const status = isLate ? 'late' : 'submitted';
+
       if (existingSubmission) {
         // Update existing submission
         const { data, error } = await supabase
@@ -251,7 +313,7 @@ export const studentApi = {
           .update({
             submission_text,
             audio_url,
-            status: 'submitted',
+            status: status,
             submitted_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
@@ -270,7 +332,7 @@ export const studentApi = {
             student_id: user.id,
             submission_text,
             audio_url,
-            status: 'submitted',
+            status: status,
             submitted_at: new Date().toISOString()
           })
           .select()
@@ -285,66 +347,102 @@ export const studentApi = {
     }
   },
 
-  // Get student statistics
+  // Get student statistics - using profile data and actual counts
   getMyStats: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Get total classes count
-      const { count: totalClasses, error: classesError } = await supabase
-        .from('classes')
-        .select('*', { count: 'exact', head: true })
-        .eq('teacher_id', 
-          (await supabase.from('profiles').select('teacher_id').eq('id', user.id).single()).data?.teacher_id
-        );
+      // Get student profile with stats
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select(`
+          progress,
+          attendance_rate,
+          overall_score,
+          completed_assignments,
+          total_assignments,
+          last_active,
+          teacher_id
+        `)
+        .eq('id', user.id)
+        .eq('role', 'student')
+        .single();
 
-      // Get assignments data
-      const { data: assignments, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select('id, due_date, assignment_submissions(id, score, submitted_at)')
-        .eq('student_id', user.id);
+      if (profileError) throw profileError;
+
+      // Get actual counts from database
+      const [
+        classesCount,
+        assignmentsData,
+        submissionsData
+      ] = await Promise.all([
+        // Count classes from student's teacher
+        supabase
+          .from('classes')
+          .select('id', { count: 'exact', head: true })
+          .eq('teacher_id', profile.teacher_id),
+        
+        // Get assignments count
+        supabase
+          .from('assignments')
+          .select('id', { count: 'exact', head: true })
+          .eq('student_id', user.id),
+        
+        // Get graded submissions for average score
+        supabase
+          .from('assignment_submissions')
+          .select('score')
+          .eq('student_id', user.id)
+          .not('score', 'is', null)
+      ]);
 
       // Calculate stats
-      const totalAssignments = assignments?.length || 0;
-      const completedAssignments = assignments?.filter(a => 
-        a.assignment_submissions?.some(s => s.submitted_at)
-      ).length || 0;
-
-      // Calculate average score
-      let avgScore = 0;
-      const allSubmissions = assignments?.flatMap(a => a.assignment_submissions || []);
-      const gradedSubmissions = allSubmissions?.filter(s => s.score !== null);
+      const totalClasses = classesCount.count || 0;
+      const totalAssignments = assignmentsData.count || 0;
+      const completedAssignments = profile.completed_assignments || 0;
       
-      if (gradedSubmissions && gradedSubmissions.length > 0) {
-        const totalScore = gradedSubmissions.reduce((sum, sub) => sum + (sub.score || 0), 0);
-        avgScore = Math.round(totalScore / gradedSubmissions.length);
+      // Calculate average score from actual submissions
+      let avgScore = profile.overall_score || 0;
+      if (submissionsData.data && submissionsData.data.length > 0) {
+        const totalScore = submissionsData.data.reduce((sum, sub) => sum + (sub.score || 0), 0);
+        avgScore = Math.round(totalScore / submissionsData.data.length);
       }
 
-      // Calculate hours learned (simplified - based on completed classes)
-      const hoursLearned = (totalClasses || 0) * 1; // Assuming 1 hour per class
+      // Calculate hours learned (based on completed classes and duration)
+      const { data: completedClasses } = await supabase
+        .from('classes')
+        .select('duration')
+        .eq('teacher_id', profile.teacher_id)
+        .eq('status', 'completed');
+
+      const hoursLearned = completedClasses?.reduce((total, classItem) => 
+        total + (classItem.duration || 60) / 60, 0) || 0;
 
       // Calculate progress metrics
-      const completionRate = totalAssignments > 0 
-        ? Math.round((completedAssignments / totalAssignments) * 100)
-        : 0;
+      const completionRate = profile.progress || 0;
+      const attendanceRate = profile.attendance_rate || 0;
 
-      // Calculate points and level (simplified)
+      // Calculate points and level based on completed work
       const points = completedAssignments * 10 + (avgScore || 0);
       const level = Math.floor(points / 100) + 1;
       const nextLevel = 100 - (points % 100);
 
+      // Calculate streak (placeholder - you might want to implement actual streak logic)
+      const streak = Math.floor(Math.random() * 14) + 1;
+
       return {
-        total_classes: totalClasses || 0,
-        hours_learned: hoursLearned,
+        total_classes: totalClasses,
+        hours_learned: Math.round(hoursLearned),
         assignments: totalAssignments,
         completed_assignments: completedAssignments,
         avg_score: avgScore,
         completion_rate: completionRate,
+        attendance_rate: attendanceRate,
         points: points,
         level: level,
         next_level: nextLevel,
-        streak: Math.floor(Math.random() * 14) + 1 // Placeholder for streak
+        streak: streak
       };
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -355,6 +453,7 @@ export const studentApi = {
         completed_assignments: 0,
         avg_score: 0,
         completion_rate: 0,
+        attendance_rate: 0,
         points: 0,
         level: 1,
         next_level: 100,
@@ -511,6 +610,17 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Verify user is a student
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, teacher_id')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.role !== 'student') {
+        throw new Error('User is not a student');
+      }
+
       // Get video session details
       const { data: session, error: sessionError } = await supabase
         .from('video_sessions')
@@ -526,7 +636,7 @@ export const studentApi = {
           )
         `)
         .eq('meeting_id', meetingId)
-        .eq('status', 'active')
+        .in('status', ['scheduled', 'active'])
         .single();
 
       if (sessionError || !session) {
@@ -534,13 +644,7 @@ export const studentApi = {
       }
 
       // Verify student has access to this class through their teacher
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('teacher_id')
-        .eq('id', user.id)
-        .single();
-
-      if (!profile || profile.teacher_id !== session.classes?.teacher_id) {
+      if (!profile.teacher_id || profile.teacher_id !== session.classes?.teacher_id) {
         throw new Error('Not authorized to join this session');
       }
 
@@ -571,6 +675,7 @@ export const studentApi = {
         .from('profiles')
         .select('teacher_id')
         .eq('id', user.id)
+        .eq('role', 'student')
         .single();
 
       if (!profile?.teacher_id) {
@@ -589,6 +694,7 @@ export const studentApi = {
           ended_at,
           channel_name,
           agenda,
+          scheduled_date,
           classes (
             title,
             teacher:teacher_id (
@@ -598,7 +704,7 @@ export const studentApi = {
           )
         `)
         .eq('classes.teacher_id', profile.teacher_id)
-        .order('started_at', { ascending: false });
+        .order('scheduled_date', { ascending: false });
 
       if (error) throw error;
 
@@ -611,6 +717,7 @@ export const studentApi = {
         ended_at: session.ended_at,
         channel_name: session.channel_name,
         agenda: session.agenda,
+        scheduled_date: session.scheduled_date,
         class_title: session.classes?.title,
         teacher_name: session.classes?.teacher?.name
       }));
@@ -626,27 +733,30 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Try different payment table names
-      const tableNames = ['fee_payments', 'payments', 'student_payments'];
-      
-      for (const tableName of tableNames) {
-        try {
-          const { data, error } = await supabase
-            .from(tableName)
-            .select('*')
-            .eq('student_id', user.id)
-            .order('payment_date', { ascending: false });
+      // Verify user is a student
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
 
-          if (!error) {
-            return data || [];
-          }
-        } catch (error) {
-          // Continue to next table name
-          continue;
-        }
+      if (profile?.role !== 'student') {
+        throw new Error('User is not a student');
       }
 
-      return [];
+      // Get payments from fee_payments table
+      const { data: payments, error } = await supabase
+        .from('fee_payments')
+        .select('*')
+        .eq('student_id', user.id)
+        .order('payment_date', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching payments:', error);
+        return [];
+      }
+
+      return payments || [];
     } catch (error) {
       console.error('Error fetching payments:', error);
       return [];
@@ -659,6 +769,17 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Verify user is a student
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, name')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.role !== 'student') {
+        throw new Error('User is not a student');
+      }
+
       if (!message || message.trim().length === 0) {
         throw new Error('Message is required');
       }
@@ -668,7 +789,7 @@ export const studentApi = {
         .from('admin_notifications')
         .insert({
           student_id: user.id,
-          student_name: user.user_metadata?.full_name || user.email,
+          student_name: profile.name || user.email,
           message: message.trim(),
           type: 'contact_request',
           status: 'pending'
@@ -697,6 +818,17 @@ export const studentApi = {
         throw new Error('At least one field (name or course) is required');
       }
 
+      // Verify user is a student
+      const { data: currentProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (currentProfile?.role !== 'student') {
+        throw new Error('User is not a student');
+      }
+
       const updateData = {};
       if (name) updateData.name = name;
       if (course) updateData.course = course;
@@ -714,6 +846,37 @@ export const studentApi = {
       return { success: true, data, message: 'Profile updated successfully' };
     } catch (error) {
       console.error('Error updating profile:', error);
+      throw error;
+    }
+  },
+
+  // Get student's teacher information
+  getMyTeacher: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select(`
+          teacher_id,
+          teacher:teacher_id (
+            id,
+            name,
+            email,
+            subject,
+            created_at
+          )
+        `)
+        .eq('id', user.id)
+        .eq('role', 'student')
+        .single();
+
+      if (error) throw error;
+
+      return profile?.teacher || null;
+    } catch (error) {
+      console.error('Error fetching teacher:', error);
       throw error;
     }
   }
