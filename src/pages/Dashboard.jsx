@@ -1,8 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect, useRef } from "react";
-import { makeApiRequest } from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import {studentApi} from "../lib/studentApi";
+import { studentApi } from "../lib/studentApi";
 import {
   FileText,
   CreditCard,
@@ -36,12 +35,10 @@ import {
   Video,
   MessageCircle,
   ShieldCheck,
-  Users,
   MicOff,
   Camera,
   CameraOff,
   PhoneOff,
-  Star,
   Crown
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
@@ -172,216 +169,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
   } catch (error) {
     console.error('❌ [Upload] Upload process failed:', error);
     throw error;
-  }
-};
-
-// === DIRECT DATABASE QUERIES FOR DYNAMIC DATA ===
-const studentDbQueries = {
-  // Get student classes with teacher info
-  getStudentClasses: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get student's enrollments
-      const { data: enrollments, error: enrollError } = await supabase
-        .from('student_enrollments')
-        .select('class_id')
-        .eq('student_id', user.id)
-        .eq('status', 'active');
-
-      if (enrollError) throw enrollError;
-
-      if (!enrollments || enrollments.length === 0) {
-        return [];
-      }
-
-      const classIds = enrollments.map(e => e.class_id);
-
-      // Get classes with teacher info
-      const { data: classes, error: classesError } = await supabase
-        .from('classes')
-        .select(`
-          *,
-          teacher:teacher_id (
-            id,
-            full_name,
-            email
-          ),
-          video_sessions (*)
-        `)
-        .in('id', classIds)
-        .order('scheduled_date', { ascending: true });
-
-      if (classesError) throw classesError;
-
-      // Transform data to match frontend expectations
-      return classes.map(classItem => ({
-        id: classItem.id,
-        title: classItem.title,
-        description: classItem.description,
-        scheduled_date: classItem.scheduled_date,
-        end_date: classItem.end_date,
-        teacher_name: classItem.teacher?.full_name || 'Teacher',
-        status: classItem.status,
-        video_session: classItem.video_sessions?.[0] || null
-      }));
-
-    } catch (error) {
-      console.error('Error fetching student classes:', error);
-      throw error;
-    }
-  },
-
-  // Get student assignments with submissions
-  getStudentAssignments: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get student's classes
-      const { data: enrollments } = await supabase
-        .from('student_enrollments')
-        .select('class_id')
-        .eq('student_id', user.id)
-        .eq('status', 'active');
-
-      if (!enrollments || enrollments.length === 0) return [];
-
-      const classIds = enrollments.map(e => e.class_id);
-
-      // Get assignments for these classes
-      const { data: assignments, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select(`
-          *,
-          class:class_id (
-            title,
-            teacher_id
-          ),
-          submissions (
-            id,
-            status,
-            submission_text,
-            audio_url,
-            score,
-            feedback,
-            submitted_at
-          )
-        `)
-        .in('class_id', classIds)
-        .order('due_date', { ascending: true });
-
-      if (assignmentsError) throw assignmentsError;
-
-      // Filter submissions for current student
-      return assignments.map(assignment => ({
-        ...assignment,
-        submissions: assignment.submissions.filter(sub => {
-          // In a real app, you'd check student_id, but for now we'll use the first submission
-          return true;
-        })
-      }));
-
-    } catch (error) {
-      console.error('Error fetching student assignments:', error);
-      throw error;
-    }
-  },
-
-  // Submit assignment
-  submitAssignment: async (submissionData) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { data, error } = await supabase
-        .from('assignment_submissions')
-        .insert({
-          assignment_id: submissionData.assignment_id,
-          student_id: user.id,
-          submission_text: submissionData.submission_text,
-          audio_url: submissionData.audio_url,
-          status: 'submitted',
-          submitted_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-      throw error;
-    }
-  },
-
-  // Get student stats
-  getStudentStats: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get total classes
-      const { count: totalClasses } = await supabase
-        .from('student_enrollments')
-        .select('*', { count: 'exact', head: true })
-        .eq('student_id', user.id)
-        .eq('status', 'active');
-
-      // Get completed assignments
-      const { count: completedAssignments } = await supabase
-        .from('assignment_submissions')
-        .select('*', { count: 'exact', head: true })
-        .eq('student_id', user.id)
-        .eq('status', 'graded');
-
-      // Get total assignments
-      const { data: enrollments } = await supabase
-        .from('student_enrollments')
-        .select('class_id')
-        .eq('student_id', user.id)
-        .eq('status', 'active');
-
-      let totalAssignments = 0;
-      if (enrollments && enrollments.length > 0) {
-        const classIds = enrollments.map(e => e.class_id);
-        const { count } = await supabase
-          .from('assignments')
-          .select('*', { count: 'exact', head: true })
-          .in('class_id', classIds);
-        totalAssignments = count || 0;
-      }
-
-      // Calculate average score
-      const { data: gradedSubmissions } = await supabase
-        .from('assignment_submissions')
-        .select('score, assignment_id')
-        .eq('student_id', user.id)
-        .eq('status', 'graded')
-        .not('score', 'is', null);
-
-      const avgScore = gradedSubmissions && gradedSubmissions.length > 0 
-        ? Math.round(gradedSubmissions.reduce((sum, sub) => sum + (sub.score || 0), 0) / gradedSubmissions.length)
-        : 0;
-
-      // Calculate hours learned (simplified - 1 hour per completed class)
-      const hoursLearned = totalClasses || 0;
-
-      return {
-        total_classes: totalClasses || 0,
-        hours_learned: hoursLearned,
-        assignments: totalAssignments,
-        completed_assignments: completedAssignments || 0,
-        avg_score: avgScore,
-        points: (completedAssignments || 0) * 10, // 10 points per completed assignment
-        streak: Math.floor(Math.random() * 14) + 1 // Random streak for demo
-      };
-    } catch (error) {
-      console.error('Error fetching student stats:', error);
-      throw error;
-    }
   }
 };
 
@@ -856,161 +643,6 @@ const getTimeUntilClass = (classDate, endDate) => {
     return { status: 'upcoming', text: `Starts in ${diffDays} days` };
   }
 };
-
-
-  getMyNotifications: async (limit = 20, page = 1) => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      const { data: notifications, error, count } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (error) throw error;
-
-      return {
-        notifications: notifications || [],
-        total: count || 0,
-        page,
-        limit,
-        hasMore: (count || 0) > to + 1
-      };
-    } catch (error) {
-      console.error('Error in getMyNotifications:', error);
-      throw error;
-    }
-  },
-
-  markAsRead: async (notificationId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('notifications')
-        .update({ 
-          read: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', notificationId)
-        .eq('user_id', user.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-      throw error;
-    }
-  },
-
-  markAllAsRead: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('notifications')
-        .update({ 
-          read: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', user.id)
-        .eq('read', false)
-        .select();
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-      throw error;
-    }
-  },
-
-  getUnreadCount: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
-
-      if (error) throw error;
-      return count || 0;
-    } catch (error) {
-      console.error('Error getting unread count:', error);
-      throw error;
-    }
-  },
-
-  deleteNotification: async (notificationId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', notificationId)
-        .eq('user_id', user.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      throw error;
-    }
-  },
-
-  clearAllNotifications: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('user_id', user.id)
-        .select();
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error clearing all notifications:', error);
-      throw error;
-    }
-  };
 
 // === REACT COMPONENTS ===
 const AudioPlayer = ({ audioUrl, onDelete }) => {
@@ -1638,66 +1270,67 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // Enhanced student data fetch with DIRECT DATABASE QUERIES
+  // Enhanced student data fetch with new API
   const fetchStudentData = async () => {
-  setLoading(true);
-  try {
-    const dashboardData = await studentApi.getDashboardData();
-    
-    setStudentName(dashboardData.student.name);
-    setUserEmailVerified(true); // Assuming verified since they're logged in
-    
-    // Set all the data from the API
-    setClasses(sortClasses(dashboardData.classes));
-    setAssignments(dashboardData.assignments);
-    setNotifications(dashboardData.notifications);
-    setHasTeacher(dashboardData.hasTeacher);
-    
-    // Transform stats for the frontend
-    const statsArray = [
-      { 
-        label: "Total Classes", 
-        value: dashboardData.stats.total_classes?.toString() || "0", 
-        icon: BookOpen, 
-        change: "+0" 
-      },
-      { 
-        label: "Hours Learned", 
-        value: dashboardData.stats.hours_learned?.toString() || "0", 
-        icon: Clock, 
-        change: "+0" 
-      },
-      { 
-        label: "Assignments", 
-        value: dashboardData.stats.assignments?.toString() || "0", 
-        icon: FileText, 
-        change: "+0" 
-      },
-      { 
-        label: "Avg. Score", 
-        value: `${dashboardData.stats.avg_score || "0"}%`, 
-        icon: BarChart3, 
-        change: "+0%" 
-      },
-    ];
-    
-    setStats(statsArray);
+    setLoading(true);
+    try {
+      const dashboardData = await studentApi.getDashboardData();
+      
+      setStudentName(dashboardData.student.name);
+      setUserEmailVerified(true);
+      
+      // Set all the data from the API
+      setClasses(sortClasses(dashboardData.classes));
+      setAssignments(dashboardData.assignments);
+      setNotifications(dashboardData.notifications);
+      setHasTeacher(dashboardData.hasTeacher);
+      
+      // Transform stats for the frontend
+      const statsArray = [
+        { 
+          label: "Total Classes", 
+          value: dashboardData.stats.total_classes?.toString() || "0", 
+          icon: BookOpen, 
+          change: "+0" 
+        },
+        { 
+          label: "Hours Learned", 
+          value: dashboardData.stats.hours_learned?.toString() || "0", 
+          icon: Clock, 
+          change: "+0" 
+        },
+        { 
+          label: "Assignments", 
+          value: dashboardData.stats.assignments?.toString() || "0", 
+          icon: FileText, 
+          change: "+0" 
+        },
+        { 
+          label: "Avg. Score", 
+          value: `${dashboardData.stats.avg_score || "0"}%`, 
+          icon: BarChart3, 
+          change: "+0%" 
+        },
+      ];
+      
+      setStats(statsArray);
 
-    setProgressStats({
-      completionRate: dashboardData.stats.completion_rate || 0,
-      streak: dashboardData.stats.streak || 0,
-      level: dashboardData.stats.level || 1,
-      points: dashboardData.stats.points || 0,
-      nextLevel: dashboardData.stats.next_level || 100
-    });
+      setProgressStats({
+        completionRate: dashboardData.stats.completion_rate || 0,
+        streak: dashboardData.stats.streak || 0,
+        level: dashboardData.stats.level || 1,
+        points: dashboardData.stats.points || 0,
+        nextLevel: dashboardData.stats.next_level || 100
+      });
 
-  } catch (error) {
-    console.error('❌ [Dashboard] Error fetching student data:', error);
-    toast.error('Failed to load dashboard data');
-  } finally {
-    setLoading(false);
-  }
-};
+    } catch (error) {
+      console.error('❌ [Dashboard] Error fetching student data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Enhanced notification fetch
   const fetchNotifications = async () => {
     setLoadingNotifications(true);
@@ -1721,24 +1354,23 @@ export default function Dashboard() {
 
   // Enhanced notification handlers
   const handleMarkAllAsRead = async () => {
-  try {
-    await studentApi.markAllNotificationsAsRead();
-    setNotifications(prev => prev.map(notification => ({ 
-      ...notification, 
-      read: true 
-    })));
-    toast.success('All notifications marked as read');
-  } catch (error) {
-    console.error('Error marking all as read:', error);
-    toast.error('Failed to mark notifications as read');
-  }
-};
-
+    try {
+      await studentApi.markAllNotificationsAsRead();
+      setNotifications(prev => prev.map(notification => ({ 
+        ...notification, 
+        read: true 
+      })));
+      toast.success('All notifications marked as read');
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      toast.error('Failed to mark notifications as read');
+    }
+  };
 
   const handleNotificationClick = async (notification) => {
     try {
       if (!notification.read) {
-        await studentApi.markAsRead(notification.id);
+        await studentApi.markNotificationAsRead(notification.id);
       }
 
       setNotifications(prev => 
@@ -1763,90 +1395,36 @@ export default function Dashboard() {
     }
   };
 
- const handleClearAllNotifications = async () => {
-  try {
-    await studentApi.clearAllNotifications();
-    setNotifications([]);
-    toast.success('All notifications cleared');
-  } catch (error) {
-    console.error('Error clearing notifications:', error);
-    toast.error('Failed to clear notifications');
-  }
-};
-
- const handleDeleteNotification = async (notificationId, event) => {
-  event.stopPropagation();
-  
-  try {
-    await studentApi.deleteNotification(notificationId);
-    setNotifications(prev => prev.filter(n => n.id !== notificationId));
-    toast.success('Notification deleted');
-  } catch (error) {
-    console.error('Error deleting notification:', error);
-    toast.error('Failed to delete notification');
-  }
-};
-
-
-  // UPDATED API FUNCTIONS WITH DIRECT DATABASE QUERIES
-  const fetchStatsData = async () => {
-    setLoadingStats(true);
+  const handleClearAllNotifications = async () => {
     try {
-      const statsData = await studentDbQueries.getStudentStats();
-      
-      if (!statsData || typeof statsData !== 'object') {
-        throw new Error('Invalid stats data received');
-      }
-      
-      const statsArray = [
-        { 
-          label: "Total Classes", 
-          value: statsData.total_classes?.toString() || "0", 
-          icon: BookOpen, 
-          change: "+0" 
-        },
-        { 
-          label: "Hours Learned", 
-          value: statsData.hours_learned?.toString() || "0", 
-          icon: Clock, 
-          change: "+0" 
-        },
-        { 
-          label: "Assignments", 
-          value: statsData.assignments?.toString() || "0", 
-          icon: FileText, 
-          change: "+0" 
-        },
-        { 
-          label: "Avg. Score", 
-          value: `${statsData.avg_score || "0"}%`, 
-          icon: BarChart3, 
-          change: "+0%" 
-        },
-      ];
-      
-      setStats(statsArray);
-
-      setProgressStats({
-        completionRate: Math.min(100, Math.round((statsData.completed_assignments || 0) / (statsData.total_assignments || 1) * 100)),
-        streak: statsData.streak || 0,
-        level: Math.floor((statsData.points || 0) / 100) + 1,
-        points: statsData.points || 0,
-        nextLevel: 100 - ((statsData.points || 0) % 100)
-      });
-
+      await studentApi.clearAllNotifications();
+      setNotifications([]);
+      toast.success('All notifications cleared');
     } catch (error) {
-      console.error('Error fetching stats:', error);
-    } finally {
-      setLoadingStats(false);
+      console.error('Error clearing notifications:', error);
+      toast.error('Failed to clear notifications');
     }
   };
 
+  const handleDeleteNotification = async (notificationId, event) => {
+    event.stopPropagation();
+    
+    try {
+      await studentApi.deleteNotification(notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      toast.success('Notification deleted');
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      toast.error('Failed to delete notification');
+    }
+  };
+
+  // Fetch individual data functions
   const fetchClasses = async () => {
     setLoadingClasses(true);
     try {
-      const classesData = await studentDbQueries.getStudentClasses();
-      setClasses(sortClasses(classesData));
+      const classesData = await studentApi.getMyClasses();
+      setClasses(sortClasses(classesData.classes || []));
     } catch (error) {
       console.error('Error fetching classes:', error);
       setClasses([]);
@@ -1858,8 +1436,8 @@ export default function Dashboard() {
   const fetchAssignments = async () => {
     setLoadingAssignments(true);
     try {
-      const assignmentsData = await studentDbQueries.getStudentAssignments();
-      setAssignments(assignmentsData);
+      const assignmentsData = await studentApi.getMyAssignments();
+      setAssignments(assignmentsData.assignments || []);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       setAssignments([]);
@@ -1871,8 +1449,8 @@ export default function Dashboard() {
   const fetchPayments = async () => {
     setLoadingPayments(true);
     try {
-      // For now, return empty array since we don't have payment data
-      setPayments([]);
+      const paymentsData = await studentApi.getMyPayments();
+      setPayments(paymentsData || []);
     } catch (error) {
       console.error('Error fetching payments:', error);
       setPayments([]);
@@ -1899,47 +1477,45 @@ export default function Dashboard() {
   };
 
   // Event handlers
- const handleSubmitAssignment = async (submissionData) => {
-  try {
-    const result = await studentApi.submitAssignment(submissionData);
+  const handleSubmitAssignment = async (submissionData) => {
+    try {
+      const result = await studentApi.submitAssignment(submissionData);
 
-    if (result.success) {
-      toast.success('Assignment submitted successfully!');
-      // Refresh assignments data
-      const assignmentsData = await studentApi.getMyAssignments();
-      setAssignments(assignmentsData.assignments || []);
-    } else {
-      throw new Error(result.error || 'Failed to submit assignment');
+      if (result.success) {
+        toast.success('Assignment submitted successfully!');
+        // Refresh assignments data
+        const assignmentsData = await studentApi.getMyAssignments();
+        setAssignments(assignmentsData.assignments || []);
+      } else {
+        throw new Error(result.error || 'Failed to submit assignment');
+      }
+    } catch (error) {
+      console.error('Error submitting assignment:', error);
+      throw error;
     }
-  } catch (error) {
-    console.error('Error submitting assignment:', error);
-    throw error;
-  }
-};
-
+  };
 
   // Enhanced join class function with video call integration
   const handleJoinClass = async (classItem) => {
-  try {
-    if (!classItem.video_session?.meeting_id) {
-      toast.error('No active video session for this class');
-      return;
-    }
+    try {
+      if (!classItem.video_session?.meeting_id) {
+        toast.error('No active video session for this class');
+        return;
+      }
 
-    const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
-    
-    if (result) {
-      // Set the class for video call and open the call interface
-      setSelectedClassForCall(classItem);
-      setShowVideoCall(true);
-      toast.success('Joining class session...');
+      const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
+      
+      if (result) {
+        // Set the class for video call and open the call interface
+        setSelectedClassForCall(classItem);
+        setShowVideoCall(true);
+        toast.success('Joining class session...');
+      }
+    } catch (error) {
+      console.error('Error joining class:', error);
+      toast.error(error.message || 'Failed to join class. Please try again.');
     }
-  } catch (error) {
-    console.error('Error joining class:', error);
-    toast.error(error.message || 'Failed to join class. Please try again.');
-  }
-};
-
+  };
 
   const handleSendMessage = async () => {
     if (!contactMessage.trim()) {
@@ -1949,8 +1525,8 @@ export default function Dashboard() {
 
     setSendingMessage(true);
     try {
-      // This would be implemented based on your messaging system
-      toast.success('Message functionality would be implemented here');
+      await studentApi.contactAdmin(contactMessage);
+      toast.success('Message sent to admin successfully!');
       setContactMessage('');
     } catch (error) {
       console.error('Error sending message:', error);
@@ -2400,7 +1976,6 @@ export default function Dashboard() {
               </motion.section>
             )}
 
-            {/* Other sections remain the same */}
             {activeSection === 'assignments' && (
               <motion.section
                 key="assignments"
