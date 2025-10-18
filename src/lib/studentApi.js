@@ -39,11 +39,6 @@ export const studentApi = {
 
       if (profileError) throw profileError;
 
-      // Verify user is a student
-      if (profile.role !== 'student') {
-        throw new Error('User is not a student');
-      }
-
       // Get all data in parallel
       const [classesData, assignmentsData, statsData, notificationsData] = await Promise.all([
         studentApi.getMyClasses(),
@@ -78,7 +73,6 @@ export const studentApi = {
         .from('profiles')
         .select('teacher_id')
         .eq('id', user.id)
-        .eq('role', 'student')
         .single();
 
       if (profileError) throw profileError;
@@ -159,17 +153,6 @@ export const studentApi = {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
-      // Verify user is a student
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.role !== 'student') {
-        throw new Error('User is not a student');
-      }
 
       // Get assignments for the student
       const { data: assignments, error: assignmentsError } = await supabase
@@ -271,17 +254,6 @@ export const studentApi = {
 
       const { assignment_id, submission_text, audio_url } = submissionData;
 
-      // Verify user is a student
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.role !== 'student') {
-        throw new Error('User is not a student');
-      }
-
       // Validate assignment exists and belongs to student
       const { data: assignment, error: assignmentError } = await supabase
         .from('assignments')
@@ -366,10 +338,26 @@ export const studentApi = {
           teacher_id
         `)
         .eq('id', user.id)
-        .eq('role', 'student')
         .single();
 
       if (profileError) throw profileError;
+
+      // If no teacher_id, return empty stats
+      if (!profile?.teacher_id) {
+        return {
+          total_classes: 0,
+          hours_learned: 0,
+          assignments: 0,
+          completed_assignments: 0,
+          avg_score: 0,
+          completion_rate: 0,
+          attendance_rate: 0,
+          points: 0,
+          level: 1,
+          next_level: 100,
+          streak: 0
+        };
+      }
 
       // Get actual counts from database
       const [
@@ -610,17 +598,6 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Verify user is a student
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, teacher_id')
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.role !== 'student') {
-        throw new Error('User is not a student');
-      }
-
       // Get video session details
       const { data: session, error: sessionError } = await supabase
         .from('video_sessions')
@@ -643,8 +620,15 @@ export const studentApi = {
         throw new Error('Video session not found or not active');
       }
 
+      // Get student's teacher_id to verify access
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('teacher_id')
+        .eq('id', user.id)
+        .single();
+
       // Verify student has access to this class through their teacher
-      if (!profile.teacher_id || profile.teacher_id !== session.classes?.teacher_id) {
+      if (!profile?.teacher_id || profile.teacher_id !== session.classes?.teacher_id) {
         throw new Error('Not authorized to join this session');
       }
 
@@ -675,7 +659,6 @@ export const studentApi = {
         .from('profiles')
         .select('teacher_id')
         .eq('id', user.id)
-        .eq('role', 'student')
         .single();
 
       if (!profile?.teacher_id) {
@@ -733,17 +716,6 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Verify user is a student
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.role !== 'student') {
-        throw new Error('User is not a student');
-      }
-
       // Get payments from fee_payments table
       const { data: payments, error } = await supabase
         .from('fee_payments')
@@ -769,16 +741,12 @@ export const studentApi = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Verify user is a student
+      // Get student name for the notification
       const { data: profile } = await supabase
         .from('profiles')
-        .select('role, name')
+        .select('name')
         .eq('id', user.id)
         .single();
-
-      if (profile?.role !== 'student') {
-        throw new Error('User is not a student');
-      }
 
       if (!message || message.trim().length === 0) {
         throw new Error('Message is required');
@@ -789,7 +757,7 @@ export const studentApi = {
         .from('admin_notifications')
         .insert({
           student_id: user.id,
-          student_name: profile.name || user.email,
+          student_name: profile?.name || user.email,
           message: message.trim(),
           type: 'contact_request',
           status: 'pending'
@@ -816,17 +784,6 @@ export const studentApi = {
 
       if (!name && !course) {
         throw new Error('At least one field (name or course) is required');
-      }
-
-      // Verify user is a student
-      const { data: currentProfile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (currentProfile?.role !== 'student') {
-        throw new Error('User is not a student');
       }
 
       const updateData = {};
@@ -869,7 +826,6 @@ export const studentApi = {
           )
         `)
         .eq('id', user.id)
-        .eq('role', 'student')
         .single();
 
       if (error) throw error;
