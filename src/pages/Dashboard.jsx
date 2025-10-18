@@ -857,8 +857,7 @@ const getTimeUntilClass = (classDate, endDate) => {
   }
 };
 
-// STUDENT API WITH DIRECT DATABASE QUERIES
-const studentApi = {
+
   getMyNotifications: async (limit = 20, page = 1) => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -1011,8 +1010,7 @@ const studentApi = {
       console.error('Error clearing all notifications:', error);
       throw error;
     }
-  }
-};
+  };
 
 // === REACT COMPONENTS ===
 const AudioPlayer = ({ audioUrl, onDelete }) => {
