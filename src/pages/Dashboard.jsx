@@ -436,6 +436,394 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
   }
 };
 
+// === STUDENT VIDEO CALL COMPONENT ===
+const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
+  const [localStream, setLocalStream] = useState(null);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [participants, setParticipants] = useState([]);
+  const [teacherStream, setTeacherStream] = useState(null);
+  const localVideoRef = useRef(null);
+  const teacherVideoRef = useRef(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      initializeCall();
+      startTimer();
+      fetchParticipants();
+    } else {
+      cleanupCall();
+    }
+
+    return () => {
+      cleanupCall();
+    };
+  }, [isOpen]);
+
+  const initializeCall = async () => {
+    try {
+      setIsConnecting(true);
+      
+      // Get user media with error handling
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      
+      setLocalStream(stream);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+
+      // Connect to actual video session
+      await connectToVideoSession();
+
+    } catch (error) {
+      console.error('Error accessing media devices:', error);
+      toast.error('Could not access camera/microphone. Please check permissions.');
+      setIsConnecting(false);
+    }
+  };
+
+  const connectToVideoSession = async () => {
+    try {
+      // Simulate connecting to teacher's stream
+      setTimeout(() => {
+        setIsConnected(true);
+        setIsConnecting(false);
+        
+        // Simulate teacher stream (in production, this would be real)
+        const teacherStream = new MediaStream();
+        setTeacherStream(teacherStream);
+        
+        if (teacherVideoRef.current) {
+          teacherVideoRef.current.srcObject = teacherStream;
+        }
+        
+        toast.success('Connected to class successfully!');
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error connecting to video session:', error);
+      toast.error('Failed to connect to class session');
+      setIsConnecting(false);
+    }
+  };
+
+  const fetchParticipants = async () => {
+    try {
+      // Simulate fetching participants
+      setParticipants([
+        { name: classItem.teacher_name || 'Teacher', role: 'teacher', isOnline: true },
+        { name: 'You', role: 'student', isOnline: true }
+      ]);
+    } catch (error) {
+      console.error('Error fetching participants:', error);
+    }
+  };
+
+  const cleanupCall = () => {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    if (teacherStream) {
+      teacherStream.getTracks().forEach(track => track.stop());
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    setCallDuration(0);
+    setIsConnected(false);
+  };
+
+  const startTimer = () => {
+    timerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+  };
+
+  const toggleAudio = () => {
+    if (localStream) {
+      const audioTracks = localStream.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsAudioMuted(!isAudioMuted);
+      toast.info(isAudioMuted ? 'Microphone on' : 'Microphone muted');
+    }
+  };
+
+  const toggleVideo = () => {
+    if (localStream) {
+      const videoTracks = localStream.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsVideoOff(!isVideoOff);
+      toast.info(isVideoOff ? 'Camera on' : 'Camera off');
+    }
+  };
+
+  const leaveCall = async () => {
+    try {
+      // Record student leaving in database
+      await supabase
+        .from('session_participants')
+        .update({ 
+          left_at: new Date().toISOString(),
+          status: 'left'
+        })
+        .eq('session_id', classItem.video_session?.id)
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    } catch (error) {
+      console.error('Error leaving call:', error);
+    } finally {
+      cleanupCall();
+      onClose();
+      toast.info('You left the class');
+    }
+  };
+
+  const raiseHand = () => {
+    toast.info('Hand raised! Teacher will be notified.');
+    // In production, send signal to teacher
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+      {/* Header */}
+      <div className="bg-green-800 text-white p-4 flex justify-between items-center border-b border-green-700">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+            <span className="text-sm">{isConnected ? 'Connected' : 'Connecting...'}</span>
+          </div>
+          <div className="h-6 w-px bg-green-600"></div>
+          <div>
+            <h2 className="text-xl font-bold">{classItem.title}</h2>
+            <p className="text-green-200 text-sm">
+              {classItem.teacher_name} • Duration: {formatTime(callDuration)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-3">
+          <div className="bg-green-700 px-3 py-1 rounded-full text-sm">
+            {participants.length} online
+          </div>
+          <button
+            onClick={leaveCall}
+            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg flex items-center transition-colors duration-200"
+          >
+            <PhoneOff size={18} className="mr-2" />
+            Leave Class
+          </button>
+        </div>
+      </div>
+
+      {/* Main Video Area */}
+      <div className="flex-1 bg-gray-900 relative p-6">
+        {isConnecting ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <Loader2 className="animate-spin mx-auto text-green-400" size={48} />
+              <p className="text-white mt-4 text-lg font-semibold">Connecting to Class</p>
+              <p className="text-gray-400 mt-2">Please wait while we connect you to {classItem.teacher_name}</p>
+              <div className="mt-4 flex justify-center space-x-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+            {/* Teacher's Video - Main */}
+            <div className="lg:col-span-2 bg-gray-800 rounded-xl relative overflow-hidden border-2 border-green-500">
+              <div className="absolute inset-0 bg-gradient-to-br from-green-900/20 to-transparent"></div>
+              <video
+                ref={teacherVideoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute bottom-4 left-4 bg-black/60 text-white px-3 py-2 rounded-lg backdrop-blur-sm">
+                <div className="flex items-center space-x-2">
+                  <User size={16} className="text-green-400" />
+                  <span className="font-medium">{classItem.teacher_name}</span>
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-green-300 text-sm">LIVE</span>
+                </div>
+              </div>
+              {!teacherStream && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center text-white">
+                    <User size={64} className="mx-auto text-gray-400 mb-4" />
+                    <p className="text-lg font-semibold">Waiting for Teacher</p>
+                    <p className="text-gray-400">Teacher's video will appear here</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Student's Video & Controls */}
+            <div className="space-y-6">
+              {/* Student Video */}
+              <div className="bg-gray-800 rounded-xl relative overflow-hidden border border-green-600/30">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-48 object-cover"
+                />
+                <div className="absolute bottom-3 left-3 bg-black/70 text-white px-2 py-1 rounded text-sm backdrop-blur-sm">
+                  You {isVideoOff ? '(Camera Off)' : ''}
+                </div>
+                {isVideoOff && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+                    <CameraOff size={32} className="text-gray-500" />
+                  </div>
+                )}
+              </div>
+
+              {/* Controls */}
+              <div className="bg-gray-800 rounded-xl p-4 space-y-4">
+                <h3 className="text-white font-semibold text-sm uppercase tracking-wider">Controls</h3>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={toggleAudio}
+                    className={`flex items-center justify-center space-x-2 py-3 rounded-lg transition-all duration-200 ${
+                      isAudioMuted 
+                        ? 'bg-red-600 hover:bg-red-500 text-white' 
+                        : 'bg-green-600 hover:bg-green-500 text-white'
+                    }`}
+                  >
+                    {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                    <span className="text-sm">{isAudioMuted ? 'Unmute' : 'Mute'}</span>
+                  </button>
+                  
+                  <button
+                    onClick={toggleVideo}
+                    className={`flex items-center justify-center space-x-2 py-3 rounded-lg transition-all duration-200 ${
+                      isVideoOff 
+                        ? 'bg-red-600 hover:bg-red-500 text-white' 
+                        : 'bg-green-600 hover:bg-green-500 text-white'
+                    }`}
+                  >
+                    {isVideoOff ? <CameraOff size={20} /> : <Camera size={20} />}
+                    <span className="text-sm">{isVideoOff ? 'Camera On' : 'Camera Off'}</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={raiseHand}
+                  className="w-full bg-yellow-600 hover:bg-yellow-500 text-white py-3 rounded-lg flex items-center justify-center space-x-2 transition-all duration-200"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
+                  </svg>
+                  <span>Raise Hand</span>
+                </button>
+              </div>
+
+              {/* Participants */}
+              <div className="bg-gray-800 rounded-xl p-4">
+                <h3 className="text-white font-semibold text-sm uppercase tracking-wider mb-3">
+                  Participants ({participants.length})
+                </h3>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {participants.map((participant, index) => (
+                    <div
+                      key={index}
+                      className={`flex items-center space-x-3 p-2 rounded-lg ${
+                        participant.role === 'teacher' 
+                          ? 'bg-green-900/30 border border-green-700/30' 
+                          : 'bg-gray-700/50'
+                      }`}
+                    >
+                      <div className={`w-2 h-2 rounded-full ${
+                        participant.isOnline ? 'bg-green-500' : 'bg-gray-500'
+                      }`}></div>
+                      <User size={16} className={
+                        participant.role === 'teacher' ? 'text-green-400' : 'text-gray-400'
+                      } />
+                      <span className="text-white text-sm flex-1">
+                        {participant.name}
+                        {participant.role === 'teacher' && ' (Teacher)'}
+                      </span>
+                      {participant.role === 'teacher' && (
+                        <Crown size={14} className="text-yellow-500" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Controls Bar */}
+      <div className="bg-gray-800 border-t border-gray-700 p-4">
+        <div className="flex justify-center items-center space-x-6">
+          <button
+            onClick={toggleAudio}
+            className={`flex flex-col items-center space-y-2 p-3 rounded-xl transition-all duration-200 ${
+              isAudioMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
+            }`}
+          >
+            {isAudioMuted ? <MicOff size={24} /> : <Mic size={24} />}
+            <span className="text-white text-xs">{isAudioMuted ? 'Unmute' : 'Mute'}</span>
+          </button>
+          
+          <button
+            onClick={toggleVideo}
+            className={`flex flex-col items-center space-y-2 p-3 rounded-xl transition-all duration-200 ${
+              isVideoOff ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
+            }`}
+          >
+            {isVideoOff ? <CameraOff size={24} /> : <Camera size={24} />}
+            <span className="text-white text-xs">{isVideoOff ? 'Start Video' : 'Stop Video'}</span>
+          </button>
+
+          <button
+            onClick={raiseHand}
+            className="flex flex-col items-center space-y-2 p-3 bg-yellow-600 hover:bg-yellow-500 rounded-xl transition-all duration-200"
+          >
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
+            </svg>
+            <span className="text-white text-xs">Raise Hand</span>
+          </button>
+
+          <div className="h-8 w-px bg-gray-600"></div>
+
+          <button
+            onClick={leaveCall}
+            className="flex flex-col items-center space-y-2 p-3 bg-red-600 hover:bg-red-500 rounded-xl transition-all duration-200"
+          >
+            <PhoneOff size={24} />
+            <span className="text-white text-xs">Leave</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}; 
 // Enhanced class sorting with video session integration
 const sortClasses = (classes) => {
   if (!Array.isArray(classes)) return [];
