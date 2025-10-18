@@ -98,19 +98,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   const connectToVideoSession = async () => {
     try {
-      // Connect to the actual video session
-      const { data: sessionData, error } = await supabase
-        .from('video_sessions')
-        .select('*')
-        .eq('class_id', classItem.id)
-        .eq('status', 'active')
-        .single();
-
-      if (error || !sessionData) {
-        throw new Error('No active video session found');
-      }
-
-      // Simulate connection process
+      // In a real implementation, you would connect to your video service (Zoom, Jitsi, etc.)
+      // For now, we'll simulate a successful connection
       setTimeout(() => {
         setIsConnected(true);
         setIsConnecting(false);
@@ -126,14 +115,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   const fetchParticipants = async () => {
     try {
-      const { data, error } = await supabase
-        .from('session_participants')
-        .select('*')
-        .eq('session_id', classItem.video_session?.id);
-
-      if (!error && data) {
-        setParticipants(data);
-      }
+      // Simulate fetching participants
+      setParticipants([
+        { name: classItem.teacher_name || 'Teacher', role: 'teacher' },
+        { name: 'You', role: 'student' }
+      ]);
     } catch (error) {
       console.error('Error fetching participants:', error);
     }
@@ -182,7 +168,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       await makeApiRequest('/api/video-sessions/leave', {
         method: 'POST',
         body: {
-          session_id: classItem.video_session?.id,
           class_id: classItem.id
         }
       });
@@ -245,7 +230,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
             <div className="bg-gray-800 rounded-lg flex items-center justify-center relative">
               <div className="text-center text-white">
                 <User size={64} className="mx-auto text-gray-400" />
-                <p className="mt-2 font-semibold">Teacher: {classItem.teacher?.name}</p>
+                <p className="mt-2 font-semibold">Teacher: {classItem.teacher_name}</p>
                 <p className="text-gray-400">Live Video Feed</p>
               </div>
             </div>
@@ -302,20 +287,19 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           Participants ({participants.length})
         </h3>
         <div className="space-y-2 max-h-60 overflow-y-auto">
-          <div className="flex items-center space-x-2 p-2 bg-green-600/20 rounded">
-            <User size={16} className="text-green-400" />
-            <span className="text-white text-sm">{classItem.teacher?.name} (Teacher)</span>
-            <div className="w-2 h-2 bg-green-500 rounded-full ml-auto"></div>
-          </div>
-          <div className="flex items-center space-x-2 p-2 bg-blue-600/20 rounded">
-            <User size={16} className="text-blue-400" />
-            <span className="text-white text-sm">You</span>
-            <div className="w-2 h-2 bg-green-500 rounded-full ml-auto"></div>
-          </div>
           {participants.map((participant, index) => (
-            <div key={index} className="flex items-center space-x-2 p-2 bg-gray-700/50 rounded">
-              <User size={16} className="text-gray-400" />
-              <span className="text-white text-sm">Student {index + 1}</span>
+            <div key={index} className={`flex items-center space-x-2 p-2 rounded ${
+              participant.role === 'teacher' 
+                ? 'bg-green-600/20' 
+                : 'bg-blue-600/20'
+            }`}>
+              <User size={16} className={
+                participant.role === 'teacher' ? 'text-green-400' : 'text-blue-400'
+              } />
+              <span className="text-white text-sm">
+                {participant.name} {participant.role === 'teacher' ? '(Teacher)' : ''}
+              </span>
+              <div className="w-2 h-2 bg-green-500 rounded-full ml-auto"></div>
             </div>
           ))}
         </div>
@@ -463,9 +447,9 @@ const sortClasses = (classes) => {
     const classBStart = new Date(b.scheduled_date);
     const classBEnd = new Date(b.end_date);
     
-    // Check if classes are live (current time is between start and end AND video session is active)
-    const isALive = now >= classAStart && now <= classAEnd && a.video_session?.status === 'active';
-    const isBLive = now >= classBStart && now <= classBEnd && b.video_session?.status === 'active';
+    // Check if classes are live (current time is between start and end)
+    const isALive = now >= classAStart && now <= classAEnd;
+    const isBLive = now >= classBStart && now <= classBEnd;
     
     // Check if classes are upcoming (future start time)
     const isAUpcoming = classAStart > now;
@@ -502,8 +486,8 @@ const sortClasses = (classes) => {
   });
 };
 
-// Enhanced getTimeUntilClass function with video session check
-const getTimeUntilClass = (classDate, endDate, videoSession) => {
+// Enhanced getTimeUntilClass function
+const getTimeUntilClass = (classDate, endDate) => {
   const now = new Date();
   const classTime = new Date(classDate);
   const classEnd = new Date(endDate);
@@ -512,10 +496,8 @@ const getTimeUntilClass = (classDate, endDate, videoSession) => {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  // Check if class is currently live and video session is active
-  const isLiveWithSession = now >= classTime && now <= classEnd && videoSession?.status === 'active';
-
-  if (isLiveWithSession) {
+  // Check if class is currently live
+  if (now >= classTime && now <= classEnd) {
     const timeLeft = classEnd - now;
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
     const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
@@ -538,7 +520,7 @@ const getTimeUntilClass = (classDate, endDate, videoSession) => {
   }
 };
 
-// STUDENT API WITH VIDEO SESSION INTEGRATION
+// STUDENT API WITH CORRECT DATABASE STRUCTURE
 const studentApi = {
   getMyNotifications: async (limit = 20, page = 1) => {
     try {
@@ -581,44 +563,57 @@ const studentApi = {
         throw new Error('User not authenticated');
       }
 
-      // Fetch classes with video session data
-      const { data: classes, error } = await supabase
+      // First get student's enrollments to find their teachers
+      const { data: enrollments, error: enrollmentError } = await supabase
+        .from('enrollments')
+        .select('teacher_id')
+        .eq('student_id', user.id);
+
+      if (enrollmentError) throw enrollmentError;
+
+      if (!enrollments || enrollments.length === 0) {
+        return [];
+      }
+
+      const teacherIds = enrollments.map(e => e.teacher_id);
+
+      // Fetch classes from the teachers this student is enrolled with
+      const { data: classes, error: classesError } = await supabase
         .from('classes')
-        .select(`
-          *,
-          teacher:profiles(*),
-          video_session:video_sessions(*)
-        `)
-        .eq('student_id', user.id)
+        .select('*')
+        .in('teacher_id', teacherIds)
         .order('scheduled_date', { ascending: true });
 
-      if (error) throw error;
+      if (classesError) throw classesError;
+
+      // Fetch teacher names
+      const { data: teachers, error: teachersError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', teacherIds);
+
+      if (!teachersError && teachers) {
+        // Map teacher names to classes
+        const teacherMap = teachers.reduce((acc, teacher) => {
+          acc[teacher.id] = teacher.full_name;
+          return acc;
+        }, {});
+
+        return classes.map(classItem => ({
+          ...classItem,
+          teacher_name: teacherMap[classItem.teacher_id] || 'Teacher'
+        }));
+      }
 
       return classes || [];
+
     } catch (error) {
       console.error('Error fetching classes:', error);
       throw error;
     }
   },
 
-  getVideoSessionStatus: async (classId) => {
-    try {
-      const { data: session, error } = await supabase
-        .from('video_sessions')
-        .select('*')
-        .eq('class_id', classId)
-        .eq('status', 'active')
-        .single();
-
-      if (error) return null;
-      return session;
-    } catch (error) {
-      console.error('Error fetching video session:', error);
-      return null;
-    }
-  },
-
-  joinVideoSession: async (sessionId) => {
+  joinVideoSession: async (classId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -626,13 +621,14 @@ const studentApi = {
         throw new Error('User not authenticated');
       }
 
-      // Add student to session participants
+      // Record student joining the session
       const { data, error } = await supabase
-        .from('session_participants')
+        .from('class_attendance')
         .insert({
-          session_id: sessionId,
-          user_id: user.id,
-          joined_at: new Date().toISOString()
+          class_id: classId,
+          student_id: user.id,
+          joined_at: new Date().toISOString(),
+          status: 'joined'
         })
         .select()
         .single();
@@ -1123,19 +1119,14 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 };
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
-  const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date, classItem.video_session);
+  const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
   const isClassLive = timeInfo.status === 'live';
   const isClassCompleted = timeInfo.status === 'completed';
   const isUpcoming = timeInfo.status === 'upcoming';
 
-  // Check if teacher is live based on video session status
-  const isTeacherLive = classItem.video_session?.status === 'active';
-
   const handleJoinClass = async () => {
-    if (isClassLive && isTeacherLive) {
+    if (isClassLive) {
       await onJoinClass(classItem);
-    } else if (isClassLive && !isTeacherLive) {
-      toast.info('Teacher is not online yet. Please wait for the teacher to start the session.');
     }
   };
 
@@ -1162,7 +1153,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                 {isClassCompleted && (
                   <CheckCircle size={16} className="text-green-300 ml-2" />
                 )}
-                {isClassLive && isTeacherLive && (
+                {isClassLive && (
                   <div className="flex items-center ml-2">
                     <div className="w-2 h-2 bg-red-500 rounded-full animate-ping mr-1"></div>
                     <div className="w-2 h-2 bg-red-500 rounded-full"></div>
@@ -1172,15 +1163,12 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
               <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                 isClassCompleted 
                   ? 'bg-green-900/50 text-green-300'
-                  : isClassLive && isTeacherLive
-                  ? 'bg-red-900/50 text-red-300 animate-pulse'
                   : isClassLive
-                  ? 'bg-orange-900/50 text-orange-300'
+                  ? 'bg-red-900/50 text-red-300 animate-pulse'
                   : 'bg-yellow-900/50 text-yellow-300'
               }`}>
                 {isClassCompleted ? 'Completed' : 
-                 isClassLive && isTeacherLive ? 'Live Now' : 
-                 isClassLive ? 'Waiting for Teacher' : 
+                 isClassLive ? 'Live Now' : 
                  'Upcoming'}
               </span>
             </div>
@@ -1192,10 +1180,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
               </span>
               <span className="flex items-center mr-4 mb-2">
                 <User size={14} className="mr-1" />
-                {classItem.teacher?.full_name || 'Teacher'}
-                {isTeacherLive && (
-                  <div className="w-2 h-2 bg-green-500 rounded-full ml-1 animate-pulse"></div>
-                )}
+                {classItem.teacher_name || 'Teacher'}
               </span>
               <span className="flex items-center mr-4 mb-2">
                 <Calendar size={14} className="mr-1" />
@@ -1204,49 +1189,24 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
             </div>
             
             <div className={`mt-2 text-sm ${
-              isClassLive && isTeacherLive ? 'text-red-300 font-semibold' : 
-              isClassLive ? 'text-orange-300' : 
-              'text-green-300'
+              isClassLive ? 'text-red-300 font-semibold' : 'text-green-300'
             }`}>
               {timeInfo.text}
-              {isClassLive && isTeacherLive && (
-                <span className="ml-2 text-green-300">• Teacher is online</span>
-              )}
-              {isClassLive && !isTeacherLive && (
-                <span className="ml-2 text-orange-300">• Waiting for teacher to start</span>
+              {isClassLive && (
+                <span className="ml-2 text-green-300">• Click "Join Live Class" to enter</span>
               )}
             </div>
-
-            {classItem.video_session && (
-              <div className="mt-2 text-xs text-green-400 flex items-center">
-                <ShieldCheck size={12} className="mr-1" />
-                Session: {classItem.video_session.status}
-                {isClassLive && isTeacherLive && (
-                  <span className="ml-2 text-red-400">• LIVE</span>
-                )}
-              </div>
-            )}
           </div>
         </div>
         
         <div className="mt-4 flex flex-wrap gap-2">
-          {isClassLive && isTeacherLive && (
+          {isClassLive && (
             <button 
               className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200 shadow-lg"
               onClick={handleJoinClass}
             >
               <PlayCircle size={16} className="mr-1"/>
               Join Live Class
-            </button>
-          )}
-          
-          {isClassLive && !isTeacherLive && (
-            <button 
-              className="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
-              disabled
-            >
-              <Loader2 size={16} className="mr-1 animate-spin"/>
-              Waiting for Teacher
             </button>
           )}
           
@@ -1257,10 +1217,10 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
             </button>
           )}
           
-          {isClassCompleted && classItem.video_session?.recording_url && (
+          {isClassCompleted && (
             <button className="bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
               <Download size={16} className="mr-1"/>
-              Download Recording
+              View Recording
             </button>
           )}
           
@@ -1412,7 +1372,7 @@ export default function Dashboard() {
   const [selectedClassForCall, setSelectedClassForCall] = useState(null);
   const [showVideoCall, setShowVideoCall] = useState(false);
 
-  // Enhanced student data fetch with video session integration
+  // Enhanced student data fetch with correct database structure
   const fetchStudentData = async () => {
     setLoading(true);
     try {
@@ -1422,7 +1382,7 @@ export default function Dashboard() {
         setStudentName(user.user_metadata?.full_name || 'Student');
         setUserEmailVerified(user.email_confirmed_at !== null);
         
-        // Fetch all data including notifications and classes with video sessions
+        // Fetch all data including notifications and classes
         await Promise.all([
           fetchStatsData(),
           fetchClasses(),
@@ -1443,7 +1403,7 @@ export default function Dashboard() {
     }
   };
 
-  // Enhanced classes fetch with video session data
+  // Correct classes fetch using enrollments
   const fetchClasses = async () => {
     setLoadingClasses(true);
     try {
@@ -1451,8 +1411,8 @@ export default function Dashboard() {
       const sortedClasses = sortClasses(classesData || []);
       setClasses(sortedClasses);
       
-      // Check if student has a teacher
-      setHasTeacher(classesData.some(classItem => classItem.teacher_id));
+      // Check if student has teachers
+      setHasTeacher(classesData.length > 0);
     } catch (error) {
       console.error('Error fetching classes:', error);
       setClasses([]);
@@ -1465,7 +1425,7 @@ export default function Dashboard() {
   // Enhanced join class function
   const handleJoinClass = async (classItem) => {
     try {
-      // Verify class is live and video session is active
+      // Verify class is live
       const now = new Date();
       const classStart = new Date(classItem.scheduled_date);
       const classEnd = new Date(classItem.end_date);
@@ -1480,16 +1440,8 @@ export default function Dashboard() {
         return;
       }
 
-      // Double-check video session status
-      const videoSession = await studentApi.getVideoSessionStatus(classItem.id);
-      
-      if (!videoSession || videoSession.status !== 'active') {
-        toast.info('Teacher has not started the video session yet. Please wait.');
-        return;
-      }
-
-      // Join the video session
-      await studentApi.joinVideoSession(videoSession.id);
+      // Record attendance and open video call
+      await studentApi.joinVideoSession(classItem.id);
       
       // Set the class for video call and open the call interface
       setSelectedClassForCall(classItem);
@@ -2042,7 +1994,7 @@ export default function Dashboard() {
                       const now = new Date();
                       const start = new Date(c.scheduled_date);
                       const end = new Date(c.end_date);
-                      return now >= start && now <= end && c.video_session?.status === 'active';
+                      return now >= start && now <= end;
                     }).length > 0 && (
                       <div className="flex items-center space-x-2 bg-red-900/50 px-3 py-1 rounded-full">
                         <div className="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
@@ -2051,7 +2003,7 @@ export default function Dashboard() {
                             const now = new Date();
                             const start = new Date(c.scheduled_date);
                             const end = new Date(c.end_date);
-                            return now >= start && now <= end && c.video_session?.status === 'active';
+                            return now >= start && now <= end;
                           }).length} Live Now
                         </span>
                       </div>
@@ -2086,7 +2038,7 @@ export default function Dashboard() {
                       const now = new Date();
                       const start = new Date(c.scheduled_date);
                       const end = new Date(c.end_date);
-                      return now >= start && now <= end && c.video_session?.status === 'active';
+                      return now >= start && now <= end;
                     }).length > 0 && (
                       <div>
                         <h4 className="text-lg font-semibold text-white mb-3 flex items-center">
@@ -2099,7 +2051,7 @@ export default function Dashboard() {
                               const now = new Date();
                               const start = new Date(c.scheduled_date);
                               const end = new Date(c.end_date);
-                              return now >= start && now <= end && c.video_session?.status === 'active';
+                              return now >= start && now <= end;
                             })
                             .map((classItem) => (
                               <ClassItem
@@ -2161,7 +2113,7 @@ export default function Dashboard() {
               </motion.section>
             )}
 
-            {/* Other sections remain the same as before */}
+            {/* Other sections remain the same */}
             {activeSection === 'assignments' && (
               <motion.section
                 key="assignments"
