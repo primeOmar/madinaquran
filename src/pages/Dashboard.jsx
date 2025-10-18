@@ -651,11 +651,15 @@ const getTimeUntilClass = (classDate, endDate) => {
 const studentApi = {
   getMyNotifications: async (limit = 20, page = 1) => {
     try {
+      console.log('🔔 [API] Starting to fetch notifications...');
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (userError || !user) {
+        console.error('❌ [API] User authentication failed:', userError);
         throw new Error('User not authenticated');
       }
+
+      console.log('👤 [API] User ID:', user.id);
 
       const from = (page - 1) * limit;
       const to = from + limit - 1;
@@ -667,7 +671,15 @@ const studentApi = {
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ [API] Supabase query error:', error);
+        throw error;
+      }
+
+      console.log('✅ [API] Notifications fetched successfully:', {
+        count: notifications?.length || 0,
+        data: notifications
+      });
 
       return {
         notifications: notifications || [],
@@ -677,173 +689,7 @@ const studentApi = {
         hasMore: (count || 0) > to + 1
       };
     } catch (error) {
-      console.error('Error in getMyNotifications:', error);
-      throw error;
-    }
-  },
-
-  getMyClasses: async () => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      // First get student's enrollments to find their teachers
-      const { data: enrollments, error: enrollmentError } = await supabase
-        .from('enrollments')
-        .select('teacher_id')
-        .eq('student_id', user.id);
-
-      if (enrollmentError) throw enrollmentError;
-
-      if (!enrollments || enrollments.length === 0) {
-        return [];
-      }
-
-      const teacherIds = enrollments.map(e => e.teacher_id);
-
-      // Fetch classes from the teachers this student is enrolled with
-      const { data: classes, error: classesError } = await supabase
-        .from('classes')
-        .select('*')
-        .in('teacher_id', teacherIds)
-        .order('scheduled_date', { ascending: true });
-
-      if (classesError) throw classesError;
-
-      // Fetch teacher names
-      const { data: teachers, error: teachersError } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .in('id', teacherIds);
-
-      if (!teachersError && teachers) {
-        // Map teacher names to classes
-        const teacherMap = teachers.reduce((acc, teacher) => {
-          acc[teacher.id] = teacher.full_name;
-          return acc;
-        }, {});
-
-        return classes.map(classItem => ({
-          ...classItem,
-          teacher_name: teacherMap[classItem.teacher_id] || 'Teacher'
-        }));
-      }
-
-      return classes || [];
-
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      throw error;
-    }
-  },
-
-  getMyClassesWithVideoSessions: async () => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Get student's classes through the working API endpoint
-      const classesData = await makeApiRequest('/api/student/classes');
-      const classes = Array.isArray(classesData) ? classesData : classesData?.classes || [];
-
-      if (classes.length === 0) {
-        return [];
-      }
-
-      // Get unique teacher IDs from student's classes
-      const teacherIds = [...new Set(classes.map(c => c.teacher_id).filter(Boolean))];
-
-      if (teacherIds.length === 0) {
-        return classes.map(classItem => ({ ...classItem, is_live: false, video_session: null }));
-      }
-
-      // Fetch active video sessions for these teachers
-      const { data: videoSessions, error: sessionsError } = await supabase
-        .from('video_sessions')
-        .select('*')
-        .in('teacher_id', teacherIds)
-        .eq('status', 'active')
-        .order('started_at', { ascending: false });
-
-      if (sessionsError) {
-        console.error('Error fetching video sessions:', sessionsError);
-        return classes.map(classItem => ({ ...classItem, is_live: false, video_session: null }));
-      }
-
-      // Map video sessions to classes
-      const classesWithSessions = classes.map(classItem => {
-        const classVideoSession = videoSessions?.find(session => 
-          session.class_id === classItem.id || 
-          session.teacher_id === classItem.teacher_id
-        );
-
-        return {
-          ...classItem,
-          video_session: classVideoSession || null,
-          is_live: !!classVideoSession && classVideoSession.status === 'active'
-        };
-      });
-
-      return classesWithSessions;
-
-    } catch (error) {
-      console.error('Error in getMyClassesWithVideoSessions:', error);
-      throw error;
-    }
-  },
-
-  joinVideoSession: async (classId) => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Check if video session exists and is active
-      const { data: videoSession, error: sessionError } = await supabase
-        .from('video_sessions')
-        .select('*')
-        .eq('class_id', classId)
-        .eq('status', 'active')
-        .single();
-
-      if (sessionError || !videoSession) {
-        throw new Error('No active video session found for this class');
-      }
-
-      // Record student joining the session
-      const { data: participant, error: participantError } = await supabase
-        .from('session_participants')
-        .insert({
-          session_id: videoSession.id,
-          user_id: user.id,
-          user_name: user.user_metadata?.full_name || 'Student',
-          joined_at: new Date().toISOString(),
-          role: 'student',
-          status: 'joined'
-        })
-        .select()
-        .single();
-
-      if (participantError) {
-        console.error('Error recording participant:', participantError);
-        // Continue even if participant recording fails
-      }
-
-      return {
-        videoSession,
-        participant
-      };
-
-    } catch (error) {
-      console.error('Error joining video session:', error);
+      console.error('❌ [API] Error in getMyNotifications:', error);
       throw error;
     }
   },
@@ -965,127 +811,6 @@ const studentApi = {
       return data || [];
     } catch (error) {
       console.error('Error clearing all notifications:', error);
-      throw error;
-    }
-  },
-
-  // Assignment submission API
-  submitAssignment: async (submissionData) => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { data, error } = await supabase
-        .from('assignment_submissions')
-        .insert({
-          ...submissionData,
-          student_id: user.id,
-          submitted_at: new Date().toISOString(),
-          status: 'submitted'
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-      throw error;
-    }
-  },
-
-  // Get student assignments
-  getMyAssignments: async () => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Get assignments for student's enrolled classes
-      const { data: enrollments, error: enrollmentError } = await supabase
-        .from('enrollments')
-        .select('teacher_id')
-        .eq('student_id', user.id);
-
-      if (enrollmentError) throw enrollmentError;
-
-      if (!enrollments || enrollments.length === 0) {
-        return [];
-      }
-
-      const teacherIds = enrollments.map(e => e.teacher_id);
-
-      // Get assignments from teachers the student is enrolled with
-      const { data: assignments, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select(`
-          *,
-          classes:class_id (
-            title,
-            teacher_id
-          ),
-          assignment_submissions (
-            *
-          )
-        `)
-        .in('teacher_id', teacherIds)
-        .order('due_date', { ascending: true });
-
-      if (assignmentsError) throw assignmentsError;
-
-      return assignments || [];
-
-    } catch (error) {
-      console.error('Error fetching assignments:', error);
-      throw error;
-    }
-  },
-
-  // Get student stats
-  getMyStats: async () => {
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Get total classes attended
-      const { data: classes, error: classesError } = await supabase
-        .from('class_attendance')
-        .select('*')
-        .eq('student_id', user.id)
-        .eq('status', 'attended');
-
-      // Get assignments data
-      const { data: submissions, error: submissionsError } = await supabase
-        .from('assignment_submissions')
-        .select('score, status')
-        .eq('student_id', user.id);
-
-      // Calculate stats
-      const totalClasses = classes?.length || 0;
-      const completedAssignments = submissions?.filter(s => s.status === 'graded').length || 0;
-      const totalAssignments = submissions?.length || 0;
-      const avgScore = submissions?.filter(s => s.score)?.reduce((acc, curr) => acc + curr.score, 0) / (submissions?.filter(s => s.score).length || 1) || 0;
-
-      return {
-        total_classes: totalClasses,
-        hours_learned: Math.round(totalClasses * 1.5), // Assuming 1.5 hours per class
-        assignments: totalAssignments,
-        completed_assignments: completedAssignments,
-        avg_score: Math.round(avgScore),
-        streak: 7, // This would need to be calculated based on attendance
-        points: completedAssignments * 10 // 10 points per completed assignment
-      };
-
-    } catch (error) {
-      console.error('Error fetching stats:', error);
       throw error;
     }
   }
@@ -1448,7 +1173,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
   const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
-  const isClassLive = classItem.is_live;
+  const isClassLive = timeInfo.status === 'live';
   const isClassCompleted = timeInfo.status === 'completed';
   const isUpcoming = timeInfo.status === 'upcoming';
 
@@ -1717,7 +1442,7 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // Enhanced student data fetch with correct database structure
+  // Enhanced student data fetch with proper API integration
   const fetchStudentData = async () => {
     setLoading(true);
     try {
@@ -1727,7 +1452,9 @@ export default function Dashboard() {
         setStudentName(user.user_metadata?.full_name || 'Student');
         setUserEmailVerified(user.email_confirmed_at !== null);
         
-        // Fetch all data including notifications and classes
+        console.log('👤 [Dashboard] User authenticated:', user.id);
+        
+        // Fetch all data including notifications
         await Promise.all([
           fetchStatsData(),
           fetchClasses(),
@@ -1736,95 +1463,55 @@ export default function Dashboard() {
           fetchNotifications()
         ]);
       } else {
-        console.error('No user found');
+        console.error('❌ [Dashboard] No user found');
         toast.error('Please login again');
         window.location.href = '/login';
       }
     } catch (error) {
-      console.error('Error fetching student data:', error);
+      console.error('❌ [Dashboard] Error fetching student data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch classes with enhanced video session integration
-  const fetchClasses = async () => {
-    setLoadingClasses(true);
-    try {
-      // Try the direct API first, fallback to studentApi if needed
-      let classesData;
-      try {
-        classesData = await makeApiRequest('/api/student/classes');
-      } catch (apiError) {
-        console.log('API endpoint failed, using direct database call');
-        classesData = await studentApi.getMyClassesWithVideoSessions();
-      }
-      
-      const classesArray = Array.isArray(classesData) ? classesData : classesData?.classes || [];
-      setClasses(sortClasses(classesArray));
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      setClasses([]);
-    } finally {
-      setLoadingClasses(false);
-    }
-  };
-
-  // Enhanced join class function
-  const handleJoinClass = async (classItem) => {
-    try {
-      // Check if class is live
-      const now = new Date();
-      const classStart = new Date(classItem.scheduled_date);
-      const classEnd = new Date(classItem.end_date);
-      
-      if (now < classStart) {
-        toast.info('Class has not started yet. Please wait for the scheduled time.');
-        return;
-      }
-      
-      if (now > classEnd) {
-        toast.info('This class has already ended.');
-        return;
-      }
-
-      // Record attendance and join video session
-      await studentApi.joinVideoSession(classItem.id);
-      
-      // Set the class for video call and open the call interface
-      setSelectedClassForCall(classItem);
-      setShowVideoCall(true);
-      
-      toast.success('Joining class session...');
-
-    } catch (error) {
-      console.error('Error joining class:', error);
-      toast.error('Failed to join class. Please try again.');
-    }
-  };
-
-  // Enhanced notification handlers
+  // Enhanced notification fetch with debugging
   const fetchNotifications = async () => {
     setLoadingNotifications(true);
     try {
+      console.log('🔔 [Dashboard] Starting to fetch notifications...');
       const notificationsData = await studentApi.getMyNotifications();
-      setNotifications(notificationsData?.notifications || []);
+      
+      console.log('📨 [Dashboard] Notifications data received:', notificationsData);
+      
+      // Ensure we're setting an array
+      const notificationsArray = Array.isArray(notificationsData?.notifications) 
+        ? notificationsData.notifications 
+        : [];
+      
+      console.log('📋 [Dashboard] Setting notifications state:', notificationsArray);
+      setNotifications(notificationsArray);
+      
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      console.error('❌ [Dashboard] Error fetching notifications:', error);
       setNotifications([]);
+      toast.error('Failed to load notifications');
     } finally {
       setLoadingNotifications(false);
     }
   };
 
+  // Enhanced notification handlers
   const handleMarkAllAsRead = async () => {
     try {
       await studentApi.markAllAsRead();
+      
+      // Update local state
       setNotifications(prev => prev.map(notification => ({ 
         ...notification, 
         read: true 
       })));
+      
       toast.success('All notifications marked as read');
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -1834,16 +1521,21 @@ export default function Dashboard() {
 
   const handleNotificationClick = async (notification) => {
     try {
+      console.log('📱 [Dashboard] Notification clicked:', notification);
+      
+      // Mark as read in database if not already read
       if (!notification.read) {
         await studentApi.markAsRead(notification.id);
       }
 
+      // Update local state
       setNotifications(prev => 
         prev.map(n => 
           n.id === notification.id ? { ...n, read: true } : n
         )
       );
       
+      // Close notifications dropdown
       setIsNotificationsOpen(false);
       
       // Navigate based on notification type
@@ -1852,9 +1544,12 @@ export default function Dashboard() {
         setActiveSection('assignments');
       } else if (data.class_id) {
         setActiveSection('classes');
+      } else if (data.payment_id) {
+        setActiveSection('payments');
       }
     } catch (error) {
       console.error('Error handling notification click:', error);
+      // Still navigate even if marking as read fails
       setIsNotificationsOpen(false);
     }
   };
@@ -1870,10 +1565,15 @@ export default function Dashboard() {
     }
   };
 
-  const handleDeleteNotification = async (notificationId) => {
+  const handleDeleteNotification = async (notificationId, event) => {
+    event.stopPropagation(); // Prevent triggering the notification click
+    
     try {
       await studentApi.deleteNotification(notificationId);
+      
+      // Remove from local state
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
       toast.success('Notification deleted');
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -1881,56 +1581,53 @@ export default function Dashboard() {
     }
   };
 
-  // Enhanced stats data fetching
+  // API FUNCTIONS FROM WORKING DASHBOARD
   const fetchStatsData = async () => {
     setLoadingStats(true);
     try {
-      let statsData;
-      try {
-        statsData = await makeApiRequest('/api/student/stats');
-      } catch (apiError) {
-        console.log('Stats API endpoint failed, using direct database call');
-        statsData = await studentApi.getMyStats();
+      const statsData = await makeApiRequest('/api/student/stats');
+      
+      if (!statsData || typeof statsData !== 'object') {
+        throw new Error('Invalid stats data received');
       }
       
-      if (statsData) {
-        const statsArray = [
-          { 
-            label: "Total Classes", 
-            value: statsData.total_classes?.toString() || "0", 
-            icon: BookOpen, 
-            change: "+0" 
-          },
-          { 
-            label: "Hours Learned", 
-            value: statsData.hours_learned?.toString() || "0", 
-            icon: Clock, 
-            change: "+0" 
-          },
-          { 
-            label: "Assignments", 
-            value: statsData.assignments?.toString() || "0", 
-            icon: FileText, 
-            change: "+0" 
-          },
-          { 
-            label: "Avg. Score", 
-            value: `${statsData.avg_score || "0"}%`, 
-            icon: BarChart3, 
-            change: "+0%" 
-          },
-        ];
-        
-        setStats(statsArray);
+      const statsArray = [
+        { 
+          label: "Total Classes", 
+          value: statsData.total_classes?.toString() || "0", 
+          icon: BookOpen, 
+          change: "+0" 
+        },
+        { 
+          label: "Hours Learned", 
+          value: statsData.hours_learned?.toString() || "0", 
+          icon: Clock, 
+          change: "+0" 
+        },
+        { 
+          label: "Assignments", 
+          value: statsData.assignments?.toString() || "0", 
+          icon: FileText, 
+          change: "+0" 
+        },
+        { 
+          label: "Avg. Score", 
+          value: `${statsData.avg_score || "0"}%`, 
+          icon: BarChart3, 
+          change: "+0%" 
+        },
+      ];
+      
+      setStats(statsArray);
 
-        setProgressStats({
-          completionRate: Math.min(100, Math.round((statsData.completed_assignments || 0) / (statsData.total_assignments || 1) * 100)),
-          streak: statsData.streak || 0,
-          level: Math.floor((statsData.points || 0) / 100) + 1,
-          points: statsData.points || 0,
-          nextLevel: 100 - ((statsData.points || 0) % 100)
-        });
-      }
+      setProgressStats({
+        completionRate: Math.min(100, Math.round((statsData.completed_assignments || 0) / (statsData.total_assignments || 1) * 100)),
+        streak: statsData.streak || 0,
+        level: Math.floor((statsData.points || 0) / 100) + 1,
+        points: statsData.points || 0,
+        nextLevel: 100 - ((statsData.points || 0) % 100)
+      });
+
     } catch (error) {
       console.error('Error fetching stats:', error);
     } finally {
@@ -1938,50 +1635,30 @@ export default function Dashboard() {
     }
   };
 
-  // Enhanced assignments fetching
+  const fetchClasses = async () => {
+    setLoadingClasses(true);
+    try {
+      const classesData = await makeApiRequest('/api/student/classes');
+      const classesArray = Array.isArray(classesData) ? classesData : classesData?.classes || [];
+      setClasses(sortClasses(classesArray));
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+      setClasses([]);
+    } finally {
+      setLoadingClasses(false);
+    }
+  };
+
   const fetchAssignments = async () => {
     setLoadingAssignments(true);
     try {
-      let assignmentsData;
-      try {
-        assignmentsData = await makeApiRequest('/api/student/assignments');
-      } catch (apiError) {
-        console.log('Assignments API endpoint failed, using direct database call');
-        assignmentsData = await studentApi.getMyAssignments();
-      }
-      
+      const assignmentsData = await makeApiRequest('/api/student/assignments');
       setAssignments(Array.isArray(assignmentsData) ? assignmentsData : assignmentsData?.assignments || []);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       setAssignments([]);
     } finally {
       setLoadingAssignments(false);
-    }
-  };
-
-  // Enhanced assignment submission
-  const handleSubmitAssignment = async (submissionData) => {
-    try {
-      let result;
-      try {
-        result = await makeApiRequest('/api/student/submit-assignment', {
-          method: 'POST',
-          body: submissionData
-        });
-      } catch (apiError) {
-        console.log('Submit assignment API endpoint failed, using direct database call');
-        result = await studentApi.submitAssignment(submissionData);
-      }
-
-      if (result.success || result.id) {
-        toast.success('Assignment submitted successfully!');
-        await fetchAssignments();
-      } else {
-        throw new Error(result.error || 'Failed to submit assignment');
-      }
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-      throw error;
     }
   };
 
@@ -2016,6 +1693,55 @@ export default function Dashboard() {
   };
 
   // Event handlers
+  const handleSubmitAssignment = async (submissionData) => {
+    try {
+      const result = await makeApiRequest('/api/student/submit-assignment', {
+        method: 'POST',
+        body: submissionData
+      });
+
+      if (result.success) {
+        toast.success('Assignment submitted successfully!');
+        await fetchAssignments();
+      } else {
+        throw new Error(result.error || 'Failed to submit assignment');
+      }
+    } catch (error) {
+      console.error('Error submitting assignment:', error);
+      throw error;
+    }
+  };
+
+  // Enhanced join class function with video call integration
+  const handleJoinClass = async (classItem) => {
+    try {
+      // Check if class is live
+      const now = new Date();
+      const classStart = new Date(classItem.scheduled_date);
+      const classEnd = new Date(classItem.end_date);
+      
+      if (now < classStart) {
+        toast.info('Class has not started yet. Please wait for the scheduled time.');
+        return;
+      }
+      
+      if (now > classEnd) {
+        toast.info('This class has already ended.');
+        return;
+      }
+
+      // Set the class for video call and open the call interface
+      setSelectedClassForCall(classItem);
+      setShowVideoCall(true);
+      
+      toast.success('Joining class session...');
+
+    } catch (error) {
+      console.error('Error joining class:', error);
+      toast.error('Failed to join class. Please try again.');
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!contactMessage.trim()) {
       toast.error('Please enter a message');
