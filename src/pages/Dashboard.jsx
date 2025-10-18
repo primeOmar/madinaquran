@@ -1403,58 +1403,52 @@ export default function Dashboard() {
     }
   };
 
-  // Correct classes fetch using enrollments
-  const fetchClasses = async () => {
-    setLoadingClasses(true);
-    try {
-      const classesData = await studentApi.getMyClasses();
-      const sortedClasses = sortClasses(classesData || []);
-      setClasses(sortedClasses);
-      
-      // Check if student has teachers
-      setHasTeacher(classesData.length > 0);
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      setClasses([]);
-      toast.error('Failed to load classes');
-    } finally {
-      setLoadingClasses(false);
-    }
-  };
+ //fetchclassses
+const fetchClasses = async () => {
+  setLoadingClasses(true);
+  try {
+    const classesData = await makeApiRequest('/api/student/classes');
+    setClasses(Array.isArray(classesData) ? classesData : classesData?.classes || []);
+  } catch (error) {
+    console.error('Error fetching classes:', error);
+    setClasses([]);
+  } finally {
+    setLoadingClasses(false);
+  }
+};
 
   // Enhanced join class function
   const handleJoinClass = async (classItem) => {
-    try {
-      // Verify class is live
-      const now = new Date();
-      const classStart = new Date(classItem.scheduled_date);
-      const classEnd = new Date(classItem.end_date);
-      
-      if (now < classStart) {
-        toast.info('Class has not started yet. Please wait for the scheduled time.');
-        return;
-      }
-      
-      if (now > classEnd) {
-        toast.info('This class has already ended.');
-        return;
-      }
-
-      // Record attendance and open video call
-      await studentApi.joinVideoSession(classItem.id);
-      
-      // Set the class for video call and open the call interface
-      setSelectedClassForCall(classItem);
-      setShowVideoCall(true);
-      
-      toast.success('Joining class session...');
-
-    } catch (error) {
-      console.error('Error joining class:', error);
-      toast.error('Failed to join class. Please try again.');
+  try {
+    // Check if class is live
+    const now = new Date();
+    const classStart = new Date(classItem.scheduled_date);
+    const classEnd = new Date(classItem.end_date);
+    
+    if (now < classStart) {
+      toast.info('Class has not started yet. Please wait for the scheduled time.');
+      return;
     }
-  };
+    
+    if (now > classEnd) {
+      toast.info('This class has already ended.');
+      return;
+    }
 
+    // Record attendance
+    await studentApi.joinVideoSession(classItem.id);
+    
+    // Set the class for video call and open the call interface
+    setSelectedClassForCall(classItem);
+    setShowVideoCall(true);
+    
+    toast.success('Joining class session...');
+
+  } catch (error) {
+    console.error('Error joining class:', error);
+    toast.error('Failed to join class. Please try again.');
+  }
+};
   // Enhanced notification handlers
   const fetchNotifications = async () => {
     setLoadingNotifications(true);
