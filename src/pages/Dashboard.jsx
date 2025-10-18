@@ -1271,193 +1271,251 @@ export default function Dashboard() {
   });
 
   // Enhanced student data fetch with new API
-  const fetchStudentData = async () => {
-    setLoading(true);
-    try {
-      const dashboardData = await studentApi.getDashboardData();
-      
-      setStudentName(dashboardData.student.name);
-      setUserEmailVerified(true);
-      
-      // Set all the data from the API
-      setClasses(sortClasses(dashboardData.classes));
-      setAssignments(dashboardData.assignments);
-      setNotifications(dashboardData.notifications);
-      setHasTeacher(dashboardData.hasTeacher);
-      
-      // Transform stats for the frontend
-      const statsArray = [
-        { 
-          label: "Total Classes", 
-          value: dashboardData.stats.total_classes?.toString() || "0", 
-          icon: BookOpen, 
-          change: "+0" 
-        },
-        { 
-          label: "Hours Learned", 
-          value: dashboardData.stats.hours_learned?.toString() || "0", 
-          icon: Clock, 
-          change: "+0" 
-        },
-        { 
-          label: "Assignments", 
-          value: dashboardData.stats.assignments?.toString() || "0", 
-          icon: FileText, 
-          change: "+0" 
-        },
-        { 
-          label: "Avg. Score", 
-          value: `${dashboardData.stats.avg_score || "0"}%`, 
-          icon: BarChart3, 
-          change: "+0%" 
-        },
-      ];
-      
-      setStats(statsArray);
+ const fetchStudentData = async () => {
+  setLoading(true);
+  try {
+    console.log('🔄 Fetching dashboard data using studentApi...');
+    
+    const dashboardData = await studentApi.getDashboardData();
+    
+    setStudentName(dashboardData.student.name);
+    setUserEmailVerified(true);
+    
+    // Set all the data from the API
+    setClasses(sortClasses(dashboardData.classes));
+    setAssignments(dashboardData.assignments);
+    setNotifications(dashboardData.notifications);
+    setHasTeacher(dashboardData.hasTeacher);
+    
+    // Transform stats for the frontend
+    const statsArray = [
+      { 
+        label: "Total Classes", 
+        value: dashboardData.stats.total_classes?.toString() || "0", 
+        icon: BookOpen, 
+        change: "+0" 
+      },
+      { 
+        label: "Hours Learned", 
+        value: dashboardData.stats.hours_learned?.toString() || "0", 
+        icon: Clock, 
+        change: "+0" 
+      },
+      { 
+        label: "Assignments", 
+        value: dashboardData.stats.assignments?.toString() || "0", 
+        icon: FileText, 
+        change: "+0" 
+      },
+      { 
+        label: "Avg. Score", 
+        value: `${dashboardData.stats.avg_score || "0"}%`, 
+        icon: BarChart3, 
+        change: "+0%" 
+      },
+    ];
+    
+    setStats(statsArray);
 
-      setProgressStats({
-        completionRate: dashboardData.stats.completion_rate || 0,
-        streak: dashboardData.stats.streak || 0,
-        level: dashboardData.stats.level || 1,
-        points: dashboardData.stats.points || 0,
-        nextLevel: dashboardData.stats.next_level || 100
-      });
+    setProgressStats({
+      completionRate: dashboardData.stats.completion_rate || 0,
+      streak: dashboardData.stats.streak || 0,
+      level: dashboardData.stats.level || 1,
+      points: dashboardData.stats.points || 0,
+      nextLevel: dashboardData.stats.next_level || 100
+    });
 
-    } catch (error) {
-      console.error('❌ [Dashboard] Error fetching student data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-    }
-  };
+    console.log('✅ Dashboard data loaded successfully via studentApi');
+
+  } catch (error) {
+    console.error('❌ [Dashboard] Error fetching student data:', error);
+    toast.error('Failed to load dashboard data');
+  } finally {
+    setLoading(false);
+  }
+};
+
+  const fetchStatsData = async () => {
+  setLoadingStats(true);
+  try {
+    console.log('🔄 Fetching stats via studentApi...');
+    const statsData = await studentApi.getMyStats();
+    
+    const statsArray = [
+      { 
+        label: "Total Classes", 
+        value: statsData.total_classes?.toString() || "0", 
+        icon: BookOpen, 
+        change: "+0" 
+      },
+      { 
+        label: "Hours Learned", 
+        value: statsData.hours_learned?.toString() || "0", 
+        icon: Clock, 
+        change: "+0" 
+      },
+      { 
+        label: "Assignments", 
+        value: statsData.assignments?.toString() || "0", 
+        icon: FileText, 
+        change: "+0" 
+      },
+      { 
+        label: "Avg. Score", 
+        value: `${statsData.avg_score || "0"}%`, 
+        icon: BarChart3, 
+        change: "+0%" 
+      },
+    ];
+    
+    setStats(statsArray);
+
+    setProgressStats({
+      completionRate: statsData.completion_rate || 0,
+      streak: statsData.streak || 0,
+      level: statsData.level || 1,
+      points: statsData.points || 0,
+      nextLevel: statsData.next_level || 100
+    });
+    
+    console.log('✅ Stats fetched successfully');
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+  } finally {
+    setLoadingStats(false);
+  }
+};
 
   // Enhanced notification fetch
   const fetchNotifications = async () => {
-    setLoadingNotifications(true);
-    try {
-      const notificationsData = await studentApi.getMyNotifications();
-      
-      const notificationsArray = Array.isArray(notificationsData?.notifications) 
-        ? notificationsData.notifications 
-        : [];
-      
-      setNotifications(notificationsArray);
-      
-    } catch (error) {
-      console.error('❌ [Dashboard] Error fetching notifications:', error);
-      setNotifications([]);
-      toast.error('Failed to load notifications');
-    } finally {
-      setLoadingNotifications(false);
+  setLoadingNotifications(true);
+  try {
+    console.log('🔄 Fetching notifications via studentApi...');
+    const notificationsData = await studentApi.getMyNotifications();
+    setNotifications(notificationsData.notifications || []);
+    console.log('✅ Notifications fetched successfully');
+  } catch (error) {
+    console.error('❌ [Dashboard] Error fetching notifications:', error);
+    setNotifications([]);
+    toast.error('Failed to load notifications');
+  } finally {
+    setLoadingNotifications(false);
+  }
+};
+
+// Enhanced notification handlers using studentApi
+const handleMarkAllAsRead = async () => {
+  try {
+    await studentApi.markAllNotificationsAsRead();
+    setNotifications(prev => prev.map(notification => ({ 
+      ...notification, 
+      read: true 
+    })));
+    toast.success('All notifications marked as read');
+  } catch (error) {
+    console.error('Error marking all as read:', error);
+    toast.error('Failed to mark notifications as read');
+  }
+};
+
+const handleNotificationClick = async (notification) => {
+  try {
+    if (!notification.read) {
+      await studentApi.markNotificationAsRead(notification.id);
     }
-  };
 
-  // Enhanced notification handlers
-  const handleMarkAllAsRead = async () => {
-    try {
-      await studentApi.markAllNotificationsAsRead();
-      setNotifications(prev => prev.map(notification => ({ 
-        ...notification, 
-        read: true 
-      })));
-      toast.success('All notifications marked as read');
-    } catch (error) {
-      console.error('Error marking all as read:', error);
-      toast.error('Failed to mark notifications as read');
-    }
-  };
-
-  const handleNotificationClick = async (notification) => {
-    try {
-      if (!notification.read) {
-        await studentApi.markNotificationAsRead(notification.id);
-      }
-
-      setNotifications(prev => 
-        prev.map(n => 
-          n.id === notification.id ? { ...n, read: true } : n
-        )
-      );
-      
-      setIsNotificationsOpen(false);
-      
-      const data = notification.data || {};
-      if (data.assignment_id) {
-        setActiveSection('assignments');
-      } else if (data.class_id) {
-        setActiveSection('classes');
-      } else if (data.payment_id) {
-        setActiveSection('payments');
-      }
-    } catch (error) {
-      console.error('Error handling notification click:', error);
-      setIsNotificationsOpen(false);
-    }
-  };
-
-  const handleClearAllNotifications = async () => {
-    try {
-      await studentApi.clearAllNotifications();
-      setNotifications([]);
-      toast.success('All notifications cleared');
-    } catch (error) {
-      console.error('Error clearing notifications:', error);
-      toast.error('Failed to clear notifications');
-    }
-  };
-
-  const handleDeleteNotification = async (notificationId, event) => {
-    event.stopPropagation();
+    setNotifications(prev => 
+      prev.map(n => 
+        n.id === notification.id ? { ...n, read: true } : n
+      )
+    );
     
-    try {
-      await studentApi.deleteNotification(notificationId);
-      setNotifications(prev => prev.filter(n => n.id !== notificationId));
-      toast.success('Notification deleted');
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      toast.error('Failed to delete notification');
+    setIsNotificationsOpen(false);
+    
+    const data = notification.data || {};
+    if (data.assignment_id) {
+      setActiveSection('assignments');
+    } else if (data.class_id) {
+      setActiveSection('classes');
+    } else if (data.payment_id) {
+      setActiveSection('payments');
     }
-  };
+  } catch (error) {
+    console.error('Error handling notification click:', error);
+    setIsNotificationsOpen(false);
+  }
+};
+const handleClearAllNotifications = async () => {
+  try {
+    await studentApi.clearAllNotifications();
+    setNotifications([]);
+    toast.success('All notifications cleared');
+  } catch (error) {
+    console.error('Error clearing notifications:', error);
+    toast.error('Failed to clear notifications');
+  }
+};
+const handleDeleteNotification = async (notificationId, event) => {
+  event.stopPropagation();
+  
+  try {
+    await studentApi.deleteNotification(notificationId);
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    toast.success('Notification deleted');
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    toast.error('Failed to delete notification');
+  }
+};
 
   // Fetch individual data functions
-  const fetchClasses = async () => {
-    setLoadingClasses(true);
-    try {
-      const classesData = await studentApi.getMyClasses();
-      setClasses(sortClasses(classesData.classes || []));
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      setClasses([]);
-    } finally {
-      setLoadingClasses(false);
-    }
-  };
+ const fetchClasses = async () => {
+  setLoadingClasses(true);
+  try {
+    console.log('🔄 Fetching classes via studentApi...');
+    const classesData = await studentApi.getMyClasses();
+    setClasses(sortClasses(classesData.classes || []));
+    console.log('✅ Classes fetched successfully');
+  } catch (error) {
+    console.error('Error fetching classes:', error);
+    setClasses([]);
+    toast.error('Failed to load classes');
+  } finally {
+    setLoadingClasses(false);
+  }
+};
 
-  const fetchAssignments = async () => {
-    setLoadingAssignments(true);
-    try {
-      const assignmentsData = await studentApi.getMyAssignments();
-      setAssignments(assignmentsData.assignments || []);
-    } catch (error) {
-      console.error('Error fetching assignments:', error);
-      setAssignments([]);
-    } finally {
-      setLoadingAssignments(false);
-    }
-  };
+const fetchAssignments = async () => {
+  setLoadingAssignments(true);
+  try {
+    console.log('🔄 Fetching assignments via studentApi...');
+    const assignmentsData = await studentApi.getMyAssignments();
+    setAssignments(assignmentsData.assignments || []);
+    console.log('✅ Assignments fetched successfully');
+  } catch (error) {
+    console.error('Error fetching assignments:', error);
+    setAssignments([]);
+    toast.error('Failed to load assignments');
+  } finally {
+    setLoadingAssignments(false);
+  }
+};
 
   const fetchPayments = async () => {
-    setLoadingPayments(true);
-    try {
-      const paymentsData = await studentApi.getMyPayments();
-      setPayments(paymentsData || []);
-    } catch (error) {
-      console.error('Error fetching payments:', error);
-      setPayments([]);
-    } finally {
-      setLoadingPayments(false);
-    }
-  };
+  setLoadingPayments(true);
+  try {
+    console.log('🔄 Fetching payments via studentApi...');
+    const paymentsData = await studentApi.getMyPayments();
+    setPayments(paymentsData);
+    console.log('✅ Payments fetched successfully');
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    setPayments([]);
+  } finally {
+    setLoadingPayments(false);
+  }
+
+};
 
   // Format date and time functions
   const formatDate = (dateString) => {
@@ -1477,64 +1535,70 @@ export default function Dashboard() {
   };
 
   // Event handlers
-  const handleSubmitAssignment = async (submissionData) => {
-    try {
-      const result = await studentApi.submitAssignment(submissionData);
+ const handleSubmitAssignment = async (submissionData) => {
+  try {
+    console.log('🔄 Submitting assignment via studentApi...');
+    const result = await studentApi.submitAssignment(submissionData);
 
-      if (result.success) {
-        toast.success('Assignment submitted successfully!');
-        // Refresh assignments data
-        const assignmentsData = await studentApi.getMyAssignments();
-        setAssignments(assignmentsData.assignments || []);
-      } else {
-        throw new Error(result.error || 'Failed to submit assignment');
-      }
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
-      throw error;
+    if (result.success) {
+      toast.success('Assignment submitted successfully!');
+      // Refresh assignments data
+      const assignmentsData = await studentApi.getMyAssignments();
+      setAssignments(assignmentsData.assignments || []);
+      console.log('✅ Assignment submitted successfully');
+    } else {
+      throw new Error(result.error || 'Failed to submit assignment');
     }
-  };
+  } catch (error) {
+    console.error('Error submitting assignment:', error);
+    throw error;
+  }
+};
+
 
   // Enhanced join class function with video call integration
   const handleJoinClass = async (classItem) => {
-    try {
-      if (!classItem.video_session?.meeting_id) {
-        toast.error('No active video session for this class');
-        return;
-      }
-
-      const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
-      
-      if (result) {
-        // Set the class for video call and open the call interface
-        setSelectedClassForCall(classItem);
-        setShowVideoCall(true);
-        toast.success('Joining class session...');
-      }
-    } catch (error) {
-      console.error('Error joining class:', error);
-      toast.error(error.message || 'Failed to join class. Please try again.');
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!contactMessage.trim()) {
-      toast.error('Please enter a message');
+  try {
+    if (!classItem.video_session?.meeting_id) {
+      toast.error('No active video session for this class');
       return;
     }
 
-    setSendingMessage(true);
-    try {
-      await studentApi.contactAdmin(contactMessage);
-      toast.success('Message sent to admin successfully!');
-      setContactMessage('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-      toast.error('Failed to send message');
-    } finally {
-      setSendingMessage(false);
+    console.log('🔄 Joining video session via studentApi...');
+    const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
+    
+    if (result) {
+      // Set the class for video call and open the call interface
+      setSelectedClassForCall(classItem);
+      setShowVideoCall(true);
+      toast.success('Joining class session...');
     }
-  };
+  } catch (error) {
+    console.error('Error joining class:', error);
+    toast.error(error.message || 'Failed to join class. Please try again.');
+  }
+};
+
+  const handleSendMessage = async () => {
+  if (!contactMessage.trim()) {
+    toast.error('Please enter a message');
+    return;
+  }
+
+  setSendingMessage(true);
+  try {
+    console.log('🔄 Sending message via studentApi...');
+    await studentApi.contactAdmin(contactMessage);
+    toast.success('Message sent to admin successfully!');
+    setContactMessage('');
+    console.log('✅ Message sent successfully');
+  } catch (error) {
+    console.error('Error sending message:', error);
+    toast.error('Failed to send message');
+  } finally {
+    setSendingMessage(false);
+  }
+};
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
