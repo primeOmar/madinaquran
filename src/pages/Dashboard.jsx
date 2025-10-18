@@ -40,273 +40,11 @@ import {
   Camera,
   CameraOff,
   PhoneOff,
-  Star
+  Star,
+  Crown
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
-
-// === VIDEO CALL COMPONENT FOR STUDENT ===
-const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
-  const [localStream, setLocalStream] = useState(null);
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(true);
-  const [callDuration, setCallDuration] = useState(0);
-  const [participants, setParticipants] = useState([]);
-  const localVideoRef = useRef(null);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      initializeCall();
-      startTimer();
-      fetchParticipants();
-    } else {
-      cleanupCall();
-    }
-
-    return () => {
-      cleanupCall();
-    };
-  }, [isOpen]);
-
-  const initializeCall = async () => {
-    try {
-      setIsConnecting(true);
-      
-      // Get user media with error handling
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
-      
-      setLocalStream(stream);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
-      // Connect to actual video session
-      await connectToVideoSession();
-
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-      toast.error('Could not access camera/microphone. Please check permissions.');
-      setIsConnecting(false);
-    }
-  };
-
-  const connectToVideoSession = async () => {
-    try {
-      // In a real implementation, you would connect to your video service (Zoom, Jitsi, etc.)
-      // For now, we'll simulate a successful connection
-      setTimeout(() => {
-        setIsConnected(true);
-        setIsConnecting(false);
-        toast.success('Connected to class successfully!');
-      }, 1500);
-
-    } catch (error) {
-      console.error('Error connecting to video session:', error);
-      toast.error('Failed to connect to class session');
-      setIsConnecting(false);
-    }
-  };
-
-  const fetchParticipants = async () => {
-    try {
-      // Simulate fetching participants
-      setParticipants([
-        { name: classItem.teacher_name || 'Teacher', role: 'teacher' },
-        { name: 'You', role: 'student' }
-      ]);
-    } catch (error) {
-      console.error('Error fetching participants:', error);
-    }
-  };
-
-  const cleanupCall = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    setCallDuration(0);
-    setIsConnected(false);
-  };
-
-  const startTimer = () => {
-    timerRef.current = setInterval(() => {
-      setCallDuration(prev => prev + 1);
-    }, 1000);
-  };
-
-  const toggleAudio = () => {
-    if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsAudioMuted(!isAudioMuted);
-    }
-  };
-
-  const toggleVideo = () => {
-    if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsVideoOff(!isVideoOff);
-    }
-  };
-
-  const leaveCall = async () => {
-    try {
-      // Notify backend that student left
-      await makeApiRequest('/api/video-sessions/leave', {
-        method: 'POST',
-        body: {
-          class_id: classItem.id
-        }
-      });
-    } catch (error) {
-      console.error('Error leaving call:', error);
-    } finally {
-      cleanupCall();
-      onClose();
-      toast.info('You left the class');
-    }
-  };
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      {/* Header */}
-      <div className="bg-green-800 text-white p-4 flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold">{classItem.title}</h2>
-          <p className="text-green-200 text-sm">
-            Duration: {formatTime(callDuration)} • {participants.length} participants
-          </p>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className={`px-3 py-1 rounded-full text-sm ${
-            isConnected ? 'bg-green-600' : 'bg-yellow-600'
-          }`}>
-            {isConnected ? 'Connected' : 'Connecting...'}
-          </div>
-          <button
-            onClick={leaveCall}
-            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg flex items-center transition-colors"
-          >
-            <PhoneOff size={16} className="mr-2" />
-            Leave
-          </button>
-        </div>
-      </div>
-
-      {/* Video Area */}
-      <div className="flex-1 bg-gray-900 relative p-4">
-        {isConnecting ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Loader2 className="animate-spin mx-auto text-green-400" size={48} />
-              <p className="text-white mt-4 text-lg">Connecting to class...</p>
-              <p className="text-gray-400 mt-2">Please wait while we connect you to the live session</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
-            {/* Teacher's Video (Main) */}
-            <div className="bg-gray-800 rounded-lg flex items-center justify-center relative">
-              <div className="text-center text-white">
-                <User size={64} className="mx-auto text-gray-400" />
-                <p className="mt-2 font-semibold">Teacher: {classItem.teacher_name}</p>
-                <p className="text-gray-400">Live Video Feed</p>
-              </div>
-            </div>
-
-            {/* Student's Video */}
-            <div className="bg-gray-800 rounded-lg relative">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover rounded-lg"
-              />
-              <div className="absolute bottom-4 left-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
-                You {isVideoOff ? '(Camera Off)' : ''}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div className="bg-gray-800 p-4 flex justify-center space-x-6">
-        <button
-          onClick={toggleAudio}
-          className={`p-3 rounded-full transition-colors ${
-            isAudioMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
-          }`}
-        >
-          {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
-        </button>
-        
-        <button
-          onClick={toggleVideo}
-          className={`p-3 rounded-full transition-colors ${
-            isVideoOff ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
-          }`}
-        >
-          {isVideoOff ? <CameraOff size={20} /> : <Camera size={20} />}
-        </button>
-
-        <button
-          onClick={leaveCall}
-          className="p-3 bg-red-600 hover:bg-red-500 rounded-full transition-colors"
-        >
-          <PhoneOff size={20} />
-        </button>
-      </div>
-
-      {/* Participants Sidebar */}
-      <div className="absolute top-20 right-4 w-64 bg-gray-800/90 backdrop-blur-lg rounded-lg p-4">
-        <h3 className="text-white font-semibold mb-3 flex items-center">
-          <Users size={16} className="mr-2" />
-          Participants ({participants.length})
-        </h3>
-        <div className="space-y-2 max-h-60 overflow-y-auto">
-          {participants.map((participant, index) => (
-            <div key={index} className={`flex items-center space-x-2 p-2 rounded ${
-              participant.role === 'teacher' 
-                ? 'bg-green-600/20' 
-                : 'bg-blue-600/20'
-            }`}>
-              <User size={16} className={
-                participant.role === 'teacher' ? 'text-green-400' : 'text-blue-400'
-              } />
-              <span className="text-white text-sm">
-                {participant.name} {participant.role === 'teacher' ? '(Teacher)' : ''}
-              </span>
-              <div className="w-2 h-2 bg-green-500 rounded-full ml-auto"></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // === UTILITY FUNCTIONS ===
 const useAudioRecorder = () => {
@@ -823,7 +561,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     </div>
   );
-}; 
+};
+
 // Enhanced class sorting with video session integration
 const sortClasses = (classes) => {
   if (!Array.isArray(classes)) return [];
@@ -1059,7 +798,7 @@ const studentApi = {
     }
   },
 
-  joinVideoSession: async (classItem) => {
+  joinVideoSession: async (classId) => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
@@ -1071,7 +810,7 @@ const studentApi = {
       const { data: videoSession, error: sessionError } = await supabase
         .from('video_sessions')
         .select('*')
-        .or(`class_id.eq.${classItem.id},teacher_id.eq.${classItem.teacher_id}`)
+        .eq('class_id', classId)
         .eq('status', 'active')
         .single();
 
@@ -1107,8 +846,7 @@ const studentApi = {
       console.error('Error joining video session:', error);
       throw error;
     }
-  }
-};
+  },
 
   markAsRead: async (notificationId) => {
     try {
@@ -1589,7 +1327,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
   const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
-  const isClassLive = timeInfo.status === 'live';
+  const isClassLive = classItem.is_live;
   const isClassCompleted = timeInfo.status === 'completed';
   const isUpcoming = timeInfo.status === 'upcoming';
 
@@ -1650,6 +1388,9 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
               <span className="flex items-center mr-4 mb-2">
                 <User size={14} className="mr-1" />
                 {classItem.teacher_name || 'Teacher'}
+                {isClassLive && (
+                  <div className="w-2 h-2 bg-green-500 rounded-full ml-1 animate-pulse"></div>
+                )}
               </span>
               <span className="flex items-center mr-4 mb-2">
                 <Calendar size={14} className="mr-1" />
@@ -1662,9 +1403,23 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
             }`}>
               {timeInfo.text}
               {isClassLive && (
-                <span className="ml-2 text-green-300">• Click "Join Live Class" to enter</span>
+                <span className="ml-2 text-green-300">• Teacher is live - Click to join!</span>
               )}
             </div>
+
+            {/* Video Session Info */}
+            {classItem.video_session && (
+              <div className="mt-2 text-xs text-green-400 flex items-center">
+                <ShieldCheck size={12} className="mr-1" />
+                Meeting: {classItem.video_session.meeting_id}
+                {classItem.video_session.channel_name && (
+                  <span className="ml-2">• Channel: {classItem.video_session.channel_name}</span>
+                )}
+                {isClassLive && (
+                  <span className="ml-2 text-red-400">• LIVE</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
         
@@ -1686,7 +1441,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
             </button>
           )}
           
-          {isClassCompleted && (
+          {isClassCompleted && classItem.video_session && (
             <button className="bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
               <Download size={16} className="mr-1"/>
               View Recording
@@ -1830,6 +1585,8 @@ export default function Dashboard() {
   const [emailSent, setEmailSent] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [selectedClassForCall, setSelectedClassForCall] = useState(null);
+  const [showVideoCall, setShowVideoCall] = useState(false);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [progressStats, setProgressStats] = useState({
     completionRate: 0,
@@ -1838,8 +1595,6 @@ export default function Dashboard() {
     points: 0,
     nextLevel: 100
   });
-  const [selectedClassForCall, setSelectedClassForCall] = useState(null);
-  const [showVideoCall, setShowVideoCall] = useState(false);
 
   // Enhanced student data fetch with correct database structure
   const fetchStudentData = async () => {
@@ -1872,52 +1627,53 @@ export default function Dashboard() {
     }
   };
 
- //fetchclassses
-const fetchClasses = async () => {
-  setLoadingClasses(true);
-  try {
-    const classesData = await makeApiRequest('/api/student/classes');
-    setClasses(Array.isArray(classesData) ? classesData : classesData?.classes || []);
-  } catch (error) {
-    console.error('Error fetching classes:', error);
-    setClasses([]);
-  } finally {
-    setLoadingClasses(false);
-  }
-};
+  // Fetch classes with enhanced video session integration
+  const fetchClasses = async () => {
+    setLoadingClasses(true);
+    try {
+      const classesData = await studentApi.getMyClassesWithVideoSessions();
+      setClasses(Array.isArray(classesData) ? classesData : classesData?.classes || []);
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+      setClasses([]);
+    } finally {
+      setLoadingClasses(false);
+    }
+  };
 
   // Enhanced join class function
   const handleJoinClass = async (classItem) => {
-  try {
-    // Check if class is live
-    const now = new Date();
-    const classStart = new Date(classItem.scheduled_date);
-    const classEnd = new Date(classItem.end_date);
-    
-    if (now < classStart) {
-      toast.info('Class has not started yet. Please wait for the scheduled time.');
-      return;
-    }
-    
-    if (now > classEnd) {
-      toast.info('This class has already ended.');
-      return;
-    }
+    try {
+      // Check if class is live
+      const now = new Date();
+      const classStart = new Date(classItem.scheduled_date);
+      const classEnd = new Date(classItem.end_date);
+      
+      if (now < classStart) {
+        toast.info('Class has not started yet. Please wait for the scheduled time.');
+        return;
+      }
+      
+      if (now > classEnd) {
+        toast.info('This class has already ended.');
+        return;
+      }
 
-    // Record attendance
-    await studentApi.joinVideoSession(classItem.id);
-    
-    // Set the class for video call and open the call interface
-    setSelectedClassForCall(classItem);
-    setShowVideoCall(true);
-    
-    toast.success('Joining class session...');
+      // Record attendance and join video session
+      await studentApi.joinVideoSession(classItem.id);
+      
+      // Set the class for video call and open the call interface
+      setSelectedClassForCall(classItem);
+      setShowVideoCall(true);
+      
+      toast.success('Joining class session...');
 
-  } catch (error) {
-    console.error('Error joining class:', error);
-    toast.error('Failed to join class. Please try again.');
-  }
-};
+    } catch (error) {
+      console.error('Error joining class:', error);
+      toast.error('Failed to join class. Please try again.');
+    }
+  };
+
   // Enhanced notification handlers
   const fetchNotifications = async () => {
     setLoadingNotifications(true);
