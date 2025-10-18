@@ -1001,33 +1001,114 @@ const studentApi = {
     }
   },
 
-  joinVideoSession: async (classId) => {
+  getMyClassesWithVideoSessions: async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
       
-      if (!user) {
+      if (userError || !user) {
         throw new Error('User not authenticated');
       }
 
+      // Get student's classes through the working API endpoint
+      const classesData = await makeApiRequest('/api/student/classes');
+      const classes = Array.isArray(classesData) ? classesData : classesData?.classes || [];
+
+      if (classes.length === 0) {
+        return [];
+      }
+
+      // Get unique teacher IDs from student's classes
+      const teacherIds = [...new Set(classes.map(c => c.teacher_id).filter(Boolean))];
+
+      if (teacherIds.length === 0) {
+        return classes.map(classItem => ({ ...classItem, is_live: false, video_session: null }));
+      }
+
+      // Fetch active video sessions for these teachers
+      const { data: videoSessions, error: sessionsError } = await supabase
+        .from('video_sessions')
+        .select('*')
+        .in('teacher_id', teacherIds)
+        .eq('status', 'active')
+        .order('started_at', { ascending: false });
+
+      if (sessionsError) {
+        console.error('Error fetching video sessions:', sessionsError);
+        return classes.map(classItem => ({ ...classItem, is_live: false, video_session: null }));
+      }
+
+      // Map video sessions to classes
+      const classesWithSessions = classes.map(classItem => {
+        const classVideoSession = videoSessions?.find(session => 
+          session.class_id === classItem.id || 
+          session.teacher_id === classItem.teacher_id
+        );
+
+        return {
+          ...classItem,
+          video_session: classVideoSession || null,
+          is_live: !!classVideoSession && classVideoSession.status === 'active'
+        };
+      });
+
+      return classesWithSessions;
+
+    } catch (error) {
+      console.error('Error in getMyClassesWithVideoSessions:', error);
+      throw error;
+    }
+  },
+
+  joinVideoSession: async (classItem) => {
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Check if video session exists and is active
+      const { data: videoSession, error: sessionError } = await supabase
+        .from('video_sessions')
+        .select('*')
+        .or(`class_id.eq.${classItem.id},teacher_id.eq.${classItem.teacher_id}`)
+        .eq('status', 'active')
+        .single();
+
+      if (sessionError || !videoSession) {
+        throw new Error('No active video session found for this class');
+      }
+
       // Record student joining the session
-      const { data, error } = await supabase
-        .from('class_attendance')
+      const { data: participant, error: participantError } = await supabase
+        .from('session_participants')
         .insert({
-          class_id: classId,
-          student_id: user.id,
+          session_id: videoSession.id,
+          user_id: user.id,
+          user_name: user.user_metadata?.full_name || 'Student',
           joined_at: new Date().toISOString(),
+          role: 'student',
           status: 'joined'
         })
         .select()
         .single();
 
-      if (error) throw error;
-      return data;
+      if (participantError) {
+        console.error('Error recording participant:', participantError);
+        // Continue even if participant recording fails
+      }
+
+      return {
+        videoSession,
+        participant
+      };
+
     } catch (error) {
       console.error('Error joining video session:', error);
       throw error;
     }
-  },
+  }
+};
 
   markAsRead: async (notificationId) => {
     try {
