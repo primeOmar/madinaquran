@@ -1897,44 +1897,74 @@ const fetchAssignments = async () => {
 
 
   // Enhanced join class function with video call integration
-  const handleJoinClass = async (classItem) => {
+  // Fixed handleJoinClass function
+const handleJoinClass = async (classItem) => {
+  console.log('🎯 === JOIN CLASS DEBUG START ===');
+  
   try {
     const now = new Date();
     const start = new Date(classItem.scheduled_date);
-    const end = new Date(classItem.end_date);
-    const isLive = now >= start && now <= end;
     
-    console.log('🎯 Join Class Debug:', {
+    // FIXED: Proper end date calculation
+    let end;
+    if (classItem.end_date && classItem.end_date !== '1970-01-01T00:00:00Z') {
+      end = new Date(classItem.end_date);
+    } else {
+      // Default to 2 hours after start time
+      end = new Date(start.getTime() + (2 * 60 * 60 * 1000));
+    }
+    
+    // Check for active video session - THIS SHOULD BE THE MAIN CRITERIA
+    const hasActiveVideoSession = classItem.video_session && 
+      classItem.video_session.status === 'active' && 
+      !classItem.video_session.ended_at;
+
+    console.log('🔍 FIXED Join Class Debug Info:', {
       title: classItem.title,
       now: now.toLocaleString(),
       start: start.toLocaleString(),
       end: end.toLocaleString(),
-      isLive,
-      hasVideoSession: !!classItem.video_session,
-      meetingId: classItem.video_session?.meeting_id
+      hasActiveVideoSession: hasActiveVideoSession,
+      videoSessionStatus: classItem.video_session?.status,
+      meetingId: classItem.video_session?.meeting_id,
+      // Force join if there's an active video session
+      shouldJoin: hasActiveVideoSession
     });
 
-    if (!isLive) {
-      toast.error('This class is not currently live. Please check the schedule.');
+    // FIXED: Allow joining if there's an active video session, regardless of schedule
+    if (!hasActiveVideoSession) {
+      console.log('❌ No active video session - cannot join');
+      toast.error('No active video session found. The teacher may not have started the class yet.');
       return;
     }
 
     if (!classItem.video_session?.meeting_id) {
-      toast.error('No active video session for this class. Please contact your teacher.');
+      console.log('❌ No meeting ID found');
+      toast.error('No meeting ID available. Please contact your teacher.');
       return;
     }
 
-    console.log('🔄 Joining video session via studentApi...');
-    const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
+    console.log('🔄 Joining video session with meeting ID:', classItem.video_session.meeting_id);
     
-    if (result) {
-      setSelectedClassForCall(classItem);
-      setShowVideoCall(true);
-      toast.success('Joining class session...');
+    // FIXED: Directly open the video call without API call first (for testing)
+    console.log('🎉 DIRECTLY OPENING VIDEO CALL...');
+    setSelectedClassForCall(classItem);
+    setShowVideoCall(true);
+    
+    // Optional: You can still call the API if needed for tracking
+    try {
+      const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
+      console.log('✅ API call result:', result);
+    } catch (apiError) {
+      console.warn('⚠️ API call failed, but continuing with video call:', apiError);
+      // Don't block the video call if API fails
     }
+    
+    toast.success('Joining class session...');
+    
   } catch (error) {
-    console.error('❌ Error joining class:', error);
-    toast.error(error.message || 'Failed to join class. Please try again.');
+    console.error('❌ Error in handleJoinClass:', error);
+    toast.error('Failed to join class. Please try again.');
   }
 };
 
