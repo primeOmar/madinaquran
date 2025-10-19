@@ -2017,7 +2017,7 @@ const fetchAssignments = async () => {
         fetchClasses();
       }
       fetchNotifications();
-    }, 30000);
+    }, 6000000);
 
     return () => clearInterval(interval);
   }, [activeSection]);
