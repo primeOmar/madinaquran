@@ -1,3 +1,4 @@
+// supabaseClient.js
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = window._env_?.REACT_APP_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL || '';
@@ -521,7 +522,7 @@ export const notificationApi = {
 };
 
 // ============================================================================
-// EXISTING API FUNCTIONS
+// API REQUEST HELPER FUNCTIONS
 // ============================================================================
 
 // API request helper
@@ -725,13 +726,6 @@ export const checkServerHealth = async () => {
   }
 };
 
-// Helper function to get current user ID
-const getCurrentUserId = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-  return user.id;
-};
-
 // Get auth token
 export const getAuthToken = async () => {
   try {
@@ -743,10 +737,12 @@ export const getAuthToken = async () => {
   }
 };
 
-// Teacher API functions with GRADING capabilities
+// ============================================================================
+// ADMIN API FUNCTIONS
+// ============================================================================
 
-// Admin API functions (keep existing)
-const adminApi = {
+// Admin API functions
+export const adminApi = {
   // Student management
   getStudents: () => makeApiRequest('/api/admin/students'),
   
@@ -826,7 +822,7 @@ const adminApi = {
     }
   },
 
-  //reset pass
+  // Reset password
   resetTeacherPassword: async (teacherId) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -856,7 +852,7 @@ const adminApi = {
     method: 'DELETE'
   }),
 
-  //resend credentials
+  // Resend credentials
   getTeacherCredentials: async (teacherId) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -1038,8 +1034,6 @@ const adminApi = {
     makeApiRequest(`/api/admin/students/teacher/${teacherId}`)
 };
 
-export { adminApi };
-
 // Export everything as default for backward compatibility
 export default {
   supabase,
@@ -1048,8 +1042,8 @@ export default {
   checkServerHealth,
   getAuthToken,
   adminApi,
-  teacherApi,
-  // New storage functions
+  notificationApi,
+  // Storage functions
   configureAudioBucket,
   getSecureAudioUrl,
   uploadAudioFile,
