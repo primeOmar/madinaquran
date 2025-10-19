@@ -2041,16 +2041,16 @@ const handleJoinClass = async (classItem) => {
   }, []);
 
   // Auto-refresh classes and notifications
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (activeSection === 'classes') {
-        fetchClasses();
-      }
-      fetchNotifications();
-    }, 6000000);
+ // useEffect(() => {
+   // const interval = setInterval(() => {
+     // if (activeSection === 'classes') {
+       // fetchClasses();
+      //}
+      //fetchNotifications();
+   // }, 6000000);
 
-    return () => clearInterval(interval);
-  }, [activeSection]);
+   // return () => clearInterval(interval);
+ // }, [activeSection]);
 
   // Loading state
   if (loading) {
