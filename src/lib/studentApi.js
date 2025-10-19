@@ -1,4 +1,3 @@
-// src/lib/studentApi.js
 import { supabase } from './supabaseClient';
 
 export const studentApi = {
@@ -592,62 +591,6 @@ export const studentApi = {
     }
   },
 
-  // Join video session
-  joinVideoSession: async (meetingId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get video session details
-      const { data: session, error: sessionError } = await supabase
-        .from('video_sessions')
-        .select(`
-          id,
-          meeting_id,
-          class_id,
-          status,
-          channel_name,
-          classes (
-            id,
-            teacher_id
-          )
-        `)
-        .eq('meeting_id', meetingId)
-        .in('status', ['scheduled', 'active'])
-        .single();
-
-      if (sessionError || !session) {
-        throw new Error('Video session not found or not active');
-      }
-
-      // Get student's teacher_id to verify access
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('teacher_id')
-        .eq('id', user.id)
-        .single();
-
-      // Verify student has access to this class through their teacher
-      if (!profile?.teacher_id || profile.teacher_id !== session.classes?.teacher_id) {
-        throw new Error('Not authorized to join this session');
-      }
-
-      // Generate student token (in real implementation, this would be from your video provider)
-      const studentToken = `student-${meetingId}-${user.id}-${Date.now()}`;
-
-      return {
-        meeting_id: session.meeting_id,
-        student_token: studentToken,
-        channel_name: session.channel_name,
-        class_id: session.class_id,
-        message: 'Joined video session successfully'
-      };
-    } catch (error) {
-      console.error('Error joining video session:', error);
-      throw error;
-    }
-  },
-
   // Get student's video sessions
   getMyVideoSessions: async () => {
     try {
@@ -806,7 +749,8 @@ export const studentApi = {
       throw error;
     }
   },
-   // 🔧 Enhanced video session functions
+
+  // 🔧 Enhanced video session functions
   joinVideoSession: async (meetingId, userId) => {
     try {
       const response = await fetch('/api/video/join-session', {
@@ -860,9 +804,9 @@ export const studentApi = {
       return await response.json();
     } catch (error) {
       console.error('Error leaving video session:', error);
+      throw error;
     }
-  }
-},
+  },
 
   // Get student's teacher information
   getMyTeacher: async () => {
