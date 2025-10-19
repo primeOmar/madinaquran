@@ -190,126 +190,273 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [participants, setParticipants] = useState([]);
   const [teacherStream, setTeacherStream] = useState(null);
   const [connectionQuality, setConnectionQuality] = useState('excellent');
+  const [studentId, setStudentId] = useState(null); // 🔧 NEW: Student ID from auth
   const localVideoRef = useRef(null);
   const teacherVideoRef = useRef(null);
   const timerRef = useRef(null);
+  const videoServiceRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
-      initializeCall();
+      // 🔧 UPDATED: Use real Agora call instead of simulation
+      initializeRealCall();
       simulateConnectionQuality();
+      
+      // 🔧 NEW: Get student ID from auth context or localStorage
+      const studentId = localStorage.getItem('student_id') || `student_${Date.now()}`;
+      setStudentId(studentId);
     }
     return () => cleanupCall();
   }, [isOpen]);
 
-  const initializeCall = async () => {
+  // 🔧 REPLACED: Real Agora call initialization
+  const initializeRealCall = async () => {
     try {
       setIsConnecting(true);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
       
-      setLocalStream(stream);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+      // Import your video service
+      const videoServiceModule = await import('../lib/videoService');
+      videoServiceRef.current = videoServiceModule.default;
+      
+      // Check session status first
+      const sessionStatus = await studentApi.getSessionStatus(classItem.video_session.meeting_id);
+      
+      if (!sessionStatus.is_active) {
+        toast.error('Session is not active');
+        setIsConnecting(false);
+        return;
       }
 
-      await connectToVideoSession();
-    } catch (error) {
-      console.error('Media access error:', error);
-      toast.error('Camera/microphone access required');
-      setIsConnecting(false);
-    }
-  };
-
-  const connectToVideoSession = async () => {
-    try {
-      // Simulate AI-powered connection
-      setTimeout(() => {
-        setIsConnected(true);
+      if (!sessionStatus.is_teacher_joined) {
+        toast.error('Teacher has not joined the session yet');
         setIsConnecting(false);
-        startTimer();
-        fetchParticipants();
-        toast.success('AI-optimized connection established!');
-      }, 1500);
+        return;
+      }
+
+      // Setup event listeners
+      videoServiceRef.current.onUserJoined((user) => {
+        console.log('User joined:', user.uid);
+        updateParticipantsList();
+      });
+
+      videoServiceRef.current.onUserLeft((user) => {
+        console.log('User left:', user.uid);
+        updateParticipantsList();
+        
+        // If teacher left, show message
+        if (videoServiceRef.current.isTeacher(user.uid)) {
+          toast.info('Teacher has left the session');
+          setTeacherStream(null);
+        }
+      });
+
+      videoServiceRef.current.onUserPublished((user, mediaType) => {
+        console.log('User published:', user.uid, mediaType);
+        
+        if (mediaType === 'video') {
+          // Create video element for remote user
+          const videoContainer = document.createElement('div');
+          videoContainer.className = 'remote-video-container';
+          videoContainer.id = `remote-video-${user.uid}`;
+          
+          const videoElement = document.createElement('video');
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+          videoElement.className = 'remote-video w-full h-full object-cover';
+          
+          videoContainer.appendChild(videoElement);
+          
+          // Add to teacher video area
+          const teacherVideoArea = document.querySelector('.teacher-video-area');
+          if (teacherVideoArea) {
+            teacherVideoArea.innerHTML = '';
+            teacherVideoArea.appendChild(videoContainer);
+            
+            // Play the remote video track
+            if (user.videoTrack) {
+              user.videoTrack.play(videoElement);
+              setTeacherStream(user.videoTrack);
+              
+              // Check if this is the teacher
+              if (videoServiceRef.current.isTeacher(user.uid)) {
+                toast.success('Teacher joined the session!');
+              }
+            }
+          }
+        }
+        
+        if (mediaType === 'audio') {
+          // Auto-play remote audio
+          if (user.audioTrack) {
+            user.audioTrack.play();
+          }
+        }
+      });
+
+      videoServiceRef.current.onUserUnpublished((user, mediaType) => {
+        console.log('User unpublished:', user.uid, mediaType);
+        
+        if (mediaType === 'video') {
+          // Remove video element if user stopped video
+          const videoContainer = document.getElementById(`remote-video-${user.uid}`);
+          if (videoContainer) {
+            videoContainer.remove();
+          }
+          
+          if (videoServiceRef.current.isTeacher(user.uid)) {
+            setTeacherStream(null);
+          }
+        }
+      });
+
+      // Join video session with media options
+      const joinResult = await videoServiceRef.current.joinVideoSessionWithMedia(
+        classItem.video_session.meeting_id,
+        studentId,
+        { audio: true, video: true }
+      );
+
+      if (!joinResult.success) {
+        throw new Error(joinResult.error);
+      }
+
+      // Setup local video
+      if (joinResult.localVideoTrack && localVideoRef.current) {
+        joinResult.localVideoTrack.play(localVideoRef.current);
+        setLocalStream(joinResult.localVideoTrack);
+      }
+
+      // Set initial audio/video states
+      setIsAudioMuted(!joinResult.hasAudio);
+      setIsVideoOff(!joinResult.hasVideo);
+
+      setIsConnected(true);
+      setIsConnecting(false);
+      startTimer();
+      
+      // Record session join
+      await studentApi.joinVideoSession(classItem.id, classItem.video_session.meeting_id);
+      
+      toast.success('Connected to Madina session!');
+      
     } catch (error) {
-      console.error('Connection error:', error);
-      toast.error('Madina Connection failed');
+      console.error('Failed to initialize call:', error);
+      toast.error(`Connection failed: ${error.message}`);
       setIsConnecting(false);
     }
   };
 
-  const simulateConnectionQuality = () => {
-    const qualities = ['excellent', 'good', 'fair', 'poor'];
-    setInterval(() => {
-      setConnectionQuality(qualities[Math.floor(Math.random() * qualities.length)]);
-    }, 10000);
+  // 🔧 UPDATED: Toggle audio with videoService
+  const toggleAudio = async () => {
+    if (videoServiceRef.current) {
+      const isEnabled = await videoServiceRef.current.toggleAudio();
+      setIsAudioMuted(!isEnabled);
+    }
   };
 
-  const fetchParticipants = async () => {
-    setParticipants([
+  // 🔧 UPDATED: Toggle video with videoService
+  const toggleVideo = async () => {
+    if (videoServiceRef.current) {
+      const isEnabled = await videoServiceRef.current.toggleVideo();
+      setIsVideoOff(!isEnabled);
+    }
+  };
+
+  // 🔧 UPDATED: Leave call with proper cleanup
+  const leaveCall = async () => {
+    if (videoServiceRef.current) {
+      await videoServiceRef.current.leaveVideoSession();
+    }
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    
+    await studentApi.leaveVideoSession(classItem.video_session.meeting_id, callDuration);
+    
+    setIsConnected(false);
+    setCallDuration(0);
+    setLocalStream(null);
+    setTeacherStream(null);
+    onClose();
+    toast.info('Session ended - AI summary generated');
+  };
+
+  // 🔧 NEW: Update participants list
+  const updateParticipantsList = async () => {
+    if (!videoServiceRef.current) return;
+    
+    const remoteUsers = videoServiceRef.current.getRemoteUsers();
+    
+    const participantsList = [
       { name: classItem.teacher_name || 'AI Teacher', role: 'teacher', isOnline: true },
-      { name: 'You', role: 'student', isOnline: true }
-    ]);
+      { name: 'You', role: 'student', isOnline: true },
+      ...remoteUsers
+        .filter(user => !videoServiceRef.current.isTeacher(user.uid))
+        .map(user => ({
+          name: `Student ${user.uid}`,
+          role: 'student', 
+          isOnline: true
+        }))
+    ];
+    
+    setParticipants(participantsList);
   };
 
+  // 🔧 UPDATED: Cleanup call
   const cleanupCall = () => {
-    if (localStream) localStream.getTracks().forEach(track => track.stop());
-    if (teacherStream) teacherStream.getTracks().forEach(track => track.stop());
+    if (localStream) {
+      if (localStream.close) localStream.close();
+      if (localStream.stop) localStream.stop();
+    }
+    if (teacherStream) {
+      if (teacherStream.close) teacherStream.close();
+      if (teacherStream.stop) teacherStream.stop();
+    }
     if (timerRef.current) clearInterval(timerRef.current);
     setCallDuration(0);
     setIsConnected(false);
+    
+    // Leave Agora session if still connected
+    if (videoServiceRef.current && videoServiceRef.current.isAgoraInitialized()) {
+      videoServiceRef.current.leaveVideoSession();
+    }
   };
 
+  // 🔧 KEPT: Connection quality simulation (can be enhanced with real stats)
+  const simulateConnectionQuality = () => {
+    const qualities = ['excellent', 'good', 'fair', 'poor'];
+    const interval = setInterval(() => {
+      setConnectionQuality(qualities[Math.floor(Math.random() * qualities.length)]);
+    }, 10000);
+    
+    return () => clearInterval(interval);
+  };
+
+  // 🔧 KEPT: Start timer
   const startTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setCallDuration(prev => prev + 1);
     }, 1000);
   };
 
-  const toggleAudio = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsAudioMuted(!isAudioMuted);
-    }
-  };
-
-  const toggleVideo = () => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsVideoOff(!isVideoOff);
-    }
-  };
-
-  const leaveCall = async () => {
-    cleanupCall();
-    onClose();
-    toast.info('Session ended - AI summary generated');
-  };
-
+  // 🔧 KEPT: Raise hand function
   const raiseHand = () => {
     toast.info('🤖 AI Assistant notified the teacher');
+    
+    // 🔧 OPTIONAL: Implement actual raise hand feature
+    // You can add WebSocket or Agora data channel implementation here
   };
 
+  // 🔧 KEPT: Format time
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // 🔧 KEPT: Connection quality color
   const getConnectionColor = () => {
     switch(connectionQuality) {
       case 'excellent': return 'text-green-400';
@@ -321,7 +468,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   };
 
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex flex-col">
       {/* Madina Header */}
