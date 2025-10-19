@@ -561,6 +561,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 };
 
 // Enhanced class sorting with video session integration
+
 const sortClasses = (classes) => {
   if (!Array.isArray(classes)) {
     console.warn('❌ sortClasses: classes is not an array', classes);
@@ -572,9 +573,9 @@ const sortClasses = (classes) => {
 
   const sorted = classes.sort((a, b) => {
     const classAStart = new Date(a.scheduled_date);
-    const classAEnd = new Date(a.end_date);
+    const classAEnd = a.end_date ? new Date(a.end_date) : new Date(classAStart.getTime() + (2 * 60 * 60 * 1000));
     const classBStart = new Date(b.scheduled_date);
-    const classBEnd = new Date(b.end_date);
+    const classBEnd = b.end_date ? new Date(b.end_date) : new Date(classBStart.getTime() + (2 * 60 * 60 * 1000));
     
     // Check if classes are live
     const isALive = now >= classAStart && now <= classAEnd;
@@ -618,13 +619,20 @@ const sortClasses = (classes) => {
     return 0;
   });
 
-  console.log('✅ Sorted classes:', sorted.map(c => ({
-    title: c.title,
-    start: new Date(c.scheduled_date).toLocaleString(),
-    end: new Date(c.end_date).toLocaleString(),
-    status: now >= new Date(c.scheduled_date) && now <= new Date(c.end_date) ? 'LIVE' : 
-            new Date(c.scheduled_date) > now ? 'UPCOMING' : 'COMPLETED'
-  })));
+  console.log('✅ Sorted classes:', sorted.map(c => {
+    const start = new Date(c.scheduled_date);
+    const end = c.end_date ? new Date(c.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
+    const status = now >= start && now <= end ? 'LIVE' : 
+                  start > now ? 'UPCOMING' : 'COMPLETED';
+    
+    return {
+      title: c.title,
+      start: start.toLocaleString(),
+      end: end.toLocaleString(),
+      status: status,
+      hasEndDate: !!c.end_date
+    };
+  }));
 
   return sorted;
 };
@@ -632,7 +640,15 @@ const sortClasses = (classes) => {
 const getTimeUntilClass = (classDate, endDate) => {
   const now = new Date();
   const classTime = new Date(classDate);
-  const classEnd = new Date(endDate);
+  
+  // If no end date is provided, assume class lasts 2 hours
+  let classEnd;
+  if (endDate) {
+    classEnd = new Date(endDate);
+  } else {
+    // Default to 2 hours after start time
+    classEnd = new Date(classTime.getTime() + (2 * 60 * 60 * 1000));
+  }
   
   // Check if class is currently live (current time is between start and end)
   const isLive = now >= classTime && now <= classEnd;
@@ -673,7 +689,6 @@ const getTimeUntilClass = (classDate, endDate) => {
     }
   }
 };
-
 // === REACT COMPONENTS ===
 const AudioPlayer = ({ audioUrl, onDelete }) => {
   const audioRef = useRef(null);
@@ -1030,6 +1045,10 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 };
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
+  // Calculate end date with 2-hour default if not provided
+  const startDate = new Date(classItem.scheduled_date);
+  const endDate = classItem.end_date ? new Date(classItem.end_date) : new Date(startDate.getTime() + (2 * 60 * 60 * 1000));
+  
   const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
   const isClassLive = timeInfo.status === 'live';
   const isClassCompleted = timeInfo.status === 'completed';
@@ -1087,7 +1106,10 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
             <div className="flex flex-wrap items-center mt-3 text-sm text-green-200">
               <span className="flex items-center mr-4 mb-2">
                 <Clock size={14} className="mr-1" />
-                {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date)}
+                {formatTime(classItem.scheduled_date)} - {formatTime(endDate)}
+                {!classItem.end_date && (
+                  <span className="text-yellow-300 text-xs ml-1">(2h default)</span>
+                )}
               </span>
               <span className="flex items-center mr-4 mb-2">
                 <User size={14} className="mr-1" />
@@ -2272,21 +2294,23 @@ const fetchAssignments = async () => {
       <div className="space-y-8">
         {/* Live Classes Section - PRIORITY */}
         {(() => {
-          const liveClasses = classes.filter(classItem => {
-            const now = new Date();
-            const start = new Date(classItem.scheduled_date);
-            const end = new Date(classItem.end_date);
-            const isLive = now >= start && now <= end;
-            
-            console.log(`🔍 Checking if live: ${classItem.title}`, {
-              start: start.toLocaleString(),
-              end: end.toLocaleString(),
-              now: now.toLocaleString(),
-              isLive
-            });
-            
-            return isLive;
-          });
+     
+const liveClasses = classes.filter(classItem => {
+  const now = new Date();
+  const start = new Date(classItem.scheduled_date);
+  const end = classItem.end_date ? new Date(classItem.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
+  const isLive = now >= start && now <= end;
+  
+  console.log(`🔍 Checking if live: ${classItem.title}`, {
+    start: start.toLocaleString(),
+    end: end.toLocaleString(),
+    now: now.toLocaleString(),
+    isLive,
+    hasEndDate: !!classItem.end_date
+  });
+  
+  return isLive;
+});
 
           console.log('🎯 Live classes found:', liveClasses.length);
 
@@ -2388,10 +2412,9 @@ const fetchAssignments = async () => {
         {/* Upcoming Classes Section */}
         {(() => {
           const upcomingClasses = classes.filter(classItem => {
-            const start = new Date(classItem.scheduled_date);
-            return start > new Date();
-          });
-
+  const start = new Date(classItem.scheduled_date);
+  return start > new Date();
+});
           if (upcomingClasses.length > 0) {
             return (
               <div className="space-y-4">
@@ -2419,9 +2442,10 @@ const fetchAssignments = async () => {
         {/* Completed Classes Section */}
         {(() => {
           const completedClasses = classes.filter(classItem => {
-            const end = new Date(classItem.end_date);
-            return end < new Date();
-          });
+  const start = new Date(classItem.scheduled_date);
+  const end = classItem.end_date ? new Date(classItem.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
+  return end < new Date();
+});
 
           if (completedClasses.length > 0) {
             return (
