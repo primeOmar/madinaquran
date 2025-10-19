@@ -411,7 +411,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
                     <p className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
                       Teacher Joining
                     </p>
-                    <p className="text-gray-400 mt-2">AI preparing optimal learning environment</p>
+                    <p className="text-gray-400 mt-2">Preparing optimal learning environment</p>
                   </div>
                 </div>
               )}
@@ -476,7 +476,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
                   className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white py-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-200 shadow-lg backdrop-blur-lg"
                 >
                   <Zap size={20} />
-                  <span className="font-bold">AI ASSIST</span>
+                  <span className="font-bold">HAND</span>
                 </button>
               </div>
 
@@ -1750,8 +1750,8 @@ export default function Dashboard() {
                 {assignments.length === 0 ? (
                   <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
                     <FileText className="mx-auto text-cyan-400 mb-6" size={80} />
-                    <h4 className="text-white text-2xl font-bold mb-4">No Active Missions</h4>
-                    <p className="text-cyan-300 text-lg">Your AI-curated learning missions will appear here</p>
+                    <h4 className="text-white text-2xl font-bold mb-4">No Active Assignments</h4>
+                    <p className="text-cyan-300 text-lg">Your Assignments will appear here</p>
                   </div>
                 ) : (
                   <div className="grid gap-6">
