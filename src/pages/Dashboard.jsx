@@ -562,6 +562,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
 // Enhanced class sorting with video session integration
 
+// Enhanced class sorting 
 const sortClasses = (classes) => {
   if (!Array.isArray(classes)) {
     console.warn('❌ sortClasses: classes is not an array', classes);
@@ -577,9 +578,24 @@ const sortClasses = (classes) => {
     const classBStart = new Date(b.scheduled_date);
     const classBEnd = b.end_date ? new Date(b.end_date) : new Date(classBStart.getTime() + (2 * 60 * 60 * 1000));
     
-    // Check if classes are live
-    const isALive = now >= classAStart && now <= classAEnd;
-    const isBLive = now >= classBStart && now <= classBEnd;
+    // Check for active video sessions - HIGHEST PRIORITY
+    const hasActiveVideoSessionA = a.video_session && a.video_session.status === 'active' && !a.video_session.ended_at;
+    const hasActiveVideoSessionB = b.video_session && b.video_session.status === 'active' && !b.video_session.ended_at;
+    
+    // Priority 1: Active video sessions first
+    if (hasActiveVideoSessionA && !hasActiveVideoSessionB) return -1;
+    if (hasActiveVideoSessionB && !hasActiveVideoSessionA) return 1;
+    
+    // Both have active video sessions - sort by which started more recently
+    if (hasActiveVideoSessionA && hasActiveVideoSessionB) {
+      const aStartedAt = new Date(a.video_session.started_at);
+      const bStartedAt = new Date(b.video_session.started_at);
+      return bStartedAt - aStartedAt; // Most recent first
+    }
+    
+    // Check if classes are live by schedule
+    const isALiveBySchedule = now >= classAStart && now <= classAEnd;
+    const isBLiveBySchedule = now >= classBStart && now <= classBEnd;
     
     // Check if classes are upcoming
     const isAUpcoming = classAStart > now;
@@ -589,16 +605,16 @@ const sortClasses = (classes) => {
     const isACompleted = classAEnd < now;
     const isBCompleted = classBEnd < now;
 
-    // Priority 1: Live classes first
-    if (isALive && !isBLive) return -1;
-    if (isBLive && !isALive) return 1;
+    // Priority 2: Live classes by schedule
+    if (isALiveBySchedule && !isBLiveBySchedule) return -1;
+    if (isBLiveBySchedule && !isALiveBySchedule) return 1;
     
     // Both live - sort by which ends sooner
-    if (isALive && isBLive) {
+    if (isALiveBySchedule && isBLiveBySchedule) {
       return classAEnd - classBEnd;
     }
     
-    // Priority 2: Upcoming classes next
+    // Priority 3: Upcoming classes next
     if (isAUpcoming && !isBUpcoming) return -1;
     if (isBUpcoming && !isAUpcoming) return 1;
     
@@ -607,7 +623,7 @@ const sortClasses = (classes) => {
       return classAStart - classBStart;
     }
     
-    // Priority 3: Completed classes last
+    // Priority 4: Completed classes last
     if (isACompleted && !isBCompleted) return 1;
     if (isBCompleted && !isACompleted) return -1;
     
@@ -622,7 +638,10 @@ const sortClasses = (classes) => {
   console.log('✅ Sorted classes:', sorted.map(c => {
     const start = new Date(c.scheduled_date);
     const end = c.end_date ? new Date(c.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
-    const status = now >= start && now <= end ? 'LIVE' : 
+    const hasActiveVideoSession = c.video_session && c.video_session.status === 'active' && !c.video_session.ended_at;
+    const isLiveBySchedule = now >= start && now <= end;
+    const status = hasActiveVideoSession ? 'LIVE (Video Session)' : 
+                  isLiveBySchedule ? 'LIVE (Schedule)' : 
                   start > now ? 'UPCOMING' : 'COMPLETED';
     
     return {
@@ -630,28 +649,48 @@ const sortClasses = (classes) => {
       start: start.toLocaleString(),
       end: end.toLocaleString(),
       status: status,
-      hasEndDate: !!c.end_date
+      hasActiveVideoSession: hasActiveVideoSession,
+      videoSessionStatus: c.video_session?.status,
+      videoSessionStarted: c.video_session?.started_at
     };
   }));
 
   return sorted;
 };
 // Enhanced getTimeUntilClass function
-const getTimeUntilClass = (classDate, endDate) => {
+const getTimeUntilClass = (classItem) => {
   const now = new Date();
-  const classTime = new Date(classDate);
+  const classTime = new Date(classItem.scheduled_date);
   
   // If no end date is provided, assume class lasts 2 hours
   let classEnd;
-  if (endDate) {
-    classEnd = new Date(endDate);
+  if (classItem.end_date) {
+    classEnd = new Date(classItem.end_date);
   } else {
     // Default to 2 hours after start time
     classEnd = new Date(classTime.getTime() + (2 * 60 * 60 * 1000));
   }
   
-  // Check if class is currently live (current time is between start and end)
-  const isLive = now >= classTime && now <= classEnd;
+  // Check if there's an active video session - this takes priority
+  const hasActiveVideoSession = classItem.video_session && 
+    classItem.video_session.status === 'active' && 
+    !classItem.video_session.ended_at;
+
+  // If there's an active video session, class is LIVE regardless of schedule
+  if (hasActiveVideoSession) {
+    const timeLeft = classEnd - now;
+    const minsLeft = Math.floor(timeLeft / (1000 * 60));
+    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
+    
+    if (minsLeft < 60) {
+      return { status: 'live', text: `Live - Ends in ${minsLeft} minutes` };
+    } else {
+      return { status: 'live', text: `Live - Ends in ${hoursLeft} hours` };
+    }
+  }
+
+  // Check if class is currently live based on schedule (current time is between start and end)
+  const isLiveBySchedule = now >= classTime && now <= classEnd;
   
   // Check if class is completed (end time has passed)
   const isCompleted = classEnd < now;
@@ -659,7 +698,7 @@ const getTimeUntilClass = (classDate, endDate) => {
   // Check if class is upcoming (future start time)
   const isUpcoming = classTime > now;
 
-  if (isLive) {
+  if (isLiveBySchedule) {
     const timeLeft = classEnd - now;
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
     const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
@@ -1045,14 +1084,16 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 };
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
-  // Calculate end date with 2-hour default if not provided
-  const startDate = new Date(classItem.scheduled_date);
-  const endDate = classItem.end_date ? new Date(classItem.end_date) : new Date(startDate.getTime() + (2 * 60 * 60 * 1000));
-  
-  const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
+  // Use the enhanced getTimeUntilClass that takes the whole classItem
+  const timeInfo = getTimeUntilClass(classItem);
   const isClassLive = timeInfo.status === 'live';
   const isClassCompleted = timeInfo.status === 'completed';
   const isUpcoming = timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
+
+  // Check if this class has an active video session
+  const hasActiveVideoSession = classItem.video_session && 
+    classItem.video_session.status === 'active' && 
+    !classItem.video_session.ended_at;
 
   const handleJoinClass = async () => {
     if (isClassLive) {
@@ -1087,6 +1128,9 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                   <div className="flex items-center ml-2">
                     <div className="w-2 h-2 bg-red-500 rounded-full animate-ping mr-1"></div>
                     <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                    {hasActiveVideoSession && (
+                      <span className="text-xs text-red-300 ml-1">(Teacher Started)</span>
+                    )}
                   </div>
                 )}
               </h4>
@@ -1106,7 +1150,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
             <div className="flex flex-wrap items-center mt-3 text-sm text-green-200">
               <span className="flex items-center mr-4 mb-2">
                 <Clock size={14} className="mr-1" />
-                {formatTime(classItem.scheduled_date)} - {formatTime(endDate)}
+                {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
                 {!classItem.end_date && (
                   <span className="text-yellow-300 text-xs ml-1">(2h default)</span>
                 )}
@@ -1128,8 +1172,11 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
               isClassLive ? 'text-red-300 font-semibold' : 'text-green-300'
             }`}>
               {timeInfo.text}
-              {isClassLive && (
-                <span className="ml-2 text-green-300">• Teacher is live - Click to join!</span>
+              {hasActiveVideoSession && (
+                <span className="ml-2 text-green-300">• Teacher started the session!</span>
+              )}
+              {isClassLive && !hasActiveVideoSession && (
+                <span className="ml-2 text-green-300">• Click to join!</span>
               )}
             </div>
 
@@ -1141,8 +1188,11 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                 {classItem.video_session.channel_name && (
                   <span className="ml-2">• Channel: {classItem.video_session.channel_name}</span>
                 )}
-                {isClassLive && (
-                  <span className="ml-2 text-red-400">• LIVE</span>
+                {classItem.video_session.status === 'active' && (
+                  <span className="ml-2 text-red-400">• ACTIVE SESSION</span>
+                )}
+                {classItem.video_session.status === 'scheduled' && (
+                  <span className="ml-2 text-yellow-400">• SCHEDULED</span>
                 )}
               </div>
             )}
@@ -1156,7 +1206,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
               onClick={handleJoinClass}
             >
               <PlayCircle size={16} className="mr-1"/>
-              Join Live Class
+              {hasActiveVideoSession ? 'Join Live Session' : 'Join Live Class'}
             </button>
           )}
           
@@ -2239,11 +2289,9 @@ const fetchAssignments = async () => {
         {/* Live Classes Counter */}
         {(() => {
           const liveClasses = classes.filter(classItem => {
-            const now = new Date();
-            const start = new Date(classItem.scheduled_date);
-            const end = new Date(classItem.end_date);
-            return now >= start && now <= end;
-          });
+  const timeInfo = getTimeUntilClass(classItem);
+  return timeInfo.status === 'live';
+});
           
           if (liveClasses.length > 0) {
             return (
@@ -2412,9 +2460,10 @@ const liveClasses = classes.filter(classItem => {
         {/* Upcoming Classes Section */}
         {(() => {
           const upcomingClasses = classes.filter(classItem => {
-  const start = new Date(classItem.scheduled_date);
-  return start > new Date();
+  const timeInfo = getTimeUntilClass(classItem);
+  return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
 });
+
           if (upcomingClasses.length > 0) {
             return (
               <div className="space-y-4">
@@ -2442,11 +2491,9 @@ const liveClasses = classes.filter(classItem => {
         {/* Completed Classes Section */}
         {(() => {
           const completedClasses = classes.filter(classItem => {
-  const start = new Date(classItem.scheduled_date);
-  const end = classItem.end_date ? new Date(classItem.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
-  return end < new Date();
+  const timeInfo = getTimeUntilClass(classItem);
+  return timeInfo.status === 'completed';
 });
-
           if (completedClasses.length > 0) {
             return (
               <div className="space-y-4">
