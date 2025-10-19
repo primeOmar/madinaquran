@@ -1245,14 +1245,14 @@ export default function Dashboard() {
           color: "from-cyan-500 to-blue-500"
         },
         { 
-          label: "AI Learning Hours", 
+          label: "Learning Hours", 
           value: dashboardData.stats.hours_learned?.toString() || "0", 
           icon: Clock, 
           change: "+0",
           color: "from-purple-500 to-pink-500"
         },
         { 
-          label: "Active Missions", 
+          label: "Assignements", 
           value: dashboardData.stats.assignments?.toString() || "0", 
           icon: FileText, 
           change: "+0",
@@ -1384,7 +1384,7 @@ export default function Dashboard() {
             {[
               { id: "classes", label: "Madina Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
               { id: "assignments", label: "Assignments", icon: FileText, color: "from-green-500 to-emerald-500" },
-              { id: "exams", label: "Assessments and Exams", icon: ClipboardList, color: "from-purple-500 to-pink-500" },
+              { id: "exams", label: "Exams", icon: ClipboardList, color: "from-purple-500 to-pink-500" },
               { id: "payments", label: "Madina Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
               { id: "progress", label: "Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
             ].map((item) => (
@@ -1545,7 +1545,7 @@ export default function Dashboard() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {[
-                { label: "AI Completion", value: `${progressStats.completionRate}%`, icon: Target },
+                { label: "Completion", value: `${progressStats.completionRate}%`, icon: Target },
                 { label: "Madina Streak", value: `${progressStats.streak} days`, icon: Zap },
                 { label: "Neural Level", value: `Level ${progressStats.level}`, icon: Star },
                 { label: "Experience", value: `${progressStats.points} XP`, icon: Gem },
