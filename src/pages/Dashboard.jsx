@@ -615,13 +615,17 @@ const getTimeUntilClass = (classDate, endDate) => {
   const now = new Date();
   const classTime = new Date(classDate);
   const classEnd = new Date(endDate);
-  const diffMs = classTime - now;
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  
+  // Check if class is currently live (current time is between start and end)
+  const isLive = now >= classTime && now <= classEnd;
+  
+  // Check if class is completed (end time has passed)
+  const isCompleted = classEnd < now;
+  
+  // Check if class is upcoming (future start time)
+  const isUpcoming = classTime > now;
 
-  // Check if class is currently live
-  if (now >= classTime && now <= classEnd) {
+  if (isLive) {
     const timeLeft = classEnd - now;
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
     const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
@@ -631,16 +635,24 @@ const getTimeUntilClass = (classDate, endDate) => {
     } else {
       return { status: 'live', text: `Live - Ends in ${hoursLeft} hours` };
     }
-  } else if (classEnd < now) {
+  } else if (isCompleted) {
     return { status: 'completed', text: 'Class completed' };
-  } else if (diffMins <= 0) {
-    return { status: 'starting', text: 'Starting now' };
-  } else if (diffMins < 60) {
-    return { status: 'upcoming', text: `Starts in ${diffMins} minutes` };
-  } else if (diffHours < 24) {
-    return { status: 'upcoming', text: `Starts in ${diffHours} hours` };
   } else {
-    return { status: 'upcoming', text: `Starts in ${diffDays} days` };
+    // Upcoming class
+    const diffMs = classTime - now;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins <= 0) {
+      return { status: 'starting', text: 'Starting now' };
+    } else if (diffMins < 60) {
+      return { status: 'upcoming', text: `Starts in ${diffMins} minutes` };
+    } else if (diffHours < 24) {
+      return { status: 'upcoming', text: `Starts in ${diffHours} hours` };
+    } else {
+      return { status: 'upcoming', text: `Starts in ${diffDays} days` };
+    }
   }
 };
 
@@ -1003,7 +1015,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
   const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
   const isClassLive = timeInfo.status === 'live';
   const isClassCompleted = timeInfo.status === 'completed';
-  const isUpcoming = timeInfo.status === 'upcoming';
+  const isUpcoming = timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
 
   const handleJoinClass = async () => {
     if (isClassLive) {
@@ -1131,7 +1143,6 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
     </motion.div>
   );
 };
-
 // NOTIFICATIONS DROPDOWN COMPONENT
 const NotificationsDropdown = ({ 
   isOpen, 
@@ -2160,11 +2171,11 @@ const fetchAssignments = async () => {
         
         {/* Live Classes Counter */}
         {classes.filter(classItem => {
-          const now = new Date();
-          const start = new Date(classItem.scheduled_date);
-          const end = new Date(classItem.end_date);
-          return now >= start && now <= end;
-        }).length > 0 && (
+  const now = new Date();
+  const start = new Date(classItem.scheduled_date);
+  const end = new Date(classItem.end_date);
+  return now >= start && now <= end;
+}).length > 0 && (
           <div className="flex items-center space-x-2 bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-full shadow-lg animate-pulse">
             <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
             <span className="text-white text-sm font-semibold">
