@@ -179,7 +179,7 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
   }
 };
 
-// === QUANTUM VIDEO CALL COMPONENT ===
+// === MADINA VIDEO CALL COMPONENT ===
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [localStream, setLocalStream] = useState(null);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -243,7 +243,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }, 1500);
     } catch (error) {
       console.error('Connection error:', error);
-      toast.error('Quantum connection failed');
+      toast.error('Madina Connection failed');
       setIsConnecting(false);
     }
   };
@@ -324,7 +324,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex flex-col">
-      {/* Quantum Header */}
+      {/* Madina Header */}
       <div className="bg-gradient-to-r from-purple-900 via-blue-900 to-cyan-900 text-white p-4 border-b border-cyan-500/30">
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-4">
@@ -333,7 +333,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
                 isConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
               }`}></div>
               <span className="text-sm font-mono">
-                {isConnected ? 'QUANTUM_CONNECTED' : 'CONNECTING...'}
+                {isConnected ? 'MADINA_CONNECTED' : 'CONNECTING...'}
               </span>
             </div>
             <div className="h-6 w-px bg-cyan-500/50"></div>
@@ -358,7 +358,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
               className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-4 py-2 rounded-lg flex items-center transition-all duration-200 shadow-lg"
             >
               <PhoneOff size={18} className="mr-2" />
-              Quantum Exit
+              Madina Exit
             </button>
           </div>
         </div>
@@ -374,7 +374,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
                 <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
               </div>
               <p className="text-white mt-6 text-xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-                Establishing Quantum Link
+                Establishing Madina Class Link
               </p>
               <p className="text-gray-400 mt-2">AI optimizing your learning experience</p>
               <div className="mt-6 flex justify-center space-x-2">
@@ -439,10 +439,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
                 )}
               </div>
 
-              {/* Quantum Controls */}
+              {/* Madina Controls */}
               <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 space-y-4 border border-cyan-500/20">
                 <h3 className="text-white font-bold text-sm uppercase tracking-widest text-cyan-300">
-                  QUANTUM CONTROLS
+                  Madina CONTROLS
                 </h3>
                 
                 <div className="grid grid-cols-2 gap-3">
@@ -516,7 +516,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         )}
       </div>
 
-      {/* Quantum Control Bar */}
+      {/* Madina Control Bar */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-t border-cyan-500/20 p-4 backdrop-blur-lg">
         <div className="flex justify-center items-center space-x-6">
           {[
@@ -591,7 +591,7 @@ const getTimeUntilClass = (classItem) => {
   if (hasActiveVideoSession) {
     const timeLeft = classEnd - now;
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
-    return { status: 'live', text: `Quantum Live - ${minsLeft}m remaining` };
+    return { status: 'live', text: `Madina Live - ${minsLeft}m remaining` };
   }
 
   const isLiveBySchedule = now >= classTime && now <= classEnd;
@@ -616,7 +616,7 @@ const getTimeUntilClass = (classItem) => {
   }
 };
 
-// === QUANTUM COMPONENTS ===
+// === Madina COMPONENTS ===
 const AudioPlayer = ({ audioUrl, onDelete }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -749,7 +749,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
       >
         <div className="flex justify-between items-center mb-8">
           <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            Quantum Submission
+            Madina Submission
           </h3>
           <button onClick={onClose} className="text-cyan-300 hover:text-white transition-all duration-200 p-2 hover:bg-cyan-500/20 rounded-lg">
             <X size={24} />
@@ -763,7 +763,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
             <div className="mt-3 text-xs text-cyan-400 flex items-center space-x-4">
               <span>Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
               <span>•</span>
-              <span>{assignment.max_score} Quantum Points</span>
+              <span>{assignment.max_score} Madina Points</span>
             </div>
           </div>
 
@@ -803,7 +803,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
           </div>
 
           <div>
-            <h4 className="font-bold text-cyan-300 mb-4">Quantum Notes</h4>
+            <h4 className="font-bold text-cyan-300 mb-4">Madina Notes</h4>
             <textarea
               value={submissionText}
               onChange={(e) => setSubmissionText(e.target.value)}
@@ -817,7 +817,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
             <div className="flex items-start space-x-3">
               <Sparkles size={20} className="text-blue-300 mt-1 flex-shrink-0" />
               <div className="text-sm text-blue-200">
-                <strong>AI Insight:</strong> Your submission will be analyzed by our quantum learning AI 
+                <strong>AI Insight:</strong> Your submission will be analyzed by our Madina learning AI 
                 for personalized feedback and improvement suggestions.
               </div>
             </div>
@@ -838,7 +838,7 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
               {submitting ? (
                 <>
                   <Loader2 className="animate-spin mr-3" size={20} />
-                  Quantum Upload...
+                  Madina Upload...
                 </>
               ) : (
                 <>
@@ -893,7 +893,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
                 {isGraded 
                   ? `AI Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
                   : isSubmitted
-                  ? "Quantum Review"
+                  ? "Madina Review"
                   : isOverdue
                   ? "Priority Mission"
                   : daysUntilDue <= 3 ? `${daysUntilDue}d remaining` : "Active Mission"
@@ -912,7 +912,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
               </span>
               <span className="flex items-center mr-6 mb-3">
                 <Award size={16} className="mr-2" />
-                {assignment.max_score} Quantum Points
+                {assignment.max_score} Madina Points
               </span>
             </div>
             
@@ -932,7 +932,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
         <div className="mt-6 flex flex-wrap gap-3">
           <button className="text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
             <Download className="mr-2" size={16} />
-            Quantum Materials
+            Madina Materials
           </button>
           
           {!isGraded && (
@@ -945,7 +945,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
               }`}
             >
               <Mic className="mr-2" size={16} />
-              {isSubmitted ? 'Neural Resubmit' : 'Quantum Submit'}
+              {isSubmitted ? 'Neural Resubmit' : 'Madina Submit'}
             </button>
           )}
           
@@ -1008,7 +1008,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                     <div className="w-3 h-3 bg-red-500 rounded-full animate-ping mr-2"></div>
                     <div className="w-3 h-3 bg-red-500 rounded-full"></div>
                     {hasActiveVideoSession && (
-                      <span className="text-xs text-red-300 ml-2 font-mono">QUANTUM_ACTIVE</span>
+                      <span className="text-xs text-red-300 ml-2 font-mono">Madina_ACTIVE</span>
                     )}
                   </div>
                 )}
@@ -1021,7 +1021,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                   : 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white'
               }`}>
                 {isClassCompleted ? 'AI Reviewed' : 
-                 isClassLive ? 'Quantum Live' : 
+                 isClassLive ? 'Madina Live' : 
                  'Scheduled'}
               </span>
             </div>
@@ -1058,7 +1058,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                 <ShieldCheck size={14} className="mr-2" />
                 <span className="font-mono">ID: {classItem.video_session.meeting_id}</span>
                 {classItem.video_session.status === 'active' && (
-                  <span className="ml-3 text-red-400 font-mono">• QUANTUM_ACTIVE</span>
+                  <span className="ml-3 text-red-400 font-mono">• Madina_ACTIVE</span>
                 )}
               </div>
             )}
@@ -1072,7 +1072,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
               onClick={handleJoinClass}
             >
               <Rocket size={18} className="mr-2"/>
-              Join Quantum Session
+              Join Madina Session
             </button>
           )}
           
@@ -1092,7 +1092,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
           
           <button className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
             <MessageCircle size={18} className="mr-2"/>
-            Quantum Details
+            Madina Details
           </button>
         </div>
       </div>
@@ -1171,7 +1171,7 @@ const NotificationsDropdown = ({
                     {notification.title || 'AI Notification'}
                   </p>
                   <p className="text-cyan-300 text-sm mt-2">
-                    {notification.message || 'Quantum update available'}
+                    {notification.message || 'Madina update available'}
                   </p>
                   <p className="text-cyan-400 text-xs mt-3 font-mono">
                     {formatNotificationTime(notification.created_at)}
@@ -1195,19 +1195,19 @@ const NotificationsDropdown = ({
   );
 };
 
-// === QUANTUM DASHBOARD COMPONENT ===
+// === Madina DASHBOARD COMPONENT ===
 export default function Dashboard() {
-  // Quantum State Management
+  // Madina State Management
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
   const [stats, setStats] = useState([
-    { label: "Quantum Sessions", value: "0", icon: Video, change: "+0", color: "from-cyan-500 to-blue-500" },
+    { label: "Madina Sessions", value: "0", icon: Video, change: "+0", color: "from-cyan-500 to-blue-500" },
     { label: "AI Learning Hours", value: "0", icon: Clock, change: "+0", color: "from-purple-500 to-pink-500" },
     { label: "Active Missions", value: "0", icon: FileText, change: "+0", color: "from-green-500 to-emerald-500" },
-    { label: "Quantum Score", value: "0%", icon: BarChart3, change: "+0%", color: "from-yellow-500 to-orange-500" },
+    { label: "Madina Score", value: "0%", icon: BarChart3, change: "+0%", color: "from-yellow-500 to-orange-500" },
   ]);
-  const [studentName, setStudentName] = useState("Quantum Learner");
+  const [studentName, setStudentName] = useState("Madina Learner");
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState("classes");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1225,7 +1225,7 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // Quantum Data Fetching
+  // Madina Data Fetching
   const fetchStudentData = async () => {
     setLoading(true);
     try {
@@ -1238,7 +1238,7 @@ export default function Dashboard() {
 
       const statsArray = [
         { 
-          label: "Quantum Sessions", 
+          label: "Madina Sessions", 
           value: dashboardData.stats.total_classes?.toString() || "0", 
           icon: Video, 
           change: "+0",
@@ -1259,7 +1259,7 @@ export default function Dashboard() {
           color: "from-green-500 to-emerald-500"
         },
         { 
-          label: "Quantum Score", 
+          label: "Madina Score", 
           value: `${dashboardData.stats.avg_score || "0"}%`, 
           icon: BarChart3, 
           change: "+0%",
@@ -1277,7 +1277,7 @@ export default function Dashboard() {
       });
 
     } catch (error) {
-      console.error('Quantum data fetch failed:', error);
+      console.error('Madina data fetch failed:', error);
       toast.error('AI system temporarily offline');
     } finally {
       setLoading(false);
@@ -1288,7 +1288,7 @@ export default function Dashboard() {
     const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
 
     if (!hasActiveVideoSession) {
-      toast.error('Quantum session not active');
+      toast.error('Madina session not active');
       return;
     }
 
@@ -1299,7 +1299,7 @@ export default function Dashboard() {
 
     setSelectedClassForCall(classItem);
     setShowVideoCall(true);
-    toast.success('Initiating quantum connection...');
+    toast.success('Initiating Madina connection...');
   };
 
   const handleSubmitAssignment = async (submissionData) => {
@@ -1313,7 +1313,7 @@ export default function Dashboard() {
     }
   };
 
-  // Quantum Effects
+  // Madina Effects
   useEffect(() => {
     fetchStudentData();
   }, []);
@@ -1338,7 +1338,7 @@ export default function Dashboard() {
             <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
             <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
           </div>
-          <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Quantum Dashboard</p>
+          <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Madina Dashboard</p>
           <p className="text-purple-300 mt-2">AI optimizing your learning matrix</p>
         </div>
       </div>
@@ -1347,7 +1347,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex">
-      {/* Quantum Video Call */}
+      {/* Madina Video Call */}
       {showVideoCall && selectedClassForCall && (
         <StudentVideoCall
           classItem={selectedClassForCall}
@@ -1366,13 +1366,13 @@ export default function Dashboard() {
         md:translate-x-0 md:relative
       `}>
         <div className="flex flex-col h-full">
-          {/* Quantum Header */}
+          {/* Madina Header */}
           <div className="p-8 border-b border-cyan-500/20">
             <div className="flex items-center space-x-3 mb-4">
               <Gem className="text-cyan-400" size={32} />
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                  Quantum Academy
+                  Madina Academy
                 </h1>
                 <p className="text-cyan-300 text-sm">AI-Powered Learning</p>
               </div>
@@ -1382,10 +1382,10 @@ export default function Dashboard() {
           {/* Neural Navigation */}
           <nav className="flex-1 p-6 space-y-2">
             {[
-              { id: "classes", label: "Quantum Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
+              { id: "classes", label: "Madina Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
               { id: "assignments", label: "AI Missions", icon: FileText, color: "from-green-500 to-emerald-500" },
               { id: "exams", label: "Neural Assessments", icon: ClipboardList, color: "from-purple-500 to-pink-500" },
-              { id: "payments", label: "Quantum Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
+              { id: "payments", label: "Madina Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
               { id: "progress", label: "AI Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
             ].map((item) => (
               <button
@@ -1410,7 +1410,7 @@ export default function Dashboard() {
             ))}
           </nav>
 
-          {/* Quantum Profile */}
+          {/* Madina Profile */}
           <div className="p-6 border-t border-cyan-500/20">
             <div className="flex items-center space-x-4 p-4 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
               <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
@@ -1418,14 +1418,14 @@ export default function Dashboard() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-white font-bold text-sm truncate">{studentName}</p>
-                <p className="text-cyan-300 text-xs truncate">Quantum Learner</p>
+                <p className="text-cyan-300 text-xs truncate">Madina Learner</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Quantum Interface */}
+      {/* Main Madina Interface */}
       <div className="flex-1 flex flex-col min-h-screen md:ml-0">
         {/* Neural Header */}
         <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 sticky top-0 z-30">
@@ -1439,10 +1439,10 @@ export default function Dashboard() {
                   {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
                 </button>
                 <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent capitalize">
-                  {activeSection === 'classes' && 'Quantum Sessions'}
+                  {activeSection === 'classes' && 'Madina Sessions'}
                   {activeSection === 'assignments' && 'AI Missions'}
                   {activeSection === 'exams' && 'Neural Assessments'}
-                  {activeSection === 'payments' && 'Quantum Transactions'}
+                  {activeSection === 'payments' && 'Madina Transactions'}
                   {activeSection === 'progress' && 'AI Analytics'}
                 </h2>
               </div>
@@ -1472,7 +1472,7 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Quantum User Menu */}
+                {/* Madina User Menu */}
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -1489,7 +1489,7 @@ export default function Dashboard() {
                       <div className="p-2">
                         <button className="w-full flex items-center px-4 py-3 text-sm text-cyan-200 hover:bg-cyan-500/10 rounded-xl transition-all duration-200">
                           <Settings className="mr-3" size={18} />
-                          Quantum Settings
+                          Madina Settings
                         </button>
                         <button className="w-full flex items-center px-4 py-3 text-sm text-red-300 hover:bg-red-500/10 rounded-xl transition-all duration-200">
                           <LogOut className="mr-3" size={18} />
@@ -1504,7 +1504,7 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* Quantum Main Content */}
+        {/* Madina Main Content */}
         <main className="flex-1 p-8 overflow-auto">
           {/* AI Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -1530,7 +1530,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* Quantum Progress Matrix */}
+          {/* Madina Progress Matrix */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1540,13 +1540,13 @@ export default function Dashboard() {
             <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
               <TrendingUp className="mr-3" size={28} />
               <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                Quantum Progress Matrix
+                Madina Progress Matrix
               </span>
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {[
                 { label: "AI Completion", value: `${progressStats.completionRate}%`, icon: Target },
-                { label: "Quantum Streak", value: `${progressStats.streak} days`, icon: Zap },
+                { label: "Madina Streak", value: `${progressStats.streak} days`, icon: Zap },
                 { label: "Neural Level", value: `Level ${progressStats.level}`, icon: Star },
                 { label: "Experience", value: `${progressStats.points} XP`, icon: Gem },
               ].map((item, index) => (
@@ -1559,7 +1559,7 @@ export default function Dashboard() {
             </div>
           </motion.div>
 
-          {/* Quantum Content Sections */}
+          {/* Madina Content Sections */}
           <AnimatePresence mode="wait">
             {activeSection === 'classes' && (
               <motion.section
@@ -1569,11 +1569,11 @@ export default function Dashboard() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-8"
               >
-                {/* Quantum Sessions Header */}
+                {/* Madina Sessions Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
                   <div className="flex items-center space-x-4">
                     <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                      Quantum Sessions
+                      Madina Sessions
                     </h3>
                     {(() => {
                       const liveClasses = classes.filter(classItem => 
@@ -1598,15 +1598,15 @@ export default function Dashboard() {
                     className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
                   >
                     <RefreshCw className="mr-3" size={20} />
-                    Quantum Refresh
+                    Madina Refresh
                   </button>
                 </div>
 
-                {/* Quantum Sessions Content */}
+                {/* Madina Sessions Content */}
                 {classes.length === 0 ? (
                   <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
                     <Video className="mx-auto text-cyan-400 mb-6" size={80} />
-                    <h4 className="text-white text-2xl font-bold mb-4">No Quantum Sessions</h4>
+                    <h4 className="text-white text-2xl font-bold mb-4">No Madina Sessions</h4>
                     <p className="text-cyan-300 text-lg">Your AI-optimized learning sessions will appear here</p>
                   </div>
                 ) : (
@@ -1622,7 +1622,7 @@ export default function Dashboard() {
                             <div className="flex items-center space-x-4">
                               <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
                               <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl">
-                                🔴 QUANTUM LIVE ({liveClasses.length})
+                                🔴 Madina LIVE ({liveClasses.length})
                               </h4>
                             </div>
                             <div className="grid gap-6">
@@ -1657,7 +1657,7 @@ export default function Dashboard() {
                         return (
                           <div className="space-y-4">
                             <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-2xl">
-                              ⏰ QUANTUM SCHEDULED ({upcomingClasses.length})
+                              ⏰ Madina SCHEDULED ({upcomingClasses.length})
                             </h4>
                             <div className="grid gap-4">
                               {upcomingClasses.map((classItem) => (
@@ -1690,7 +1690,7 @@ export default function Dashboard() {
                         return (
                           <div className="space-y-4">
                             <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-2xl">
-                              ✅ QUANTUM ARCHIVE ({completedClasses.length})
+                              ✅ Madina ARCHIVE ({completedClasses.length})
                             </h4>
                             <div className="grid gap-4">
                               {completedClasses.map((classItem) => (
@@ -1770,7 +1770,7 @@ export default function Dashboard() {
               </motion.section>
             )}
 
-            {/* Add other sections similarly with quantum styling */}
+            {/* Add other sections similarly with Madina styling */}
           </AnimatePresence>
         </main>
       </div>
