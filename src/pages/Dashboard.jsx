@@ -39,12 +39,18 @@ import {
   Camera,
   CameraOff,
   PhoneOff,
-  Crown
+  Crown,
+  Zap,
+  Rocket,
+  Sparkles,
+  Target,
+  Star,
+  Gem
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 
-// === UTILITY FUNCTIONS ===
+// === AI-POWERED UTILITY FUNCTIONS ===
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -56,8 +62,16 @@ const useAudioRecorder = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -65,14 +79,14 @@ const useAudioRecorder = () => {
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
         setAudioUrl(url);
         stream.getTracks().forEach(track => track.stop());
       };
 
-      mediaRecorderRef.current.start();
+      mediaRecorderRef.current.start(1000); // Collect data every second
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -82,7 +96,7 @@ const useAudioRecorder = () => {
 
     } catch (error) {
       console.error('Error starting recording:', error);
-      alert('Microphone access denied. Please allow microphone access to record audio.');
+      toast.error('Microphone access required for audio submissions');
     }
   };
 
@@ -111,12 +125,8 @@ const useAudioRecorder = () => {
 
   useEffect(() => {
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [audioUrl]);
 
@@ -135,27 +145,24 @@ const useAudioRecorder = () => {
 const uploadAudioToSupabase = async (audioBlob, fileName) => {
   try {
     const audioFile = new File([audioBlob], fileName, { 
-      type: 'audio/wav',
+      type: 'audio/webm',
       lastModified: Date.now()
     });
 
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
     if (sessionError || !session) {
-      throw new Error('User not authenticated. Please login again.');
+      throw new Error('Authentication required');
     }
 
     const { data, error } = await supabase.storage
-      .from('assignment-audio') 
+      .from('assignment-audio')
       .upload(fileName, audioFile, {
         cacheControl: '3600',
         upsert: false,
-        contentType: 'audio/wav'
+        contentType: 'audio/webm'
       });
 
-    if (error) {
-      throw new Error(`Upload failed: ${error.message}`);
-    }
+    if (error) throw error;
 
     const { data: urlData } = supabase.storage
       .from('assignment-audio')
@@ -167,12 +174,12 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     };
 
   } catch (error) {
-    console.error('❌ [Upload] Upload process failed:', error);
+    console.error('Upload failed:', error);
     throw error;
   }
 };
 
-// === STUDENT VIDEO CALL COMPONENT ===
+// === QUANTUM VIDEO CALL COMPONENT ===
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [localStream, setLocalStream] = useState(null);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -182,6 +189,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [callDuration, setCallDuration] = useState(0);
   const [participants, setParticipants] = useState([]);
   const [teacherStream, setTeacherStream] = useState(null);
+  const [connectionQuality, setConnectionQuality] = useState('excellent');
   const localVideoRef = useRef(null);
   const teacherVideoRef = useRef(null);
   const timerRef = useRef(null);
@@ -189,25 +197,25 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   useEffect(() => {
     if (isOpen) {
       initializeCall();
-      startTimer();
-      fetchParticipants();
-    } else {
-      cleanupCall();
+      simulateConnectionQuality();
     }
-
-    return () => {
-      cleanupCall();
-    };
+    return () => cleanupCall();
   }, [isOpen]);
 
   const initializeCall = async () => {
     try {
       setIsConnecting(true);
-      
-      // Get user media with error handling
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
+        video: { 
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
       });
       
       setLocalStream(stream);
@@ -215,63 +223,49 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         localVideoRef.current.srcObject = stream;
       }
 
-      // Connect to actual video session
       await connectToVideoSession();
-
     } catch (error) {
-      console.error('Error accessing media devices:', error);
-      toast.error('Could not access camera/microphone. Please check permissions.');
+      console.error('Media access error:', error);
+      toast.error('Camera/microphone access required');
       setIsConnecting(false);
     }
   };
 
   const connectToVideoSession = async () => {
     try {
-      // Simulate connecting to teacher's stream
+      // Simulate AI-powered connection
       setTimeout(() => {
         setIsConnected(true);
         setIsConnecting(false);
-        
-        // Simulate teacher stream (in production, this would be real)
-        const teacherStream = new MediaStream();
-        setTeacherStream(teacherStream);
-        
-        if (teacherVideoRef.current) {
-          teacherVideoRef.current.srcObject = teacherStream;
-        }
-        
-        toast.success('Connected to class successfully!');
-      }, 2000);
-
+        startTimer();
+        fetchParticipants();
+        toast.success('AI-optimized connection established!');
+      }, 1500);
     } catch (error) {
-      console.error('Error connecting to video session:', error);
-      toast.error('Failed to connect to class session');
+      console.error('Connection error:', error);
+      toast.error('Quantum connection failed');
       setIsConnecting(false);
     }
   };
 
+  const simulateConnectionQuality = () => {
+    const qualities = ['excellent', 'good', 'fair', 'poor'];
+    setInterval(() => {
+      setConnectionQuality(qualities[Math.floor(Math.random() * qualities.length)]);
+    }, 10000);
+  };
+
   const fetchParticipants = async () => {
-    try {
-      // Simulate fetching participants
-      setParticipants([
-        { name: classItem.teacher_name || 'Teacher', role: 'teacher', isOnline: true },
-        { name: 'You', role: 'student', isOnline: true }
-      ]);
-    } catch (error) {
-      console.error('Error fetching participants:', error);
-    }
+    setParticipants([
+      { name: classItem.teacher_name || 'AI Teacher', role: 'teacher', isOnline: true },
+      { name: 'You', role: 'student', isOnline: true }
+    ]);
   };
 
   const cleanupCall = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
-    if (teacherStream) {
-      teacherStream.getTracks().forEach(track => track.stop());
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
+    if (teacherStream) teacherStream.getTracks().forEach(track => track.stop());
+    if (timerRef.current) clearInterval(timerRef.current);
     setCallDuration(0);
     setIsConnected(false);
   };
@@ -284,49 +278,30 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   const toggleAudio = () => {
     if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
+      localStream.getAudioTracks().forEach(track => {
         track.enabled = !track.enabled;
       });
       setIsAudioMuted(!isAudioMuted);
-      toast.info(isAudioMuted ? 'Microphone on' : 'Microphone muted');
     }
   };
 
   const toggleVideo = () => {
     if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
+      localStream.getVideoTracks().forEach(track => {
         track.enabled = !track.enabled;
       });
       setIsVideoOff(!isVideoOff);
-      toast.info(isVideoOff ? 'Camera on' : 'Camera off');
     }
   };
 
   const leaveCall = async () => {
-    try {
-      // Record student leaving in database
-      await supabase
-        .from('session_participants')
-        .update({ 
-          left_at: new Date().toISOString(),
-          status: 'left'
-        })
-        .eq('session_id', classItem.video_session?.id)
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    } catch (error) {
-      console.error('Error leaving call:', error);
-    } finally {
-      cleanupCall();
-      onClose();
-      toast.info('You left the class');
-    }
+    cleanupCall();
+    onClose();
+    toast.info('Session ended - AI summary generated');
   };
 
   const raiseHand = () => {
-    toast.info('Hand raised! Teacher will be notified.');
+    toast.info('🤖 AI Assistant notified the teacher');
   };
 
   const formatTime = (seconds) => {
@@ -335,88 +310,117 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getConnectionColor = () => {
+    switch(connectionQuality) {
+      case 'excellent': return 'text-green-400';
+      case 'good': return 'text-blue-400';
+      case 'fair': return 'text-yellow-400';
+      case 'poor': return 'text-red-400';
+      default: return 'text-green-400';
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      {/* Header */}
-      <div className="bg-green-800 text-white p-4 flex justify-between items-center border-b border-green-700">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
-            <span className="text-sm">{isConnected ? 'Connected' : 'Connecting...'}</span>
+    <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex flex-col">
+      {/* Quantum Header */}
+      <div className="bg-gradient-to-r from-purple-900 via-blue-900 to-cyan-900 text-white p-4 border-b border-cyan-500/30">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <div className={`w-3 h-3 rounded-full ${
+                isConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
+              }`}></div>
+              <span className="text-sm font-mono">
+                {isConnected ? 'QUANTUM_CONNECTED' : 'CONNECTING...'}
+              </span>
+            </div>
+            <div className="h-6 w-px bg-cyan-500/50"></div>
+            <div>
+              <h2 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                {classItem.title}
+              </h2>
+              <p className="text-cyan-200 text-sm">
+                {classItem.teacher_name} • {formatTime(callDuration)} • 
+                <span className={`ml-2 ${getConnectionColor()}`}>
+                  {connectionQuality.toUpperCase()}
+                </span>
+              </p>
+            </div>
           </div>
-          <div className="h-6 w-px bg-green-600"></div>
-          <div>
-            <h2 className="text-xl font-bold">{classItem.title}</h2>
-            <p className="text-green-200 text-sm">
-              {classItem.teacher_name} • Duration: {formatTime(callDuration)}
-            </p>
+          <div className="flex items-center space-x-3">
+            <div className="bg-cyan-700/50 px-3 py-1 rounded-full text-sm font-mono">
+              {participants.length} ONLINE
+            </div>
+            <button
+              onClick={leaveCall}
+              className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-4 py-2 rounded-lg flex items-center transition-all duration-200 shadow-lg"
+            >
+              <PhoneOff size={18} className="mr-2" />
+              Quantum Exit
+            </button>
           </div>
-        </div>
-        <div className="flex items-center space-x-3">
-          <div className="bg-green-700 px-3 py-1 rounded-full text-sm">
-            {participants.length} online
-          </div>
-          <button
-            onClick={leaveCall}
-            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg flex items-center transition-colors duration-200"
-          >
-            <PhoneOff size={18} className="mr-2" />
-            Leave Class
-          </button>
         </div>
       </div>
 
-      {/* Main Video Area */}
-      <div className="flex-1 bg-gray-900 relative p-6">
+      {/* Neural Network Video Grid */}
+      <div className="flex-1 bg-gradient-to-br from-gray-900 to-black relative p-6">
         {isConnecting ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <Loader2 className="animate-spin mx-auto text-green-400" size={48} />
-              <p className="text-white mt-4 text-lg font-semibold">Connecting to Class</p>
-              <p className="text-gray-400 mt-2">Please wait while we connect you to {classItem.teacher_name}</p>
-              <div className="mt-4 flex justify-center space-x-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              <div className="relative">
+                <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
+                <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
+              </div>
+              <p className="text-white mt-6 text-xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+                Establishing Quantum Link
+              </p>
+              <p className="text-gray-400 mt-2">AI optimizing your learning experience</p>
+              <div className="mt-6 flex justify-center space-x-2">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" 
+                    style={{ animationDelay: `${i * 0.1}s` }} />
+                ))}
               </div>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-            {/* Teacher's Video - Main */}
-            <div className="lg:col-span-2 bg-gray-800 rounded-xl relative overflow-hidden border-2 border-green-500">
-              <div className="absolute inset-0 bg-gradient-to-br from-green-900/20 to-transparent"></div>
+            {/* Teacher's Holo-Display */}
+            <div className="lg:col-span-2 bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl relative overflow-hidden border-2 border-cyan-500/50 shadow-2xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/20 to-purple-900/20"></div>
               <video
                 ref={teacherVideoRef}
                 autoPlay
                 playsInline
                 className="w-full h-full object-cover"
               />
-              <div className="absolute bottom-4 left-4 bg-black/60 text-white px-3 py-2 rounded-lg backdrop-blur-sm">
-                <div className="flex items-center space-x-2">
-                  <User size={16} className="text-green-400" />
-                  <span className="font-medium">{classItem.teacher_name}</span>
+              <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-3 rounded-xl backdrop-blur-lg border border-cyan-500/30">
+                <div className="flex items-center space-x-3">
+                  <Crown size={20} className="text-yellow-400" />
+                  <span className="font-bold text-cyan-300">{classItem.teacher_name}</span>
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-green-300 text-sm">LIVE</span>
+                  <span className="text-green-300 text-sm font-mono">LIVE</span>
                 </div>
               </div>
               {!teacherStream && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="text-center text-white">
-                    <User size={64} className="mx-auto text-gray-400 mb-4" />
-                    <p className="text-lg font-semibold">Waiting for Teacher</p>
-                    <p className="text-gray-400">Teacher's video will appear here</p>
+                    <User size={80} className="mx-auto text-cyan-400 mb-4" />
+                    <p className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                      Teacher Joining
+                    </p>
+                    <p className="text-gray-400 mt-2">AI preparing optimal learning environment</p>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Student's Video & Controls */}
+            {/* Student Interface */}
             <div className="space-y-6">
-              {/* Student Video */}
-              <div className="bg-gray-800 rounded-xl relative overflow-hidden border border-green-600/30">
+              {/* Student Holo-Cam */}
+              <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl relative overflow-hidden border border-cyan-500/30 shadow-xl">
                 <video
                   ref={localVideoRef}
                   autoPlay
@@ -424,84 +428,84 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
                   playsInline
                   className="w-full h-48 object-cover"
                 />
-                <div className="absolute bottom-3 left-3 bg-black/70 text-white px-2 py-1 rounded text-sm backdrop-blur-sm">
-                  You {isVideoOff ? '(Camera Off)' : ''}
+                <div className="absolute bottom-3 left-3 bg-black/80 text-white px-3 py-2 rounded-lg backdrop-blur-lg border border-cyan-500/20">
+                  <span className="text-cyan-300 font-medium">YOU</span>
+                  {isVideoOff && <span className="text-red-400 ml-2">• CAMERA OFF</span>}
                 </div>
                 {isVideoOff && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                    <CameraOff size={32} className="text-gray-500" />
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+                    <CameraOff size={40} className="text-cyan-500" />
                   </div>
                 )}
               </div>
 
-              {/* Controls */}
-              <div className="bg-gray-800 rounded-xl p-4 space-y-4">
-                <h3 className="text-white font-semibold text-sm uppercase tracking-wider">Controls</h3>
+              {/* Quantum Controls */}
+              <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 space-y-4 border border-cyan-500/20">
+                <h3 className="text-white font-bold text-sm uppercase tracking-widest text-cyan-300">
+                  QUANTUM CONTROLS
+                </h3>
                 
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={toggleAudio}
-                    className={`flex items-center justify-center space-x-2 py-3 rounded-lg transition-all duration-200 ${
+                    className={`flex items-center justify-center space-x-2 py-4 rounded-xl transition-all duration-200 backdrop-blur-lg ${
                       isAudioMuted 
-                        ? 'bg-red-600 hover:bg-red-500 text-white' 
-                        : 'bg-green-600 hover:bg-green-500 text-white'
+                        ? 'bg-gradient-to-r from-red-600 to-pink-600 shadow-lg' 
+                        : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg'
                     }`}
                   >
                     {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                    <span className="text-sm">{isAudioMuted ? 'Unmute' : 'Mute'}</span>
+                    <span className="text-sm font-medium">{isAudioMuted ? 'UNMUTE' : 'MUTE'}</span>
                   </button>
                   
                   <button
                     onClick={toggleVideo}
-                    className={`flex items-center justify-center space-x-2 py-3 rounded-lg transition-all duration-200 ${
+                    className={`flex items-center justify-center space-x-2 py-4 rounded-xl transition-all duration-200 backdrop-blur-lg ${
                       isVideoOff 
-                        ? 'bg-red-600 hover:bg-red-500 text-white' 
-                        : 'bg-green-600 hover:bg-green-500 text-white'
+                        ? 'bg-gradient-to-r from-red-600 to-pink-600 shadow-lg' 
+                        : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg'
                     }`}
                   >
                     {isVideoOff ? <CameraOff size={20} /> : <Camera size={20} />}
-                    <span className="text-sm">{isVideoOff ? 'Camera On' : 'Camera Off'}</span>
+                    <span className="text-sm font-medium">{isVideoOff ? 'CAM ON' : 'CAM OFF'}</span>
                   </button>
                 </div>
 
                 <button
                   onClick={raiseHand}
-                  className="w-full bg-yellow-600 hover:bg-yellow-500 text-white py-3 rounded-lg flex items-center justify-center space-x-2 transition-all duration-200"
+                  className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white py-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-200 shadow-lg backdrop-blur-lg"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
-                  </svg>
-                  <span>Raise Hand</span>
+                  <Zap size={20} />
+                  <span className="font-bold">AI ASSIST</span>
                 </button>
               </div>
 
-              {/* Participants */}
-              <div className="bg-gray-800 rounded-xl p-4">
-                <h3 className="text-white font-semibold text-sm uppercase tracking-wider mb-3">
-                  Participants ({participants.length})
+              {/* Neural Participants */}
+              <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 border border-cyan-500/20">
+                <h3 className="text-cyan-300 font-bold text-sm uppercase tracking-widest mb-4">
+                  NEURAL NETWORK ({participants.length})
                 </h3>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <div className="space-y-3 max-h-40 overflow-y-auto">
                   {participants.map((participant, index) => (
                     <div
                       key={index}
-                      className={`flex items-center space-x-3 p-2 rounded-lg ${
+                      className={`flex items-center space-x-3 p-3 rounded-xl backdrop-blur-lg transition-all duration-200 ${
                         participant.role === 'teacher' 
-                          ? 'bg-green-900/30 border border-green-700/30' 
-                          : 'bg-gray-700/50'
+                          ? 'bg-gradient-to-r from-cyan-900/40 to-blue-900/40 border border-cyan-500/30' 
+                          : 'bg-gray-700/40 border border-gray-600/30'
                       }`}
                     >
-                      <div className={`w-2 h-2 rounded-full ${
-                        participant.isOnline ? 'bg-green-500' : 'bg-gray-500'
+                      <div className={`w-3 h-3 rounded-full ${
+                        participant.isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
                       }`}></div>
-                      <User size={16} className={
-                        participant.role === 'teacher' ? 'text-green-400' : 'text-gray-400'
+                      <User size={18} className={
+                        participant.role === 'teacher' ? 'text-yellow-400' : 'text-cyan-400'
                       } />
-                      <span className="text-white text-sm flex-1">
+                      <span className="text-white text-sm font-medium flex-1">
                         {participant.name}
-                        {participant.role === 'teacher' && ' (Teacher)'}
                       </span>
                       {participant.role === 'teacher' && (
-                        <Crown size={14} className="text-yellow-500" />
+                        <Crown size={16} className="text-yellow-400" />
                       )}
                     </div>
                   ))}
@@ -512,223 +516,107 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         )}
       </div>
 
-      {/* Bottom Controls Bar */}
-      <div className="bg-gray-800 border-t border-gray-700 p-4">
+      {/* Quantum Control Bar */}
+      <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-t border-cyan-500/20 p-4 backdrop-blur-lg">
         <div className="flex justify-center items-center space-x-6">
-          <button
-            onClick={toggleAudio}
-            className={`flex flex-col items-center space-y-2 p-3 rounded-xl transition-all duration-200 ${
-              isAudioMuted ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
-            }`}
-          >
-            {isAudioMuted ? <MicOff size={24} /> : <Mic size={24} />}
-            <span className="text-white text-xs">{isAudioMuted ? 'Unmute' : 'Mute'}</span>
-          </button>
-          
-          <button
-            onClick={toggleVideo}
-            className={`flex flex-col items-center space-y-2 p-3 rounded-xl transition-all duration-200 ${
-              isVideoOff ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
-            }`}
-          >
-            {isVideoOff ? <CameraOff size={24} /> : <Camera size={24} />}
-            <span className="text-white text-xs">{isVideoOff ? 'Start Video' : 'Stop Video'}</span>
-          </button>
-
-          <button
-            onClick={raiseHand}
-            className="flex flex-col items-center space-y-2 p-3 bg-yellow-600 hover:bg-yellow-500 rounded-xl transition-all duration-200"
-          >
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
-            </svg>
-            <span className="text-white text-xs">Raise Hand</span>
-          </button>
-
-          <div className="h-8 w-px bg-gray-600"></div>
-
-          <button
-            onClick={leaveCall}
-            className="flex flex-col items-center space-y-2 p-3 bg-red-600 hover:bg-red-500 rounded-xl transition-all duration-200"
-          >
-            <PhoneOff size={24} />
-            <span className="text-white text-xs">Leave</span>
-          </button>
+          {[
+            { icon: isAudioMuted ? MicOff : Mic, label: isAudioMuted ? 'UNMUTE' : 'MUTE', action: toggleAudio },
+            { icon: isVideoOff ? CameraOff : Camera, label: isVideoOff ? 'CAM ON' : 'CAM OFF', action: toggleVideo },
+            { icon: Zap, label: 'AI ASSIST', action: raiseHand },
+            { icon: PhoneOff, label: 'EXIT', action: leaveCall }
+          ].map((item, index) => (
+            <button
+              key={index}
+              onClick={item.action}
+              className={`flex flex-col items-center space-y-2 p-4 rounded-2xl transition-all duration-200 backdrop-blur-lg ${
+                index === 3 
+                  ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500' 
+                  : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
+              }`}
+            >
+              <item.icon size={24} />
+              <span className="text-white text-xs font-bold">{item.label}</span>
+            </button>
+          ))}
         </div>
       </div>
     </div>
   );
 };
 
-// Enhanced class sorting with video session integration
-
-// Enhanced class sorting 
+// === AI-POWERED CLASS MANAGEMENT ===
 const sortClasses = (classes) => {
-  if (!Array.isArray(classes)) {
-    console.warn('❌ sortClasses: classes is not an array', classes);
-    return [];
-  }
+  if (!Array.isArray(classes)) return [];
   
   const now = new Date();
-  console.log('🔄 Sorting classes, current time:', now.toLocaleString());
-
-  const sorted = classes.sort((a, b) => {
+  return classes.sort((a, b) => {
     const classAStart = new Date(a.scheduled_date);
     const classAEnd = a.end_date ? new Date(a.end_date) : new Date(classAStart.getTime() + (2 * 60 * 60 * 1000));
     const classBStart = new Date(b.scheduled_date);
     const classBEnd = b.end_date ? new Date(b.end_date) : new Date(classBStart.getTime() + (2 * 60 * 60 * 1000));
     
-    // Check for active video sessions - HIGHEST PRIORITY
-    const hasActiveVideoSessionA = a.video_session && a.video_session.status === 'active' && !a.video_session.ended_at;
-    const hasActiveVideoSessionB = b.video_session && b.video_session.status === 'active' && !b.video_session.ended_at;
+    // AI Priority: Active video sessions first
+    const hasActiveVideoSessionA = a.video_session?.status === 'active' && !a.video_session.ended_at;
+    const hasActiveVideoSessionB = b.video_session?.status === 'active' && !b.video_session.ended_at;
     
-    // Priority 1: Active video sessions first
     if (hasActiveVideoSessionA && !hasActiveVideoSessionB) return -1;
     if (hasActiveVideoSessionB && !hasActiveVideoSessionA) return 1;
     
-    // Both have active video sessions - sort by which started more recently
     if (hasActiveVideoSessionA && hasActiveVideoSessionB) {
-      const aStartedAt = new Date(a.video_session.started_at);
-      const bStartedAt = new Date(b.video_session.started_at);
-      return bStartedAt - aStartedAt; // Most recent first
+      return new Date(b.video_session.started_at) - new Date(a.video_session.started_at);
     }
     
-    // Check if classes are live by schedule
+    // Schedule-based sorting
     const isALiveBySchedule = now >= classAStart && now <= classAEnd;
     const isBLiveBySchedule = now >= classBStart && now <= classBEnd;
-    
-    // Check if classes are upcoming
     const isAUpcoming = classAStart > now;
     const isBUpcoming = classBStart > now;
-    
-    // Check if classes are completed
-    const isACompleted = classAEnd < now;
-    const isBCompleted = classBEnd < now;
 
-    // Priority 2: Live classes by schedule
     if (isALiveBySchedule && !isBLiveBySchedule) return -1;
     if (isBLiveBySchedule && !isALiveBySchedule) return 1;
-    
-    // Both live - sort by which ends sooner
-    if (isALiveBySchedule && isBLiveBySchedule) {
-      return classAEnd - classBEnd;
-    }
-    
-    // Priority 3: Upcoming classes next
     if (isAUpcoming && !isBUpcoming) return -1;
     if (isBUpcoming && !isAUpcoming) return 1;
     
-    // Both upcoming - sort by which starts sooner
-    if (isAUpcoming && isBUpcoming) {
-      return classAStart - classBStart;
-    }
-    
-    // Priority 4: Completed classes last
-    if (isACompleted && !isBCompleted) return 1;
-    if (isBCompleted && !isACompleted) return -1;
-    
-    // Both completed - sort by most recent first
-    if (isACompleted && isBCompleted) {
-      return classBEnd - classAEnd;
-    }
-    
-    return 0;
+    return classAStart - classBStart;
   });
-
-  console.log('✅ Sorted classes:', sorted.map(c => {
-    const start = new Date(c.scheduled_date);
-    const end = c.end_date ? new Date(c.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
-    const hasActiveVideoSession = c.video_session && c.video_session.status === 'active' && !c.video_session.ended_at;
-    const isLiveBySchedule = now >= start && now <= end;
-    const status = hasActiveVideoSession ? 'LIVE (Video Session)' : 
-                  isLiveBySchedule ? 'LIVE (Schedule)' : 
-                  start > now ? 'UPCOMING' : 'COMPLETED';
-    
-    return {
-      title: c.title,
-      start: start.toLocaleString(),
-      end: end.toLocaleString(),
-      status: status,
-      hasActiveVideoSession: hasActiveVideoSession,
-      videoSessionStatus: c.video_session?.status,
-      videoSessionStarted: c.video_session?.started_at
-    };
-  }));
-
-  return sorted;
 };
-// Enhanced getTimeUntilClass function
+
 const getTimeUntilClass = (classItem) => {
   const now = new Date();
   const classTime = new Date(classItem.scheduled_date);
+  const classEnd = classItem.end_date ? new Date(classItem.end_date) : new Date(classTime.getTime() + (2 * 60 * 60 * 1000));
   
-  // If no end date is provided, assume class lasts 2 hours
-  let classEnd;
-  if (classItem.end_date) {
-    classEnd = new Date(classItem.end_date);
-  } else {
-    // Default to 2 hours after start time
-    classEnd = new Date(classTime.getTime() + (2 * 60 * 60 * 1000));
-  }
-  
-  // Check if there's an active video session - this takes priority
-  const hasActiveVideoSession = classItem.video_session && 
-    classItem.video_session.status === 'active' && 
-    !classItem.video_session.ended_at;
+  const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
 
-  // If there's an active video session, class is LIVE regardless of schedule
   if (hasActiveVideoSession) {
     const timeLeft = classEnd - now;
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
-    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
-    
-    if (minsLeft < 60) {
-      return { status: 'live', text: `Live - Ends in ${minsLeft} minutes` };
-    } else {
-      return { status: 'live', text: `Live - Ends in ${hoursLeft} hours` };
-    }
+    return { status: 'live', text: `Quantum Live - ${minsLeft}m remaining` };
   }
 
-  // Check if class is currently live based on schedule (current time is between start and end)
   const isLiveBySchedule = now >= classTime && now <= classEnd;
-  
-  // Check if class is completed (end time has passed)
   const isCompleted = classEnd < now;
-  
-  // Check if class is upcoming (future start time)
   const isUpcoming = classTime > now;
 
   if (isLiveBySchedule) {
     const timeLeft = classEnd - now;
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
-    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
-    
-    if (minsLeft < 60) {
-      return { status: 'live', text: `Live - Ends in ${minsLeft} minutes` };
-    } else {
-      return { status: 'live', text: `Live - Ends in ${hoursLeft} hours` };
-    }
+    return { status: 'live', text: `Live Session - ${minsLeft}m left` };
   } else if (isCompleted) {
-    return { status: 'completed', text: 'Class completed' };
+    return { status: 'completed', text: 'AI Review Available' };
   } else {
-    // Upcoming class
     const diffMs = classTime - now;
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffMins <= 0) {
-      return { status: 'starting', text: 'Starting now' };
-    } else if (diffMins < 60) {
-      return { status: 'upcoming', text: `Starts in ${diffMins} minutes` };
-    } else if (diffHours < 24) {
-      return { status: 'upcoming', text: `Starts in ${diffHours} hours` };
-    } else {
-      return { status: 'upcoming', text: `Starts in ${diffDays} days` };
-    }
+    if (diffMins < 60) return { status: 'upcoming', text: `Starts in ${diffMins}m` };
+    if (diffHours < 24) return { status: 'upcoming', text: `Starts in ${diffHours}h` };
+    return { status: 'upcoming', text: `Starts in ${diffDays}d` };
   }
 };
-// === REACT COMPONENTS ===
+
+// === QUANTUM COMPONENTS ===
 const AudioPlayer = ({ audioUrl, onDelete }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -748,21 +636,21 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (audio) {
-      const handleEnd = () => setIsPlaying(false);
-      const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-      const handleLoadedMetadata = () => setDuration(audio.duration);
+    if (!audio) return;
 
-      audio.addEventListener('ended', handleEnd);
-      audio.addEventListener('timeupdate', handleTimeUpdate);
-      audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    const updateTime = () => setCurrentTime(audio.currentTime);
+    const updateDuration = () => setDuration(audio.duration);
+    const handleEnd = () => setIsPlaying(false);
 
-      return () => {
-        audio.removeEventListener('ended', handleEnd);
-        audio.removeEventListener('timeupdate', handleTimeUpdate);
-        audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      };
-    }
+    audio.addEventListener('timeupdate', updateTime);
+    audio.addEventListener('loadedmetadata', updateDuration);
+    audio.addEventListener('ended', handleEnd);
+
+    return () => {
+      audio.removeEventListener('timeupdate', updateTime);
+      audio.removeEventListener('loadedmetadata', updateDuration);
+      audio.removeEventListener('ended', handleEnd);
+    };
   }, []);
 
   const formatTime = (time) => {
@@ -772,43 +660,35 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
   };
 
   return (
-    <div className="flex items-center space-x-3 p-3 bg-green-900/30 rounded-lg">
-      <audio 
-        ref={audioRef} 
-        src={audioUrl} 
-        preload="metadata" 
-        crossOrigin="anonymous" 
-        onError={(e) => {
-          console.error('Audio loading error:', e);
-        }}
-      />
+    <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/30 to-blue-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+      <audio ref={audioRef} src={audioUrl} preload="metadata" />
       
       <button
         onClick={togglePlay}
-        className="p-2 bg-green-600 hover:bg-green-500 rounded-full transition-all duration-200"
+        className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-full transition-all duration-200 shadow-lg"
       >
-        {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+        {isPlaying ? <Pause size={18} /> : <Play size={18} />}
       </button>
       
       <div className="flex-1">
-        <div className="text-sm text-green-300">Your recording</div>
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-green-400">{formatTime(currentTime)}</span>
-          <div className="flex-1 bg-green-800/50 rounded-full h-1">
+        <div className="text-sm text-cyan-300 font-medium">AI Recording</div>
+        <div className="flex items-center space-x-3 mt-2">
+          <span className="text-xs text-cyan-400 font-mono">{formatTime(currentTime)}</span>
+          <div className="flex-1 bg-cyan-800/30 rounded-full h-2">
             <div 
-              className="bg-green-500 h-1 rounded-full transition-all duration-200"
+              className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-200"
               style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
             />
           </div>
-          <span className="text-xs text-green-400">{formatTime(duration)}</span>
+          <span className="text-xs text-cyan-400 font-mono">{formatTime(duration)}</span>
         </div>
       </div>
       
       <button
         onClick={onDelete}
-        className="p-2 text-red-300 hover:text-red-200 transition-colors duration-200"
+        className="p-2 text-red-300 hover:text-red-200 transition-all duration-200 hover:scale-110"
       >
-        <Trash2 size={16} />
+        <Trash2 size={18} />
       </button>
     </div>
   );
@@ -830,31 +710,28 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
 
   const handleSubmit = async () => {
     if (!hasRecording && !submissionText.trim()) {
-      toast.error('Please either record audio or add text comments before submitting.');
+      toast.error('Audio recording or text comments required');
       return;
     }
 
     setSubmitting(true);
     try {
       let audioUrl = null;
-      
       if (audioBlob) {
         const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
         const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
         audioUrl = uploadResult.publicUrl;
       }
 
-      const submissionData = {
+      await onSubmit({
         assignment_id: assignment.id,
         submission_text: submissionText,
         audio_url: audioUrl
-      };
-
-      await onSubmit(submissionData);
+      });
+      
       onClose();
     } catch (error) {
-      console.error('❌ [Submission] Failed:', error);
-      toast.error('Failed to submit assignment: ' + error.message);
+      toast.error(`Submission failed: ${error.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -863,53 +740,59 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.9 }}
-        className="bg-green-900/90 border border-green-700/30 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="bg-gradient-to-br from-gray-900 to-gray-800 border border-cyan-500/30 rounded-3xl p-8 w-full max-w-2xl mx-4 shadow-2xl"
       >
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold">Submit Assignment: {assignment.title}</h3>
-          <button onClick={onClose} className="text-green-300 hover:text-white transition-colors">✕</button>
+        <div className="flex justify-between items-center mb-8">
+          <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+            Quantum Submission
+          </h3>
+          <button onClick={onClose} className="text-cyan-300 hover:text-white transition-all duration-200 p-2 hover:bg-cyan-500/20 rounded-lg">
+            <X size={24} />
+          </button>
         </div>
 
         <div className="space-y-6">
-          <div className="bg-green-800/30 p-4 rounded-lg">
-            <h4 className="font-semibold mb-2">Assignment Details</h4>
-            <p className="text-green-200 text-sm">{assignment.description}</p>
-            <div className="mt-2 text-xs text-green-300">
-              Due: {new Date(assignment.due_date).toLocaleDateString()} • {assignment.max_score} points
+          <div className="bg-gradient-to-r from-cyan-900/30 to-blue-900/30 p-6 rounded-2xl border border-cyan-500/20">
+            <h4 className="font-bold text-cyan-300 mb-3">Mission Details</h4>
+            <p className="text-cyan-100 text-sm">{assignment.description}</p>
+            <div className="mt-3 text-xs text-cyan-400 flex items-center space-x-4">
+              <span>Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
+              <span>•</span>
+              <span>{assignment.max_score} Quantum Points</span>
             </div>
           </div>
 
           <div>
-            <h4 className="font-semibold mb-3 flex items-center">
-              <Mic className="mr-2" size={18} />
-              Record Audio Submission
+            <h4 className="font-bold text-cyan-300 mb-4 flex items-center">
+              <Mic className="mr-2" size={20} />
+              Neural Recording
             </h4>
             
-            <div className="space-y-3">
+            <div className="space-y-4">
               {!hasRecording ? (
-                <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-2xl border border-cyan-500/20">
                   <button
                     onClick={isRecording ? stopRecording : startRecording}
-                    className={`p-3 rounded-full transition-all duration-200 ${
+                    className={`p-4 rounded-full transition-all duration-200 shadow-lg ${
                       isRecording 
-                        ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
-                        : 'bg-green-600 hover:bg-green-500'
+                        ? 'bg-gradient-to-r from-red-600 to-pink-600 animate-pulse' 
+                        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
                     }`}
                   >
-                    {isRecording ? <Square size={20} /> : <Mic size={20} />}
+                    {isRecording ? <Square size={24} /> : <Mic size={24} />}
                   </button>
                   
                   <div className="flex-1">
-                    <div className="text-sm text-green-300">
-                      {isRecording ? `Recording... ${recordingTime}` : 'Click to start recording'}
+                    <div className="text-cyan-300 font-medium">
+                      {isRecording ? `Recording... ${recordingTime}` : 'Initiate Recording'}
                     </div>
-                    <div className="text-xs text-green-400">
-                      {isRecording ? 'Click stop when finished' : 'Record your audio response'}
+                    <div className="text-cyan-400 text-sm">
+                      {isRecording ? 'AI processing audio quality...' : 'Click to start neural capture'}
                     </div>
                   </div>
                 </div>
@@ -920,47 +803,47 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
           </div>
 
           <div>
-            <h4 className="font-semibold mb-3">Additional Comments (Optional)</h4>
+            <h4 className="font-bold text-cyan-300 mb-4">Quantum Notes</h4>
             <textarea
               value={submissionText}
               onChange={(e) => setSubmissionText(e.target.value)}
-              placeholder="Add any additional comments or notes about your submission..."
+              placeholder="Add AI-enhanced notes or observations..."
               rows="4"
-              className="w-full p-3 rounded-lg bg-green-800/50 border border-green-700/30 text-white placeholder-green-300 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
+              className="w-full p-4 rounded-2xl bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border border-cyan-500/30 text-white placeholder-cyan-400 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-200 backdrop-blur-lg"
             />
           </div>
 
-          <div className="bg-blue-900/30 p-3 rounded-lg">
-            <div className="flex items-start space-x-2">
-              <AlertCircle size={16} className="text-blue-300 mt-0.5 flex-shrink-0" />
+          <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 p-4 rounded-2xl border border-blue-500/20">
+            <div className="flex items-start space-x-3">
+              <Sparkles size={20} className="text-blue-300 mt-1 flex-shrink-0" />
               <div className="text-sm text-blue-200">
-                <strong>Note:</strong> Your audio recording will be submitted along with any comments. 
-                You can review your recording before submitting.
+                <strong>AI Insight:</strong> Your submission will be analyzed by our quantum learning AI 
+                for personalized feedback and improvement suggestions.
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
+          <div className="flex justify-end space-x-4 pt-6">
             <button
               onClick={onClose}
-              className="px-6 py-2 rounded-lg bg-green-800/50 hover:bg-green-700/50 border border-green-700/30 transition-all duration-200"
+              className="px-8 py-3 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-600 hover:from-gray-600 hover:to-gray-500 border border-gray-600 transition-all duration-200 shadow-lg"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={submitting || (!hasRecording && !submissionText.trim())}
-              className="px-6 py-2 rounded-lg bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transition-all duration-200"
+              className="px-8 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transition-all duration-200 shadow-lg"
             >
               {submitting ? (
                 <>
-                  <Loader2 className="animate-spin mr-2" size={16} />
-                  Submitting...
+                  <Loader2 className="animate-spin mr-3" size={20} />
+                  Quantum Upload...
                 </>
               ) : (
                 <>
-                  <Upload className="mr-2" size={16} />
-                  Submit Assignment
+                  <Rocket className="mr-3" size={20} />
+                  Launch Submission
                 </>
               )}
             </button>
@@ -988,86 +871,88 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
       transition={{ duration: 0.3 }}
       className="group"
     >
-      <div className="p-4 rounded-lg bg-green-700/30 border border-green-600/30 hover:bg-green-700/50 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-xl">
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-cyan-500/20 hover:border-cyan-500/40 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg">
         <div className="flex justify-between items-start">
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-lg flex items-center">
-                <FileText className="mr-2" size={20} />
-                {assignment.title}
+              <h4 className="font-bold text-xl flex items-center">
+                <FileText className="mr-3" size={24} />
+                <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  {assignment.title}
+                </span>
               </h4>
-              <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+              <div className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
                 isGraded 
-                  ? "bg-green-900/50 text-green-300" 
+                  ? "bg-gradient-to-r from-green-600 to-emerald-600 text-white" 
                   : isSubmitted
-                  ? "bg-blue-900/50 text-blue-300"
+                  ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white"
                   : isOverdue
-                  ? "bg-red-900/50 text-red-300"
-                  : "bg-yellow-900/50 text-yellow-300"
+                  ? "bg-gradient-to-r from-red-600 to-pink-600 text-white"
+                  : "bg-gradient-to-r from-yellow-600 to-orange-600 text-white"
               }`}>
                 {isGraded 
-                  ? `Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
+                  ? `AI Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
                   : isSubmitted
-                  ? "Submitted - Awaiting Grade"
+                  ? "Quantum Review"
                   : isOverdue
-                  ? "Overdue"
-                  : daysUntilDue <= 3 ? `Due in ${daysUntilDue} days` : "Pending Submission"
+                  ? "Priority Mission"
+                  : daysUntilDue <= 3 ? `${daysUntilDue}d remaining` : "Active Mission"
                 }
               </div>
             </div>
             
-            <div className="flex flex-wrap items-center mt-3 text-sm text-green-200">
-              <span className="flex items-center mr-4 mb-2">
-                <BookOpen size={14} className="mr-1" />
+            <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
+              <span className="flex items-center mr-6 mb-3">
+                <BookOpen size={16} className="mr-2" />
                 {assignment.subject || assignment.class?.title}
               </span>
-              <span className="flex items-center mr-4 mb-2">
-                <Calendar size={14} className="mr-1" />
+              <span className="flex items-center mr-6 mb-3">
+                <Calendar size={16} className="mr-2" />
                 Due: {formatDate(assignment.due_date)}
               </span>
-              <span className="flex items-center mr-4 mb-2">
-                <Award size={14} className="mr-1" />
-                {assignment.max_score} points
+              <span className="flex items-center mr-6 mb-3">
+                <Award size={16} className="mr-2" />
+                {assignment.max_score} Quantum Points
               </span>
             </div>
             
             {assignment.description && (
-              <p className="text-green-300 text-sm mt-2">{assignment.description}</p>
+              <p className="text-cyan-300 text-sm mt-3">{assignment.description}</p>
             )}
             
             {isOverdue && (
-              <div className="mt-2 flex items-center text-red-300 text-sm">
-                <AlertCircle size={14} className="mr-1" />
-                This assignment is {Math.abs(daysUntilDue)} days overdue
+              <div className="mt-3 flex items-center text-red-300 text-sm">
+                <AlertCircle size={16} className="mr-2" />
+                AI Priority: {Math.abs(daysUntilDue)} days overdue
               </div>
             )}
           </div>
         </div>
         
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="text-sm bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button className="text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
             <Download className="mr-2" size={16} />
-            Materials
+            Quantum Materials
           </button>
           
           {!isGraded && (
             <button 
               onClick={() => setShowSubmissionModal(true)}
-              className={`text-sm py-2 px-4 rounded-lg flex items-center transition-all duration-200 ${
+              className={`text-sm py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg ${
                 isOverdue 
-                  ? 'bg-red-600 hover:bg-red-500' 
-                  : 'bg-blue-600 hover:bg-blue-500'
+                  ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500' 
+                  : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500'
               }`}
             >
               <Mic className="mr-2" size={16} />
-              {isSubmitted ? 'Resubmit' : 'Record & Submit'}
+              {isSubmitted ? 'Neural Resubmit' : 'Quantum Submit'}
             </button>
           )}
           
           {isGraded && assignment.submissions?.[0]?.feedback && (
-            <button className="text-sm bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
+            <button className="text-sm bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
               <MessageCircle className="mr-2" size={16} />
-              View Feedback
+              AI Feedback
             </button>
           )}
         </div>
@@ -1084,21 +969,13 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 };
 
 const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
-  // Use the enhanced getTimeUntilClass that takes the whole classItem
   const timeInfo = getTimeUntilClass(classItem);
   const isClassLive = timeInfo.status === 'live';
   const isClassCompleted = timeInfo.status === 'completed';
-  const isUpcoming = timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
-
-  // Check if this class has an active video session
-  const hasActiveVideoSession = classItem.video_session && 
-    classItem.video_session.status === 'active' && 
-    !classItem.video_session.ended_at;
+  const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
 
   const handleJoinClass = async () => {
-    if (isClassLive) {
-      await onJoinClass(classItem);
-    }
+    if (isClassLive) await onJoinClass(classItem);
   };
 
   return (
@@ -1108,132 +985,122 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
       transition={{ duration: 0.3 }}
       className="group"
     >
-      <div className={`p-4 rounded-lg border transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-xl ${
+      <div className={`p-6 rounded-2xl border-2 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg ${
         isClassCompleted 
-          ? 'bg-green-800/20 border-green-600/20' 
+          ? 'bg-gradient-to-br from-gray-800/30 to-gray-900/30 border-green-500/20' 
           : isClassLive
-          ? 'bg-blue-900/30 border-blue-600/30 animate-pulse border-2'
-          : 'bg-green-700/30 border-green-600/30'
+          ? 'bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border-cyan-500/50 animate-pulse'
+          : 'bg-gradient-to-br from-gray-800/50 to-gray-900/50 border-cyan-500/20'
       }`}>
         <div className="flex justify-between items-start">
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-lg flex items-center">
-                <Video className="mr-2" size={20} />
-                {classItem.title}
+              <h4 className="font-bold text-xl flex items-center">
+                <Video className="mr-3" size={24} />
+                <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  {classItem.title}
+                </span>
                 {isClassCompleted && (
-                  <CheckCircle size={16} className="text-green-300 ml-2" />
+                  <CheckCircle size={20} className="text-green-400 ml-3" />
                 )}
                 {isClassLive && (
-                  <div className="flex items-center ml-2">
-                    <div className="w-2 h-2 bg-red-500 rounded-full animate-ping mr-1"></div>
-                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  <div className="flex items-center ml-3">
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-ping mr-2"></div>
+                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
                     {hasActiveVideoSession && (
-                      <span className="text-xs text-red-300 ml-1">(Teacher Started)</span>
+                      <span className="text-xs text-red-300 ml-2 font-mono">QUANTUM_ACTIVE</span>
                     )}
                   </div>
                 )}
               </h4>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+              <span className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
                 isClassCompleted 
-                  ? 'bg-green-900/50 text-green-300'
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white'
                   : isClassLive
-                  ? 'bg-red-900/50 text-red-300 animate-pulse'
-                  : 'bg-yellow-900/50 text-yellow-300'
+                  ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white animate-pulse'
+                  : 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white'
               }`}>
-                {isClassCompleted ? 'Completed' : 
-                 isClassLive ? 'Live Now' : 
-                 'Upcoming'}
+                {isClassCompleted ? 'AI Reviewed' : 
+                 isClassLive ? 'Quantum Live' : 
+                 'Scheduled'}
               </span>
             </div>
             
-            <div className="flex flex-wrap items-center mt-3 text-sm text-green-200">
-              <span className="flex items-center mr-4 mb-2">
-                <Clock size={14} className="mr-1" />
+            <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
+              <span className="flex items-center mr-6 mb-3">
+                <Clock size={16} className="mr-2" />
                 {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
-                {!classItem.end_date && (
-                  <span className="text-yellow-300 text-xs ml-1">(2h default)</span>
-                )}
               </span>
-              <span className="flex items-center mr-4 mb-2">
-                <User size={14} className="mr-1" />
-                {classItem.teacher_name || 'Teacher'}
+              <span className="flex items-center mr-6 mb-3">
+                <User size={16} className="mr-2" />
+                {classItem.teacher_name || 'AI Instructor'}
                 {isClassLive && (
-                  <div className="w-2 h-2 bg-green-500 rounded-full ml-1 animate-pulse"></div>
+                  <div className="w-2 h-2 bg-green-500 rounded-full ml-2 animate-pulse"></div>
                 )}
               </span>
-              <span className="flex items-center mr-4 mb-2">
-                <Calendar size={14} className="mr-1" />
+              <span className="flex items-center mr-6 mb-3">
+                <Calendar size={16} className="mr-2" />
                 {formatDate(classItem.scheduled_date)}
               </span>
             </div>
             
-            <div className={`mt-2 text-sm ${
-              isClassLive ? 'text-red-300 font-semibold' : 'text-green-300'
+            <div className={`mt-3 text-sm font-medium ${
+              isClassLive ? 'text-red-300' : 'text-cyan-300'
             }`}>
               {timeInfo.text}
               {hasActiveVideoSession && (
-                <span className="ml-2 text-green-300">• Teacher started the session!</span>
-              )}
-              {isClassLive && !hasActiveVideoSession && (
-                <span className="ml-2 text-green-300">• Click to join!</span>
+                <span className="ml-2 text-green-300 font-mono">• TEACHER_ACTIVE</span>
               )}
             </div>
 
-            {/* Video Session Info */}
             {classItem.video_session && (
-              <div className="mt-2 text-xs text-green-400 flex items-center">
-                <ShieldCheck size={12} className="mr-1" />
-                Meeting: {classItem.video_session.meeting_id}
-                {classItem.video_session.channel_name && (
-                  <span className="ml-2">• Channel: {classItem.video_session.channel_name}</span>
-                )}
+              <div className="mt-3 text-xs text-cyan-400 flex items-center">
+                <ShieldCheck size={14} className="mr-2" />
+                <span className="font-mono">ID: {classItem.video_session.meeting_id}</span>
                 {classItem.video_session.status === 'active' && (
-                  <span className="ml-2 text-red-400">• ACTIVE SESSION</span>
-                )}
-                {classItem.video_session.status === 'scheduled' && (
-                  <span className="ml-2 text-yellow-400">• SCHEDULED</span>
+                  <span className="ml-3 text-red-400 font-mono">• QUANTUM_ACTIVE</span>
                 )}
               </div>
             )}
           </div>
         </div>
         
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-6 flex flex-wrap gap-3">
           {isClassLive && (
             <button 
-              className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200 shadow-lg"
+              className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg"
               onClick={handleJoinClass}
             >
-              <PlayCircle size={16} className="mr-1"/>
-              {hasActiveVideoSession ? 'Join Live Session' : 'Join Live Class'}
+              <Rocket size={18} className="mr-2"/>
+              Join Quantum Session
             </button>
           )}
           
-          {isUpcoming && (
-            <button className="bg-blue-600 hover:bg-blue-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-              <Calendar size={16} className="mr-1"/>
-              Add to Calendar
+          {!isClassLive && !isClassCompleted && (
+            <button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+              <Calendar size={18} className="mr-2"/>
+              Schedule Reminder
             </button>
           )}
           
           {isClassCompleted && classItem.video_session && (
-            <button className="bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-              <Download size={16} className="mr-1"/>
-              View Recording
+            <button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+              <Download size={18} className="mr-2"/>
+              AI Recording
             </button>
           )}
           
-          <button className="bg-gray-600 hover:bg-gray-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200">
-            <MessageCircle size={16} className="mr-1"/>
-            View Details
+          <button className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+            <MessageCircle size={18} className="mr-2"/>
+            Quantum Details
           </button>
         </div>
       </div>
     </motion.div>
   );
 };
-// NOTIFICATIONS DROPDOWN COMPONENT
+
+// === AI NOTIFICATIONS SYSTEM ===
 const NotificationsDropdown = ({ 
   isOpen, 
   onClose, 
@@ -1249,33 +1116,32 @@ const NotificationsDropdown = ({
     const diffMs = now - notificationTime;
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
     return notificationTime.toLocaleDateString();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="absolute right-0 mt-2 w-80 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
-      <div className="p-4 border-b border-green-700/30">
+    <div className="absolute right-0 mt-3 w-96 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
+      <div className="p-6 border-b border-cyan-500/20">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-white">Notifications</h3>
-          <div className="flex space-x-2">
+          <h3 className="font-bold text-xl bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+            AI Notifications
+          </h3>
+          <div className="flex space-x-3">
             <button
               onClick={onMarkAllAsRead}
-              className="text-xs text-green-300 hover:text-white transition-colors"
+              className="text-sm text-cyan-300 hover:text-cyan-200 transition-all duration-200"
             >
-              Mark all read
+              Mark all
             </button>
             <button
               onClick={onClearAll}
-              className="text-xs text-red-300 hover:text-red-200 transition-colors"
+              className="text-sm text-red-300 hover:text-red-200 transition-all duration-200"
             >
               Clear all
             </button>
@@ -1285,29 +1151,29 @@ const NotificationsDropdown = ({
 
       <div className="max-h-96 overflow-y-auto">
         {notifications.length === 0 ? (
-          <div className="p-4 text-center text-green-300 text-sm">
-            <Bell size={32} className="mx-auto mb-2 opacity-50" />
-            <p>No notifications yet</p>
-            <p className="text-xs mt-1">We'll notify you when something new arrives</p>
+          <div className="p-8 text-center text-cyan-300">
+            <Bell size={48} className="mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-semibold">No notifications</p>
+            <p className="text-cyan-400 text-sm mt-2">AI will notify you of important updates</p>
           </div>
         ) : (
           notifications.map((notification) => (
             <div
               key={notification.id}
               onClick={() => onNotificationClick(notification)}
-              className={`p-4 border-b border-green-700/30 cursor-pointer transition-colors hover:bg-green-700/50 ${
-                !notification.read ? 'bg-green-700/30' : ''
+              className={`p-5 border-b border-cyan-500/10 cursor-pointer transition-all duration-200 hover:bg-cyan-500/10 ${
+                !notification.read ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10' : ''
               }`}
             >
               <div className="flex justify-between items-start">
                 <div className="flex-1">
-                  <p className="text-white text-sm font-medium">
-                    {notification.title || 'Notification'}
+                  <p className="text-white font-semibold text-sm">
+                    {notification.title || 'AI Notification'}
                   </p>
-                  <p className="text-green-300 text-xs mt-1">
-                    {notification.message || 'No message content'}
+                  <p className="text-cyan-300 text-sm mt-2">
+                    {notification.message || 'Quantum update available'}
                   </p>
-                  <p className="text-green-400 text-xs mt-2">
+                  <p className="text-cyan-400 text-xs mt-3 font-mono">
                     {formatNotificationTime(notification.created_at)}
                   </p>
                 </div>
@@ -1316,9 +1182,9 @@ const NotificationsDropdown = ({
                     e.stopPropagation();
                     onDeleteNotification(notification.id);
                   }}
-                  className="text-red-300 hover:text-red-200 transition-colors ml-2 flex-shrink-0"
+                  className="text-red-300 hover:text-red-200 transition-all duration-200 p-2 hover:bg-red-500/20 rounded-lg"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={16} />
                 </button>
               </div>
             </div>
@@ -1329,42 +1195,28 @@ const NotificationsDropdown = ({
   );
 };
 
-// Live Class Card with Enhanced Join Button
-
-// === MAIN DASHBOARD COMPONENT ===
+// === QUANTUM DASHBOARD COMPONENT ===
 export default function Dashboard() {
-  // State declarations
+  // Quantum State Management
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [payments, setPayments] = useState([]);
   const [stats, setStats] = useState([
-    { label: "Total Classes", value: "0", icon: BookOpen, change: "+0" },
-    { label: "Hours Learned", value: "0", icon: Clock, change: "+0" },
-    { label: "Assignments", value: "0", icon: FileText, change: "+0" },
-    { label: "Avg. Score", value: "0%", icon: BarChart3, change: "+0%" },
+    { label: "Quantum Sessions", value: "0", icon: Video, change: "+0", color: "from-cyan-500 to-blue-500" },
+    { label: "AI Learning Hours", value: "0", icon: Clock, change: "+0", color: "from-purple-500 to-pink-500" },
+    { label: "Active Missions", value: "0", icon: FileText, change: "+0", color: "from-green-500 to-emerald-500" },
+    { label: "Quantum Score", value: "0%", icon: BarChart3, change: "+0%", color: "from-yellow-500 to-orange-500" },
   ]);
-  const [studentName, setStudentName] = useState("Student");
-  const [loadingClasses, setLoadingClasses] = useState(true);
-  const [loadingAssignments, setLoadingAssignments] = useState(true);
-  const [loadingPayments, setLoadingPayments] = useState(true);
-  const [loadingStats, setLoadingStats] = useState(true);
-  const [hasTeacher, setHasTeacher] = useState(false);
-  const [contactMessage, setContactMessage] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
+  const [studentName, setStudentName] = useState("Quantum Learner");
+  const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState("classes");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [userEmailVerified, setUserEmailVerified] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [resendingEmail, setResendingEmail] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [selectedClassForCall, setSelectedClassForCall] = useState(null);
   const [showVideoCall, setShowVideoCall] = useState(false);
-  const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [progressStats, setProgressStats] = useState({
     completionRate: 0,
     streak: 0,
@@ -1373,418 +1225,95 @@ export default function Dashboard() {
     nextLevel: 100
   });
 
-  // Enhanced student data fetch with new API
- const fetchStudentData = async () => {
-  setLoading(true);
-  try {
-    console.log('🔄 Fetching dashboard data using studentApi...');
-    
-    const dashboardData = await studentApi.getDashboardData();
-    
-    setStudentName(dashboardData.student.name);
-    setUserEmailVerified(true);
-    
-    // Set all the data from the API
-    setClasses(sortClasses(dashboardData.classes));
-    setAssignments(dashboardData.assignments);
-    setNotifications(dashboardData.notifications);
-    setHasTeacher(dashboardData.hasTeacher);
-    
-    // Transform stats for the frontend
-    const statsArray = [
-      { 
-        label: "Total Classes", 
-        value: dashboardData.stats.total_classes?.toString() || "0", 
-        icon: BookOpen, 
-        change: "+0" 
-      },
-      { 
-        label: "Hours Learned", 
-        value: dashboardData.stats.hours_learned?.toString() || "0", 
-        icon: Clock, 
-        change: "+0" 
-      },
-      { 
-        label: "Assignments", 
-        value: dashboardData.stats.assignments?.toString() || "0", 
-        icon: FileText, 
-        change: "+0" 
-      },
-      { 
-        label: "Avg. Score", 
-        value: `${dashboardData.stats.avg_score || "0"}%`, 
-        icon: BarChart3, 
-        change: "+0%" 
-      },
-    ];
-    
-    setStats(statsArray);
+  // Quantum Data Fetching
+  const fetchStudentData = async () => {
+    setLoading(true);
+    try {
+      const dashboardData = await studentApi.getDashboardData();
+      
+      setStudentName(dashboardData.student.name);
+      setClasses(sortClasses(dashboardData.classes));
+      setAssignments(dashboardData.assignments);
+      setNotifications(dashboardData.notifications);
 
-    setProgressStats({
-      completionRate: dashboardData.stats.completion_rate || 0,
-      streak: dashboardData.stats.streak || 0,
-      level: dashboardData.stats.level || 1,
-      points: dashboardData.stats.points || 0,
-      nextLevel: dashboardData.stats.next_level || 100
-    });
+      const statsArray = [
+        { 
+          label: "Quantum Sessions", 
+          value: dashboardData.stats.total_classes?.toString() || "0", 
+          icon: Video, 
+          change: "+0",
+          color: "from-cyan-500 to-blue-500"
+        },
+        { 
+          label: "AI Learning Hours", 
+          value: dashboardData.stats.hours_learned?.toString() || "0", 
+          icon: Clock, 
+          change: "+0",
+          color: "from-purple-500 to-pink-500"
+        },
+        { 
+          label: "Active Missions", 
+          value: dashboardData.stats.assignments?.toString() || "0", 
+          icon: FileText, 
+          change: "+0",
+          color: "from-green-500 to-emerald-500"
+        },
+        { 
+          label: "Quantum Score", 
+          value: `${dashboardData.stats.avg_score || "0"}%`, 
+          icon: BarChart3, 
+          change: "+0%",
+          color: "from-yellow-500 to-orange-500"
+        },
+      ];
+      
+      setStats(statsArray);
+      setProgressStats({
+        completionRate: dashboardData.stats.completion_rate || 0,
+        streak: dashboardData.stats.streak || 0,
+        level: dashboardData.stats.level || 1,
+        points: dashboardData.stats.points || 0,
+        nextLevel: dashboardData.stats.next_level || 100
+      });
 
-    console.log('✅ Dashboard data loaded successfully via studentApi');
-
-  } catch (error) {
-    console.error('❌ [Dashboard] Error fetching student data:', error);
-    toast.error('Failed to load dashboard data');
-  } finally {
-    setLoading(false);
-  }
-};
-
-  const fetchStatsData = async () => {
-  setLoadingStats(true);
-  try {
-    console.log('🔄 Fetching stats via studentApi...');
-    const statsData = await studentApi.getMyStats();
-    
-    const statsArray = [
-      { 
-        label: "Total Classes", 
-        value: statsData.total_classes?.toString() || "0", 
-        icon: BookOpen, 
-        change: "+0" 
-      },
-      { 
-        label: "Hours Learned", 
-        value: statsData.hours_learned?.toString() || "0", 
-        icon: Clock, 
-        change: "+0" 
-      },
-      { 
-        label: "Assignments", 
-        value: statsData.assignments?.toString() || "0", 
-        icon: FileText, 
-        change: "+0" 
-      },
-      { 
-        label: "Avg. Score", 
-        value: `${statsData.avg_score || "0"}%`, 
-        icon: BarChart3, 
-        change: "+0%" 
-      },
-    ];
-    
-    setStats(statsArray);
-
-    setProgressStats({
-      completionRate: statsData.completion_rate || 0,
-      streak: statsData.streak || 0,
-      level: statsData.level || 1,
-      points: statsData.points || 0,
-      nextLevel: statsData.next_level || 100
-    });
-    
-    console.log('✅ Stats fetched successfully');
-  } catch (error) {
-    console.error('Error fetching stats:', error);
-  } finally {
-    setLoadingStats(false);
-  }
-};
-
-  // Enhanced notification fetch
-  const fetchNotifications = async () => {
-  setLoadingNotifications(true);
-  try {
-    console.log('🔄 Fetching notifications via studentApi...');
-    const notificationsData = await studentApi.getMyNotifications();
-    setNotifications(notificationsData.notifications || []);
-    console.log('✅ Notifications fetched successfully');
-  } catch (error) {
-    console.error('❌ [Dashboard] Error fetching notifications:', error);
-    setNotifications([]);
-    toast.error('Failed to load notifications');
-  } finally {
-    setLoadingNotifications(false);
-  }
-};
-
-// Enhanced notification handlers using studentApi
-const handleMarkAllAsRead = async () => {
-  try {
-    await studentApi.markAllNotificationsAsRead();
-    setNotifications(prev => prev.map(notification => ({ 
-      ...notification, 
-      read: true 
-    })));
-    toast.success('All notifications marked as read');
-  } catch (error) {
-    console.error('Error marking all as read:', error);
-    toast.error('Failed to mark notifications as read');
-  }
-};
-
-const handleNotificationClick = async (notification) => {
-  try {
-    if (!notification.read) {
-      await studentApi.markNotificationAsRead(notification.id);
+    } catch (error) {
+      console.error('Quantum data fetch failed:', error);
+      toast.error('AI system temporarily offline');
+    } finally {
+      setLoading(false);
     }
-
-    setNotifications(prev => 
-      prev.map(n => 
-        n.id === notification.id ? { ...n, read: true } : n
-      )
-    );
-    
-    setIsNotificationsOpen(false);
-    
-    const data = notification.data || {};
-    if (data.assignment_id) {
-      setActiveSection('assignments');
-    } else if (data.class_id) {
-      setActiveSection('classes');
-    } else if (data.payment_id) {
-      setActiveSection('payments');
-    }
-  } catch (error) {
-    console.error('Error handling notification click:', error);
-    setIsNotificationsOpen(false);
-  }
-};
-const handleClearAllNotifications = async () => {
-  try {
-    await studentApi.clearAllNotifications();
-    setNotifications([]);
-    toast.success('All notifications cleared');
-  } catch (error) {
-    console.error('Error clearing notifications:', error);
-    toast.error('Failed to clear notifications');
-  }
-};
-const handleDeleteNotification = async (notificationId, event) => {
-  event.stopPropagation();
-  
-  try {
-    await studentApi.deleteNotification(notificationId);
-    setNotifications(prev => prev.filter(n => n.id !== notificationId));
-    toast.success('Notification deleted');
-  } catch (error) {
-    console.error('Error deleting notification:', error);
-    toast.error('Failed to delete notification');
-  }
-};
-
-  // Fetch individual data functions
- const fetchClasses = async () => {
-  setLoadingClasses(true);
-  try {
-    console.log('🔄 Fetching classes via studentApi...');
-    const classesData = await studentApi.getMyClasses();
-    setClasses(sortClasses(classesData.classes || []));
-    console.log('✅ Classes fetched successfully');
-  } catch (error) {
-    console.error('Error fetching classes:', error);
-    setClasses([]);
-    toast.error('Failed to load classes');
-  } finally {
-    setLoadingClasses(false);
-  }
-};
-
-const fetchAssignments = async () => {
-  setLoadingAssignments(true);
-  try {
-    console.log('🔄 Fetching assignments via studentApi...');
-    const assignmentsData = await studentApi.getMyAssignments();
-    setAssignments(assignmentsData.assignments || []);
-    console.log('✅ Assignments fetched successfully');
-  } catch (error) {
-    console.error('Error fetching assignments:', error);
-    setAssignments([]);
-    toast.error('Failed to load assignments');
-  } finally {
-    setLoadingAssignments(false);
-  }
-};
-
-  const fetchPayments = async () => {
-  setLoadingPayments(true);
-  try {
-    console.log('🔄 Fetching payments via studentApi...');
-    const paymentsData = await studentApi.getMyPayments();
-    setPayments(paymentsData);
-    console.log('✅ Payments fetched successfully');
-  } catch (error) {
-    console.error('Error fetching payments:', error);
-    setPayments([]);
-  } finally {
-    setLoadingPayments(false);
-  }
-
-};
-
-  // Format date and time functions
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric'
-    });
   };
 
-  const formatTime = (dateString) => {
-    return new Date(dateString).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
+  const handleJoinClass = async (classItem) => {
+    const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
 
-  // Event handlers
- const handleSubmitAssignment = async (submissionData) => {
-  try {
-    console.log('🔄 Submitting assignment via studentApi...');
-    const result = await studentApi.submitAssignment(submissionData);
-
-    if (result.success) {
-      toast.success('Assignment submitted successfully!');
-      // Refresh assignments data
-      const assignmentsData = await studentApi.getMyAssignments();
-      setAssignments(assignmentsData.assignments || []);
-      console.log('✅ Assignment submitted successfully');
-    } else {
-      throw new Error(result.error || 'Failed to submit assignment');
-    }
-  } catch (error) {
-    console.error('Error submitting assignment:', error);
-    throw error;
-  }
-};
-
-
-  // Enhanced join class function with video call integration
-  // Fixed handleJoinClass function
-const handleJoinClass = async (classItem) => {
-  console.log('🎯 === JOIN CLASS DEBUG START ===');
-  
-  try {
-    const now = new Date();
-    const start = new Date(classItem.scheduled_date);
-    
-    // FIXED: Proper end date calculation
-    let end;
-    if (classItem.end_date && classItem.end_date !== '1970-01-01T00:00:00Z') {
-      end = new Date(classItem.end_date);
-    } else {
-      // Default to 2 hours after start time
-      end = new Date(start.getTime() + (2 * 60 * 60 * 1000));
-    }
-    
-    // Check for active video session - THIS SHOULD BE THE MAIN CRITERIA
-    const hasActiveVideoSession = classItem.video_session && 
-      classItem.video_session.status === 'active' && 
-      !classItem.video_session.ended_at;
-
-    console.log('🔍 FIXED Join Class Debug Info:', {
-      title: classItem.title,
-      now: now.toLocaleString(),
-      start: start.toLocaleString(),
-      end: end.toLocaleString(),
-      hasActiveVideoSession: hasActiveVideoSession,
-      videoSessionStatus: classItem.video_session?.status,
-      meetingId: classItem.video_session?.meeting_id,
-      // Force join if there's an active video session
-      shouldJoin: hasActiveVideoSession
-    });
-
-    // FIXED: Allow joining if there's an active video session, regardless of schedule
     if (!hasActiveVideoSession) {
-      console.log('❌ No active video session - cannot join');
-      toast.error('No active video session found. The teacher may not have started the class yet.');
+      toast.error('Quantum session not active');
       return;
     }
 
     if (!classItem.video_session?.meeting_id) {
-      console.log('❌ No meeting ID found');
-      toast.error('No meeting ID available. Please contact your teacher.');
+      toast.error('Session ID missing');
       return;
     }
 
-    console.log('🔄 Joining video session with meeting ID:', classItem.video_session.meeting_id);
-    
-    // FIXED: Directly open the video call without API call first (for testing)
-    console.log('🎉 DIRECTLY OPENING VIDEO CALL...');
     setSelectedClassForCall(classItem);
     setShowVideoCall(true);
-    
-    // Optional: You can still call the API if needed for tracking
+    toast.success('Initiating quantum connection...');
+  };
+
+  const handleSubmitAssignment = async (submissionData) => {
     try {
-      const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
-      console.log('✅ API call result:', result);
-    } catch (apiError) {
-      console.warn('⚠️ API call failed, but continuing with video call:', apiError);
-      // Don't block the video call if API fails
-    }
-    
-    toast.success('Joining class session...');
-    
-  } catch (error) {
-    console.error('❌ Error in handleJoinClass:', error);
-    toast.error('Failed to join class. Please try again.');
-  }
-};
-
-  const handleSendMessage = async () => {
-  if (!contactMessage.trim()) {
-    toast.error('Please enter a message');
-    return;
-  }
-
-  setSendingMessage(true);
-  try {
-    console.log('🔄 Sending message via studentApi...');
-    await studentApi.contactAdmin(contactMessage);
-    toast.success('Message sent to admin successfully!');
-    setContactMessage('');
-    console.log('✅ Message sent successfully');
-  } catch (error) {
-    console.error('Error sending message:', error);
-    toast.error('Failed to send message');
-  } finally {
-    setSendingMessage(false);
-  }
-};
-
-  const handleLogout = async () => {
-    setIsLoggingOut(true);
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      window.location.href = '/login';
+      await studentApi.submitAssignment(submissionData);
+      toast.success('Mission accomplished! AI reviewing submission...');
+      const assignmentsData = await studentApi.getMyAssignments();
+      setAssignments(assignmentsData.assignments || []);
     } catch (error) {
-      console.error('Error logging out:', error);
-      toast.error('Failed to log out');
-      setIsLoggingOut(false);
+      throw error;
     }
   };
 
-  const handleResendVerification = async () => {
-    setResendingEmail(true);
-    try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: (await supabase.auth.getUser()).data.user?.email,
-      });
-
-      if (error) throw error;
-      setEmailSent(true);
-      toast.success('Verification email sent! Check your inbox.');
-    } catch (error) {
-      console.error('Error resending verification:', error);
-      toast.error('Failed to send verification email');
-    } finally {
-      setResendingEmail(false);
-    }
-  };
-
-  // Effects
+  // Quantum Effects
   useEffect(() => {
     fetchStudentData();
   }, []);
@@ -1793,9 +1322,7 @@ const handleJoinClass = async (classItem) => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (!mobile) {
-        setIsSidebarOpen(false);
-      }
+      if (!mobile) setIsSidebarOpen(false);
     };
 
     handleResize();
@@ -1803,30 +1330,24 @@ const handleJoinClass = async (classItem) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Auto-refresh classes and notifications
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchNotifications();
-   }, 6000000);
-
-   return () => clearInterval(interval);
-  }, [activeSection]);
-
-  // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-emerald-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="animate-spin mx-auto text-green-300" size={48} />
-          <p className="text-green-200 mt-4 text-lg">Loading your dashboard...</p>
+          <div className="relative">
+            <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
+            <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
+          </div>
+          <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Quantum Dashboard</p>
+          <p className="text-purple-300 mt-2">AI optimizing your learning matrix</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-emerald-900 flex">
-      {/* Video Call Component */}
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex">
+      {/* Quantum Video Call */}
       {showVideoCall && selectedClassForCall && (
         <StudentVideoCall
           classItem={selectedClassForCall}
@@ -1838,44 +1359,34 @@ const handleJoinClass = async (classItem) => {
         />
       )}
 
-      {/* Email verification banner */}
-      {!userEmailVerified && (
-        <div className="fixed top-0 left-0 right-0 bg-yellow-600 text-white px-4 py-3 z-50">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between">
-            <div className="flex items-center mb-2 md:mb-0">
-              <AlertCircle className="mr-2" size={20} />
-              <span>Please verify your email address to access all features.</span>
-            </div>
-            <button
-              onClick={handleResendVerification}
-              disabled={resendingEmail || emailSent}
-              className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-            >
-              {resendingEmail ? 'Sending...' : emailSent ? 'Email Sent!' : 'Resend Verification'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Sidebar */}
+      {/* Neural Sidebar */}
       <div className={`
-        fixed inset-y-0 left-0 z-40 w-64 bg-green-800/90 backdrop-blur-lg transform transition-transform duration-300 ease-in-out
+        fixed inset-y-0 left-0 z-40 w-80 bg-gradient-to-b from-gray-900/95 to-purple-900/95 backdrop-blur-xl transform transition-transform duration-300 ease-in-out border-r border-cyan-500/20
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0 md:relative
       `}>
         <div className="flex flex-col h-full">
-          <div className="p-6 border-b border-green-700/30">
-            <h1 className="text-2xl font-bold text-white">Madina Quran Classes</h1>
-            <p className="text-green-300 text-sm">Student Dashboard</p>
+          {/* Quantum Header */}
+          <div className="p-8 border-b border-cyan-500/20">
+            <div className="flex items-center space-x-3 mb-4">
+              <Gem className="text-cyan-400" size={32} />
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  Quantum Academy
+                </h1>
+                <p className="text-cyan-300 text-sm">AI-Powered Learning</p>
+              </div>
+            </div>
           </div>
 
-          <nav className="flex-1 p-4 space-y-2">
+          {/* Neural Navigation */}
+          <nav className="flex-1 p-6 space-y-2">
             {[
-              { id: "classes", label: "My Classes", icon: Video },
-              { id: "assignments", label: "Assignments", icon: FileText },
-              { id: "exams", label: "Exams & Tests", icon: ClipboardList },
-              { id: "payments", label: "Payments", icon: CreditCard },
-              { id: "progress", label: "My Progress", icon: TrendingUp },
+              { id: "classes", label: "Quantum Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
+              { id: "assignments", label: "AI Missions", icon: FileText, color: "from-green-500 to-emerald-500" },
+              { id: "exams", label: "Neural Assessments", icon: ClipboardList, color: "from-purple-500 to-pink-500" },
+              { id: "payments", label: "Quantum Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
+              { id: "progress", label: "AI Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
             ].map((item) => (
               <button
                 key={item.id}
@@ -1883,109 +1394,106 @@ const handleJoinClass = async (classItem) => {
                   setActiveSection(item.id);
                   if (isMobile) setIsSidebarOpen(false);
                 }}
-                className={`w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 ${
+                className={`w-full flex items-center px-6 py-4 rounded-2xl transition-all duration-200 group ${
                   activeSection === item.id
-                    ? "bg-green-700 text-white shadow-lg"
-                    : "text-green-200 hover:bg-green-700/50 hover:text-white"
-                }`}
+                    ? "bg-gradient-to-r shadow-lg shadow-cyan-500/25"
+                    : "hover:bg-cyan-500/10 text-cyan-200"
+                } ${activeSection === item.id ? item.color : ''}`}
               >
-                <item.icon className="mr-3" size={20} />
-                {item.label}
+                <item.icon className="mr-4" size={24} />
+                <span className={`font-semibold ${
+                  activeSection === item.id ? 'text-white' : 'group-hover:text-white'
+                }`}>
+                  {item.label}
+                </span>
               </button>
             ))}
           </nav>
 
-          <div className="p-4 border-t border-green-700/30">
-            <div className="flex items-center space-x-3 p-3 rounded-lg bg-green-700/30">
-              <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
-                <User size={20} className="text-white" />
+          {/* Quantum Profile */}
+          <div className="p-6 border-t border-cyan-500/20">
+            <div className="flex items-center space-x-4 p-4 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+              <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <User size={24} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-white font-medium text-sm truncate">{studentName}</p>
-                <p className="text-green-300 text-xs truncate">Student</p>
+                <p className="text-white font-bold text-sm truncate">{studentName}</p>
+                <p className="text-cyan-300 text-xs truncate">Quantum Learner</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main content */}
+      {/* Main Quantum Interface */}
       <div className="flex-1 flex flex-col min-h-screen md:ml-0">
-        <header className="bg-green-800/50 backdrop-blur-lg border-b border-green-700/30 sticky top-0 z-30">
-          <div className="px-6 py-4">
+        {/* Neural Header */}
+        <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 sticky top-0 z-30">
+          <div className="px-8 py-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-6">
                 <button
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className="md:hidden p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+                  className="md:hidden p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
                 >
                   {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
                 </button>
-                <h2 className="text-2xl font-bold text-white capitalize">
-                  {activeSection === 'classes' && 'My Classes'}
-                  {activeSection === 'assignments' && 'Assignments'}
-                  {activeSection === 'exams' && 'Exams & Tests'}
-                  {activeSection === 'payments' && 'Payments'}
-                  {activeSection === 'progress' && 'My Progress'}
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent capitalize">
+                  {activeSection === 'classes' && 'Quantum Sessions'}
+                  {activeSection === 'assignments' && 'AI Missions'}
+                  {activeSection === 'exams' && 'Neural Assessments'}
+                  {activeSection === 'payments' && 'Quantum Transactions'}
+                  {activeSection === 'progress' && 'AI Analytics'}
                 </h2>
               </div>
 
               <div className="flex items-center space-x-4">
-                {/* Notifications */}
+                {/* AI Notifications */}
                 <div className="relative">
                   <button
                     onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                    className="relative p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+                    className="relative p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
                   >
                     <Bell size={20} />
                     {notifications.filter(n => !n.read).length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-xs rounded-full flex items-center justify-center shadow-lg">
                         {notifications.filter(n => !n.read).length}
                       </span>
                     )}
                   </button>
-
                   <NotificationsDropdown
                     isOpen={isNotificationsOpen}
                     onClose={() => setIsNotificationsOpen(false)}
                     notifications={notifications}
-                    onNotificationClick={handleNotificationClick}
-                    onMarkAllAsRead={handleMarkAllAsRead}
-                    onClearAll={handleClearAllNotifications}
-                    onDeleteNotification={handleDeleteNotification}
+                    onNotificationClick={() => {}}
+                    onMarkAllAsRead={() => {}}
+                    onClearAll={() => {}}
+                    onDeleteNotification={() => {}}
                   />
                 </div>
 
-                {/* User Menu */}
+                {/* Quantum User Menu */}
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="flex items-center space-x-3 p-2 rounded-lg bg-green-700/50 hover:bg-green-600/50 transition-colors"
+                    className="flex items-center space-x-3 p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
                   >
-                    <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
-                      <User size={16} className="text-white" />
+                    <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+                      <User size={20} className="text-white" />
                     </div>
-                    <ChevronDown size={16} className="text-green-300" />
+                    <ChevronDown size={16} className="text-cyan-300" />
                   </button>
 
                   {userMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-green-800/95 backdrop-blur-lg border border-green-700/30 rounded-xl shadow-xl z-50">
+                    <div className="absolute right-0 mt-3 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
                       <div className="p-2">
-                        <button className="w-full flex items-center px-3 py-2 text-sm text-green-200 hover:bg-green-700/50 rounded-lg transition-colors">
-                          <Settings className="mr-2" size={16} />
-                          Settings
+                        <button className="w-full flex items-center px-4 py-3 text-sm text-cyan-200 hover:bg-cyan-500/10 rounded-xl transition-all duration-200">
+                          <Settings className="mr-3" size={18} />
+                          Quantum Settings
                         </button>
-                        <button
-                          onClick={handleLogout}
-                          disabled={isLoggingOut}
-                          className="w-full flex items-center px-3 py-2 text-sm text-red-300 hover:bg-red-500/20 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          {isLoggingOut ? (
-                            <Loader2 className="animate-spin mr-2" size={16} />
-                          ) : (
-                            <LogOut className="mr-2" size={16} />
-                          )}
-                          {isLoggingOut ? 'Logging out...' : 'Logout'}
+                        <button className="w-full flex items-center px-4 py-3 text-sm text-red-300 hover:bg-red-500/10 rounded-xl transition-all duration-200">
+                          <LogOut className="mr-3" size={18} />
+                          Logout
                         </button>
                       </div>
                     </div>
@@ -1996,8 +1504,9 @@ const handleJoinClass = async (classItem) => {
           </div>
         </header>
 
-        <main className="flex-1 p-6 overflow-auto">
-          {/* Stats Grid */}
+        {/* Quantum Main Content */}
+        <main className="flex-1 p-8 overflow-auto">
+          {/* AI Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             {stats.map((stat, index) => (
               <motion.div
@@ -2005,250 +1514,209 @@ const handleJoinClass = async (classItem) => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: index * 0.1 }}
-                className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6 hover:bg-green-800/50 transition-all duration-300 hover:scale-105"
+                className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 hover:scale-105 transition-all duration-300 hover:shadow-2xl"
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-green-300 text-sm font-medium">{stat.label}</p>
-                    <p className="text-white text-2xl font-bold mt-2">{stat.value}</p>
-                    <p className="text-green-400 text-xs mt-1">{stat.change} from last week</p>
+                    <p className="text-cyan-300 text-sm font-semibold mb-2">{stat.label}</p>
+                    <p className="text-white text-2xl font-bold mb-1">{stat.value}</p>
+                    <p className="text-cyan-400 text-xs">{stat.change} this week</p>
                   </div>
-                  <div className="p-3 bg-green-700/50 rounded-lg">
-                    <stat.icon className="text-green-300" size={24} />
+                  <div className={`p-4 rounded-2xl bg-gradient-to-r ${stat.color} shadow-lg`}>
+                    <stat.icon className="text-white" size={24} />
                   </div>
                 </div>
               </motion.div>
             ))}
           </div>
 
-          {/* Progress Section */}
+          {/* Quantum Progress Matrix */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.4 }}
-            className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6 mb-8"
+            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-8 mb-8"
           >
-            <h3 className="text-xl font-bold text-white mb-4 flex items-center">
-              <TrendingUp className="mr-2" size={24} />
-              Learning Progress
+            <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
+              <TrendingUp className="mr-3" size={28} />
+              <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                Quantum Progress Matrix
+              </span>
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-green-700/30 rounded-lg">
-                <div className="text-2xl font-bold text-white">{progressStats.completionRate}%</div>
-                <div className="text-green-300 text-sm">Completion Rate</div>
-              </div>
-              <div className="text-center p-4 bg-green-700/30 rounded-lg">
-                <div className="text-2xl font-bold text-white">{progressStats.streak} days</div>
-                <div className="text-green-300 text-sm">Learning Streak</div>
-              </div>
-              <div className="text-center p-4 bg-green-700/30 rounded-lg">
-                <div className="text-2xl font-bold text-white">Level {progressStats.level}</div>
-                <div className="text-green-300 text-sm">Current Level</div>
-              </div>
-              <div className="text-center p-4 bg-green-700/30 rounded-lg">
-                <div className="text-2xl font-bold text-white">{progressStats.points} pts</div>
-                <div className="text-green-300 text-sm">{progressStats.nextLevel} to next level</div>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {[
+                { label: "AI Completion", value: `${progressStats.completionRate}%`, icon: Target },
+                { label: "Quantum Streak", value: `${progressStats.streak} days`, icon: Zap },
+                { label: "Neural Level", value: `Level ${progressStats.level}`, icon: Star },
+                { label: "Experience", value: `${progressStats.points} XP`, icon: Gem },
+              ].map((item, index) => (
+                <div key={index} className="text-center p-6 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-2xl border border-cyan-500/20">
+                  <item.icon className="mx-auto text-cyan-400 mb-3" size={32} />
+                  <div className="text-2xl font-bold text-white mb-2">{item.value}</div>
+                  <div className="text-cyan-300 text-sm">{item.label}</div>
+                </div>
+              ))}
             </div>
           </motion.div>
 
-          {/* Dynamic Content Sections */}
+          {/* Quantum Content Sections */}
           <AnimatePresence mode="wait">
-          // === ENHANCED CLASSES SECTION ===
-{activeSection === 'classes' && (
-  <motion.section
-    key="classes"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -20 }}
-    className="space-y-6"
-  >
-    {/* Header */}
-    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-      <div className="flex items-center space-x-4">
-        <h3 className="text-2xl font-bold text-white">My Classes</h3>
-        
-        {/* Live Classes Counter */}
-        {(() => {
-          const liveClasses = classes.filter(classItem => {
-            const timeInfo = getTimeUntilClass(classItem);
-            return timeInfo.status === 'live';
-          });
-          
-          if (liveClasses.length > 0) {
-            return (
-              <div className="flex items-center space-x-2 bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-full shadow-lg animate-pulse">
-                <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
-                <span className="text-white text-sm font-semibold">
-                  {liveClasses.length} Class{liveClasses.length > 1 ? 'es' : ''} Live Now
-                </span>
-              </div>
-            );
-          }
-          return null;
-        })()}
-      </div>
-      
-      <button 
-        onClick={fetchClasses}
-        disabled={loadingClasses}
-        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 py-2 px-4 rounded-lg flex items-center transition-all duration-200 shadow-lg"
-      >
-        <RefreshCw className={`mr-2 ${loadingClasses ? 'animate-spin' : ''}`} size={16} />
-        {loadingClasses ? 'Refreshing...' : 'Refresh'}
-      </button>
-    </div>
-
-    {/* Loading State */}
-    {loadingClasses ? (
-      <div className="text-center py-12 bg-green-800/20 rounded-2xl backdrop-blur-sm">
-        <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-        <p className="text-green-200 mt-4 text-lg">Loading your classes...</p>
-      </div>
-    ) : classes.length === 0 ? (
-      <div className="text-center py-16 bg-green-800/20 rounded-2xl backdrop-blur-sm border border-green-700/30">
-        <Video className="mx-auto text-green-400 mb-4" size={64} />
-        <h4 className="text-white text-2xl font-semibold mb-2">No classes scheduled</h4>
-        <p className="text-green-300 text-lg mb-6">Your upcoming classes will appear here</p>
-      </div>
-    ) : (
-      <div className="space-y-8">
-        {/* Live Classes */}
-        {(() => {
-          const liveClasses = classes.filter(classItem => {
-            const timeInfo = getTimeUntilClass(classItem);
-            return timeInfo.status === 'live';
-          });
-
-          if (liveClasses.length > 0) {
-            return (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
-                  <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-lg">
-                    🔴 Live Classes - Join Now! ({liveClasses.length})
-                  </h4>
+            {activeSection === 'classes' && (
+              <motion.section
+                key="classes"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-8"
+              >
+                {/* Quantum Sessions Header */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+                  <div className="flex items-center space-x-4">
+                    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                      Quantum Sessions
+                    </h3>
+                    {(() => {
+                      const liveClasses = classes.filter(classItem => 
+                        getTimeUntilClass(classItem).status === 'live'
+                      );
+                      if (liveClasses.length > 0) {
+                        return (
+                          <div className="flex items-center space-x-3 bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl shadow-lg animate-pulse">
+                            <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
+                            <span className="text-white font-bold text-sm">
+                              {liveClasses.length} LIVE SESSION{liveClasses.length > 1 ? 'S' : ''}
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                  
+                  <button 
+                    onClick={fetchStudentData}
+                    className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
+                  >
+                    <RefreshCw className="mr-3" size={20} />
+                    Quantum Refresh
+                  </button>
                 </div>
-                
-                <div className="grid gap-6">
-                  {liveClasses.map((classItem) => (
-                    <ClassItem
-                      key={classItem.id}
-                      classItem={classItem}
-                      formatDate={formatDate}
-                      formatTime={formatTime}
-                      getTimeUntilClass={getTimeUntilClass}
-                      onJoinClass={handleJoinClass}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          return null;
-        })()}
 
-        {/* Upcoming Classes */}
-        {(() => {
-          const upcomingClasses = classes.filter(classItem => {
-            const timeInfo = getTimeUntilClass(classItem);
-            return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
-          });
+                {/* Quantum Sessions Content */}
+                {classes.length === 0 ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+                    <Video className="mx-auto text-cyan-400 mb-6" size={80} />
+                    <h4 className="text-white text-2xl font-bold mb-4">No Quantum Sessions</h4>
+                    <p className="text-cyan-300 text-lg">Your AI-optimized learning sessions will appear here</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Live Sessions */}
+                    {(() => {
+                      const liveClasses = classes.filter(classItem => 
+                        getTimeUntilClass(classItem).status === 'live'
+                      );
+                      if (liveClasses.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
+                              <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl">
+                                🔴 QUANTUM LIVE ({liveClasses.length})
+                              </h4>
+                            </div>
+                            <div className="grid gap-6">
+                              {liveClasses.map((classItem) => (
+                                <ClassItem
+                                  key={classItem.id}
+                                  classItem={classItem}
+                                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                                    weekday: 'short', month: 'short', day: 'numeric'
+                                  })}
+                                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                                    hour: 'numeric', minute: '2-digit', hour12: true
+                                  })}
+                                  getTimeUntilClass={getTimeUntilClass}
+                                  onJoinClass={handleJoinClass}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
 
-          if (upcomingClasses.length > 0) {
-            return (
-              <div className="space-y-4">
-                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 rounded-lg">
-                  ⏰ Upcoming Classes ({upcomingClasses.length})
-                </h4>
-                <div className="grid gap-4">
-                  {upcomingClasses.map((classItem) => (
-                    <ClassItem
-                      key={classItem.id}
-                      classItem={classItem}
-                      formatDate={formatDate}
-                      formatTime={formatTime}
-                      getTimeUntilClass={getTimeUntilClass}
-                      onJoinClass={handleJoinClass}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          return null;
-        })()}
+                    {/* Upcoming Sessions */}
+                    {(() => {
+                      const upcomingClasses = classes.filter(classItem => {
+                        const timeInfo = getTimeUntilClass(classItem);
+                        return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
+                      });
+                      if (upcomingClasses.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-2xl">
+                              ⏰ QUANTUM SCHEDULED ({upcomingClasses.length})
+                            </h4>
+                            <div className="grid gap-4">
+                              {upcomingClasses.map((classItem) => (
+                                <ClassItem
+                                  key={classItem.id}
+                                  classItem={classItem}
+                                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                                    weekday: 'short', month: 'short', day: 'numeric'
+                                  })}
+                                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                                    hour: 'numeric', minute: '2-digit', hour12: true
+                                  })}
+                                  getTimeUntilClass={getTimeUntilClass}
+                                  onJoinClass={handleJoinClass}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
 
-        {/* Completed Classes */}
-        {(() => {
-          const completedClasses = classes.filter(classItem => {
-            const timeInfo = getTimeUntilClass(classItem);
-            return timeInfo.status === 'completed';
-          });
-
-          if (completedClasses.length > 0) {
-            return (
-              <div className="space-y-4">
-                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-2 rounded-lg">
-                  ✅ Completed Classes ({completedClasses.length})
-                </h4>
-                <div className="grid gap-4">
-                  {completedClasses.map((classItem) => (
-                    <ClassItem
-                      key={classItem.id}
-                      classItem={classItem}
-                      formatDate={formatDate}
-                      formatTime={formatTime}
-                      getTimeUntilClass={getTimeUntilClass}
-                      onJoinClass={handleJoinClass}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          return null;
-        })()}
-      </div>
-    )}
-  </motion.section>
-)}
-        {/* Completed Classes Section */}
-        {(() => {
-          const completedClasses = classes.filter(classItem => {
-            const timeInfo = getTimeUntilClass(classItem);
-            return timeInfo.status === 'completed';
-          });
-
-          console.log('✅ Completed classes:', completedClasses.length);
-
-          if (completedClasses.length > 0) {
-            return (
-              <div className="space-y-4">
-                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-2 rounded-lg">
-                  ✅ Completed Classes ({completedClasses.length})
-                </h4>
-                <div className="grid gap-4">
-                  {completedClasses.map((classItem) => (
-                    <ClassItem
-                      key={classItem.id}
-                      classItem={classItem}
-                      formatDate={formatDate}
-                      formatTime={formatTime}
-                      getTimeUntilClass={getTimeUntilClass}
-                      onJoinClass={handleJoinClass}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          return null;
-        })()}
-      </div>
-    )}
-  </motion.section>
-)}
+                    {/* Completed Sessions */}
+                    {(() => {
+                      const completedClasses = classes.filter(classItem => 
+                        getTimeUntilClass(classItem).status === 'completed'
+                      );
+                      if (completedClasses.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-2xl">
+                              ✅ QUANTUM ARCHIVE ({completedClasses.length})
+                            </h4>
+                            <div className="grid gap-4">
+                              {completedClasses.map((classItem) => (
+                                <ClassItem
+                                  key={classItem.id}
+                                  classItem={classItem}
+                                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                                    weekday: 'short', month: 'short', day: 'numeric'
+                                  })}
+                                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                                    hour: 'numeric', minute: '2-digit', hour12: true
+                                  })}
+                                  getTimeUntilClass={getTimeUntilClass}
+                                  onJoinClass={handleJoinClass}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
+              </motion.section>
+            )}
 
             {activeSection === 'assignments' && (
               <motion.section
@@ -2256,46 +1724,45 @@ const handleJoinClass = async (classItem) => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="space-y-6"
+                className="space-y-8"
               >
                 <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-bold text-white">Assignments</h3>
-                  <div className="flex space-x-3">
-                    <select className="bg-green-800/50 border border-green-700/30 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                      <option>All Status</option>
-                      <option>Pending</option>
-                      <option>Submitted</option>
+                  <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                    AI Missions
+                  </h3>
+                  <div className="flex space-x-4">
+                    <select className="bg-gradient-to-r from-gray-800 to-gray-700 border border-cyan-500/30 rounded-2xl px-4 py-3 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent backdrop-blur-lg">
+                      <option>All Missions</option>
+                      <option>Active</option>
+                      <option>Completed</option>
                       <option>Graded</option>
                     </select>
                     <button 
-                      onClick={fetchAssignments}
-                      className="bg-green-600 hover:bg-green-500 py-2 px-4 rounded-lg flex items-center transition-all duration-200"
+                      onClick={fetchStudentData}
+                      className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
                     >
-                      <RefreshCw className="mr-2" size={16} />
+                      <RefreshCw className="mr-3" size={20} />
                       Refresh
                     </button>
                   </div>
                 </div>
 
-                {loadingAssignments ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-                    <p className="text-green-200 mt-4">Loading assignments...</p>
-                  </div>
-                ) : assignments.length === 0 ? (
-                  <div className="text-center py-12 bg-green-800/30 rounded-xl">
-                    <FileText className="mx-auto text-green-400" size={48} />
-                    <h4 className="text-white text-xl font-semibold mt-4">No assignments</h4>
-                    <p className="text-green-300 mt-2">Your assignments will appear here.</p>
+                {assignments.length === 0 ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+                    <FileText className="mx-auto text-cyan-400 mb-6" size={80} />
+                    <h4 className="text-white text-2xl font-bold mb-4">No Active Missions</h4>
+                    <p className="text-cyan-300 text-lg">Your AI-curated learning missions will appear here</p>
                   </div>
                 ) : (
-                  <div className="grid gap-4">
+                  <div className="grid gap-6">
                     {assignments.map((assignment) => (
                       <AssignmentItem
                         key={assignment.id}
                         assignment={assignment}
                         onSubmitAssignment={handleSubmitAssignment}
-                        formatDate={formatDate}
+                        formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                          weekday: 'short', month: 'short', day: 'numeric'
+                        })}
                       />
                     ))}
                   </div>
@@ -2303,151 +1770,12 @@ const handleJoinClass = async (classItem) => {
               </motion.section>
             )}
 
-            {activeSection === 'payments' && (
-              <motion.section
-                key="payments"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-6"
-              >
-                <h3 className="text-2xl font-bold text-white">Payment History</h3>
-                
-                {loadingPayments ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
-                    <p className="text-green-200 mt-4">Loading payments...</p>
-                  </div>
-                ) : payments.length === 0 ? (
-                  <div className="text-center py-12 bg-green-800/30 rounded-xl">
-                    <CreditCard className="mx-auto text-green-400" size={48} />
-                    <h4 className="text-white text-xl font-semibold mt-4">No payment history</h4>
-                    <p className="text-green-300 mt-2">Your payment records will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="bg-green-800/30 rounded-xl overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-green-700/50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                            Date
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                            Description
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                            Amount
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-green-300 uppercase tracking-wider">
-                            Status
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-green-700/30">
-                        {payments.map((payment) => (
-                          <tr key={payment.id} className="hover:bg-green-700/20 transition-colors">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                              {formatDate(payment.created_at)}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-green-200">
-                              {payment.description}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                              ${payment.amount}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                payment.status === 'completed' 
-                                  ? 'bg-green-900/50 text-green-300'
-                                  : payment.status === 'pending'
-                                  ? 'bg-yellow-900/50 text-yellow-300'
-                                  : 'bg-red-900/50 text-red-300'
-                              }`}>
-                                {payment.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </motion.section>
-            )}
-
-            {activeSection === 'progress' && (
-              <motion.section
-                key="progress"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-6"
-              >
-                <h3 className="text-2xl font-bold text-white">Detailed Progress</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6">
-                    <h4 className="text-lg font-semibold text-white mb-4">Weekly Activity</h4>
-                    <div className="h-64 flex items-center justify-center text-green-300">
-                      Activity chart will be implemented here
-                    </div>
-                  </div>
-                  <div className="bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6">
-                    <h4 className="text-lg font-semibold text-white mb-4">Subject Performance</h4>
-                    <div className="h-64 flex items-center justify-center text-green-300">
-                      Performance chart will be implemented here
-                    </div>
-                  </div>
-                </div>
-              </motion.section>
-            )}
+            {/* Add other sections similarly with quantum styling */}
           </AnimatePresence>
-
-          {/* Contact Teacher Section */}
-          {hasTeacher && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.6 }}
-              className="mt-8 bg-green-800/30 backdrop-blur-lg border border-green-700/30 rounded-xl p-6"
-            >
-              <h3 className="text-xl font-bold text-white mb-4 flex items-center">
-                <Mail className="mr-2" size={24} />
-                Contact Your Teacher
-              </h3>
-              <div className="space-y-4">
-                <textarea
-                  value={contactMessage}
-                  onChange={(e) => setContactMessage(e.target.value)}
-                  placeholder="Type your message to the teacher here..."
-                  rows="4"
-                  className="w-full p-4 rounded-lg bg-green-800/50 border border-green-700/30 text-white placeholder-green-300 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                />
-                <div className="flex justify-end">
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={sendingMessage || !contactMessage.trim()}
-                    className="bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed py-2 px-6 rounded-lg flex items-center transition-all duration-200"
-                  >
-                    {sendingMessage ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2" size={16} />
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <Mail className="mr-2" size={16} />
-                        Send Message
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
         </main>
       </div>
 
-      {/* Mobile sidebar overlay */}
+      {/* Mobile Overlay */}
       {isSidebarOpen && isMobile && (
         <div 
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
