@@ -1485,7 +1485,7 @@ export default function Dashboard() {
             <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
           </div>
           <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Madina Dashboard</p>
-          <p className="text-purple-300 mt-2">AI optimizing your learning matrix</p>
+          <p className="text-purple-300 mt-2">Optimizing your learning matrix</p>
         </div>
       </div>
     );
