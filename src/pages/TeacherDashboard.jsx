@@ -17,8 +17,8 @@ import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
 import VideoCall from '../components/VideoCall';
 
-// Quantum Design System Components
-const QuantumCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
+// Madina Design System Components
+const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
   <div 
     className={`bg-gradient-to-br ${gradient} backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 shadow-2xl ${className}`}
     {...props}
@@ -27,7 +27,7 @@ const QuantumCard = ({ children, className = "", gradient = "from-blue-900/50 to
   </div>
 );
 
-const QuantumButton = ({ children, variant = "primary", className = "", ...props }) => {
+const MadinaButton = ({ children, variant = "primary", className = "", ...props }) => {
   const baseClasses = "px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 flex items-center justify-center";
   
   const variants = {
@@ -45,7 +45,7 @@ const QuantumButton = ({ children, variant = "primary", className = "", ...props
   );
 };
 
-const QuantumBadge = ({ children, variant = "info", className = "" }) => {
+const MadinaBadge = ({ children, variant = "info", className = "" }) => {
   const baseClasses = "px-3 py-1 rounded-full text-xs font-bold backdrop-blur-lg border";
   
   const variants = {
@@ -63,7 +63,7 @@ const QuantumBadge = ({ children, variant = "info", className = "" }) => {
   );
 };
 
-// Enhanced Audio Recorder with Quantum Design
+// Enhanced Audio Recorder with Madina Design
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioData, setAudioData] = useState(null);
@@ -82,7 +82,7 @@ const useAudioRecorder = () => {
         clearInterval(interval);
         setIsRecording(false);
         setAudioData('demo-audio-data');
-        toast.success('🎙️ Quantum recording complete!');
+        toast.success('🎙️ Madina recording complete!');
       }, 5000);
     } catch (error) {
       toast.error('🚫 Failed to start neural recording');
@@ -119,7 +119,7 @@ export default function TeacherDashboard() {
   const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
   
-  // Quantum State Management
+  // Madina State Management
   const [activeTab, setActiveTab] = useState('classes');
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
@@ -142,7 +142,7 @@ export default function TeacherDashboard() {
     pendingSubmissions: 0
   });
 
-  // Quantum Video Call State
+  // Madina Video Call State
   const [activeVideoCall, setActiveVideoCall] = useState(null);
   const [videoCallError, setVideoCallError] = useState(null);
   const [startingSession, setStartingSession] = useState(null);
@@ -150,7 +150,7 @@ export default function TeacherDashboard() {
   const [showVideoCallModal, setShowVideoCallModal] = useState(false);
   const [recentSessions, setRecentSessions] = useState([]);
 
-  // Quantum Assignment Creation
+  // Madina Assignment Creation
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [newAssignment, setNewAssignment] = useState({
     title: '',
@@ -162,7 +162,7 @@ export default function TeacherDashboard() {
     selected_students: []
   });
 
-  // Quantum Grading System
+  // Madina Grading System
   const [gradingSubmission, setGradingSubmission] = useState(null);
   const [gradeData, setGradeData] = useState({ 
     score: '', 
@@ -174,14 +174,14 @@ export default function TeacherDashboard() {
   // Neural Audio Processor
   const audioRecorder = useAudioRecorder();
 
-  // Quantum Authentication Guard
+  // Madina Authentication Guard
   useEffect(() => {
     if (!user) {
       navigate('/teacher-login');
     }
   }, [user, navigate]);
   
-  // Quantum Session Recovery System
+  // Madina Session Recovery System
   useEffect(() => {
     if (user) {
       const savedSessions = localStorage.getItem('teacherRecentSessions');
@@ -198,7 +198,7 @@ export default function TeacherDashboard() {
             const timeDiff = (now - logoutTime) / (1000 * 60);
             
             if (timeDiff < 10 && backup.activeVideoCall) {
-              console.log('🔄 Quantum session recovery initiated...');
+              console.log('🔄 Madina session recovery initiated...');
               setActiveVideoCall(backup.activeVideoCall);
               setShowVideoCallModal(true);
               toast.info('🧠 Neural session recovery complete!');
@@ -207,13 +207,13 @@ export default function TeacherDashboard() {
             localStorage.removeItem('teacherSessionBackup');
           }
         } catch (error) {
-          console.error('❌ Quantum recovery failed:', error);
+          console.error('❌ Madina recovery failed:', error);
         }
       }
     }
   }, [user]);
 
-  // Quantum Logout with Session Preservation
+  // Madina Logout with Session Preservation
   const handleLogout = async () => {
     try {
       const currentSessionData = {
@@ -225,14 +225,14 @@ export default function TeacherDashboard() {
       localStorage.setItem('teacherSessionBackup', JSON.stringify(currentSessionData));
       
       await signOut();
-      toast.success('🚀 Quantum logout complete!');
+      toast.success('🚀 Madina logout complete!');
       navigate('/teacher-login');
     } catch (error) {
       toast.error('❌ Logout sequence failed');
     }
   };
 
-  // Quantum Data Loading System
+  // Madina Data Loading System
   const loadTeacherData = async () => {
     try {
       setLoading({ classes: true, students: true, assignments: true });
@@ -267,7 +267,7 @@ export default function TeacherDashboard() {
       });
       
     } catch (error) {
-      toast.error('❌ Quantum data stream interrupted');
+      toast.error('❌ Madina data stream interrupted');
     } finally {
       setLoading({ classes: false, students: false, assignments: false });
     }
@@ -294,7 +294,7 @@ export default function TeacherDashboard() {
     }
   }, [user]);
 
-  // Quantum Filtering System
+  // Madina Filtering System
   const filteredClasses = useMemo(() => {
     if (!classes || classes.length === 0) return [];
     
@@ -316,17 +316,17 @@ export default function TeacherDashboard() {
     return result;
   }, [classes, filters]);
 
-  // ============= QUANTUM VIDEO CALL SYSTEM =============
+  // ============= Madina VIDEO CALL SYSTEM =============
 
   // Quick Rejoin Section Component
   const QuickRejoinSection = () => {
     if (recentSessions.length === 0) return null;
 
     return (
-      <QuantumCard gradient="from-orange-900/30 to-yellow-900/30" className="mb-6">
+      <MadinaCard gradient="from-orange-900/30 to-yellow-900/30" className="mb-6">
         <h4 className="text-lg font-semibold text-white mb-3 flex items-center">
           <RefreshCw className="mr-2" size={20} />
-          🚀 Quick Quantum Rejoin
+          🚀 Quick Madina Rejoin
         </h4>
         <div className="grid gap-3">
           {recentSessions.slice(0, 3).map((session, index) => (
@@ -337,35 +337,35 @@ export default function TeacherDashboard() {
                   Started: {new Date(session.startTime).toLocaleTimeString()}
                 </p>
               </div>
-              <QuantumButton
+              <MadinaButton
                 variant="warning"
                 onClick={() => handleRejoinRecentSession(session)}
                 className="px-4 py-2 text-sm"
               >
                 <Video className="mr-2" size={16} />
-                Quantum Rejoin
-              </QuantumButton>
+                Madina Rejoin
+              </MadinaButton>
             </div>
           ))}
         </div>
-      </QuantumCard>
+      </MadinaCard>
     );
   };
 
   const handleStartVideoSession = async (classItem) => {
     try {
-      console.log('🎬 Quantum session initiation:', classItem.id);
+      console.log('🎬 Madina session initiation:', classItem.id);
       setStartingSession(classItem.id);
       setVideoCallError(null);
 
       if (!classItem || !classItem.id || !user || !user.id) {
-        throw new Error('Quantum authentication required');
+        throw new Error('Madina authentication required');
       }
 
       const result = await videoApi.startVideoSession(classItem.id, user.id);
 
       if (!result.success) {
-        throw new Error(result.error || 'Quantum link failed');
+        throw new Error(result.error || 'Madina link failed');
       }
 
       const sessionData = {
@@ -390,8 +390,8 @@ export default function TeacherDashboard() {
       toast.success(`🚀 Launching ${classItem.title}...`);
 
     } catch (error) {
-      console.error('❌ Quantum session failed:', error);
-      const errorMessage = error.message || 'Quantum link failure';
+      console.error('❌ Madina session failed:', error);
+      const errorMessage = error.message || 'Madina link failure';
       setVideoCallError(errorMessage);
       toast.error(`❌ ${errorMessage}`);
     } finally {
@@ -402,7 +402,7 @@ export default function TeacherDashboard() {
   const handleJoinExistingSession = async (classItem, session) => {
     try {
       if (!session.meeting_id) {
-        throw new Error('Quantum channel ID missing');
+        throw new Error('Madina channel ID missing');
       }
 
       const sessionData = {
@@ -424,22 +424,22 @@ export default function TeacherDashboard() {
       localStorage.setItem('teacherRecentSessions', JSON.stringify([sessionData, ...recentSessions].slice(0, 5)));
 
       setShowVideoCallModal(true);
-      toast.success('🔄 Quantum reconnection initiated...');
+      toast.success('🔄 Madina reconnection initiated...');
 
     } catch (error) {
-      console.error('❌ Quantum join failed:', error);
+      console.error('❌ Madina join failed:', error);
       toast.error(error.message);
     }
   };
 
   const handleRejoinRecentSession = async (session) => {
     try {
-      console.log('🔄 Quantum rejoin sequence:', session);
+      console.log('🔄 Madina rejoin sequence:', session);
       
       const sessionStatus = await videoApi.getSessionStatus(session.meetingId);
       
       if (!sessionStatus.active) {
-        throw new Error('Quantum channel inactive');
+        throw new Error('Madina channel inactive');
       }
 
       setActiveVideoCall(session);
@@ -447,7 +447,7 @@ export default function TeacherDashboard() {
       toast.success(`🚀 Rejoining ${session.className}...`);
 
     } catch (error) {
-      console.error('❌ Quantum rejoin failed:', error);
+      console.error('❌ Madina rejoin failed:', error);
       
       if (error.message.includes('inactive')) {
         setRecentSessions(prev => prev.filter(s => s.meetingId !== session.meetingId));
@@ -462,7 +462,7 @@ export default function TeacherDashboard() {
     try {
       setEndingSession(classItem.id);
       await videoApi.endVideoSession(session.meeting_id);
-      toast.success('✅ Quantum session terminated');
+      toast.success('✅ Madina session terminated');
     } catch (error) {
       toast.error('❌ Session termination failed');
     } finally {
@@ -474,12 +474,12 @@ export default function TeacherDashboard() {
     try {
       if (shouldEndSession && activeVideoCall) {
         await videoApi.endVideoSession(activeVideoCall.meetingId);
-        toast.success('✅ Quantum session completed');
+        toast.success('✅ Madina session completed');
         
         setRecentSessions(prev => prev.filter(s => s.meetingId !== activeVideoCall.meetingId));
         localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions.filter(s => s.meetingId !== activeVideoCall.meetingId)));
       } else {
-        toast.info('🔄 Quantum session paused - Rejoin available');
+        toast.info('🔄 Madina session paused - Rejoin available');
       }
       
       setActiveVideoCall(null);
@@ -488,7 +488,7 @@ export default function TeacherDashboard() {
       await loadTeacherData();
       
     } catch (error) {
-      console.error('Quantum exit error:', error);
+      console.error('Madina exit error:', error);
       toast.error('❌ Exit sequence failed');
     }
   };
@@ -498,10 +498,10 @@ export default function TeacherDashboard() {
     setVideoCallError(null);
     setShowVideoCallModal(false);
     await loadTeacherData();
-    toast.success('✅ Quantum session completed successfully!');
+    toast.success('✅ Madina session completed successfully!');
   };
 
-  // Quantum Utility Functions
+  // Madina Utility Functions
   const canStartVideo = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
     const now = new Date();
@@ -517,15 +517,15 @@ export default function TeacherDashboard() {
   const copyClassLink = (meetingId) => {
     const link = `${window.location.origin}/join-class/${meetingId}`;
     navigator.clipboard.writeText(link);
-    toast.success('🔗 Quantum link copied to neural clipboard!');
+    toast.success('🔗 Madina link copied to neural clipboard!');
   };
 
-  // ============= QUANTUM ASSIGNMENT SYSTEM =============
+  // ============= Madina ASSIGNMENT SYSTEM =============
 
   const createAssignment = async () => {
     try {
       if (!newAssignment.title.trim()) {
-        toast.error('🚫 Quantum assignment requires title');
+        toast.error('🚫 Madina assignment requires title');
         return;
       }
       
@@ -546,7 +546,7 @@ export default function TeacherDashboard() {
 
       await teacherApi.createAssignment(assignmentData);
       
-      toast.success('🚀 Quantum assignment deployed!');
+      toast.success('🚀 Madina assignment deployed!');
       setShowCreateAssignment(false);
       setNewAssignment({
         title: '',
@@ -565,13 +565,13 @@ export default function TeacherDashboard() {
     }
   };
 
-  // ============= QUANTUM GRADING SYSTEM =============
+  // ============= Madina GRADING SYSTEM =============
 
   const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
     setIsGrading(true);
     try {
       if (!score || isNaN(score) || score < 0) {
-        toast.error('🚫 Invalid quantum score');
+        toast.error('🚫 Invalid Madina score');
         setIsGrading(false);
         return;
       }
@@ -601,7 +601,7 @@ export default function TeacherDashboard() {
       
       await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackData);
       
-      toast.success('✅ Quantum grading complete!');
+      toast.success('✅ Madina grading complete!');
       setGradingSubmission(null);
       setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
       audioRecorder.clearRecording();
@@ -613,7 +613,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Quantum Utility Functions
+  // Madina Utility Functions
   const formatDateTime = (dateString) => {
     if (!dateString) return "Temporal coordinates pending";
     const date = new Date(dateString);
@@ -630,25 +630,25 @@ export default function TeacherDashboard() {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
-  // Quantum Stats Grid
+  // Madina Stats Grid
   const statsGrid = [
-    { icon: BookOpen, value: stats.totalClasses, label: 'Quantum Sessions', color: 'cyan', gradient: 'from-cyan-500 to-blue-500' },
+    { icon: BookOpen, value: stats.totalClasses, label: 'Madina Sessions', color: 'cyan', gradient: 'from-cyan-500 to-blue-500' },
     { icon: Calendar, value: stats.upcomingClasses, label: 'Scheduled', color: 'green', gradient: 'from-green-500 to-emerald-500' },
     { icon: BarChart3, value: stats.completedClasses, label: 'Completed', color: 'purple', gradient: 'from-purple-500 to-pink-500' },
-    { icon: Users, value: stats.totalStudents, label: 'Neural Learners', color: 'yellow', gradient: 'from-yellow-500 to-orange-500' },
+    { icon: Users, value: stats.totalStudents, label: 'Learners', color: 'yellow', gradient: 'from-yellow-500 to-orange-500' },
     { icon: FileText, value: stats.totalAssignments, label: 'Missions', color: 'indigo', gradient: 'from-indigo-500 to-purple-500' },
     { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Review', color: 'orange', gradient: 'from-orange-500 to-red-500' }
   ];
 
-  // Quantum Navigation
+  // Madina Navigation
   const tabs = [
-    { id: 'classes', label: 'Quantum Sessions', icon: Video, description: 'Manage your classes' },
-    { id: 'students', label: 'Neural Network', icon: Users, description: 'Student management' },
-    { id: 'assignments', label: 'AI Missions', icon: FileText, description: 'Create assignments' },
-    { id: 'grading', label: 'Quantum Review', icon: FileCheck, badge: pendingSubmissions.length, description: 'Grade submissions' },
+    { id: 'classes', label: 'Madina Sessions', icon: Video, description: 'Manage your classes' },
+    { id: 'students', label: 'Learners', icon: Users, description: 'Student management' },
+    { id: 'assignments', label: 'Assignements', icon: FileText, description: 'Create assignments' },
+    { id: 'grading', label: 'Madina Review', icon: FileCheck, badge: pendingSubmissions.length, description: 'Grade submissions' },
   ];
 
-  // ============= QUANTUM COMPONENT SECTIONS =============
+  // ============= Madina COMPONENT SECTIONS =============
 
   const ClassesTab = ({ classes, formatDateTime }) => {
     const [deletingClass, setDeletingClass] = useState(null);
@@ -680,7 +680,7 @@ export default function TeacherDashboard() {
       try {
         setDeletingClass(classId);
         await teacherApi.deleteClass(classId);
-        toast.success('✅ Quantum session deleted');
+        toast.success('✅ Madina session deleted');
         loadTeacherData();
       } catch (error) {
         toast.error('❌ Deletion failed');
@@ -691,14 +691,14 @@ export default function TeacherDashboard() {
 
     return (
       <div>
-        {/* Quantum Error Display */}
+        {/* Madina Error Display */}
         {videoCallError && (
-          <QuantumCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
+          <MadinaCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <XCircle size={20} className="text-red-400 mr-3" />
                 <div>
-                  <p className="text-red-300 font-medium">Quantum Link Error</p>
+                  <p className="text-red-300 font-medium">Madina Link Error</p>
                   <p className="text-red-400 text-sm">{videoCallError}</p>
                 </div>
               </div>
@@ -706,13 +706,13 @@ export default function TeacherDashboard() {
                 Dismiss
               </button>
             </div>
-          </QuantumCard>
+          </MadinaCard>
         )}
 
         <div className="flex justify-between items-center mb-6">
           <div>
             <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-              Quantum Sessions
+              Madina Sessions
             </h3>
             <p className="text-cyan-300 text-sm">Manage your neural learning sessions</p>
           </div>
@@ -725,7 +725,7 @@ export default function TeacherDashboard() {
           <div className="mb-8">
             <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
               <Rocket className="mr-2" size={24} />
-              Scheduled Quantum Sessions
+              Scheduled Madina Sessions
             </h4>
             <div className="grid gap-6">
               {upcomingClasses.map((classItem) => {
@@ -738,7 +738,7 @@ export default function TeacherDashboard() {
                 const hasRecentSession = recentSessions.some(s => s.classId === classItem.id);
 
                 return (
-                  <QuantumCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
+                  <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
                     <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
                       <div className="flex-1">
                         <div className="flex items-start justify-between mb-4">
@@ -746,10 +746,10 @@ export default function TeacherDashboard() {
                             <h4 className="font-bold text-2xl text-white mb-2">{classItem.title}</h4>
                             {activeSession && (
                               <div className="flex items-center space-x-4 mt-3">
-                                <QuantumBadge variant="live">
+                                <MadinaBadge variant="live">
                                   <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
-                                  QUANTUM LIVE
-                                </QuantumBadge>
+                                  Madina LIVE
+                                </MadinaBadge>
                                 {hasRecentSession && (
                                   <span className="text-green-300 text-sm flex items-center">
                                     <CheckCircle size={16} className="mr-1" />
@@ -760,9 +760,9 @@ export default function TeacherDashboard() {
                             )}
                           </div>
                           {activeSession && (
-                            <QuantumBadge variant="live">
+                            <MadinaBadge variant="live">
                               🔴 LIVE
-                            </QuantumBadge>
+                            </MadinaBadge>
                           )}
                         </div>
                         
@@ -780,7 +780,7 @@ export default function TeacherDashboard() {
                               <Clock size={18} className="mr-3 text-cyan-400" />
                               <div>
                                 <p className="text-sm font-medium">{classItem.duration} minutes</p>
-                                <p className="text-xs text-cyan-300">Quantum Duration</p>
+                                <p className="text-xs text-cyan-300">Madina Duration</p>
                               </div>
                             </div>
                           )}
@@ -788,7 +788,7 @@ export default function TeacherDashboard() {
                           <div className="flex items-center text-cyan-200">
                             <Users size={18} className="mr-3 text-cyan-400" />
                             <div>
-                              <p className="text-sm font-medium">{studentCount} neural learners</p>
+                              <p className="text-sm font-medium">{studentCount}  learners</p>
                               <p className="text-xs text-cyan-300">Connected</p>
                             </div>
                           </div>
@@ -808,7 +808,7 @@ export default function TeacherDashboard() {
 
                       <div className="flex flex-col space-y-3 w-full lg:w-auto">
                         {canStart && !activeSession && (
-                          <QuantumButton
+                          <MadinaButton
                             onClick={() => handleStartVideoSession(classItem)}
                             disabled={isStarting}
                             variant="success"
@@ -816,7 +816,7 @@ export default function TeacherDashboard() {
                             {isStarting ? (
                               <>
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                                Quantum Initiation...
+                                Madina Initiation...
                               </>
                             ) : (
                               <>
@@ -824,30 +824,30 @@ export default function TeacherDashboard() {
                                 Launch Session
                               </>
                             )}
-                          </QuantumButton>
+                          </MadinaButton>
                         )}
                         
                         {activeSession && (
-                          <QuantumButton
+                          <MadinaButton
                             onClick={() => handleJoinExistingSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
                             variant="primary"
                           >
                             <Video size={20} className="mr-3" />
-                            Join Quantum Channel
-                          </QuantumButton>
+                            Join Madina Channel
+                          </MadinaButton>
                         )}
                         
                         {activeSession && (
                           <>
-                            <QuantumButton
+                            <MadinaButton
                               onClick={() => copyClassLink(classItem.video_sessions.find(s => s.status === 'active').meeting_id)}
                               variant="ghost"
                             >
                               <Share2 size={20} className="mr-3" />
                               Neural Invite
-                            </QuantumButton>
+                            </MadinaButton>
                             
-                            <QuantumButton
+                            <MadinaButton
                               onClick={() => handleEndVideoSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
                               disabled={isEnding}
                               variant="danger"
@@ -855,7 +855,7 @@ export default function TeacherDashboard() {
                               {isEnding ? (
                                 <>
                                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                                  Quantum Shutdown...
+                                  Madina Shutdown...
                                 </>
                               ) : (
                                 <>
@@ -863,11 +863,11 @@ export default function TeacherDashboard() {
                                   Terminate Session
                                 </>
                               )}
-                            </QuantumButton>
+                            </MadinaButton>
                           </>
                         )}
 
-                        <QuantumButton
+                        <MadinaButton
                           onClick={() => handleDeleteClass(classItem.id)}
                           disabled={isDeleting}
                           variant="danger"
@@ -884,24 +884,24 @@ export default function TeacherDashboard() {
                               Delete Session
                             </>
                           )}
-                        </QuantumButton>
+                        </MadinaButton>
                       </div>
                     </div>
 
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
                       <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
-                        <QuantumBadge variant={
+                        <MadinaBadge variant={
                           classItem.status === "scheduled" ? "warning" :
                           classItem.status === "active" ? "success" :
                           classItem.status === "completed" ? "info" : "danger"
                         }>
                           {classItem.status?.toUpperCase() || 'PENDING'}
-                        </QuantumBadge>
+                        </MadinaBadge>
                         
                         {activeSession && (
                           <span className="flex items-center text-green-400 text-sm">
                             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
-                            Quantum channel active
+                            Madina channel active
                           </span>
                         )}
                       </div>
@@ -911,7 +911,7 @@ export default function TeacherDashboard() {
                         <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} connected</span>
                       </div>
                     </div>
-                  </QuantumCard>
+                  </MadinaCard>
                 );
               })}
             </div>
@@ -922,40 +922,40 @@ export default function TeacherDashboard() {
           <div>
             <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
               <CheckCircle className="mr-2" size={24} />
-              Quantum Archive
+              Madina Archive
             </h4>
             <div className="grid gap-4">
               {completedClasses.map((classItem) => (
-                <QuantumCard key={classItem.id} gradient="from-gray-800/30 to-gray-900/30">
+                <MadinaCard key={classItem.id} gradient="from-gray-800/30 to-gray-900/30">
                   <h4 className="font-bold text-white text-lg">{classItem.title}</h4>
                   <p className="text-cyan-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
-                  <p className="text-cyan-200 text-sm">Neural Learners: {classItem.students_classes?.length || 0}</p>
+                  <p className="text-cyan-200 text-sm"> Learners: {classItem.students_classes?.length || 0}</p>
                   <div className="mt-3">
-                    <QuantumBadge variant="info">QUANTUM ARCHIVE</QuantumBadge>
+                    <MadinaBadge variant="info">Madina ARCHIVE</MadinaBadge>
                   </div>
-                </QuantumCard>
+                </MadinaCard>
               ))}
             </div>
           </div>
         )}
 
         {classes.length === 0 && (
-          <QuantumCard className="text-center py-16">
+          <MadinaCard className="text-center py-16">
             <Video size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-            <h3 className="text-2xl font-bold text-white mb-2">No Quantum Sessions</h3>
+            <h3 className="text-2xl font-bold text-white mb-2">No Madina Sessions</h3>
             <p className="text-cyan-300 text-lg">Your neural learning sessions will appear here</p>
-          </QuantumCard>
+          </MadinaCard>
         )}
       </div>
     );
   };
 
-  // [StudentsTab, AssignmentsTab, and GradingTab components would follow similar quantum design patterns...]
+  // [StudentsTab, AssignmentsTab, and GradingTab components would follow similar Madina design patterns...]
   // Due to length constraints, I've shown the ClassesTab as an example. The other tabs would follow the same design system.
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 relative">
-      {/* Quantum Video Call Interface */}
+      {/* Madina Video Call Interface */}
       {showVideoCallModal && activeVideoCall && (
         <VideoCall
           isOpen={showVideoCallModal}
@@ -969,7 +969,7 @@ export default function TeacherDashboard() {
         />
       )}
 
-      {/* Quantum Header */}
+      {/* Madina Header */}
       <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 relative z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -983,8 +983,8 @@ export default function TeacherDashboard() {
               <div className="flex items-center">
                 <Brain className="h-8 w-8 text-cyan-400 mr-3" />
                 <div>
-                  <h1 className="text-xl md:text-2xl font-bold text-white">Quantum Educator</h1>
-                  <p className="text-cyan-300 text-xs hidden md:block">Neural Learning Platform</p>
+                  <h1 className="text-xl md:text-2xl font-bold text-white">Madina Educator</h1>
+                 
                 </div>
               </div>
             </div>
@@ -1014,7 +1014,7 @@ export default function TeacherDashboard() {
                     className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
                   >
                     <LogOut size={16} className="mr-2" />
-                    Quantum Logout
+                    Madina Logout
                   </button>
                 </div>
               </div>
@@ -1024,10 +1024,10 @@ export default function TeacherDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Quantum Stats Grid */}
+        {/* Madina Stats Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {statsGrid.map((stat, index) => (
-            <QuantumCard key={index} className="p-4 hover:scale-105 transition-transform duration-300">
+            <MadinaCard key={index} className="p-4 hover:scale-105 transition-transform duration-300">
               <div className="flex items-center">
                 <div className={`p-3 rounded-2xl bg-gradient-to-r ${stat.gradient} shadow-lg mr-3`}>
                   <stat.icon className="h-6 w-6 text-white" />
@@ -1037,16 +1037,16 @@ export default function TeacherDashboard() {
                   <p className="text-cyan-200 text-sm">{stat.label}</p>
                 </div>
               </div>
-            </QuantumCard>
+            </MadinaCard>
           ))}
         </div>
 
         {/* Quick Rejoin Section */}
         <QuickRejoinSection />
 
-        {/* Quantum Navigation */}
+        {/* Madina Navigation */}
         {mobileMenuOpen && (
-          <QuantumCard className="md:hidden mb-6">
+          <MadinaCard className="md:hidden mb-6">
             <nav className="flex flex-col space-y-2">
               {tabs.map((tab) => (
                 <button
@@ -1074,11 +1074,11 @@ export default function TeacherDashboard() {
                 </button>
               ))}
             </nav>
-          </QuantumCard>
+          </MadinaCard>
         )}
 
         <div className="hidden md:block mb-6">
-          <QuantumCard>
+          <MadinaCard>
             <nav className="flex space-x-4 overflow-x-auto">
               {tabs.map((tab) => (
                 <button
@@ -1100,11 +1100,11 @@ export default function TeacherDashboard() {
                 </button>
               ))}
             </nav>
-          </QuantumCard>
+          </MadinaCard>
         </div>
 
-        {/* Quantum Main Content */}
-        <QuantumCard>
+        {/* Madina Main Content */}
+        <MadinaCard>
           {/* Content based on active tab */}
           {activeTab === 'classes' && (
             <ClassesTab 
@@ -1117,24 +1117,24 @@ export default function TeacherDashboard() {
           {activeTab !== 'classes' && (
             <div className="text-center py-16">
               <div className="text-cyan-400 text-6xl mb-4">🚧</div>
-              <h3 className="text-2xl font-bold text-white mb-2">Quantum Interface Loading</h3>
+              <h3 className="text-2xl font-bold text-white mb-2">Madina Interface Loading</h3>
               <p className="text-cyan-300 text-lg">
-                {activeTab === 'students' && 'Neural Network interface coming soon...'}
+                {activeTab === 'students' && 'Assignment interface coming soon...'}
                 {activeTab === 'assignments' && 'AI Missions system initializing...'}
-                {activeTab === 'grading' && 'Quantum Review processor booting...'}
+                {activeTab === 'grading' && 'Madina Review processor booting...'}
               </p>
             </div>
           )}
-        </QuantumCard>
+        </MadinaCard>
       </div>
 
-      {/* Quantum Assignment Creation Modal */}
+      {/* Madina Assignment Creation Modal */}
       {showCreateAssignment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
-          <QuantumCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                🚀 Create Quantum Mission
+                🚀 Create Madina Mission
               </h3>
               <button 
                 onClick={() => setShowCreateAssignment(false)}
@@ -1152,7 +1152,7 @@ export default function TeacherDashboard() {
                   value={newAssignment.title}
                   onChange={(e) => setNewAssignment({...newAssignment, title: e.target.value})}
                   className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                  placeholder="Enter quantum mission title"
+                  placeholder="Enter Madina mission title"
                   required
                 />
               </div>
@@ -1181,7 +1181,7 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-cyan-200 mb-2">Quantum Points</label>
+                  <label className="block text-sm font-medium text-cyan-200 mb-2">Madina Points</label>
                   <input
                     type="number"
                     value={newAssignment.max_score}
@@ -1204,37 +1204,37 @@ export default function TeacherDashboard() {
                   })}
                   className="mr-3 w-4 h-4 text-cyan-600 bg-cyan-800/30 border-cyan-700/30 rounded focus:ring-cyan-500"
                 />
-                <span className="text-cyan-200 text-sm">Assign to all neural learners</span>
+                <span className="text-cyan-200 text-sm">Assign to all  learners</span>
               </div>
             </div>
 
             <div className="flex justify-end space-x-3 mt-8">
-              <QuantumButton
+              <MadinaButton
                 onClick={() => setShowCreateAssignment(false)}
                 variant="ghost"
               >
                 Cancel
-              </QuantumButton>
-              <QuantumButton
+              </MadinaButton>
+              <MadinaButton
                 onClick={createAssignment}
                 disabled={!newAssignment.title || !newAssignment.due_date}
                 variant="primary"
               >
                 <Rocket className="mr-2" size={18} />
                 Launch Mission
-              </QuantumButton>
+              </MadinaButton>
             </div>
-          </QuantumCard>
+          </MadinaCard>
         </div>
       )}
 
-            {/* Quantum Assignment Grading Modal */}
+            {/* Madina Assignment Grading Modal */}
       {gradingSubmission && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
-          <QuantumCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                🧠 Quantum Assessment
+                🧠 Madina Assessment
               </h3>
               <button 
                 onClick={() => {
@@ -1256,10 +1256,10 @@ export default function TeacherDashboard() {
                 <p className="text-cyan-300 text-xs">{gradingSubmission.student?.email}</p>
               </div>
               <div>
-                <p className="text-cyan-200 text-sm font-medium">Quantum Mission</p>
+                <p className="text-cyan-200 text-sm font-medium">Madina Mission</p>
                 <p className="text-white font-semibold text-lg">{gradingSubmission.assignment?.title}</p>
                 <p className="text-cyan-300 text-xs">
-                  Max Quantum Points: {gradingSubmission.assignment?.max_score}
+                  Max Madina Points: {gradingSubmission.assignment?.max_score}
                 </p>
               </div>
             </div>
@@ -1281,7 +1281,7 @@ export default function TeacherDashboard() {
               {/* Score Input */}
               <div>
                 <label className="block text-sm font-medium text-cyan-200 mb-3">
-                  Quantum Score * (Max: {gradingSubmission.assignment?.max_score || 100})
+                  Madina Score * (Max: {gradingSubmission.assignment?.max_score || 100})
                 </label>
                 <input
                   type="number"
@@ -1290,7 +1290,7 @@ export default function TeacherDashboard() {
                   className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white text-lg font-semibold focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   min="0"
                   max={gradingSubmission.assignment?.max_score || 100}
-                  placeholder="Enter quantum score"
+                  placeholder="Enter Madina score"
                   required
                 />
               </div>
@@ -1314,14 +1314,14 @@ export default function TeacherDashboard() {
               <div className="border-t border-cyan-700/30 pt-6">
                 <label className="block text-sm font-medium text-cyan-200 mb-4 flex items-center">
                   <Mic size={16} className="mr-2" />
-                  Quantum Audio Feedback (Optional)
+                  Madina Audio Feedback (Optional)
                 </label>
                 
-                <QuantumCard gradient="from-purple-900/30 to-pink-900/30" className="p-4">
+                <MadinaCard gradient="from-purple-900/30 to-pink-900/30" className="p-4">
                   {!gradeData.audioFeedbackData && !audioRecorder.audioData ? (
                     <div className="space-y-4">
                       <div className="flex items-center space-x-4">
-                        <QuantumButton
+                        <MadinaButton
                           onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
                           variant={audioRecorder.isRecording ? "danger" : "success"}
                           className="p-4 rounded-full"
@@ -1333,7 +1333,7 @@ export default function TeacherDashboard() {
                           ) : (
                             <Mic size={24} />
                           )}
-                        </QuantumButton>
+                        </MadinaButton>
                         
                         <div className="flex-1">
                           <div className="text-cyan-300 font-medium">
@@ -1357,7 +1357,7 @@ export default function TeacherDashboard() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <CheckCircle size={20} className="text-green-400" />
-                          <span className="text-green-400 font-medium">✅ Quantum Audio Recorded</span>
+                          <span className="text-green-400 font-medium">✅ Madina Audio Recorded</span>
                         </div>
                         <button
                           onClick={() => {
@@ -1385,12 +1385,12 @@ export default function TeacherDashboard() {
                       </div>
                     </div>
                   )}
-                </QuantumCard>
+                </MadinaCard>
               </div>
             </div>
 
             <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-cyan-700/30">
-              <QuantumButton
+              <MadinaButton
                 onClick={() => {
                   setGradingSubmission(null);
                   setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
@@ -1399,8 +1399,8 @@ export default function TeacherDashboard() {
                 variant="ghost"
               >
                 Cancel Assessment
-              </QuantumButton>
-              <QuantumButton
+              </MadinaButton>
+              <MadinaButton
                 onClick={() => gradeAssignment(
                   gradingSubmission.id, 
                   parseInt(gradeData.score), 
@@ -1414,50 +1414,39 @@ export default function TeacherDashboard() {
                 {isGrading ? (
                   <>
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                    Quantum Processing...
+                    Madina Processing...
                   </>
                 ) : (
                   <>
                     <Zap size={20} className="mr-3" />
-                    Submit Quantum Assessment
+                    Submit Madina Assessment
                   </>
                 )}
-              </QuantumButton>
+              </MadinaButton>
             </div>
-          </QuantumCard>
+          </MadinaCard>
         </div>
       )}
 
-      {/* Quantum Students Tab */}
+      {/* Madina Students Tab */}
       {activeTab === 'students' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                Neural Network
+               Assignments
               </h3>
-              <p className="text-cyan-300 text-sm">Manage your quantum learners</p>
+              <p className="text-cyan-300 text-sm">Manage your Madina learners</p>
             </div>
             <div className="text-cyan-300 text-sm">
-              {students.length} neural learners
+              {students.length}  learners
             </div>
-          </div>
-
-          {/* Search Bar */}
-          <div className="relative">
-            <Search size={20} className="absolute left-4 top-1/2 transform -translate-y-1/2 text-cyan-400" />
-            <input
-              type="text"
-              placeholder="Search neural learners by name or email..."
-              className="w-full pl-12 pr-4 py-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              onChange={(e) => setFilters({...filters, search: e.target.value})}
-            />
           </div>
 
           {/* Students Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {students.map((student) => (
-              <QuantumCard key={student.id} gradient="from-blue-900/30 to-purple-900/30">
+              <MadinaCard key={student.id} gradient="from-blue-900/30 to-purple-900/30">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center">
                     <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center mr-3 shadow-lg">
@@ -1481,7 +1470,7 @@ export default function TeacherDashboard() {
                     </button>
                     <button
                       className="p-2 bg-green-600 hover:bg-green-500 rounded-lg text-white transition-colors"
-                      title="View Quantum Progress"
+                      title="View Madina Progress"
                     >
                       <BarChart3 size={16} />
                     </button>
@@ -1490,7 +1479,7 @@ export default function TeacherDashboard() {
 
                 <div className="space-y-3 text-sm mb-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-cyan-300">Quantum Sessions:</span>
+                    <span className="text-cyan-300">Madina Sessions:</span>
                     <span className="text-white font-semibold">{student.classes_count || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -1504,30 +1493,30 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="flex space-x-2 pt-4 border-t border-cyan-700/30">
-                  <QuantumButton variant="ghost" className="flex-1 text-sm py-2">
+                  <MadinaButton variant="ghost" className="flex-1 text-sm py-2">
                     <Eye size={16} className="mr-2" />
                     Profile
-                  </QuantumButton>
-                  <QuantumButton variant="primary" className="flex-1 text-sm py-2">
+                  </MadinaButton>
+                  <MadinaButton variant="primary" className="flex-1 text-sm py-2">
                     <TrendingUp size={16} className="mr-2" />
                     Progress
-                  </QuantumButton>
+                  </MadinaButton>
                 </div>
-              </QuantumCard>
+              </MadinaCard>
             ))}
           </div>
 
           {students.length === 0 && (
-            <QuantumCard className="text-center py-16">
+            <MadinaCard className="text-center py-16">
               <Users size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-              <h3 className="text-2xl font-bold text-white mb-2">No Neural Learners</h3>
-              <p className="text-cyan-300 text-lg">Quantum learners will appear here when they join your sessions</p>
-            </QuantumCard>
+              <h3 className="text-2xl font-bold text-white mb-2">No  Learners</h3>
+              <p className="text-cyan-300 text-lg">Madina learners will appear here when they join your sessions</p>
+            </MadinaCard>
           )}
         </div>
       )}
 
-      {/* Quantum Assignments Tab */}
+      {/* Madina Assignments Tab */}
       {activeTab === 'assignments' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
@@ -1535,15 +1524,15 @@ export default function TeacherDashboard() {
               <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
                 AI Missions
               </h3>
-              <p className="text-cyan-300 text-sm">Create and manage quantum learning missions</p>
+              <p className="text-cyan-300 text-sm">Create and manage Madina learning missions</p>
             </div>
-            <QuantumButton
+            <MadinaButton
               onClick={() => setShowCreateAssignment(true)}
               variant="success"
             >
               <Plus size={20} className="mr-2" />
               Create Mission
-            </QuantumButton>
+            </MadinaButton>
           </div>
 
           {/* Search Bar */}
@@ -1551,7 +1540,7 @@ export default function TeacherDashboard() {
             <Search size={20} className="absolute left-4 top-1/2 transform -translate-y-1/2 text-cyan-400" />
             <input
               type="text"
-              placeholder="Search quantum missions..."
+              placeholder="Search Madina missions..."
               className="w-full pl-12 pr-4 py-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
               onChange={(e) => setFilters({...filters, search: e.target.value})}
             />
@@ -1560,7 +1549,7 @@ export default function TeacherDashboard() {
           {/* Assignments Grid */}
           <div className="grid gap-6">
             {assignments.map((assignment) => (
-              <QuantumCard key={assignment.id} gradient="from-green-900/30 to-emerald-900/30">
+              <MadinaCard key={assignment.id} gradient="from-green-900/30 to-emerald-900/30">
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex-1">
                     <h4 className="font-bold text-white text-2xl mb-3">{assignment.title}</h4>
@@ -1571,7 +1560,7 @@ export default function TeacherDashboard() {
                   <div className="flex space-x-2 ml-4">
                     <button
                       onClick={async () => {
-                        if (window.confirm('Delete this quantum mission?')) {
+                        if (window.confirm('Delete this Madina mission?')) {
                           try {
                             await teacherApi.deleteAssignment(assignment.id);
                             toast.success('✅ Mission deleted');
@@ -1607,7 +1596,7 @@ export default function TeacherDashboard() {
                   <div className="flex items-center text-cyan-200">
                     <Award size={18} className="mr-3 text-cyan-400" />
                     <div>
-                      <p className="text-sm font-medium">{assignment.max_score} Quantum Points</p>
+                      <p className="text-sm font-medium">{assignment.max_score} Madina Points</p>
                       <p className="text-xs text-cyan-300">Mission Value</p>
                     </div>
                   </div>
@@ -1622,50 +1611,50 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
-                  <QuantumBadge variant={assignment.status === 'active' ? 'success' : 'info'}>
+                  <MadinaBadge variant={assignment.status === 'active' ? 'success' : 'info'}>
                     {assignment.status?.toUpperCase() || 'ACTIVE'}
-                  </QuantumBadge>
+                  </MadinaBadge>
                   
                   <div className="flex space-x-3">
-                    <QuantumButton variant="ghost" className="text-sm py-2 px-4">
+                    <MadinaButton variant="ghost" className="text-sm py-2 px-4">
                       <Eye size={16} className="mr-2" />
                       Details
-                    </QuantumButton>
-                    <QuantumButton variant="primary" className="text-sm py-2 px-4">
+                    </MadinaButton>
+                    <MadinaButton variant="primary" className="text-sm py-2 px-4">
                       <FileCheck size={16} className="mr-2" />
                       Review
-                    </QuantumButton>
+                    </MadinaButton>
                   </div>
                 </div>
-              </QuantumCard>
+              </MadinaCard>
             ))}
           </div>
 
           {assignments.length === 0 && (
-            <QuantumCard className="text-center py-16">
+            <MadinaCard className="text-center py-16">
               <FileText size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-              <h3 className="text-2xl font-bold text-white mb-2">No Quantum Missions</h3>
-              <p className="text-cyan-300 text-lg">Create your first AI mission to challenge your neural learners</p>
-              <QuantumButton
+              <h3 className="text-2xl font-bold text-white mb-2">No Madina Missions</h3>
+              <p className="text-cyan-300 text-lg">Create your first Assignment to challenge your  learners</p>
+              <MadinaButton
                 onClick={() => setShowCreateAssignment(true)}
                 variant="success"
                 className="mt-6"
               >
                 <Rocket size={20} className="mr-2" />
                 Launch First Mission
-              </QuantumButton>
-            </QuantumCard>
+              </MadinaButton>
+            </MadinaCard>
           )}
         </div>
       )}
 
-      {/* Quantum Grading Tab */}
+      {/* Madina Grading Tab */}
       {activeTab === 'grading' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                Quantum Review
+                Madina Review
               </h3>
               <p className="text-cyan-300 text-sm">Assess and enhance neural learning</p>
             </div>
@@ -1676,32 +1665,32 @@ export default function TeacherDashboard() {
 
           {/* Grading Tabs */}
           <div className="flex space-x-4 mb-6">
-            <QuantumButton
+            <MadinaButton
               onClick={() => setFilters({...filters, status: 'pending'})}
               variant={filters.status === 'pending' ? 'warning' : 'ghost'}
               className="flex-1"
             >
               <Clock size={18} className="mr-2" />
               Pending Review ({pendingSubmissions.length})
-            </QuantumButton>
-            <QuantumButton
+            </MadinaButton>
+            <MadinaButton
               onClick={() => setFilters({...filters, status: ''})}
               variant={!filters.status ? 'primary' : 'ghost'}
               className="flex-1"
             >
               <FileCheck size={18} className="mr-2" />
               All Submissions ({submissions.length})
-            </QuantumButton>
+            </MadinaButton>
           </div>
 
           {/* Submissions List */}
           <div className="grid gap-6">
             {(filters.status === 'pending' ? pendingSubmissions : submissions).map((submission) => (
-              <QuantumCard key={submission.id} gradient="from-orange-900/30 to-yellow-900/30">
+              <MadinaCard key={submission.id} gradient="from-orange-900/30 to-yellow-900/30">
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex-1">
                     <h4 className="font-bold text-white text-xl mb-2">
-                      {submission.assignment?.title || 'Quantum Mission'}
+                      {submission.assignment?.title || 'Madina Mission'}
                     </h4>
                     <p className="text-cyan-300 text-lg mb-1">
                       Neural Learner: {submission.student?.name || 'Unknown'}
@@ -1716,15 +1705,15 @@ export default function TeacherDashboard() {
                   <div className="flex items-center space-x-3">
                     {submission.grade ? (
                       <div className="flex items-center space-x-3">
-                        <QuantumBadge variant="success">
+                        <MadinaBadge variant="success">
                           {submission.grade}/{submission.assignment?.max_score || 100}
-                        </QuantumBadge>
+                        </MadinaBadge>
                         <CheckCircle size={24} className="text-green-400" />
                       </div>
                     ) : (
-                      <QuantumBadge variant="warning">
+                      <MadinaBadge variant="warning">
                         AWAITING ASSESSMENT
-                      </QuantumBadge>
+                      </MadinaBadge>
                     )}
                   </div>
                 </div>
@@ -1740,7 +1729,7 @@ export default function TeacherDashboard() {
 
                 <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
                   <div className="flex space-x-3">
-                    <QuantumButton
+                    <MadinaButton
                       onClick={() => {
                         setGradingSubmission(submission);
                         setGradeData({ 
@@ -1760,15 +1749,15 @@ export default function TeacherDashboard() {
                       ) : (
                         <>
                           <FileCheck size={16} className="mr-2" />
-                          Quantum Assess
+                          Madina Assess
                         </>
                       )}
-                    </QuantumButton>
+                    </MadinaButton>
                     
-                    <QuantumButton variant="ghost" className="text-sm py-2 px-4">
+                    <MadinaButton variant="ghost" className="text-sm py-2 px-4">
                       <Eye size={16} className="mr-2" />
                       Details
-                    </QuantumButton>
+                    </MadinaButton>
                   </div>
 
                   {submission.graded_at && (
@@ -1777,23 +1766,23 @@ export default function TeacherDashboard() {
                     </span>
                   )}
                 </div>
-              </QuantumCard>
+              </MadinaCard>
             ))}
           </div>
 
           {(filters.status === 'pending' ? pendingSubmissions : submissions).length === 0 && (
-            <QuantumCard className="text-center py-16">
+            <MadinaCard className="text-center py-16">
               <FileCheck size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
               <h3 className="text-2xl font-bold text-white mb-2">
                 {filters.status === 'pending' ? 'All Caught Up! 🎉' : 'No Submissions Yet'}
               </h3>
               <p className="text-cyan-300 text-lg">
                 {filters.status === 'pending' 
-                  ? 'All quantum assessments are complete! Your neural learners are progressing excellently.' 
-                  : 'Mission submissions will appear here as your learners complete their quantum challenges.'
+                  ? 'All Madina assessments are complete! Your  learners are progressing excellently.' 
+                  : 'Mission submissions will appear here as your learners complete their Madina challenges.'
                 }
               </p>
-            </QuantumCard>
+            </MadinaCard>
           )}
         </div>
       )}
