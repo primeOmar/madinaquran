@@ -1330,244 +1330,7 @@ const NotificationsDropdown = ({
 };
 
 // Live Class Card with Enhanced Join Button
-const LiveClassCard = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
-  const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
-  const [isJoining, setIsJoining] = useState(false);
 
-  const handleJoinClick = async () => {
-    setIsJoining(true);
-    try {
-      await onJoinClass(classItem);
-    } catch (error) {
-      console.error('Error joining class:', error);
-    } finally {
-      setIsJoining(false);
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      whileHover={{ scale: 1.02 }}
-      transition={{ duration: 0.3 }}
-      className="relative overflow-hidden"
-    >
-      {/* Animated Background Effect */}
-      <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 to-red-700/20 animate-pulse rounded-2xl"></div>
-      <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-red-700 rounded-2xl blur opacity-30 animate-pulse"></div>
-      
-      <div className="relative bg-gray-900/90 backdrop-blur-lg border-2 border-red-500 rounded-2xl p-6">
-        {/* Header with Live Badge */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            </div>
-            <h4 className="text-xl font-bold text-white flex items-center">
-              <Video className="mr-2" size={24} />
-              {classItem.title}
-            </h4>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <span className="px-4 py-2 bg-red-600 text-white rounded-full text-sm font-semibold animate-pulse shadow-lg">
-              🔴 LIVE NOW
-            </span>
-            <span className="px-3 py-1 bg-red-800/50 text-red-200 rounded-full text-xs">
-              {timeInfo.text}
-            </span>
-          </div>
-        </div>
-
-        {/* Class Details */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="flex items-center space-x-2 text-white">
-            <Clock size={16} className="text-red-400" />
-            <span className="text-sm">
-              {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date)}
-            </span>
-          </div>
-          
-          <div className="flex items-center space-x-2 text-white">
-            <User size={16} className="text-red-400" />
-            <span className="text-sm">{classItem.teacher_name || 'Teacher'}</span>
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          </div>
-          
-          <div className="flex items-center space-x-2 text-white">
-            <Calendar size={16} className="text-red-400" />
-            <span className="text-sm">{formatDate(classItem.scheduled_date)}</span>
-          </div>
-          
-          <div className="flex items-center space-x-2 text-white">
-            <ShieldCheck size={16} className="text-red-400" />
-            <span className="text-sm">
-              {classItem.video_session?.channel_name || 'Main Channel'}
-            </span>
-          </div>
-        </div>
-
-        {/* Video Session Info */}
-        {classItem.video_session && (
-          <div className="mb-6 p-4 bg-red-900/30 rounded-lg border border-red-700/30">
-            <div className="flex flex-wrap items-center gap-4 text-sm">
-              <div className="flex items-center space-x-2 text-red-200">
-                <Video size={14} />
-                <span>Meeting: {classItem.video_session.meeting_id}</span>
-              </div>
-              {classItem.video_session.agenda && (
-                <div className="flex items-center space-x-2 text-red-200">
-                  <FileText size={14} />
-                  <span>Agenda: {classItem.video_session.agenda}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
-          {/* Primary Join Button */}
-          <button 
-            onClick={handleJoinClick}
-            disabled={isJoining}
-            className="flex-1 min-w-[200px] bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:opacity-50 py-4 px-6 rounded-xl flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg hover:shadow-xl"
-          >
-            {isJoining ? (
-              <>
-                <Loader2 className="animate-spin" size={20} />
-                <span className="text-lg font-semibold">Joining Class...</span>
-              </>
-            ) : (
-              <>
-                <PlayCircle size={24} />
-                <span className="text-lg font-semibold">Join Live Class</span>
-              </>
-            )}
-          </button>
-
-          {/* Secondary Actions */}
-          <button className="px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center space-x-2 transition-all duration-200">
-            <Calendar size={18} />
-            <span>Add to Calendar</span>
-          </button>
-          
-          <button className="px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center space-x-2 transition-all duration-200">
-            <MessageCircle size={18} />
-            <span>View Details</span>
-          </button>
-        </div>
-
-        {/* Quick Status */}
-        <div className="mt-4 flex items-center justify-between text-xs text-red-300">
-          <span>🎯 Teacher is currently live and waiting</span>
-          <span>⏱️ Class ends in {timeInfo.text.split('Ends in ')[1]}</span>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-// Upcoming Class Card
-const UpcomingClassCard = ({ classItem, formatDate, formatTime, getTimeUntilClass }) => {
-  const timeInfo = getTimeUntilClass(classItem.scheduled_date, classItem.end_date);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.01 }}
-      className="p-6 rounded-xl bg-blue-900/20 border border-blue-700/30 hover:bg-blue-900/30 transition-all duration-300"
-    >
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex items-center space-x-3 mb-3">
-            <Video className="text-blue-400" size={20} />
-            <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
-            <span className="px-3 py-1 bg-blue-800/50 text-blue-300 rounded-full text-xs">
-              {timeInfo.text}
-            </span>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-4 text-sm text-blue-200">
-            <span className="flex items-center space-x-1">
-              <Clock size={14} />
-              <span>{formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date)}</span>
-            </span>
-            <span className="flex items-center space-x-1">
-              <User size={14} />
-              <span>{classItem.teacher_name || 'Teacher'}</span>
-            </span>
-            <span className="flex items-center space-x-1">
-              <Calendar size={14} />
-              <span>{formatDate(classItem.scheduled_date)}</span>
-            </span>
-          </div>
-        </div>
-        
-        <div className="flex space-x-2">
-          <button className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-all duration-200">
-            Add to Calendar
-          </button>
-          <button className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition-all duration-200">
-            View Details
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-// Completed Class Card
-const CompletedClassCard = ({ classItem, formatDate, formatTime, getTimeUntilClass }) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="p-6 rounded-xl bg-green-900/20 border border-green-700/30"
-    >
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex items-center space-x-3 mb-3">
-            <Video className="text-green-400" size={20} />
-            <h4 className="font-bold text-lg text-white">{classItem.title}</h4>
-            <span className="px-3 py-1 bg-green-800/50 text-green-300 rounded-full text-xs">
-              Completed
-            </span>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-4 text-sm text-green-200">
-            <span className="flex items-center space-x-1">
-              <Clock size={14} />
-              <span>{formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date)}</span>
-            </span>
-            <span className="flex items-center space-x-1">
-              <User size={14} />
-              <span>{classItem.teacher_name || 'Teacher'}</span>
-            </span>
-            <span className="flex items-center space-x-1">
-              <Calendar size={14} />
-              <span>{formatDate(classItem.scheduled_date)}</span>
-            </span>
-          </div>
-        </div>
-        
-        <div className="flex space-x-2">
-          {classItem.video_session && (
-            <button className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg transition-all duration-200">
-              View Recording
-            </button>
-          )}
-          <button className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition-all duration-200">
-            View Details
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
 // === MAIN DASHBOARD COMPONENT ===
 export default function Dashboard() {
   // State declarations
@@ -2300,39 +2063,7 @@ const handleJoinClass = async (classItem) => {
     exit={{ opacity: 0, y: -20 }}
     className="space-y-6"
   >
-    {/* Enhanced Debug button */}
-    <button 
-      onClick={() => {
-        console.log('=== FULL CLASSES DATA DEBUG ===');
-        classes.forEach((classItem, index) => {
-          const timeInfo = getTimeUntilClass(classItem);
-          console.log(`📚 Class ${index + 1}: ${classItem.title}`, {
-            id: classItem.id,
-            scheduled_date: classItem.scheduled_date,
-            end_date: classItem.end_date,
-            video_session: classItem.video_session,
-            timeInfo: timeInfo,
-            isLive: timeInfo.status === 'live',
-            hasActiveVideoSession: classItem.video_session && classItem.video_session.status === 'active'
-          });
-        });
-        
-        const liveClasses = classes.filter(classItem => {
-          const timeInfo = getTimeUntilClass(classItem);
-          return timeInfo.status === 'live';
-        });
-        
-        console.log('🎯 LIVE CLASSES FILTERED:', liveClasses.length);
-        liveClasses.forEach((classItem, index) => {
-          console.log(`   ${index + 1}. ${classItem.title} - ${classItem.video_session?.status}`);
-        });
-      }}
-      className="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg text-white text-sm mb-4"
-    >
-      🐛 Debug All Classes Data
-    </button>
-
-    {/* Header with Live Indicator */}
+    {/* Header */}
     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
       <div className="flex items-center space-x-4">
         <h3 className="text-2xl font-bold text-white">My Classes</h3>
@@ -2343,8 +2074,6 @@ const handleJoinClass = async (classItem) => {
             const timeInfo = getTimeUntilClass(classItem);
             return timeInfo.status === 'live';
           });
-          
-          console.log('🔄 Live classes count in header:', liveClasses.length);
           
           if (liveClasses.length > 0) {
             return (
@@ -2360,16 +2089,14 @@ const handleJoinClass = async (classItem) => {
         })()}
       </div>
       
-      <div className="flex items-center space-x-3">
-        <button 
-          onClick={fetchClasses}
-          disabled={loadingClasses}
-          className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 py-2 px-4 rounded-lg flex items-center transition-all duration-200 shadow-lg"
-        >
-          <RefreshCw className={`mr-2 ${loadingClasses ? 'animate-spin' : ''}`} size={16} />
-          {loadingClasses ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
+      <button 
+        onClick={fetchClasses}
+        disabled={loadingClasses}
+        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 py-2 px-4 rounded-lg flex items-center transition-all duration-200 shadow-lg"
+      >
+        <RefreshCw className={`mr-2 ${loadingClasses ? 'animate-spin' : ''}`} size={16} />
+        {loadingClasses ? 'Refreshing...' : 'Refresh'}
+      </button>
     </div>
 
     {/* Loading State */}
@@ -2377,38 +2104,21 @@ const handleJoinClass = async (classItem) => {
       <div className="text-center py-12 bg-green-800/20 rounded-2xl backdrop-blur-sm">
         <Loader2 className="animate-spin mx-auto text-green-300" size={32} />
         <p className="text-green-200 mt-4 text-lg">Loading your classes...</p>
-        <p className="text-green-400 text-sm mt-2">Checking for live sessions</p>
       </div>
     ) : classes.length === 0 ? (
       <div className="text-center py-16 bg-green-800/20 rounded-2xl backdrop-blur-sm border border-green-700/30">
         <Video className="mx-auto text-green-400 mb-4" size={64} />
         <h4 className="text-white text-2xl font-semibold mb-2">No classes scheduled</h4>
         <p className="text-green-300 text-lg mb-6">Your upcoming classes will appear here</p>
-        <button 
-          onClick={fetchClasses}
-          className="bg-green-600 hover:bg-green-500 py-3 px-6 rounded-lg transition-all duration-200"
-        >
-          Check for Classes
-        </button>
       </div>
     ) : (
       <div className="space-y-8">
-        {/* Live Classes Section - PRIORITY */}
+        {/* Live Classes */}
         {(() => {
           const liveClasses = classes.filter(classItem => {
             const timeInfo = getTimeUntilClass(classItem);
-            const isLive = timeInfo.status === 'live';
-            
-            console.log(`🔍 Live Filter: ${classItem.title}`, {
-              isLive,
-              videoSession: classItem.video_session,
-              timeInfo
-            });
-            
-            return isLive;
+            return timeInfo.status === 'live';
           });
-
-          console.log('🎯 FINAL Live classes to display:', liveClasses.length, liveClasses);
 
           if (liveClasses.length > 0) {
             return (
@@ -2421,141 +2131,29 @@ const handleJoinClass = async (classItem) => {
                 </div>
                 
                 <div className="grid gap-6">
-                  {liveClasses.map((classItem, index) => {
-                    console.log(`🎬 Rendering live class ${index + 1}:`, classItem.title);
-                    return (
-                      <motion.div
-                        key={classItem.id}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="relative overflow-hidden"
-                      >
-                        {/* Animated Background Effect */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 to-red-700/20 animate-pulse rounded-2xl"></div>
-                        <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-red-700 rounded-2xl blur opacity-30 animate-pulse"></div>
-                        
-                        <div className="relative bg-gray-900/90 backdrop-blur-lg border-2 border-red-500 rounded-2xl p-6">
-                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
-                            <div className="flex items-center space-x-3">
-                              <div className="flex items-center space-x-2">
-                                <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
-                                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                              </div>
-                              <h4 className="text-xl font-bold text-white flex items-center">
-                                <Video className="mr-2" size={24} />
-                                {classItem.title}
-                              </h4>
-                            </div>
-                            
-                            <div className="flex items-center space-x-3">
-                              <span className="px-4 py-2 bg-red-600 text-white rounded-full text-sm font-semibold animate-pulse shadow-lg">
-                                🔴 LIVE NOW
-                              </span>
-                              <span className="px-3 py-1 bg-red-800/50 text-red-200 rounded-full text-xs">
-                                {getTimeUntilClass(classItem).text}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Class Details */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                            <div className="flex items-center space-x-2 text-white">
-                              <Clock size={16} className="text-red-400" />
-                              <span className="text-sm">
-                                {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2 text-white">
-                              <User size={16} className="text-red-400" />
-                              <span className="text-sm">{classItem.teacher_name || 'Teacher'}</span>
-                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2 text-white">
-                              <Calendar size={16} className="text-red-400" />
-                              <span className="text-sm">{formatDate(classItem.scheduled_date)}</span>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2 text-white">
-                              <ShieldCheck size={16} className="text-red-400" />
-                              <span className="text-sm">
-                                {classItem.video_session?.channel_name || 'Main Channel'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Video Session Info */}
-                          {classItem.video_session && (
-                            <div className="mb-6 p-4 bg-red-900/30 rounded-lg border border-red-700/30">
-                              <div className="flex flex-wrap items-center gap-4 text-sm">
-                                <div className="flex items-center space-x-2 text-red-200">
-                                  <Video size={14} />
-                                  <span>Meeting: {classItem.video_session.meeting_id}</span>
-                                </div>
-                                <div className="flex items-center space-x-2 text-red-200">
-                                  <span>Status: {classItem.video_session.status}</span>
-                                  {classItem.video_session.status === 'active' && (
-                                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                  )}
-                                </div>
-                                {classItem.video_session.agenda && (
-                                  <div className="flex items-center space-x-2 text-red-200">
-                                    <FileText size={14} />
-                                    <span>Agenda: {classItem.video_session.agenda}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Action Buttons */}
-                          <div className="flex flex-wrap gap-3">
-                            {/* Primary Join Button */}
-                            <button 
-                              onClick={() => {
-                                console.log('🎯 Join button clicked for:', classItem.title);
-                                handleJoinClass(classItem);
-                              }}
-                              className="flex-1 min-w-[200px] bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 py-4 px-6 rounded-xl flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg hover:shadow-xl"
-                            >
-                              <PlayCircle size={24} />
-                              <span className="text-lg font-semibold">Join Live Class</span>
-                            </button>
-
-                            {/* Secondary Actions */}
-                            <button className="px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center space-x-2 transition-all duration-200">
-                              <MessageCircle size={18} />
-                              <span>View Details</span>
-                            </button>
-                          </div>
-
-                          {/* Quick Status */}
-                          <div className="mt-4 flex items-center justify-between text-xs text-red-300">
-                            <span>🎯 Teacher is currently live and waiting</span>
-                            <span>⏱️ {getTimeUntilClass(classItem).text}</span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
+                  {liveClasses.map((classItem) => (
+                    <ClassItem
+                      key={classItem.id}
+                      classItem={classItem}
+                      formatDate={formatDate}
+                      formatTime={formatTime}
+                      getTimeUntilClass={getTimeUntilClass}
+                      onJoinClass={handleJoinClass}
+                    />
+                  ))}
                 </div>
               </div>
             );
-          } else {
-            console.log('❌ No live classes to display');
-            return null;
           }
+          return null;
         })()}
 
-        {/* Upcoming Classes Section */}
+        {/* Upcoming Classes */}
         {(() => {
           const upcomingClasses = classes.filter(classItem => {
             const timeInfo = getTimeUntilClass(classItem);
             return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
           });
-
-          console.log('⏰ Upcoming classes:', upcomingClasses.length);
 
           if (upcomingClasses.length > 0) {
             return (
@@ -2581,6 +2179,40 @@ const handleJoinClass = async (classItem) => {
           return null;
         })()}
 
+        {/* Completed Classes */}
+        {(() => {
+          const completedClasses = classes.filter(classItem => {
+            const timeInfo = getTimeUntilClass(classItem);
+            return timeInfo.status === 'completed';
+          });
+
+          if (completedClasses.length > 0) {
+            return (
+              <div className="space-y-4">
+                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-2 rounded-lg">
+                  ✅ Completed Classes ({completedClasses.length})
+                </h4>
+                <div className="grid gap-4">
+                  {completedClasses.map((classItem) => (
+                    <ClassItem
+                      key={classItem.id}
+                      classItem={classItem}
+                      formatDate={formatDate}
+                      formatTime={formatTime}
+                      getTimeUntilClass={getTimeUntilClass}
+                      onJoinClass={handleJoinClass}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+      </div>
+    )}
+  </motion.section>
+)}
         {/* Completed Classes Section */}
         {(() => {
           const completedClasses = classes.filter(classItem => {
