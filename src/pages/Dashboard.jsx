@@ -562,28 +562,33 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
 // Enhanced class sorting with video session integration
 const sortClasses = (classes) => {
-  if (!Array.isArray(classes)) return [];
+  if (!Array.isArray(classes)) {
+    console.warn('❌ sortClasses: classes is not an array', classes);
+    return [];
+  }
   
-  return classes.sort((a, b) => {
-    const now = new Date();
+  const now = new Date();
+  console.log('🔄 Sorting classes, current time:', now.toLocaleString());
+
+  const sorted = classes.sort((a, b) => {
     const classAStart = new Date(a.scheduled_date);
     const classAEnd = new Date(a.end_date);
     const classBStart = new Date(b.scheduled_date);
     const classBEnd = new Date(b.end_date);
     
-    // Check if classes are live (current time is between start and end)
+    // Check if classes are live
     const isALive = now >= classAStart && now <= classAEnd;
     const isBLive = now >= classBStart && now <= classBEnd;
     
-    // Check if classes are upcoming (future start time)
+    // Check if classes are upcoming
     const isAUpcoming = classAStart > now;
     const isBUpcoming = classBStart > now;
     
-    // Check if classes are completed (end time has passed)
+    // Check if classes are completed
     const isACompleted = classAEnd < now;
     const isBCompleted = classBEnd < now;
-    
-    // Priority: Live > Upcoming > Completed
+
+    // Priority 1: Live classes first
     if (isALive && !isBLive) return -1;
     if (isBLive && !isALive) return 1;
     
@@ -592,24 +597,37 @@ const sortClasses = (classes) => {
       return classAEnd - classBEnd;
     }
     
+    // Priority 2: Upcoming classes next
+    if (isAUpcoming && !isBUpcoming) return -1;
+    if (isBUpcoming && !isAUpcoming) return 1;
+    
     // Both upcoming - sort by which starts sooner
     if (isAUpcoming && isBUpcoming) {
       return classAStart - classBStart;
     }
     
-    // One upcoming, one completed
-    if (isAUpcoming && isBCompleted) return -1;
-    if (isBUpcoming && isACompleted) return 1;
+    // Priority 3: Completed classes last
+    if (isACompleted && !isBCompleted) return 1;
+    if (isBCompleted && !isACompleted) return -1;
     
-    // Both completed - sort by most recent
+    // Both completed - sort by most recent first
     if (isACompleted && isBCompleted) {
       return classBEnd - classAEnd;
     }
     
     return 0;
   });
-};
 
+  console.log('✅ Sorted classes:', sorted.map(c => ({
+    title: c.title,
+    start: new Date(c.scheduled_date).toLocaleString(),
+    end: new Date(c.end_date).toLocaleString(),
+    status: now >= new Date(c.scheduled_date) && now <= new Date(c.end_date) ? 'LIVE' : 
+            new Date(c.scheduled_date) > now ? 'UPCOMING' : 'COMPLETED'
+  })));
+
+  return sorted;
+};
 // Enhanced getTimeUntilClass function
 const getTimeUntilClass = (classDate, endDate) => {
   const now = new Date();
@@ -1809,8 +1827,28 @@ const fetchAssignments = async () => {
   // Enhanced join class function with video call integration
   const handleJoinClass = async (classItem) => {
   try {
+    const now = new Date();
+    const start = new Date(classItem.scheduled_date);
+    const end = new Date(classItem.end_date);
+    const isLive = now >= start && now <= end;
+    
+    console.log('🎯 Join Class Debug:', {
+      title: classItem.title,
+      now: now.toLocaleString(),
+      start: start.toLocaleString(),
+      end: end.toLocaleString(),
+      isLive,
+      hasVideoSession: !!classItem.video_session,
+      meetingId: classItem.video_session?.meeting_id
+    });
+
+    if (!isLive) {
+      toast.error('This class is not currently live. Please check the schedule.');
+      return;
+    }
+
     if (!classItem.video_session?.meeting_id) {
-      toast.error('No active video session for this class');
+      toast.error('No active video session for this class. Please contact your teacher.');
       return;
     }
 
@@ -1818,13 +1856,12 @@ const fetchAssignments = async () => {
     const result = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
     
     if (result) {
-      // Set the class for video call and open the call interface
       setSelectedClassForCall(classItem);
       setShowVideoCall(true);
       toast.success('Joining class session...');
     }
   } catch (error) {
-    console.error('Error joining class:', error);
+    console.error('❌ Error joining class:', error);
     toast.error(error.message || 'Failed to join class. Please try again.');
   }
 };
@@ -2155,7 +2192,7 @@ const fetchAssignments = async () => {
 
           {/* Dynamic Content Sections */}
           <AnimatePresence mode="wait">
-            // === ENHANCED CLASSES SECTION ===
+           // === ENHANCED CLASSES SECTION ===
 {activeSection === 'classes' && (
   <motion.section
     key="classes"
@@ -2164,52 +2201,43 @@ const fetchAssignments = async () => {
     exit={{ opacity: 0, y: -20 }}
     className="space-y-6"
   >
+    {/* Debug button - remove after testing */}
+    <button 
+      onClick={() => debugClassStatus(classes)}
+      className="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg text-white text-sm"
+    >
+      🐛 Debug Class Status
+    </button>
+
     {/* Header with Live Indicator */}
     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
       <div className="flex items-center space-x-4">
         <h3 className="text-2xl font-bold text-white">My Classes</h3>
         
         {/* Live Classes Counter */}
-        {classes.filter(classItem => {
-  const now = new Date();
-  const start = new Date(classItem.scheduled_date);
-  const end = new Date(classItem.end_date);
-  return now >= start && now <= end;
-}).length > 0 && (
-          <div className="flex items-center space-x-2 bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-full shadow-lg animate-pulse">
-            <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
-            <span className="text-white text-sm font-semibold">
-              {classes.filter(classItem => {
-                const now = new Date();
-                const start = new Date(classItem.scheduled_date);
-                const end = new Date(classItem.end_date);
-                return now >= start && now <= end;
-              }).length} Class{classes.filter(classItem => {
-                const now = new Date();
-                const start = new Date(classItem.scheduled_date);
-                const end = new Date(classItem.end_date);
-                return now >= start && now <= end;
-              }).length > 1 ? 'es' : ''} Live Now
-            </span>
-          </div>
-        )}
+        {(() => {
+          const liveClasses = classes.filter(classItem => {
+            const now = new Date();
+            const start = new Date(classItem.scheduled_date);
+            const end = new Date(classItem.end_date);
+            return now >= start && now <= end;
+          });
+          
+          if (liveClasses.length > 0) {
+            return (
+              <div className="flex items-center space-x-2 bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-full shadow-lg animate-pulse">
+                <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
+                <span className="text-white text-sm font-semibold">
+                  {liveClasses.length} Class{liveClasses.length > 1 ? 'es' : ''} Live Now
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
       
       <div className="flex items-center space-x-3">
-        {/* Status Filter */}
-        <select 
-          onChange={(e) => {
-            // Add filter logic here if needed
-            console.log('Filter:', e.target.value);
-          }}
-          className="bg-green-800/50 border border-green-600/30 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent backdrop-blur-sm"
-        >
-          <option value="all">All Classes</option>
-          <option value="live">Live Now</option>
-          <option value="upcoming">Upcoming</option>
-          <option value="completed">Completed</option>
-        </select>
-        
         <button 
           onClick={fetchClasses}
           disabled={loadingClasses}
@@ -2243,85 +2271,181 @@ const fetchAssignments = async () => {
     ) : (
       <div className="space-y-8">
         {/* Live Classes Section - PRIORITY */}
-        {classes.filter(classItem => {
-          const now = new Date();
-          const start = new Date(classItem.scheduled_date);
-          const end = new Date(classItem.end_date);
-          return now >= start && now <= end;
-        }).length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
-              <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-lg">
-                🔴 Live Classes - Join Now!
-              </h4>
-            </div>
+        {(() => {
+          const liveClasses = classes.filter(classItem => {
+            const now = new Date();
+            const start = new Date(classItem.scheduled_date);
+            const end = new Date(classItem.end_date);
+            const isLive = now >= start && now <= end;
             
-            <div className="grid gap-6">
-              {classes
-                .filter(classItem => {
-                  const now = new Date();
-                  const start = new Date(classItem.scheduled_date);
-                  const end = new Date(classItem.end_date);
-                  return now >= start && now <= end;
-                })
-                .map((classItem) => (
-                  <LiveClassCard
-                    key={classItem.id}
-                    classItem={classItem}
-                    formatDate={formatDate}
-                    formatTime={formatTime}
-                    getTimeUntilClass={getTimeUntilClass}
-                    onJoinClass={handleJoinClass}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
+            console.log(`🔍 Checking if live: ${classItem.title}`, {
+              start: start.toLocaleString(),
+              end: end.toLocaleString(),
+              now: now.toLocaleString(),
+              isLive
+            });
+            
+            return isLive;
+          });
+
+          console.log('🎯 Live classes found:', liveClasses.length);
+
+          if (liveClasses.length > 0) {
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
+                  <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-lg">
+                    🔴 Live Classes - Join Now!
+                  </h4>
+                </div>
+                
+                <div className="grid gap-6">
+                  {liveClasses.map((classItem) => (
+                    <motion.div
+                      key={classItem.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="relative overflow-hidden"
+                    >
+                      {/* Animated Background Effect */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 to-red-700/20 animate-pulse rounded-2xl"></div>
+                      <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-red-700 rounded-2xl blur opacity-30 animate-pulse"></div>
+                      
+                      <div className="relative bg-gray-900/90 backdrop-blur-lg border-2 border-red-500 rounded-2xl p-6">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
+                              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                            </div>
+                            <h4 className="text-xl font-bold text-white flex items-center">
+                              <Video className="mr-2" size={24} />
+                              {classItem.title}
+                            </h4>
+                          </div>
+                          
+                          <div className="flex items-center space-x-3">
+                            <span className="px-4 py-2 bg-red-600 text-white rounded-full text-sm font-semibold animate-pulse shadow-lg">
+                              🔴 LIVE NOW
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Class Details */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                          <div className="flex items-center space-x-2 text-white">
+                            <Clock size={16} className="text-red-400" />
+                            <span className="text-sm">
+                              {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date)}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center space-x-2 text-white">
+                            <User size={16} className="text-red-400" />
+                            <span className="text-sm">{classItem.teacher_name || 'Teacher'}</span>
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                          </div>
+                          
+                          <div className="flex items-center space-x-2 text-white">
+                            <Calendar size={16} className="text-red-400" />
+                            <span className="text-sm">{formatDate(classItem.scheduled_date)}</span>
+                          </div>
+                          
+                          <div className="flex items-center space-x-2 text-white">
+                            <ShieldCheck size={16} className="text-red-400" />
+                            <span className="text-sm">
+                              {classItem.video_session?.channel_name || 'Main Channel'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Join Button */}
+                        <div className="flex flex-wrap gap-3">
+                          <button 
+                            onClick={() => handleJoinClass(classItem)}
+                            className="flex-1 min-w-[200px] bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 py-4 px-6 rounded-xl flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg hover:shadow-xl"
+                          >
+                            <PlayCircle size={24} />
+                            <span className="text-lg font-semibold">Join Live Class</span>
+                          </button>
+
+                          <button className="px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center space-x-2 transition-all duration-200">
+                            <MessageCircle size={18} />
+                            <span>View Details</span>
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* Upcoming Classes Section */}
-        {classes.filter(classItem => new Date(classItem.scheduled_date) > new Date()).length > 0 && (
-          <div className="space-y-4">
-            <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 rounded-lg">
-              ⏰ Upcoming Classes
-            </h4>
-            <div className="grid gap-4">
-              {classes
-                .filter(classItem => new Date(classItem.scheduled_date) > new Date())
-                .map((classItem) => (
-                  <UpcomingClassCard
-                    key={classItem.id}
-                    classItem={classItem}
-                    formatDate={formatDate}
-                    formatTime={formatTime}
-                    getTimeUntilClass={getTimeUntilClass}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
+        {(() => {
+          const upcomingClasses = classes.filter(classItem => {
+            const start = new Date(classItem.scheduled_date);
+            return start > new Date();
+          });
+
+          if (upcomingClasses.length > 0) {
+            return (
+              <div className="space-y-4">
+                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 rounded-lg">
+                  ⏰ Upcoming Classes ({upcomingClasses.length})
+                </h4>
+                <div className="grid gap-4">
+                  {upcomingClasses.map((classItem) => (
+                    <ClassItem
+                      key={classItem.id}
+                      classItem={classItem}
+                      formatDate={formatDate}
+                      formatTime={formatTime}
+                      getTimeUntilClass={getTimeUntilClass}
+                      onJoinClass={handleJoinClass}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* Completed Classes Section */}
-        {classes.filter(classItem => new Date(classItem.end_date) < new Date()).length > 0 && (
-          <div className="space-y-4">
-            <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-2 rounded-lg">
-              ✅ Completed Classes
-            </h4>
-            <div className="grid gap-4">
-              {classes
-                .filter(classItem => new Date(classItem.end_date) < new Date())
-                .map((classItem) => (
-                  <CompletedClassCard
-                    key={classItem.id}
-                    classItem={classItem}
-                    formatDate={formatDate}
-                    formatTime={formatTime}
-                    getTimeUntilClass={getTimeUntilClass}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
+        {(() => {
+          const completedClasses = classes.filter(classItem => {
+            const end = new Date(classItem.end_date);
+            return end < new Date();
+          });
+
+          if (completedClasses.length > 0) {
+            return (
+              <div className="space-y-4">
+                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-2 rounded-lg">
+                  ✅ Completed Classes ({completedClasses.length})
+                </h4>
+                <div className="grid gap-4">
+                  {completedClasses.map((classItem) => (
+                    <ClassItem
+                      key={classItem.id}
+                      classItem={classItem}
+                      formatDate={formatDate}
+                      formatTime={formatTime}
+                      getTimeUntilClass={getTimeUntilClass}
+                      onJoinClass={handleJoinClass}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
     )}
   </motion.section>
