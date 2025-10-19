@@ -2264,7 +2264,7 @@ const fetchAssignments = async () => {
 
           {/* Dynamic Content Sections */}
           <AnimatePresence mode="wait">
-           // === ENHANCED CLASSES SECTION ===
+          // === ENHANCED CLASSES SECTION ===
 {activeSection === 'classes' && (
   <motion.section
     key="classes"
@@ -2273,12 +2273,36 @@ const fetchAssignments = async () => {
     exit={{ opacity: 0, y: -20 }}
     className="space-y-6"
   >
-    {/* Debug button - remove after testing */}
+    {/* Enhanced Debug button */}
     <button 
-      onClick={() => debugClassStatus(classes)}
-      className="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg text-white text-sm"
+      onClick={() => {
+        console.log('=== FULL CLASSES DATA DEBUG ===');
+        classes.forEach((classItem, index) => {
+          const timeInfo = getTimeUntilClass(classItem);
+          console.log(`📚 Class ${index + 1}: ${classItem.title}`, {
+            id: classItem.id,
+            scheduled_date: classItem.scheduled_date,
+            end_date: classItem.end_date,
+            video_session: classItem.video_session,
+            timeInfo: timeInfo,
+            isLive: timeInfo.status === 'live',
+            hasActiveVideoSession: classItem.video_session && classItem.video_session.status === 'active'
+          });
+        });
+        
+        const liveClasses = classes.filter(classItem => {
+          const timeInfo = getTimeUntilClass(classItem);
+          return timeInfo.status === 'live';
+        });
+        
+        console.log('🎯 LIVE CLASSES FILTERED:', liveClasses.length);
+        liveClasses.forEach((classItem, index) => {
+          console.log(`   ${index + 1}. ${classItem.title} - ${classItem.video_session?.status}`);
+        });
+      }}
+      className="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg text-white text-sm mb-4"
     >
-      🐛 Debug Class Status
+      🐛 Debug All Classes Data
     </button>
 
     {/* Header with Live Indicator */}
@@ -2289,9 +2313,11 @@ const fetchAssignments = async () => {
         {/* Live Classes Counter */}
         {(() => {
           const liveClasses = classes.filter(classItem => {
-  const timeInfo = getTimeUntilClass(classItem);
-  return timeInfo.status === 'live';
-});
+            const timeInfo = getTimeUntilClass(classItem);
+            return timeInfo.status === 'live';
+          });
+          
+          console.log('🔄 Live classes count in header:', liveClasses.length);
           
           if (liveClasses.length > 0) {
             return (
@@ -2342,25 +2368,20 @@ const fetchAssignments = async () => {
       <div className="space-y-8">
         {/* Live Classes Section - PRIORITY */}
         {(() => {
-     
-const liveClasses = classes.filter(classItem => {
-  const now = new Date();
-  const start = new Date(classItem.scheduled_date);
-  const end = classItem.end_date ? new Date(classItem.end_date) : new Date(start.getTime() + (2 * 60 * 60 * 1000));
-  const isLive = now >= start && now <= end;
-  
-  console.log(`🔍 Checking if live: ${classItem.title}`, {
-    start: start.toLocaleString(),
-    end: end.toLocaleString(),
-    now: now.toLocaleString(),
-    isLive,
-    hasEndDate: !!classItem.end_date
-  });
-  
-  return isLive;
-});
+          const liveClasses = classes.filter(classItem => {
+            const timeInfo = getTimeUntilClass(classItem);
+            const isLive = timeInfo.status === 'live';
+            
+            console.log(`🔍 Live Filter: ${classItem.title}`, {
+              isLive,
+              videoSession: classItem.video_session,
+              timeInfo
+            });
+            
+            return isLive;
+          });
 
-          console.log('🎯 Live classes found:', liveClasses.length);
+          console.log('🎯 FINAL Live classes to display:', liveClasses.length, liveClasses);
 
           if (liveClasses.length > 0) {
             return (
@@ -2368,101 +2389,146 @@ const liveClasses = classes.filter(classItem => {
                 <div className="flex items-center space-x-3">
                   <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
                   <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-red-700 px-4 py-2 rounded-lg">
-                    🔴 Live Classes - Join Now!
+                    🔴 Live Classes - Join Now! ({liveClasses.length})
                   </h4>
                 </div>
                 
                 <div className="grid gap-6">
-                  {liveClasses.map((classItem) => (
-                    <motion.div
-                      key={classItem.id}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="relative overflow-hidden"
-                    >
-                      {/* Animated Background Effect */}
-                      <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 to-red-700/20 animate-pulse rounded-2xl"></div>
-                      <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-red-700 rounded-2xl blur opacity-30 animate-pulse"></div>
-                      
-                      <div className="relative bg-gray-900/90 backdrop-blur-lg border-2 border-red-500 rounded-2xl p-6">
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
-                          <div className="flex items-center space-x-3">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
-                              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  {liveClasses.map((classItem, index) => {
+                    console.log(`🎬 Rendering live class ${index + 1}:`, classItem.title);
+                    return (
+                      <motion.div
+                        key={classItem.id}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="relative overflow-hidden"
+                      >
+                        {/* Animated Background Effect */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 to-red-700/20 animate-pulse rounded-2xl"></div>
+                        <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-red-700 rounded-2xl blur opacity-30 animate-pulse"></div>
+                        
+                        <div className="relative bg-gray-900/90 backdrop-blur-lg border-2 border-red-500 rounded-2xl p-6">
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+                            <div className="flex items-center space-x-3">
+                              <div className="flex items-center space-x-2">
+                                <div className="w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
+                                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                              </div>
+                              <h4 className="text-xl font-bold text-white flex items-center">
+                                <Video className="mr-2" size={24} />
+                                {classItem.title}
+                              </h4>
                             </div>
-                            <h4 className="text-xl font-bold text-white flex items-center">
-                              <Video className="mr-2" size={24} />
-                              {classItem.title}
-                            </h4>
+                            
+                            <div className="flex items-center space-x-3">
+                              <span className="px-4 py-2 bg-red-600 text-white rounded-full text-sm font-semibold animate-pulse shadow-lg">
+                                🔴 LIVE NOW
+                              </span>
+                              <span className="px-3 py-1 bg-red-800/50 text-red-200 rounded-full text-xs">
+                                {getTimeUntilClass(classItem).text}
+                              </span>
+                            </div>
                           </div>
-                          
-                          <div className="flex items-center space-x-3">
-                            <span className="px-4 py-2 bg-red-600 text-white rounded-full text-sm font-semibold animate-pulse shadow-lg">
-                              🔴 LIVE NOW
-                            </span>
+
+                          {/* Class Details */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                            <div className="flex items-center space-x-2 text-white">
+                              <Clock size={16} className="text-red-400" />
+                              <span className="text-sm">
+                                {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center space-x-2 text-white">
+                              <User size={16} className="text-red-400" />
+                              <span className="text-sm">{classItem.teacher_name || 'Teacher'}</span>
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            </div>
+                            
+                            <div className="flex items-center space-x-2 text-white">
+                              <Calendar size={16} className="text-red-400" />
+                              <span className="text-sm">{formatDate(classItem.scheduled_date)}</span>
+                            </div>
+                            
+                            <div className="flex items-center space-x-2 text-white">
+                              <ShieldCheck size={16} className="text-red-400" />
+                              <span className="text-sm">
+                                {classItem.video_session?.channel_name || 'Main Channel'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Video Session Info */}
+                          {classItem.video_session && (
+                            <div className="mb-6 p-4 bg-red-900/30 rounded-lg border border-red-700/30">
+                              <div className="flex flex-wrap items-center gap-4 text-sm">
+                                <div className="flex items-center space-x-2 text-red-200">
+                                  <Video size={14} />
+                                  <span>Meeting: {classItem.video_session.meeting_id}</span>
+                                </div>
+                                <div className="flex items-center space-x-2 text-red-200">
+                                  <span>Status: {classItem.video_session.status}</span>
+                                  {classItem.video_session.status === 'active' && (
+                                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                  )}
+                                </div>
+                                {classItem.video_session.agenda && (
+                                  <div className="flex items-center space-x-2 text-red-200">
+                                    <FileText size={14} />
+                                    <span>Agenda: {classItem.video_session.agenda}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action Buttons */}
+                          <div className="flex flex-wrap gap-3">
+                            {/* Primary Join Button */}
+                            <button 
+                              onClick={() => {
+                                console.log('🎯 Join button clicked for:', classItem.title);
+                                handleJoinClass(classItem);
+                              }}
+                              className="flex-1 min-w-[200px] bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 py-4 px-6 rounded-xl flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg hover:shadow-xl"
+                            >
+                              <PlayCircle size={24} />
+                              <span className="text-lg font-semibold">Join Live Class</span>
+                            </button>
+
+                            {/* Secondary Actions */}
+                            <button className="px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center space-x-2 transition-all duration-200">
+                              <MessageCircle size={18} />
+                              <span>View Details</span>
+                            </button>
+                          </div>
+
+                          {/* Quick Status */}
+                          <div className="mt-4 flex items-center justify-between text-xs text-red-300">
+                            <span>🎯 Teacher is currently live and waiting</span>
+                            <span>⏱️ {getTimeUntilClass(classItem).text}</span>
                           </div>
                         </div>
-
-                        {/* Class Details */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                          <div className="flex items-center space-x-2 text-white">
-                            <Clock size={16} className="text-red-400" />
-                            <span className="text-sm">
-                              {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date)}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center space-x-2 text-white">
-                            <User size={16} className="text-red-400" />
-                            <span className="text-sm">{classItem.teacher_name || 'Teacher'}</span>
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-2 text-white">
-                            <Calendar size={16} className="text-red-400" />
-                            <span className="text-sm">{formatDate(classItem.scheduled_date)}</span>
-                          </div>
-                          
-                          <div className="flex items-center space-x-2 text-white">
-                            <ShieldCheck size={16} className="text-red-400" />
-                            <span className="text-sm">
-                              {classItem.video_session?.channel_name || 'Main Channel'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Join Button */}
-                        <div className="flex flex-wrap gap-3">
-                          <button 
-                            onClick={() => handleJoinClass(classItem)}
-                            className="flex-1 min-w-[200px] bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 py-4 px-6 rounded-xl flex items-center justify-center space-x-3 transition-all duration-200 shadow-lg hover:shadow-xl"
-                          >
-                            <PlayCircle size={24} />
-                            <span className="text-lg font-semibold">Join Live Class</span>
-                          </button>
-
-                          <button className="px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center space-x-2 transition-all duration-200">
-                            <MessageCircle size={18} />
-                            <span>View Details</span>
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
             );
+          } else {
+            console.log('❌ No live classes to display');
+            return null;
           }
-          return null;
         })()}
 
         {/* Upcoming Classes Section */}
         {(() => {
           const upcomingClasses = classes.filter(classItem => {
-  const timeInfo = getTimeUntilClass(classItem);
-  return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
-});
+            const timeInfo = getTimeUntilClass(classItem);
+            return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
+          });
+
+          console.log('⏰ Upcoming classes:', upcomingClasses.length);
 
           if (upcomingClasses.length > 0) {
             return (
@@ -2491,9 +2557,12 @@ const liveClasses = classes.filter(classItem => {
         {/* Completed Classes Section */}
         {(() => {
           const completedClasses = classes.filter(classItem => {
-  const timeInfo = getTimeUntilClass(classItem);
-  return timeInfo.status === 'completed';
-});
+            const timeInfo = getTimeUntilClass(classItem);
+            return timeInfo.status === 'completed';
+          });
+
+          console.log('✅ Completed classes:', completedClasses.length);
+
           if (completedClasses.length > 0) {
             return (
               <div className="space-y-4">
