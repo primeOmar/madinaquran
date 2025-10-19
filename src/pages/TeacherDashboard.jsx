@@ -100,6 +100,7 @@ export default function TeacherDashboard() {
   const [startingSession, setStartingSession] = useState(null);
   const [endingSession, setEndingSession] = useState(null);
   const [showVideoCallModal, setShowVideoCallModal] = useState(false);
+  const [recentSessions, setRecentSessions] = useState([]);
 
   // Assignment creation state
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
@@ -131,17 +132,60 @@ export default function TeacherDashboard() {
       navigate('/teacher-login');
     }
   }, [user, navigate]);
-
+  
+useEffect(() => {
+  if (user) {
+    // Load recent sessions from localStorage
+    const savedSessions = localStorage.getItem('teacherRecentSessions');
+    if (savedSessions) {
+      try {
+        const sessions = JSON.parse(savedSessions);
+        setRecentSessions(sessions);
+        
+        // Check if there's a session backup from accidental logout
+        const sessionBackup = localStorage.getItem('teacherSessionBackup');
+        if (sessionBackup) {
+          const backup = JSON.parse(sessionBackup);
+          const logoutTime = new Date(backup.logoutTime);
+          const now = new Date();
+          const timeDiff = (now - logoutTime) / (1000 * 60); // Difference in minutes
+          
+          // Only recover if logout was recent (within 10 minutes)
+          if (timeDiff < 10 && backup.activeVideoCall) {
+            console.log('🔄 Recovering from accidental logout...');
+            setActiveVideoCall(backup.activeVideoCall);
+            setShowVideoCallModal(true);
+            toast.info('Recovered previous video session');
+          }
+          
+          // Clear the backup
+          localStorage.removeItem('teacherSessionBackup');
+        }
+      } catch (error) {
+        console.error('Error loading saved sessions:', error);
+      }
+    }
+  }
+}, [user]);
   // Logout function
   const handleLogout = async () => {
-    try {
-      await signOut();
-      toast.success('Logged out successfully');
-      navigate('/teacher-login');
-    } catch (error) {
-      toast.error('Failed to log out');
-    }
-  };
+  try {
+    // Store current session data before logging out
+    const currentSessionData = {
+      activeVideoCall,
+      recentSessions,
+      logoutTime: new Date().toISOString()
+    };
+    
+    localStorage.setItem('teacherSessionBackup', JSON.stringify(currentSessionData));
+    
+    await signOut();
+    toast.success('Logged out successfully');
+    navigate('/teacher-login');
+  } catch (error) {
+    toast.error('Failed to log out');
+  }
+};
 
   // Load teacher data
   const loadTeacherData = async () => {
@@ -228,66 +272,152 @@ export default function TeacherDashboard() {
   }, [classes, filters]);
 
   // ============= VIDEO CALL INTEGRATION =============
+// Enhanced handleStartVideoSession with session persistence
+  // Quick Rejoin Section Component
+const QuickRejoinSection = () => {
+  if (recentSessions.length === 0) return null;
 
-  const handleStartVideoSession = async (classItem) => {
-    try {
-      console.log('🎬 Starting video session for class:', classItem.id);
-      setStartingSession(classItem.id);
-      setVideoCallError(null);
+  return (
+    <div className="mb-6 bg-gradient-to-r from-orange-900/30 to-yellow-900/30 border border-orange-500/30 rounded-xl p-4">
+      <h4 className="text-lg font-semibold text-white mb-3 flex items-center">
+        <RefreshCw className="mr-2" size={20} />
+        Quick Rejoin Available
+      </h4>
+      <div className="grid gap-3">
+        {recentSessions.slice(0, 3).map((session, index) => (
+          <div key={index} className="flex items-center justify-between p-3 bg-orange-800/20 rounded-lg border border-orange-500/20">
+            <div>
+              <p className="text-white font-medium">{session.className}</p>
+              <p className="text-orange-300 text-sm">
+                Started: {new Date(session.startTime).toLocaleTimeString()}
+              </p>
+            </div>
+            <button
+              onClick={() => handleRejoinRecentSession(session)}
+              className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-lg text-white text-sm font-medium flex items-center"
+            >
+              <Video className="mr-2" size={16} />
+              Rejoin
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+const handleStartVideoSession = async (classItem) => {
+  try {
+    console.log('🎬 Starting video session for class:', classItem.id);
+    setStartingSession(classItem.id);
+    setVideoCallError(null);
 
-      if (!classItem || !classItem.id || !user || !user.id) {
-        throw new Error('Missing required information to start video session');
-      }
-
-      const result = await videoApi.startVideoSession(classItem.id, user.id);
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to start video session');
-      }
-
-      setActiveVideoCall({
-        meetingId: result.meetingId,
-        classId: classItem.id,
-        className: classItem.title,
-        isTeacher: true
-      });
-
-      setShowVideoCallModal(true);
-      toast.success(`Starting ${classItem.title}...`);
-
-    } catch (error) {
-      console.error('❌ Video session start failed:', error);
-      const errorMessage = error.message || 'Failed to start video session';
-      setVideoCallError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setStartingSession(null);
+    if (!classItem || !classItem.id || !user || !user.id) {
+      throw new Error('Missing required information to start video session');
     }
-  };
 
-  const handleJoinExistingSession = async (classItem, session) => {
-    try {
-      if (!session.meeting_id) {
-        throw new Error('Meeting ID is missing');
-      }
+    const result = await videoApi.startVideoSession(classItem.id, user.id);
 
-      setActiveVideoCall({
-        meetingId: session.meeting_id,
-        classId: classItem.id,
-        className: classItem.title,
-        isTeacher: true
-      });
-
-      setShowVideoCallModal(true);
-      toast.success('Rejoining class...');
-
-    } catch (error) {
-      console.error('❌ Failed to join session:', error);
-      toast.error(error.message);
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start video session');
     }
-  };
 
-  const handleEndVideoSession = async (classItem, session) => {
+    const sessionData = {
+      meetingId: result.meetingId,
+      classId: classItem.id,
+      className: classItem.title,
+      isTeacher: true,
+      startTime: new Date().toISOString(),
+      sessionId: result.sessionId // Store session ID for rejoin
+    };
+
+    setActiveVideoCall(sessionData);
+    
+    // Store session in recent sessions for potential rejoin
+    setRecentSessions(prev => {
+      const filtered = prev.filter(s => s.classId !== classItem.id);
+      return [sessionData, ...filtered].slice(0, 5); // Keep last 5 sessions
+    });
+
+    // Store in localStorage for persistence across page refreshes
+    localStorage.setItem('teacherRecentSessions', JSON.stringify([sessionData, ...recentSessions].slice(0, 5)));
+    
+    setShowVideoCallModal(true);
+    toast.success(`Starting ${classItem.title}...`);
+
+  } catch (error) {
+    console.error('❌ Video session start failed:', error);
+    const errorMessage = error.message || 'Failed to start video session';
+    setVideoCallError(errorMessage);
+    toast.error(errorMessage);
+  } finally {
+    setStartingSession(null);
+  }
+};
+
+
+// Enhanced handleJoinExistingSession with rejoin capability
+const handleJoinExistingSession = async (classItem, session) => {
+  try {
+    if (!session.meeting_id) {
+      throw new Error('Meeting ID is missing');
+    }
+
+    const sessionData = {
+      meetingId: session.meeting_id,
+      classId: classItem.id,
+      className: classItem.title,
+      isTeacher: true,
+      startTime: session.started_at || new Date().toISOString(),
+      sessionId: session.id
+    };
+
+    setActiveVideoCall(sessionData);
+    
+    // Update recent sessions
+    setRecentSessions(prev => {
+      const filtered = prev.filter(s => s.classId !== classItem.id);
+      return [sessionData, ...filtered].slice(0, 5);
+    });
+
+    localStorage.setItem('teacherRecentSessions', JSON.stringify([sessionData, ...recentSessions].slice(0, 5)));
+
+    setShowVideoCallModal(true);
+    toast.success('Rejoining class session...');
+
+  } catch (error) {
+    console.error('❌ Failed to join session:', error);
+    toast.error(error.message);
+  }
+};
+
+// New function to rejoin recent session
+const handleRejoinRecentSession = async (session) => {
+  try {
+    console.log('🔄 Attempting to rejoin recent session:', session);
+    
+    // Verify session is still active
+    const sessionStatus = await videoApi.getSessionStatus(session.meetingId);
+    
+    if (!sessionStatus.active) {
+      throw new Error('This session is no longer active');
+    }
+
+    setActiveVideoCall(session);
+    setShowVideoCallModal(true);
+    toast.success(`Rejoining ${session.className}...`);
+
+  } catch (error) {
+    console.error('❌ Failed to rejoin session:', error);
+    
+    if (error.message.includes('no longer active')) {
+      // Remove inactive session from recent sessions
+      setRecentSessions(prev => prev.filter(s => s.meetingId !== session.meetingId));
+      localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions.filter(s => s.meetingId !== session.meetingId)));
+    }
+    
+    toast.error(error.message);
+  }
+};  const handleEndVideoSession = async (classItem, session) => {
     try {
       setEndingSession(classItem.id);
       await videoApi.endVideoSession(session.meeting_id);
@@ -299,21 +429,39 @@ export default function TeacherDashboard() {
     }
   };
 
-  const handleLeaveVideoCall = async () => {
+ const handleLeaveVideoCall = async (shouldEndSession = false) => {
+  try {
+    if (shouldEndSession && activeVideoCall) {
+      // Teacher is intentionally ending the session
+      await videoApi.endVideoSession(activeVideoCall.meetingId);
+      toast.success('Class session ended successfully!');
+      
+      // Remove from recent sessions when intentionally ended
+      setRecentSessions(prev => prev.filter(s => s.meetingId !== activeVideoCall.meetingId));
+      localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions.filter(s => s.meetingId !== activeVideoCall.meetingId)));
+    } else {
+      // Teacher is just leaving temporarily
+      toast.info('You can rejoin this session from your class list');
+    }
+    
     setActiveVideoCall(null);
     setVideoCallError(null);
     setShowVideoCallModal(false);
     await loadTeacherData();
-  };
+    
+  } catch (error) {
+    console.error('Error leaving video call:', error);
+    toast.error('Error leaving session');
+  }
+};
 
-  const handleSessionEnded = async () => {
-    setActiveVideoCall(null);
-    setVideoCallError(null);
-    setShowVideoCallModal(false);
-    await loadTeacherData();
-    toast.success('Class session ended successfully!');
-  };
-
+const handleSessionEnded = async () => {
+  setActiveVideoCall(null);
+  setVideoCallError(null);
+  setShowVideoCallModal(false);
+  await loadTeacherData();
+  toast.success('Class session ended successfully!');
+};
   // Utility functions for video sessions
   const canStartVideo = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
@@ -464,8 +612,7 @@ export default function TeacherDashboard() {
   ];
 
   // ============= COMPONENT SECTIONS =============
-
-  const ClassesTab = ({ classes, formatDateTime }) => {
+const ClassesTab = ({ classes, formatDateTime }) => {
     const [deletingClass, setDeletingClass] = useState(null);
 
     const { upcomingClasses, completedClasses } = useMemo(() => {
@@ -504,6 +651,18 @@ export default function TeacherDashboard() {
       }
     };
 
+    // Debug function to check session data
+    const debugSessionInfo = (classItem) => {
+      console.log('🔍 DEBUG Session Info for:', classItem.title, {
+        classId: classItem.id,
+        hasActiveSession: hasActiveSession(classItem),
+        videoSessions: classItem.video_sessions,
+        recentSessions: recentSessions,
+        matchingRecentSession: recentSessions.some(s => s.classId === classItem.id),
+        canStartVideo: canStartVideo(classItem)
+      });
+    };
+
     return (
       <div>
         {/* Video Call Error Display */}
@@ -524,6 +683,21 @@ export default function TeacherDashboard() {
           </div>
         )}
 
+        {/* Debug Button */}
+        <div className="flex justify-between items-center mb-4">
+          <button 
+            onClick={() => {
+              console.log('=== FULL SESSION DEBUG ===');
+              console.log('Recent Sessions:', recentSessions);
+              console.log('Active Video Call:', activeVideoCall);
+              classes.forEach(debugSessionInfo);
+            }}
+            className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white text-sm font-medium"
+          >
+            🐛 Debug All Sessions
+          </button>
+        </div>
+
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-2xl font-bold text-white">My Classes</h3>
           <div className="text-blue-300 text-sm">
@@ -542,175 +716,204 @@ export default function TeacherDashboard() {
                 const isStarting = startingSession === classItem.id;
                 const isEnding = endingSession === classItem.id;
                 const isDeleting = deletingClass === classItem.id;
+                const hasRecentSession = recentSessions.some(s => s.classId === classItem.id);
 
                 return (
                   <div key={classItem.id} className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-white/20 rounded-xl p-6">
-                    <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+                    {/* Debug Info for this class */}
+                    <div className="flex justify-between items-start mb-4">
                       <div className="flex-1">
-                        <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start justify-between">
                           <h4 className="font-bold text-2xl text-white">{classItem.title}</h4>
-                          {activeSession && (
-                            <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
-                              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                              <span className="text-red-300 text-sm font-medium">LIVE</span>
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                          <div className="flex items-center text-blue-200">
-                            <Calendar size={18} className="mr-3 text-blue-400" />
-                            <div>
-                              <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
-                              <p className="text-xs text-blue-300">Scheduled Time</p>
-                            </div>
-                          </div>
-                          
-                          {classItem.duration && (
-                            <div className="flex items-center text-blue-200">
-                              <Clock size={18} className="mr-3 text-blue-400" />
-                              <div>
-                                <p className="text-sm font-medium">{classItem.duration} minutes</p>
-                                <p className="text-xs text-blue-300">Duration</p>
+                          <div className="flex items-center space-x-2">
+                            {activeSession && (
+                              <div className="flex items-center space-x-2 bg-red-500/20 border border-red-500/30 px-3 py-1 rounded-full">
+                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                <span className="text-red-300 text-sm font-medium">LIVE</span>
                               </div>
-                            </div>
-                          )}
-                          
-                          <div className="flex items-center text-blue-200">
-                            <Users size={18} className="mr-3 text-blue-400" />
-                            <div>
-                              <p className="text-sm font-medium">{studentCount} students</p>
-                              <p className="text-xs text-blue-300">Enrolled</p>
-                            </div>
+                            )}
+                            {/* Debug button for this class */}
+                            <button 
+                              onClick={() => debugSessionInfo(classItem)}
+                              className="bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded text-white text-xs"
+                              title="Debug this session"
+                            >
+                              🐛
+                            </button>
                           </div>
                         </div>
 
-                        {classItem.description && (
-                          <p className="text-blue-300 text-lg mb-4">{classItem.description}</p>
-                        )}
-
-                        {classItem.course?.name && (
-                          <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
-                            <BookOpen size={16} className="mr-2 text-blue-400" />
-                            <span className="text-blue-300 text-sm">{classItem.course.name}</span>
+                        {/* ENHANCED SESSION STATUS DISPLAY - INTEGRATED HERE */}
+                        {activeSession && (
+                          <div className="flex items-center space-x-4 mt-3">
+                            <div className="flex items-center space-x-2 bg-green-500/20 border border-green-500/30 px-3 py-2 rounded-full">
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-green-300 text-sm font-medium">LIVE - CAN REJOIN</span>
+                            </div>
+                            {hasRecentSession && (
+                              <span className="text-blue-300 text-sm flex items-center">
+                                <CheckCircle size={16} className="mr-1" />
+                                Session saved for quick rejoin
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
+                    </div>
+                        
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                      <div className="flex items-center text-blue-200">
+                        <Calendar size={18} className="mr-3 text-blue-400" />
+                        <div>
+                          <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
+                          <p className="text-xs text-blue-300">Scheduled Time</p>
+                        </div>
+                      </div>
+                      
+                      {classItem.duration && (
+                        <div className="flex items-center text-blue-200">
+                          <Clock size={18} className="mr-3 text-blue-400" />
+                          <div>
+                            <p className="text-sm font-medium">{classItem.duration} minutes</p>
+                            <p className="text-xs text-blue-300">Duration</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center text-blue-200">
+                        <Users size={18} className="mr-3 text-blue-400" />
+                        <div>
+                          <p className="text-sm font-medium">{studentCount} students</p>
+                          <p className="text-xs text-blue-300">Enrolled</p>
+                        </div>
+                      </div>
+                    </div>
 
-                      <div className="flex flex-col space-y-3 w-full lg:w-auto">
-                        {canStart && !activeSession && (
-                          <button
-                            onClick={() => handleStartVideoSession(classItem)}
-                            disabled={isStarting}
-                            className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
-                          >
-                            {isStarting ? (
-                              <>
-                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                                Starting...
-                              </>
-                            ) : (
-                              <>
-                                <Play size={20} className="mr-3" />
-                                Start Video Class
-                              </>
-                            )}
-                          </button>
-                        )}
-                        
-                        {activeSession && (
-                          <button
-                            onClick={() => handleJoinExistingSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
-                            className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
-                          >
-                            <Video size={20} className="mr-3" />
-                            Join Active Session
-                          </button>
-                        )}
-                        
-                        {activeSession && (
+                    {classItem.description && (
+                      <p className="text-blue-300 text-lg mb-4">{classItem.description}</p>
+                    )}
+
+                    {classItem.course?.name && (
+                      <div className="inline-flex items-center bg-blue-800/30 border border-blue-700/30 px-4 py-2 rounded-full">
+                        <BookOpen size={16} className="mr-2 text-blue-400" />
+                        <span className="text-blue-300 text-sm">{classItem.course.name}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col space-y-3 w-full lg:w-auto">
+                    {canStart && !activeSession && (
+                      <button
+                        onClick={() => handleStartVideoSession(classItem)}
+                        disabled={isStarting}
+                        className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                      >
+                        {isStarting ? (
                           <>
-                            <button
-                              onClick={() => copyClassLink(classItem.video_sessions.find(s => s.status === 'active').meeting_id)}
-                              className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
-                            >
-                              <Share2 size={20} className="mr-3" />
-                              Copy Invite Link
-                            </button>
-                            
-                            <button
-                              onClick={() => handleEndVideoSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
-                              disabled={isEnding}
-                              className="bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
-                            >
-                              {isEnding ? (
-                                <>
-                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                                  Ending...
-                                </>
-                              ) : (
-                                <>
-                                  <X size={20} className="mr-3" />
-                                  End Class Session
-                                </>
-                              )}
-                            </button>
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <Play size={20} className="mr-3" />
+                            Start Video Class
                           </>
                         )}
-
+                      </button>
+                    )}
+                    
+                    {activeSession && (
+                      <button
+                        onClick={() => handleJoinExistingSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
+                        className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
+                      >
+                        <Video size={20} className="mr-3" />
+                        Join Active Session
+                      </button>
+                    )}
+                    
+                    {activeSession && (
+                      <>
                         <button
-                          onClick={() => handleDeleteClass(classItem.id)}
-                          disabled={isDeleting}
-                          className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center justify-center disabled:opacity-50"
+                          onClick={() => copyClassLink(classItem.video_sessions.find(s => s.status === 'active').meeting_id)}
+                          className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold"
                         >
-                          {isDeleting ? (
+                          <Share2 size={20} className="mr-3" />
+                          Copy Invite Link
+                        </button>
+                        
+                        <button
+                          onClick={() => handleEndVideoSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
+                          disabled={isEnding}
+                          className="bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl flex items-center justify-center text-white font-semibold disabled:opacity-50"
+                        >
+                          {isEnding ? (
                             <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                              Deleting...
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+                              Ending...
                             </>
                           ) : (
                             <>
-                              <Trash2 size={16} className="mr-2" />
-                              Delete Class
+                              <X size={20} className="mr-3" />
+                              End Class Session
                             </>
                           )}
                         </button>
-                      </div>
-                    </div>
+                      </>
+                    )}
 
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
-                      <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
-                        <span className={`px-4 py-2 rounded-full text-xs font-bold ${
-                          classItem.status === "scheduled" 
-                            ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
-                            : classItem.status === "active"
-                            ? "bg-green-500/20 text-green-300 border border-green-500/30"
-                            : classItem.status === "completed"
-                            ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                            : "bg-red-500/20 text-red-300 border border-red-500/30"
-                        }`}>
-                          {classItem.status?.toUpperCase()}
-                        </span>
-                        
-                        {activeSession && (
-                          <span className="flex items-center text-green-400 text-sm">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
-                            Session active
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center space-x-2 text-blue-300 text-sm">
-                        <User size={14} />
-                        <span>{studentCount} student{studentCount !== 1 ? 's' : ''} enrolled</span>
-                      </div>
-                    </div>
+                    <button
+                      onClick={() => handleDeleteClass(classItem.id)}
+                      disabled={isDeleting}
+                      className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white flex items-center justify-center disabled:opacity-50"
+                    >
+                      {isDeleting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={16} className="mr-2" />
+                          Delete Class
+                        </>
+                      )}
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                </div>
+
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
+                  <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
+                    <span className={`px-4 py-2 rounded-full text-xs font-bold ${
+                      classItem.status === "scheduled" 
+                        ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
+                        : classItem.status === "active"
+                        ? "bg-green-500/20 text-green-300 border border-green-500/30"
+                        : classItem.status === "completed"
+                        ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                        : "bg-red-500/20 text-red-300 border border-red-500/30"
+                    }`}>
+                      {classItem.status?.toUpperCase()}
+                    </span>
+                    
+                    {activeSession && (
+                      <span className="flex items-center text-green-400 text-sm">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
+                        Session active - Students can join
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center space-x-2 text-blue-300 text-sm">
+                    <User size={14} />
+                    <span>{studentCount} student{studentCount !== 1 ? 's' : ''} enrolled</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
         {completedClasses.length > 0 && (
           <div>
@@ -740,7 +943,6 @@ export default function TeacherDashboard() {
       </div>
     );
   };
-
   // ============= STUDENTS TAB =============
 
   const StudentsTab = () => {
@@ -1152,15 +1354,17 @@ export default function TeacherDashboard() {
     <div className="min-h-screen bg-gradient-to-br from-blue-900 to-purple-900 relative">
       {/* Video Call Modal */}
       {showVideoCallModal && activeVideoCall && (
-        <VideoCall
-          isOpen={showVideoCallModal}
-          meetingId={activeVideoCall.meetingId}
-          user={user}
-          isTeacher={activeVideoCall.isTeacher}
-          onLeave={handleLeaveVideoCall}
-          onSessionEnded={handleSessionEnded}
-        />
-      )}
+  <VideoCall
+    isOpen={showVideoCallModal}
+    meetingId={activeVideoCall.meetingId}
+    user={user}
+    isTeacher={activeVideoCall.isTeacher}
+    onLeave={(shouldEndSession) => handleLeaveVideoCall(shouldEndSession)}
+    onSessionEnded={handleSessionEnded}
+    allowRejoin={true} // Add this prop
+    sessionData={activeVideoCall} // Pass session data for recovery
+  />
+)}
 
       {/* Header */}
       <header className="bg-white/10 backdrop-blur-lg border-b border-white/20 relative z-50">
@@ -1223,6 +1427,39 @@ export default function TeacherDashboard() {
                   <p className="text-blue-200 text-sm">{stat.label}</p>
                 </div>
               </div>
+              {/* Quick Rejoin Section */}
+  // Quick Rejoin Section Component
+const QuickRejoinSection = () => {
+  if (recentSessions.length === 0) return null;
+
+  return (
+    <div className="mb-6 bg-gradient-to-r from-orange-900/30 to-yellow-900/30 border border-orange-500/30 rounded-xl p-4">
+      <h4 className="text-lg font-semibold text-white mb-3 flex items-center">
+        <RefreshCw className="mr-2" size={20} />
+        Quick Rejoin Available
+      </h4>
+      <div className="grid gap-3">
+        {recentSessions.slice(0, 3).map((session, index) => (
+          <div key={index} className="flex items-center justify-between p-3 bg-orange-800/20 rounded-lg border border-orange-500/20">
+            <div>
+              <p className="text-white font-medium">{session.className}</p>
+              <p className="text-orange-300 text-sm">
+                Started: {new Date(session.startTime).toLocaleTimeString()}
+              </p>
+            </div>
+            <button
+              onClick={() => handleRejoinRecentSession(session)}
+              className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-lg text-white text-sm font-medium flex items-center"
+            >
+              <Video className="mr-2" size={16} />
+              Rejoin
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
             </div>
           ))}
         </div>
