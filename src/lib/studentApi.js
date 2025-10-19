@@ -806,6 +806,63 @@ export const studentApi = {
       throw error;
     }
   },
+   // 🔧 Enhanced video session functions
+  joinVideoSession: async (meetingId, userId) => {
+    try {
+      const response = await fetch('/api/video/join-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId,
+          user_id: userId,
+          user_type: 'student'
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to join session');
+      return await response.json();
+    } catch (error) {
+      console.error('Error joining video session:', error);
+      throw error;
+    }
+  },
+
+  getSessionStatus: async (meetingId) => {
+    try {
+      const response = await fetch(`/api/video/session-status/${meetingId}`);
+      if (!response.ok) throw new Error('Failed to get session status');
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting session status:', error);
+      throw error;
+    }
+  },
+
+  leaveVideoSession: async (meetingId, duration, userId) => {
+    try {
+      const response = await fetch('/api/video/leave-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId,
+          user_id: userId,
+          duration: duration,
+          user_type: 'student'
+        })
+      });
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error leaving video session:', error);
+    }
+  }
+},
 
   // Get student's teacher information
   getMyTeacher: async () => {
