@@ -747,32 +747,33 @@ export const getAuthToken = async () => {
 // Teacher API functions with GRADING capabilities
 export const teacherApi = {
   // Get teacher's classes
-  getMyClasses: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-      
-      const { data, error } = await supabase
-        .from('classes')
-        .select(`
-          *,
-          course:course_id (*),
-          students_classes (*),
-          video_sessions (*)
-        `)
-        .eq('teacher_id', user.id)
-        .order('scheduled_date', { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      throw error;
+ getMyClasses: async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
     }
-  },
+    
+    const { data, error } = await supabase
+      .from('classes')
+      .select(`
+        *,
+        course:course_id (*),
+        video_sessions (*),
+        assignments (*),
+        assignment_submissions (*)
+      `)
+      .eq('teacher_id', user.id)
+      .order('scheduled_date', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching classes:', error);
+    throw error;
+  }
+},
 
   // Get teacher's students
   getMyStudents: async () => {
