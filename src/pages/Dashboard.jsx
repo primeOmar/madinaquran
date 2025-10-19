@@ -1203,7 +1203,7 @@ export default function Dashboard() {
   const [payments, setPayments] = useState([]);
   const [stats, setStats] = useState([
     { label: "Madina Sessions", value: "0", icon: Video, change: "+0", color: "from-cyan-500 to-blue-500" },
-    { label: "AI Learning Hours", value: "0", icon: Clock, change: "+0", color: "from-purple-500 to-pink-500" },
+    { label: "Learning Hours", value: "0", icon: Clock, change: "+0", color: "from-purple-500 to-pink-500" },
     { label: "Active Missions", value: "0", icon: FileText, change: "+0", color: "from-green-500 to-emerald-500" },
     { label: "Madina Score", value: "0%", icon: BarChart3, change: "+0%", color: "from-yellow-500 to-orange-500" },
   ]);
@@ -1372,9 +1372,9 @@ export default function Dashboard() {
               <Gem className="text-cyan-400" size={32} />
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                  Madina Academy
+                  Madina Quran Classes
                 </h1>
-                <p className="text-cyan-300 text-sm">AI-Powered Learning</p>
+                
               </div>
             </div>
           </div>
@@ -1383,10 +1383,10 @@ export default function Dashboard() {
           <nav className="flex-1 p-6 space-y-2">
             {[
               { id: "classes", label: "Madina Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
-              { id: "assignments", label: "AI Missions", icon: FileText, color: "from-green-500 to-emerald-500" },
-              { id: "exams", label: "Neural Assessments", icon: ClipboardList, color: "from-purple-500 to-pink-500" },
+              { id: "assignments", label: "Assignments", icon: FileText, color: "from-green-500 to-emerald-500" },
+              { id: "exams", label: "Assessments and Exams", icon: ClipboardList, color: "from-purple-500 to-pink-500" },
               { id: "payments", label: "Madina Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
-              { id: "progress", label: "AI Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
+              { id: "progress", label: "Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
             ].map((item) => (
               <button
                 key={item.id}
