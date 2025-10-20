@@ -1,5 +1,4 @@
-// teacherApi.js
-import { supabase } from './supabaseClient'; // Adjust import path as needed
+import { supabase } from './supabaseClient';
 
 export const teacherApi = {
   // Get teacher's classes with related data
@@ -39,7 +38,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // Get students assigned to this teacher through profiles table
       const { data, error } = await supabase
         .from('profiles')
         .select(`
@@ -76,7 +74,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // Get assignments created by this teacher
       const { data: assignments, error: assignmentsError } = await supabase
         .from('assignments')
         .select(`
@@ -93,7 +90,6 @@ export const teacherApi = {
         return [];
       }
 
-      // Get submissions for these assignments
       const assignmentIds = assignments.map(a => a.id);
       const { data: submissions, error: submissionsError } = await supabase
         .from('assignment_submissions')
@@ -102,7 +98,6 @@ export const teacherApi = {
 
       if (submissionsError) throw submissionsError;
 
-      // Combine assignments with their submissions
       const assignmentsWithSubmissions = assignments.map(assignment => {
         const assignmentSubmissions = submissions?.filter(sub => sub.assignment_id === assignment.id) || [];
         
@@ -118,6 +113,33 @@ export const teacherApi = {
       return assignmentsWithSubmissions;
     } catch (error) {
       console.error('Error fetching assignments:', error);
+      throw error;
+    }
+  },
+
+  // Get all submissions for grading
+  getSubmissions: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          assignment:assignments (*),
+          student:profiles (name, email)
+        `)
+        .eq('assignment.teacher_id', user.id)
+        .order('submitted_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching submissions:', error);
       throw error;
     }
   },
@@ -239,7 +261,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // First, verify the submission exists and belongs to this teacher's assignment
       const { data: submission, error: submissionError } = await supabase
         .from('assignment_submissions')
         .select(`
@@ -256,7 +277,6 @@ export const teacherApi = {
         throw new Error('Submission not found or unauthorized');
       }
 
-      // Update the submission with grade and feedback
       const { data, error } = await supabase
         .from('assignment_submissions')
         .update({
@@ -277,10 +297,7 @@ export const teacherApi = {
 
       if (error) throw error;
 
-      // Update student progress
       await teacherApi.updateStudentProgress(data.student_id);
-
-      // Send notification to student
       await teacherApi.sendGradingNotification(submissionId, score, feedback, !!audioFeedbackUrl);
 
       return data;
@@ -318,7 +335,6 @@ export const teacherApi = {
 
       if (error) throw error;
 
-      // Verify this teacher owns the assignment
       if (data.assignment.teacher_id !== user.id) {
         throw new Error('Unauthorized to access this submission');
       }
@@ -333,7 +349,6 @@ export const teacherApi = {
   // Update student progress after grading
   updateStudentProgress: async (studentId) => {
     try {
-      // Get all graded submissions for this student
       const { data: submissions, error } = await supabase
         .from('assignment_submissions')
         .select(`
@@ -346,7 +361,6 @@ export const teacherApi = {
       if (error) throw error;
 
       if (submissions && submissions.length > 0) {
-        // Calculate average score
         const totalScore = submissions.reduce((sum, sub) => {
           const percentage = (sub.grade / sub.assignment.max_score) * 100;
           return sum + percentage;
@@ -354,7 +368,6 @@ export const teacherApi = {
         
         const averageGrade = totalScore / submissions.length;
 
-        // Update student profile
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
@@ -415,7 +428,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // Verify the assignment belongs to this teacher
       const { data: assignment, error: verifyError } = await supabase
         .from('assignments')
         .select('teacher_id')
@@ -455,7 +467,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // Verify the assignment belongs to this teacher
       const { data: assignment, error: verifyError } = await supabase
         .from('assignments')
         .select('teacher_id')
@@ -481,25 +492,6 @@ export const teacherApi = {
     }
   },
 
-  async getSubmissions() {
-    try {
-      const { data, error } = await supabase
-        .from('assignment_submissions')
-        .select(`
-          *,
-          assignment:assignments (*),
-          student:profiles (name, email)
-        `)
-        .order('submitted_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching submissions:', error);
-      throw error;
-    }
-  }
-},
   // Start a video session for a class
   startVideoSession: async (classId) => {
     try {
@@ -509,7 +501,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // Verify the class belongs to this teacher
       const { data: classData, error: classError } = await supabase
         .from('classes')
         .select('teacher_id')
@@ -522,7 +513,6 @@ export const teacherApi = {
         throw new Error('Unauthorized to start video session for this class');
       }
 
-      // Generate a unique meeting ID
       const meetingId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       const { data, error } = await supabase
@@ -540,7 +530,6 @@ export const teacherApi = {
 
       if (error) throw error;
       
-      // Update class status to active
       await supabase
         .from('classes')
         .update({ status: 'active' })
@@ -616,7 +605,6 @@ export const teacherApi = {
         throw new Error('User not authenticated');
       }
 
-      // Get counts in parallel
       const [
         { count: classesCount },
         { count: studentsCount },
@@ -677,7 +665,6 @@ export const teacherApi = {
         throw new Error('Teacher not authenticated');
       }
 
-      // Validate inputs
       if (!studentId) {
         console.error('🔔 [NOTIFICATION] Missing studentId');
         throw new Error('Student ID is required');
@@ -688,9 +675,6 @@ export const teacherApi = {
         throw new Error('Notification title and message are required');
       }
 
-      // Verify student exists in profiles table
-      console.log('🔔 [NOTIFICATION] Looking for student in profiles table with id:', studentId);
-      
       const { data: studentProfile, error: studentError } = await supabase
         .from('profiles')
         .select('id, name, email')
@@ -706,8 +690,6 @@ export const teacherApi = {
 
       if (studentError) {
         console.error('🔔 [NOTIFICATION] Student query error:', studentError);
-        
-        // If student not found, check if it's because the ID doesn't exist in profiles
         if (studentError.code === 'PGRST116') {
           throw new Error(`Student with ID ${studentId} not found in profiles table`);
         }
@@ -760,7 +742,6 @@ export const teacherApi = {
         throw new Error('Teacher not authenticated');
       }
 
-      // Get submission details with assignment and student info
       const { data: submission, error: submissionError } = await supabase
         .from('assignment_submissions')
         .select(`
@@ -791,7 +772,6 @@ export const teacherApi = {
         assignment: submission.assignment
       });
 
-      // Verify student exists
       if (!submission.student || !submission.student.id) {
         throw new Error('Student profile not found for this submission');
       }
@@ -828,7 +808,6 @@ export const teacherApi = {
 
       console.log('🔔 [NOTIFICATION] Sending grading notification:', notificationData);
 
-      // Use the sendNotification function
       const result = await teacherApi.sendNotification(studentId, notificationData);
       console.log('🔔 [NOTIFICATION] Grading notification sent successfully:', result);
       return result;
@@ -844,11 +823,9 @@ export const teacherApi = {
     try {
       console.log('🧪 [DEBUG] Testing notification system...');
       
-      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       console.log('🧪 [DEBUG] Current user:', user);
 
-      // Get a test student
       const { data: students, error: studentsError } = await supabase
         .from('profiles')
         .select('id, name, email')
@@ -863,7 +840,6 @@ export const teacherApi = {
       const testStudent = students[0];
       console.log('🧪 [DEBUG] Test student:', testStudent);
 
-      // Test notification insertion
       const testNotification = {
         title: '🧪 Test Notification',
         message: 'This is a test notification from the debug system.',
@@ -881,7 +857,6 @@ export const teacherApi = {
       
       console.log('🧪 [DEBUG] Test notification created:', result);
 
-      // Clean up test notification
       await supabase
         .from('notifications')
         .delete()
