@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import AgoraRTC from 'agora-rtc-sdk-ng';
 import { 
   BookOpen, Calendar, Clock, User, Video, Play, 
   Users, BarChart3, LogOut, Bell,
