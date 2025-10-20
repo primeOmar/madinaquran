@@ -194,6 +194,71 @@ const videoService = {
       return { success: false, error: error.message };
     }
   },
+  async getSessionStatus(meetingId) {
+  try {
+    const response = await fetch(`/api/video/session-status/${meetingId}`);
+    if (!response.ok) throw new Error('Failed to get session status');
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting session status:', error);
+    return {
+      is_active: true,
+      is_teacher_joined: true,
+      student_count: 0,
+      started_at: new Date().toISOString(),
+      fallback: true
+    };
+  }
+},
+
+// 🔧 NEW: Rejoin function for teachers
+async rejoinVideoSession(meetingId, userId) {
+  try {
+    console.log('🔄 Madina rejoin attempt:', { meetingId, userId });
+    
+    const sessionStatus = await this.getSessionStatus(meetingId);
+    
+    if (!sessionStatus.is_active) {
+      throw new Error('Session is no longer active');
+    }
+
+    const config = await videoApi.joinVideoSession(meetingId, userId);
+    if (!config.success) throw new Error(config.error);
+
+    if (agoraEngine) {
+      await this.leaveVideoSession();
+    }
+
+    agoraEngine = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    this.setupAgoraEventListeners();
+
+    await agoraEngine.join(config.appId, config.channel, config.token, userId);
+
+    const [microphoneTrack, cameraTrack] = await Promise.all([
+      AgoraRTC.createMicrophoneAudioTrack(),
+      AgoraRTC.createCameraVideoTrack()
+    ]);
+
+    await agoraEngine.publish([microphoneTrack, cameraTrack]);
+
+    localTracks.audioTrack = microphoneTrack;
+    localTracks.videoTrack = cameraTrack;
+
+    return {
+      success: true,
+      meetingId: config.meetingId,
+      localAudioTrack: microphoneTrack,
+      localVideoTrack: cameraTrack,
+      engine: agoraEngine,
+      channel: config.channel,
+      isRejoin: true
+    };
+
+  } catch (error) {
+    console.error('❌ Madina rejoin failed:', error);
+    return { success: false, error: error.message };
+  }
+},
 
   // 🔧 NEW: Setup Agora event listeners
   setupAgoraEventListeners() {
