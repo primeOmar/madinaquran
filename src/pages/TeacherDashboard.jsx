@@ -188,45 +188,60 @@ const initializeAgora = async () => {
     setIsConnecting(true);
     setConnectionStatus('connecting');
     
-    // 🔧 FIX: Use proper Agora configuration
+    // 🔧 FIX: Check if Agora is properly configured
+    const appId = process.env.REACT_APP_AGORA_APP_ID;
+    if (!appId || appId === '5c0225ce9a19445f95a2685647258468') {
+      throw new Error('Agora video service is not configured. Please contact support.');
+    }
+
     const client = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
     });
     clientRef.current = client;
 
-    // Set up event handlers FIRST
+    // Set up event handlers
     client.on('user-published', handleUserPublished);
     client.on('user-unpublished', handleUserUnpublished);
     client.on('user-joined', handleUserJoined);
     client.on('user-left', handleUserLeft);
     client.on('connection-state-change', handleConnectionStateChange);
 
-    // 🔧 FIX: Get token from your backend
-    const tokenResponse = await fetch('/api/video/generate-token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channelName: meetingId,
-        uid: 0, // Let Agora assign UID
-        role: 'publisher'
-      })
-    });
-
-    const tokenData = await tokenResponse.json();
-    
-    if (!tokenData.token) {
-      throw new Error('Failed to get Agora token');
+    // 🔧 FIX: Get token from backend with proper error handling
+    let tokenData;
+    try {
+      const tokenResponse = await fetch('/api/video/generate-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channelName: meetingId,
+          uid: 0,
+          role: 'publisher'
+        })
+      });
+      
+      if (!tokenResponse.ok) {
+        throw new Error('Token service unavailable');
+      }
+      
+      tokenData = await tokenResponse.json();
+      
+      if (!tokenData.success) {
+        throw new Error(tokenData.error || 'Failed to generate token');
+      }
+    } catch (tokenError) {
+      console.error('Token generation failed:', tokenError);
+      throw new Error('Video service temporarily unavailable');
     }
 
-    // 🔧 FIX: Use proper join parameters
+    // Join channel
     const uid = await client.join(
-      tokenData.appId || process.env.REACT_APP_AGORA_APP_ID,
+      tokenData.appId || appId,
       meetingId,
       tokenData.token,
-      null // Let Agora assign UID
+      null
     );
     
     console.log('✅ Joined channel successfully with UID:', uid);
@@ -239,9 +254,19 @@ const initializeAgora = async () => {
     console.error('❌ Failed to initialize Agora:', error);
     setConnectionStatus('failed');
     setIsConnecting(false);
-    toast.error(`Failed to connect: ${error.message}`);
+    
+    // Show user-friendly error messages
+    if (error.message.includes('invalid vendor key') || error.message.includes('appid')) {
+      toast.error('Video service configuration error. Please contact support.');
+    } else if (error.message.includes('temporarily unavailable')) {
+      toast.error('Video service is temporarily unavailable. Please try again later.');
+    } else {
+      toast.error(`Connection failed: ${error.message}`);
+    }
   }
-};  const createLocalTracks = async (client) => {
+}; 
+  
+  const createLocalTracks = async (client) => {
     try {
       const [microphoneTrack, cameraTrack] = await Promise.all([
         AgoraRTC.createMicrophoneAudioTrack({
