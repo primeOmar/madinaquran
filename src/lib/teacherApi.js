@@ -481,6 +481,25 @@ export const teacherApi = {
     }
   },
 
+  async getSubmissions() {
+    try {
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          assignment:assignments (*),
+          student:profiles (name, email)
+        `)
+        .order('submitted_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching submissions:', error);
+      throw error;
+    }
+  }
+},
   // Start a video session for a class
   startVideoSession: async (classId) => {
     try {
