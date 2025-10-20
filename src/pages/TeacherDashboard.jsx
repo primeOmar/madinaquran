@@ -2011,26 +2011,37 @@ export default function TeacherDashboard() {
   };
 
   const handleRejoinSession = async (classItem) => {
-    try {
-      const sessionData = {
-        meetingId: classItem.video_session?.meeting_id || `madina-${classItem.id}-rejoin`,
-        classId: classItem.id,
-        className: classItem.title,
-        isTeacher: true,
-        startTime: classItem.video_session?.started_at || new Date().toISOString()
-      };
+  try {
+    // 🔧 FIX: Ensure meetingId is defined
+    const meetingId = classItem.video_session?.meeting_id || 
+                     classItem.video_sessions?.find(s => s.status === 'active')?.meeting_id ||
+                     `madina-${classItem.id}-${Date.now()}`;
 
-      setActiveVideoCall(sessionData);
-      setShowVideoCallModal(true);
-      
-      toast.success('Rejoined Madina session successfully!');
-      
-    } catch (error) {
-      console.error('❌ Madina rejoin failed:', error);
-      toast.error(`Rejoin failed: ${error.message}`);
-    }
-  };
+    console.log('🔄 Rejoining session:', { 
+      classId: classItem.id, 
+      meetingId,
+      hasVideoSession: !!classItem.video_session,
+      hasVideoSessions: classItem.video_sessions?.length 
+    });
 
+    const sessionData = {
+      meetingId: meetingId,
+      classId: classItem.id,
+      className: classItem.title,
+      isTeacher: true,
+      startTime: classItem.video_session?.started_at || new Date().toISOString()
+    };
+
+    setActiveVideoCall(sessionData);
+    setShowVideoCallModal(true);
+    
+    toast.success('Rejoining Madina session...');
+    
+  } catch (error) {
+    console.error('❌ Madina rejoin failed:', error);
+    toast.error(`Rejoin failed: ${error.message}`);
+  }
+};
   const handleJoinExistingSession = async (classItem, session) => {
     try {
       const meetingId = session?.meeting_id || `madina-${classItem.id}-existing`;
