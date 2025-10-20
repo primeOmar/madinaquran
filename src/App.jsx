@@ -12,7 +12,7 @@ import Testimonials from "./components/Testimonials";
 import Pricing from "./components/Pricing";
 import CTA from "./components/CTA";
 import Footer from "./components/Footer";
-import VideoCall from "./components/VideoCall";
+//import VideoCall from "./components/VideoCall";
 import { useAuth } from "./components/AuthContext"; // ✅ Pull auth state
 import ConnectionTest from './pages/ConnectionTest';
 
@@ -101,7 +101,7 @@ function App() {
         <Route path="/auth-callback" element={<AuthCallback />} />
         <Route path="/email-confirmation" element={<EmailConfirmationHandler />} />
         <Route path="/debug-connection" element={<ConnectionTest />} />
-        <Route path="/video-call" element={<VideoCall />} />
+        {/*<Route path="/video-call" element={<VideoCall />} />*/}
       </Routes>
     </>
   );
