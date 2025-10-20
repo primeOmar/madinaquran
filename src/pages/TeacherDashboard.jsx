@@ -183,41 +183,65 @@ const VideoCallModal = ({ meetingId, onLeave, onEnd, isTeacher, userName = 'Teac
     };
   }, [meetingId]);
 
-  const initializeAgora = async () => {
-    try {
-      setIsConnecting(true);
-      setConnectionStatus('connecting');
-      
-      const client = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: 'vp8' 
-      });
-      clientRef.current = client;
+const initializeAgora = async () => {
+  try {
+    setIsConnecting(true);
+    setConnectionStatus('connecting');
+    
+    // 🔧 FIX: Use proper Agora configuration
+    const client = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
+    clientRef.current = client;
 
-      client.on('user-published', handleUserPublished);
-      client.on('user-unpublished', handleUserUnpublished);
-      client.on('user-joined', handleUserJoined);
-      client.on('user-left', handleUserLeft);
-      client.on('connection-state-change', handleConnectionStateChange);
+    // Set up event handlers FIRST
+    client.on('user-published', handleUserPublished);
+    client.on('user-unpublished', handleUserUnpublished);
+    client.on('user-joined', handleUserJoined);
+    client.on('user-left', handleUserLeft);
+    client.on('connection-state-change', handleConnectionStateChange);
 
-      const token = null;
-      const uid = await client.join(APP_ID, meetingId, token, null);
-      
-      console.log('✅ Joined channel successfully with UID:', uid);
-      setConnectionStatus('connected');
-      setIsConnecting(false);
+    // 🔧 FIX: Get token from your backend
+    const tokenResponse = await fetch('/api/video/generate-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        channelName: meetingId,
+        uid: 0, // Let Agora assign UID
+        role: 'publisher'
+      })
+    });
 
-      await createLocalTracks(client);
-
-    } catch (error) {
-      console.error('❌ Failed to initialize Agora:', error);
-      setConnectionStatus('failed');
-      setIsConnecting(false);
-      toast.error('Failed to connect to video session');
+    const tokenData = await tokenResponse.json();
+    
+    if (!tokenData.token) {
+      throw new Error('Failed to get Agora token');
     }
-  };
 
-  const createLocalTracks = async (client) => {
+    // 🔧 FIX: Use proper join parameters
+    const uid = await client.join(
+      tokenData.appId || process.env.REACT_APP_AGORA_APP_ID,
+      meetingId,
+      tokenData.token,
+      null // Let Agora assign UID
+    );
+    
+    console.log('✅ Joined channel successfully with UID:', uid);
+    setConnectionStatus('connected');
+    setIsConnecting(false);
+
+    await createLocalTracks(client);
+
+  } catch (error) {
+    console.error('❌ Failed to initialize Agora:', error);
+    setConnectionStatus('failed');
+    setIsConnecting(false);
+    toast.error(`Failed to connect: ${error.message}`);
+  }
+};  const createLocalTracks = async (client) => {
     try {
       const [microphoneTrack, cameraTrack] = await Promise.all([
         AgoraRTC.createMicrophoneAudioTrack({
