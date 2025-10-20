@@ -9,7 +9,7 @@ import {
   Edit, Eye, Award,
   Zap, Rocket, RefreshCw, Brain,
   TrendingUp, Mic, Square,MicOff, VideoOff, PhoneOff, ScreenShare, StopCircle, 
-  Settings, Maximize, Minimize, Copy, Monitor, Shield
+  Settings, Maximize, Minimize, Copy, Monitor, Shield,Phone
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/teacherApi';
