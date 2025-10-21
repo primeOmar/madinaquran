@@ -8,25 +8,22 @@ class AgoraConfigManager {
   }
 
   loadConfig() {
-    // Priority 1: Build-time replacement (most reliable for production)
-    // Priority 2: Vite environment variables
-    // Priority 3: Global window variable
-    
     const buildTimeAppId = typeof __AGORA_APP_ID__ !== 'undefined' ? __AGORA_APP_ID__ : ''
     const viteAppId = typeof import.meta !== 'undefined' ? import.meta.env.VITE_AGORA_APP_ID : ''
-    const globalAppId = typeof window !== 'undefined' && window.__AGORA_CONFIG__ ? window.__AGORA_CONFIG__.APP_ID : ''
-    
-    const appId = buildTimeAppId || viteAppId || globalAppId || ''
+    const appId = buildTimeAppId || viteAppId || ''
     
     const buildTimeRegion = typeof __AGORA_REGION__ !== 'undefined' ? __AGORA_REGION__ : ''
     const viteRegion = typeof import.meta !== 'undefined' ? import.meta.env.VITE_AGORA_REGION : ''
-    const globalRegion = typeof window !== 'undefined' && window.__AGORA_CONFIG__ ? window.__AGORA_CONFIG__.REGION : ''
-    
-    const region = buildTimeRegion || viteRegion || globalRegion || 'US'
+    const region = buildTimeRegion || viteRegion || 'US'
+
+    const useToken = typeof __AGORA_USE_TOKEN__ !== 'undefined' ? __AGORA_USE_TOKEN__ === 'true' : false
+    const tokenServer = typeof __AGORA_TOKEN_SERVER__ !== 'undefined' ? __AGORA_TOKEN_SERVER__ : ''
 
     return {
       APP_ID: appId?.trim() || '',
       REGION: region?.trim(),
+      USE_TOKEN: useToken,
+      TOKEN_SERVER: tokenServer,
       TOKEN_EXPIRY: 3600,
       MAX_RETRY_ATTEMPTS: 3,
       RETRY_DELAY: 1000,
@@ -35,36 +32,30 @@ class AgoraConfigManager {
   }
 
   validateConfig() {
-    const { APP_ID } = this.config
+    const { APP_ID, USE_TOKEN, TOKEN_SERVER } = this.config
     
     if (!APP_ID) {
-      console.error('❌ Agora App ID is completely missing')
-      console.log('Configuration sources checked:')
-      console.log('- Build-time (__AGORA_APP_ID__):', typeof __AGORA_APP_ID__ !== 'undefined' ? 'EXISTS' : 'MISSING')
-      console.log('- Vite Env (import.meta.env.VITE_AGORA_APP_ID):', typeof import.meta !== 'undefined' && import.meta.env.VITE_AGORA_APP_ID ? 'EXISTS' : 'MISSING')
-      console.log('- Window Global (window.__AGORA_CONFIG__):', typeof window !== 'undefined' && window.__AGORA_CONFIG__ ? 'EXISTS' : 'MISSING')
+      console.error('❌ Agora App ID is missing')
       return false
     }
 
     if (APP_ID.includes('your_') || APP_ID.length < 10) {
-      console.error('❌ Agora App ID appears to be a placeholder or invalid')
-      console.log('App ID value:', APP_ID)
+      console.error('❌ Agora App ID is invalid')
       return false
     }
 
-    console.log('✅ Agora Configuration Validated')
-    console.log('App ID:', `${APP_ID.substring(0, 8)}...${APP_ID.substring(APP_ID.length - 4)}`)
-    console.log('Region:', this.config.REGION)
-    console.log('Source:', this.getConfigSource())
+    if (USE_TOKEN && !TOKEN_SERVER) {
+      console.error('❌ Token authentication enabled but no token server configured')
+      return false
+    }
+
+    console.log('✅ Agora Configuration:')
+    console.log('   App ID:', `${APP_ID.substring(0, 8)}...`)
+    console.log('   Region:', this.config.REGION)
+    console.log('   Token Auth:', USE_TOKEN ? 'ENABLED' : 'DISABLED')
+    console.log('   Token Server:', TOKEN_SERVER || 'NONE')
     
     return true
-  }
-
-  getConfigSource() {
-    if (typeof __AGORA_APP_ID__ !== 'undefined') return 'build-time'
-    if (typeof import.meta !== 'undefined' && import.meta.env.VITE_AGORA_APP_ID) return 'vite-env'
-    if (typeof window !== 'undefined' && window.__AGORA_CONFIG__) return 'window-global'
-    return 'unknown'
   }
 
   getConfig() {
@@ -72,9 +63,57 @@ class AgoraConfigManager {
   }
 }
 
-// Initialize configuration
 const configManager = new AgoraConfigManager()
 const AGORA_CONFIG = configManager.getConfig()
+
+// ==================== TOKEN SERVICE ====================
+class TokenService {
+  constructor() {
+    this.config = AGORA_CONFIG
+  }
+
+  async generateToken(channelName, userId) {
+    if (!this.config.USE_TOKEN) {
+      return null // No token required
+    }
+
+    try {
+      const response = await fetch(`${this.config.TOKEN_SERVER}/rtc/${channelName}/1`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channelName,
+          userId: userId.toString(),
+          appId: this.config.APP_ID,
+          role: 'publisher' // or 'subscriber' for audience
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Token server responded with ${response.status}`)
+      }
+
+      const data = await response.json()
+      return data.token
+    } catch (error) {
+      console.error('❌ Token generation failed:', error)
+      throw new Error(`TOKEN_GENERATION_FAILED: ${error.message}`)
+    }
+  }
+
+  async getTempToken(channelName, userId) {
+    // For development/testing only - generates a temporary token
+    // In production, always use a proper token server
+    if (this.config.USE_TOKEN && !this.config.TOKEN_SERVER) {
+      console.warn('⚠️ Using temporary token for development. Not for production!')
+      // This would be a temporary token - in real scenario, use proper token server
+      return 'temp_token_development_only'
+    }
+    return this.generateToken(channelName, userId)
+  }
+}
 
 // ==================== VIDEO SERVICE ====================
 class VideoServiceState {
@@ -114,57 +153,44 @@ class ProductionVideoService {
     this.state = new VideoServiceState()
     this.isCleaningUp = false
     this.config = AGORA_CONFIG
+    this.tokenService = new TokenService()
   }
 
   // ==================== ENHANCED VALIDATION ====================
   validateEnvironment() {
-    const { APP_ID } = this.config
+    const { APP_ID, USE_TOKEN, TOKEN_SERVER } = this.config
 
-    // Check Agora SDK
     if (typeof AgoraRTC === 'undefined') {
-      throw new Error('AGORA_SDK_UNAVAILABLE: Agora RTC SDK not loaded properly')
+      throw new Error('AGORA_SDK_UNAVAILABLE')
     }
 
-    // Enhanced App ID validation
     if (!APP_ID) {
-      const helpText = this.getEnvironmentHelpText()
-      throw new Error(`AGORA_APP_ID_MISSING: ${helpText}`)
+      throw new Error('AGORA_APP_ID_MISSING')
     }
 
     if (APP_ID.includes('your_') || APP_ID.length < 10) {
-      throw new Error('AGORA_APP_ID_INVALID: App ID is either a placeholder or too short. Must be a valid 32-character Agora App ID.')
+      throw new Error('AGORA_APP_ID_INVALID')
     }
 
-    // Check for common App ID format issues
-    if (APP_ID.includes(' ')) {
-      throw new Error('AGORA_APP_ID_INVALID: App ID contains spaces. Please remove any spaces from your App ID.')
+    // Enhanced token configuration validation
+    if (USE_TOKEN) {
+      if (!TOKEN_SERVER) {
+        throw new Error('TOKEN_SERVER_MISSING: Token authentication enabled but no token server configured')
+      }
+      
+      // Check if token server URL is valid
+      try {
+        new URL(TOKEN_SERVER)
+      } catch (error) {
+        throw new Error('TOKEN_SERVER_INVALID: Token server URL is not valid')
+      }
     }
 
-    if (APP_ID.includes('#')) {
-      throw new Error('AGORA_APP_ID_INVALID: App ID contains invalid characters. App ID should be a hex string without special characters.')
-    }
-
-    // Browser support
     if (!this.checkBrowserSupport()) {
-      throw new Error('BROWSER_NOT_SUPPORTED: WebRTC not supported in this browser')
+      throw new Error('BROWSER_NOT_SUPPORTED')
     }
 
     return APP_ID
-  }
-
-  getEnvironmentHelpText() {
-    const source = configManager.getConfigSource()
-    
-    switch(source) {
-      case 'build-time':
-        return 'App ID was not provided at build time. Check your VITE_AGORA_APP_ID in .env.production file.'
-      case 'vite-env':
-        return 'VITE_AGORA_APP_ID environment variable is not set. Create a .env.production file with your App ID.'
-      case 'window-global':
-        return 'Window global configuration is missing. Check your runtime configuration script.'
-      default:
-        return 'Agora App ID is not configured through any available method.'
-    }
   }
 
   checkBrowserSupport() {
@@ -177,39 +203,42 @@ class ProductionVideoService {
   enhanceError(error, context = '') {
     const errorMap = {
       'CAN_NOT_GET_GATEWAY_SERVER': {
-        code: 'INVALID_APP_ID',
-        message: 'Cannot connect to Agora servers. The App ID is invalid, expired, or does not exist.',
-        userMessage: 'Video service configuration error. Please check your App ID configuration.',
+        code: 'AUTH_CONFIG_MISMATCH',
+        message: 'Authentication configuration mismatch. Your Agora project requires token authentication but none was provided.',
+        userMessage: 'Video service authentication error. Please try again.',
         recoverable: false,
-        immediateAction: 'CHECK_APP_ID'
+        immediateAction: 'ENABLE_TOKEN_AUTH'
+      },
+      'dynamic use static key': {
+        code: 'TOKEN_REQUIRED',
+        message: 'Your Agora project is configured for token authentication. You must provide a token to join the channel.',
+        userMessage: 'Video service requires authentication. Please try again.',
+        recoverable: false,
+        immediateAction: 'ENABLE_TOKEN_AUTH'
       },
       'INVALID_VENDOR_KEY': {
         code: 'INVALID_APP_ID',
         message: 'The provided App ID is not recognized by Agora servers.',
-        userMessage: 'Invalid video service configuration. Please verify your App ID.',
-        recoverable: false,
-        immediateAction: 'CHECK_APP_ID'
+        userMessage: 'Video service configuration error.',
+        recoverable: false
       },
-      'INVALID_APP_ID': {
-        code: 'INVALID_APP_ID',
-        message: 'App ID format is incorrect or missing.',
-        userMessage: 'Video service is not properly configured. Please contact support.',
-        recoverable: false,
-        immediateAction: 'CHECK_APP_ID'
+      'TOKEN_GENERATION_FAILED': {
+        code: 'TOKEN_ERROR',
+        message: 'Failed to generate authentication token.',
+        userMessage: 'Authentication service temporarily unavailable.',
+        recoverable: true
       },
-      'JOIN_TIMEOUT': {
-        code: 'NETWORK_ERROR',
-        message: 'Connection to video service timed out.',
-        userMessage: 'Connection timeout. Please check your internet connection.',
-        recoverable: true,
-        immediateAction: 'RETRY'
+      'TOKEN_SERVER_MISSING': {
+        code: 'CONFIG_ERROR',
+        message: 'Token authentication enabled but no token server configured.',
+        userMessage: 'Service configuration error.',
+        recoverable: false
       }
     }
 
     const errorMessage = error.message || error.toString()
     let matchedError = null
 
-    // Enhanced error matching
     for (const [key, enhanced] of Object.entries(errorMap)) {
       if (errorMessage.includes(key) || errorMessage.toLowerCase().includes(key.toLowerCase())) {
         matchedError = { ...enhanced, originalError: errorMessage }
@@ -217,7 +246,6 @@ class ProductionVideoService {
       }
     }
 
-    // Default error with enhanced diagnostics
     if (!matchedError) {
       matchedError = {
         code: 'UNKNOWN_ERROR',
@@ -229,13 +257,12 @@ class ProductionVideoService {
       }
     }
 
-    // Add diagnostic information
     matchedError.diagnostics = {
       context,
       environment: typeof import.meta !== 'undefined' ? import.meta.env.MODE : 'unknown',
-      appIdConfigured: !!this.config.APP_ID && !this.config.APP_ID.includes('your_'),
-      appIdLength: this.config.APP_ID?.length || 0,
-      configSource: configManager.getConfigSource(),
+      appIdConfigured: !!this.config.APP_ID,
+      tokenAuth: this.config.USE_TOKEN,
+      tokenServer: !!this.config.TOKEN_SERVER,
       timestamp: new Date().toISOString()
     }
 
@@ -248,7 +275,7 @@ class ProductionVideoService {
         try {
           callback(data)
         } catch (callbackError) {
-          console.error(`Event callback error (${eventName}):`, callbackError)
+          console.error(`Event callback error:`, callbackError)
         }
       })
     }
@@ -297,7 +324,7 @@ class ProductionVideoService {
           userData.audioTrack = user.audioTrack
           userData.hasAudio = true
           user.audioTrack.play().catch(err => 
-            console.warn(`Audio play failed for user ${user.uid}:`, err)
+            console.warn(`Audio play failed:`, err)
           )
         }
 
@@ -305,7 +332,7 @@ class ProductionVideoService {
         this.emitEvent('onUserPublished', { user: userData, mediaType })
 
       } catch (error) {
-        console.error(`User published error (${user.uid}):`, error)
+        console.error('User published error:', error)
         this.emitEvent('onError', this.enhanceError(error, 'user-published'))
       }
     })
@@ -367,15 +394,25 @@ class ProductionVideoService {
       const channelName = options.channelName || `class-${classId}-${Date.now()}`
       console.log('📞 Channel:', channelName)
 
-      // 3. Initialize engine
+      // 3. Generate token if required
+      let token = null
+      if (this.config.USE_TOKEN) {
+        console.log('🔑 Generating token...')
+        token = await this.tokenService.getTempToken(channelName, userId)
+        console.log('✅ Token generated')
+      } else {
+        console.log('🔓 Using App ID only mode')
+      }
+
+      // 4. Initialize engine
       await this.initializeAgoraEngine()
       console.log('✅ Engine initialized')
 
-      // 4. Join channel with enhanced retry logic
-      await this.joinChannelWithRetry(appId, channelName, null, userId)
+      // 5. Join channel with token support
+      await this.joinChannelWithRetry(appId, channelName, token, userId)
       console.log('✅ Channel joined')
 
-      // 5. Create and publish local tracks
+      // 6. Create and publish local tracks
       const trackResult = await this.createAndPublishLocalTracks(options)
       console.log('✅ Local tracks published')
 
@@ -394,6 +431,7 @@ class ProductionVideoService {
         hasAudio: !!trackResult.audioTrack,
         hasVideo: !!trackResult.videoTrack,
         appId: `${appId.substring(0, 8)}...`,
+        usesToken: !!this.config.USE_TOKEN,
         environment: typeof import.meta !== 'undefined' ? import.meta.env.MODE : 'unknown'
       }
 
@@ -409,11 +447,16 @@ class ProductionVideoService {
   async joinChannelWithRetry(appId, channelName, token, uid, attempt = 1) {
     try {
       console.log(`🔄 Join attempt ${attempt}/${this.config.MAX_RETRY_ATTEMPTS + 1}`)
+      if (token) {
+        console.log('   Using token authentication')
+      } else {
+        console.log('   Using App ID only')
+      }
 
       const joinPromise = this.state.agoraEngine.join(
         appId,
         channelName,
-        token,
+        token, // This can be null for App ID only mode
         uid,
         this.config.REGION ? { region: this.config.REGION } : undefined
       )
@@ -428,19 +471,17 @@ class ProductionVideoService {
 
     } catch (error) {
       if (attempt <= this.config.MAX_RETRY_ATTEMPTS) {
-        console.warn(`Join attempt ${attempt} failed, retrying...:`, error.message)
+        console.warn(`Join attempt ${attempt} failed:`, error.message)
         await new Promise(resolve => setTimeout(resolve, this.config.RETRY_DELAY * attempt))
         return this.joinChannelWithRetry(appId, channelName, token, uid, attempt + 1)
       }
       
-      // Enhanced error for join failures
       const enhancedError = this.enhanceError(error, 'join-channel')
-      if (enhancedError.immediateAction === 'CHECK_APP_ID') {
-        console.error('🔴 CRITICAL: App ID validation failed. Please check:')
-        console.error('   1. App ID exists in Agora Console')
-        console.error('   2. App ID is correct (32-character hex)')
-        console.error('   3. No typos or extra characters')
-        console.error('   4. App ID matches the region')
+      
+      if (enhancedError.immediateAction === 'ENABLE_TOKEN_AUTH') {
+        console.error('🔴 CRITICAL: Token authentication required but not configured!')
+        console.error('   Your Agora project requires token authentication.')
+        console.error('   Solution: Enable VITE_AGORA_USE_TOKEN=true and configure VITE_AGORA_TOKEN_SERVER')
       }
       
       throw enhancedError
@@ -570,8 +611,9 @@ class ProductionVideoService {
       videoEnabled: this.state.localTracks.videoTrack?.enabled ?? false,
       remoteUsers: this.state.remoteUsers.size,
       appId: this.config.APP_ID ? `${this.config.APP_ID.substring(0, 8)}...` : 'NOT_CONFIGURED',
-      environment: typeof import.meta !== 'undefined' ? import.meta.env.MODE : 'unknown',
-      configSource: configManager.getConfigSource()
+      usesToken: this.config.USE_TOKEN,
+      tokenServer: this.config.TOKEN_SERVER || 'NOT_CONFIGURED',
+      environment: typeof import.meta !== 'undefined' ? import.meta.env.MODE : 'unknown'
     }
   }
 
@@ -609,5 +651,5 @@ class ProductionVideoService {
 const videoService = new ProductionVideoService()
 
 // Export for testing and advanced usage
-export { ProductionVideoService, VideoServiceState, AgoraConfigManager }
+export { ProductionVideoService, VideoServiceState, AgoraConfigManager, TokenService }
 export default videoService
