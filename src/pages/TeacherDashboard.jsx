@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
+import videoService from '../lib/videoService';
 import { 
   BookOpen, Calendar, Clock, User, Video, Play, 
   Users, BarChart3, LogOut, Bell,
@@ -250,6 +251,15 @@ const initializeAgora = async (options = {}) => {
     throw new Error(userMessage);
   }
 };
+
+useEffect(() => {
+  console.log('🔧 Video Service Environment Check:', {
+    VITE_AGORA_APP_ID: import.meta.env.VITE_AGORA_APP_ID,
+    hasAppId: !!import.meta.env.VITE_AGORA_APP_ID,
+    appIdPreview: import.meta.env.VITE_AGORA_APP_ID?.substring(0, 10) + '...',
+              mode: import.meta.env.MODE
+  });
+}, []);
 // Video Call Modal Component
 const VideoCallModal = ({ class: classData, onClose, onError }) => {
   const [agoraClient, setAgoraClient] = useState(null);
@@ -1436,7 +1446,6 @@ export default function TeacherDashboard() {
   const [activeTab, setActiveTab] = useState('classes');
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
-   const [error, setError] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
@@ -1578,7 +1587,7 @@ export default function TeacherDashboard() {
       );
       setPendingSubmissions(pending);
     } catch (error) {
-      console.error('❌ Neural submission processing failed:', error);
+      console.error('❌ Submission processing failed:', error);
     }
   };
 
@@ -1611,61 +1620,67 @@ export default function TeacherDashboard() {
   }, [classes, filters]);
 
   // Video Call System
-  const handleStartVideoSession = async (classId) => {
+  const handleStartVideoSession = async (classItem) => {
     try {
-       setSelectedClass(classItem);
+      setStartingSession(classItem.id);
 
-      // Check if Agora is configured
-      const agoraAppId = import.meta.env.VITE_AGORA_APP_ID;
-      if (!agoraAppId || agoraAppId === '5c0225ce9a19445f95a2685647258468') {
-        throw new Error('Agora video service is not configured. Please contact support.');
+      // Use the actual video service
+      const result = await videoService.startVideoSession(classItem.id, user.id);
+
+      if (result.success) {
+        setActiveVideoCall({
+          meetingId: result.meetingId,
+          classId: classItem.id,
+          className: classItem.title,
+          isTeacher: true,
+          startTime: new Date().toISOString()
+        });
+        setShowVideoCallModal(true);
+        toast.success('🎥 Video session started!');
+      } else {
+        throw new Error(result.error || result.userMessage);
       }
-
-      // Check browser support
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Video calls are not supported in this browser.');
-      }
-
-      setShowVideoCallModal(true);
 
     } catch (error) {
       console.error('❌ Failed to start video session:', error);
-      setError(error.message);
+      setVideoCallError(error.message);
+      toast.error(error.message);
+    } finally {
+      setStartingSession(null);
     }
   };
 
   const handleRejoinSession = async (classItem) => {
-  try {
-    // 🔧 FIX: Ensure meetingId is defined
-    const meetingId = classItem.video_session?.meeting_id || 
-                     classItem.video_sessions?.find(s => s.status === 'active')?.meeting_id ||
-                     `madina-${classItem.id}-${Date.now()}`;
+    try {
+      const meetingId = classItem.video_session?.meeting_id ||
+      classItem.video_sessions?.find(s => s.status === 'active')?.meeting_id;
 
-    console.log('🔄 Rejoining session:', { 
-      classId: classItem.id, 
-      meetingId,
-      hasVideoSession: !!classItem.video_session,
-      hasVideoSessions: classItem.video_sessions?.length 
-    });
+      if (!meetingId) {
+        throw new Error('No active session found to rejoin');
+      }
 
-    const sessionData = {
-      meetingId: meetingId,
-      classId: classItem.id,
-      className: classItem.title,
-      isTeacher: true,
-      startTime: classItem.video_session?.started_at || new Date().toISOString()
-    };
+      const result = await videoService.rejoinVideoSession(meetingId, user.id);
 
-    setActiveVideoCall(sessionData);
-    setShowVideoCallModal(true);
-    
-    toast.success('Rejoining Madina session...');
-    
-  } catch (error) {
-    console.error('❌ Madina rejoin failed:', error);
-    toast.error(`Rejoin failed: ${error.message}`);
-  }
-};
+      if (result.success) {
+        setActiveVideoCall({
+          meetingId: result.meetingId,
+          classId: classItem.id,
+          className: classItem.title,
+          isTeacher: true,
+          startTime: new Date().toISOString()
+        });
+        setShowVideoCallModal(true);
+        toast.success('🔄 Rejoined video session!');
+      } else {
+        throw new Error(result.error || result.userMessage);
+      }
+
+    } catch (error) {
+      console.error('❌ Madina rejoin failed:', error);
+      toast.error(error.message);
+    }
+  };
+
   const handleJoinExistingSession = async (classItem, session) => {
     try {
       const meetingId = session?.meeting_id || `madina-${classItem.id}-existing`;
@@ -2146,14 +2161,19 @@ export default function TeacherDashboard() {
       />
 
       {showVideoCallModal && activeVideoCall && (
-  <VideoCallModal
-    meetingId={activeVideoCall.meetingId}
-    onLeave={() => handleLeaveVideoCall(false)}
-    onEnd={() => handleLeaveVideoCall(true)}
-    isTeacher={true}
-    userName={user?.name || 'Teacher'}
-  />
-)}
+        <VideoCallModal
+        class={activeVideoCall} // This should match what VideoCallModal expects
+        onClose={() => {
+          setShowVideoCallModal(false);
+          setActiveVideoCall(null);
+          setVideoCallError(null);
+        }}
+        onError={(error) => {
+          setVideoCallError(error);
+          toast.error(`Video call error: ${error}`);
+        }}
+        />
+      )}
     </div>
   );
 }
