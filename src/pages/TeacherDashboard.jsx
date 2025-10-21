@@ -257,7 +257,6 @@ const VideoCallModal = ({
   class: classData,
   onClose,
   onError,
-  // Backend integration props
   channel,
   token,
   appId,
@@ -285,76 +284,60 @@ const VideoCallModal = ({
                 hasToken: !!token
     });
   }, [classData, channel, token, appId, uid]);
-  // Initialize Agora with backend credentials
-  const initializeAgoraWithBackend = async () => {
+
+  // Create and publish local tracks - FIXED: Accept client as parameter
+  const createLocalTracks = async (client) => {
     try {
-      console.log('🎥 Initializing Agora with backend credentials:', {
-        appId: appId ? `${appId.substring(0, 8)}...` : 'Using env',
-                  channel: channel || classData?.channel,
-                  hasToken: !!token,
-                  uid: uid,
-                  classData: classData
-      });
+      console.log('🎤 Creating local tracks with client:', client);
 
-      // ✅ ENHANCED VALIDATION WITH BETTER ERROR MESSAGES
-      if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK not loaded - check network connection');
+      if (!client) {
+        throw new Error('Agora client not initialized');
       }
 
-      // Try multiple fallbacks for channel
-      const finalChannel = channel || classData?.channel || classData?.meetingId;
-      if (!finalChannel) {
-        throw new Error('No channel provided. Please try rejoining the session.');
-      }
+      // Create camera and microphone tracks
+      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+        {
+          // Microphone config
+          AEC: true,
+          ANS: true,
+          AGC: true,
+        },
+        {
+          // Camera config
+          encoderConfig: {
+            width: 1280,
+            height: 720,
+            frameRate: 30,
+            bitrate: 1700
+          },
+          optimizationMode: 'detail'
+        }
+      );
 
-      const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
-      if (!finalAppId || finalAppId.includes('your_')) {
-        throw new Error('Invalid Agora App ID configuration. Please check environment variables.');
-      }
+      console.log('✅ Local tracks created, publishing...');
 
-      // Create client
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8'
-      });
+      // Publish tracks
+      await client.publish([microphoneTrack, cameraTrack]);
+      console.log('✅ Local tracks published successfully');
 
-      // Set up event listeners first
-      setupAgoraEventListeners(client);
-
-      // Join channel with backend credentials
-      console.log('🚀 Joining channel:', {
-        appId: finalAppId.substring(0, 8) + '...',
-                  channel: finalChannel,
-                  hasToken: !!token,
-                  uid: uid
-      });
-
-      await client.join(finalAppId, finalChannel, token, uid);
-
-      console.log('✅ Successfully joined channel:', finalChannel);
-      return client;
+      return {
+        audioTrack: microphoneTrack,
+        videoTrack: cameraTrack
+      };
 
     } catch (error) {
-      console.error('❌ Agora initialization failed:', error);
+      console.error('❌ Failed to create local tracks:', error);
 
-      // Enhanced error handling with specific cases
-      let userMessage = 'Failed to initialize video call. ';
-
-      if (error.message.includes('channel')) {
-        userMessage = 'Session configuration error. Please try starting a new session.';
-      } else if (error.message.includes('token') || error.message.includes('dynamic use static key')) {
-        userMessage = 'Authentication failed. The session may have expired. Please try rejoining.';
-      } else if (error.message.includes('timeout')) {
-        userMessage = 'Connection timeout. Please check your internet connection and try again.';
-      } else if (error.message.includes('App ID')) {
-        userMessage = 'Service configuration error. Please contact support.';
-      } else if (error.message.includes('SDK')) {
-        userMessage = 'Video service not available. Please refresh the page and try again.';
-      } else {
-        userMessage += error.message;
+      // Handle permission errors gracefully
+      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
+        throw new Error('Camera or microphone access denied. Please check permissions and try again.');
       }
 
-      throw new Error(userMessage);
+      if (error.message.includes('NotFoundError')) {
+        throw new Error('Camera or microphone not found. Please check your device connections.');
+      }
+
+      throw error;
     }
   };
 
@@ -451,48 +434,67 @@ const VideoCallModal = ({
     });
   };
 
-  // Create and publish local tracks
-  const createLocalTracks = async () => {
+  // Initialize Agora with backend credentials
+  const initializeAgoraWithBackend = async () => {
     try {
-      console.log('🎤 Creating local tracks...');
+      console.log('🎥 Initializing Agora with backend credentials:', {
+        appId: appId ? `${appId.substring(0, 8)}...` : 'Using env',
+                  channel: channel,
+                  hasToken: !!token,
+                  uid: uid
+      });
 
-      // Create camera and microphone tracks
-      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        {
-          // Microphone config
-          AEC: true, // Acoustic Echo Cancellation
-          ANS: true, // Automatic Noise Suppression
-          AGC: true, // Automatic Gain Control
-        },
-        {
-          // Camera config
-          encoderConfig: {
-            width: 1280,
-            height: 720,
-            frameRate: 30,
-            bitrate: 1700
-          },
-          optimizationMode: 'detail'
-        }
-      );
+      // Validate Agora SDK
+      if (typeof AgoraRTC === 'undefined') {
+        throw new Error('Agora SDK not loaded - check network connection');
+      }
 
-      // Publish tracks
-      await agoraClient.publish([microphoneTrack, cameraTrack]);
-      console.log('✅ Local tracks published successfully');
+      // Validate credentials
+      if (!channel) {
+        throw new Error('No channel provided. Please try rejoining the session.');
+      }
 
-      return {
-        audioTrack: microphoneTrack,
-        videoTrack: cameraTrack
-      };
+      const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
+      if (!finalAppId || finalAppId.includes('your_')) {
+        throw new Error('Invalid Agora App ID configuration. Please check environment variables.');
+      }
+
+      // Create client
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
+
+      // Set up event listeners first
+      setupAgoraEventListeners(client);
+
+      // Join channel with backend credentials
+      console.log('🚀 Joining channel...');
+      await client.join(finalAppId, channel, token, uid);
+
+      console.log('✅ Successfully joined channel:', channel);
+      return client;
 
     } catch (error) {
-      console.error('❌ Failed to create local tracks:', error);
+      console.error('❌ Agora initialization failed:', error);
 
-      // Handle permission errors gracefully
-      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
-        throw new Error('Camera or microphone access denied. Please check permissions.');
+      let userMessage = 'Failed to initialize video call. ';
+
+      if (error.message.includes('channel')) {
+        userMessage = 'Session configuration error. Please try starting a new session.';
+      } else if (error.message.includes('token') || error.message.includes('dynamic use static key')) {
+        userMessage = 'Authentication failed. The session may have expired. Please try rejoining.';
+      } else if (error.message.includes('timeout')) {
+        userMessage = 'Connection timeout. Please check your internet connection and try again.';
+      } else if (error.message.includes('App ID')) {
+        userMessage = 'Service configuration error. Please contact support.';
+      } else if (error.message.includes('SDK')) {
+        userMessage = 'Video service not available. Please refresh the page and try again.';
+      } else {
+        userMessage += error.message;
       }
-      throw error;
+
+      throw new Error(userMessage);
     }
   };
 
@@ -605,19 +607,27 @@ const VideoCallModal = ({
     }
   };
 
-  // Main initialization effect
+  // Main initialization effect - FIXED: Proper async flow
   useEffect(() => {
     const initVideoCall = async () => {
       try {
         setIsLoading(true);
         setError(null);
 
-        // Initialize Agora client with backend credentials
+        console.log('🚀 Starting video call initialization...');
+
+        // Step 1: Initialize Agora client with backend credentials
         const client = await initializeAgoraWithBackend();
+        console.log('✅ Agora client initialized:', client);
+
+        // Step 2: Set client in state immediately
         setAgoraClient(client);
 
-        // Create and publish local tracks
-        const tracks = await createLocalTracks();
+        // Step 3: Create and publish local tracks USING THE CLIENT PARAMETER
+        console.log('🎤 Creating local tracks...');
+        const tracks = await createLocalTracks(client); // Pass client here
+        console.log('✅ Local tracks created:', tracks);
+
         setLocalStream(tracks);
 
         setIsLoading(false);
@@ -824,7 +834,6 @@ const VideoCallModal = ({
     </div>
   );
 };
-
 // Classes Tab Component
 const ClassesTab = ({ 
   classes, 
