@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoService from '../lib/videoService';
+import videoApi from '../lib/agora/videoApi';
 import { 
   BookOpen, Calendar, Clock, User, Video, Play, 
   Users, BarChart3, LogOut, Bell,
@@ -253,52 +253,350 @@ const initializeAgora = async (options = {}) => {
 };
 
 // Video Call Modal Component
-const VideoCallModal = ({ class: classData, onClose, onError }) => {
+const VideoCallModal = ({
+  class: classData,
+  onClose,
+  onError,
+  // Backend integration props
+  channel,
+  token,
+  appId,
+  uid
+}) => {
   const [agoraClient, setAgoraClient] = useState(null);
   const [localStream, setLocalStream] = useState(null);
-  const [remoteStreams, setRemoteStreams] = useState([]);
+  const [remoteStreams, setRemoteStreams] = useState(new Map()); // Use Map for better performance
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [screenStream, setScreenStream] = useState(null);
 
+  // Initialize Agora with backend credentials
+  const initializeAgoraWithBackend = async () => {
+    try {
+      console.log('🎥 Initializing Agora with backend credentials:', {
+        appId: appId ? `${appId.substring(0, 8)}...` : 'Using env',
+                  channel: channel || classData?.channel,
+                  hasToken: !!token,
+                  uid: uid
+      });
+
+      // Validate Agora SDK
+      if (typeof AgoraRTC === 'undefined') {
+        throw new Error('Agora SDK not loaded');
+      }
+
+      // Validate credentials
+      if (!channel) {
+        throw new Error('No channel provided');
+      }
+
+      const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
+      if (!finalAppId || finalAppId.includes('your_')) {
+        throw new Error('Invalid Agora App ID configuration');
+      }
+
+      // Create client
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
+
+      // Set up event listeners first
+      setupAgoraEventListeners(client);
+
+      // Join channel with backend credentials
+      console.log('🚀 Joining channel with token authentication...');
+      await client.join(finalAppId, channel, token, uid);
+
+      console.log('✅ Successfully joined channel');
+      return client;
+
+    } catch (error) {
+      console.error('❌ Agora initialization failed:', error);
+
+      // Enhanced error handling
+      let userMessage = 'Failed to initialize video call. ';
+      if (error.message.includes('token') || error.message.includes('dynamic use static key')) {
+        userMessage += 'Authentication failed. Please try rejoining.';
+      } else if (error.message.includes('timeout')) {
+        userMessage += 'Connection timeout. Check your internet.';
+      } else if (error.message.includes('App ID')) {
+        userMessage += 'Configuration error.';
+      } else {
+        userMessage += error.message;
+      }
+
+      throw new Error(userMessage);
+    }
+  };
+
+  // Set up Agora event listeners
+  const setupAgoraEventListeners = (client) => {
+    // User published media
+    client.on('user-published', async (user, mediaType) => {
+      try {
+        console.log(`📹 User ${user.uid} published ${mediaType}`);
+        await client.subscribe(user, mediaType);
+
+        if (mediaType === 'video') {
+          setRemoteStreams(prev => {
+            const newMap = new Map(prev);
+            const userData = newMap.get(user.uid) || { uid: user.uid, hasVideo: false, hasAudio: false };
+            userData.videoTrack = user.videoTrack;
+            userData.hasVideo = true;
+            newMap.set(user.uid, userData);
+            return newMap;
+          });
+        }
+
+        if (mediaType === 'audio') {
+          setRemoteStreams(prev => {
+            const newMap = new Map(prev);
+            const userData = newMap.get(user.uid) || { uid: user.uid, hasVideo: false, hasAudio: false };
+            userData.audioTrack = user.audioTrack;
+            userData.hasAudio = true;
+            newMap.set(user.uid, userData);
+            return newMap;
+          });
+
+          // Play audio
+          user.audioTrack.play().catch(err =>
+          console.warn(`Audio play failed for user ${user.uid}:`, err)
+          );
+        }
+      } catch (error) {
+        console.error(`Error handling user-published for ${user.uid}:`, error);
+      }
+    });
+
+    // User unpublished media
+    client.on('user-unpublished', (user, mediaType) => {
+      console.log(`📹 User ${user.uid} unpublished ${mediaType}`);
+
+      setRemoteStreams(prev => {
+        const newMap = new Map(prev);
+        const userData = newMap.get(user.uid);
+        if (userData) {
+          if (mediaType === 'video') {
+            userData.videoTrack = null;
+            userData.hasVideo = false;
+          }
+          if (mediaType === 'audio') {
+            userData.audioTrack = null;
+            userData.hasAudio = false;
+          }
+          newMap.set(user.uid, userData);
+        }
+        return newMap;
+      });
+    });
+
+    // User joined
+    client.on('user-joined', (user) => {
+      console.log(`👤 User ${user.uid} joined`);
+      setRemoteStreams(prev => {
+        const newMap = new Map(prev);
+        if (!newMap.has(user.uid)) {
+          newMap.set(user.uid, {
+            uid: user.uid,
+            hasVideo: false,
+            hasAudio: false
+          });
+        }
+        return newMap;
+      });
+    });
+
+    // User left
+    client.on('user-left', (user) => {
+      console.log(`👤 User ${user.uid} left`);
+      setRemoteStreams(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(user.uid);
+        return newMap;
+      });
+    });
+
+    // Connection state change
+    client.on('connection-state-change', (curState, prevState) => {
+      console.log(`🔗 Connection state: ${prevState} → ${curState}`);
+    });
+  };
+
+  // Create and publish local tracks
+  const createLocalTracks = async () => {
+    try {
+      console.log('🎤 Creating local tracks...');
+
+      // Create camera and microphone tracks
+      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+        {
+          // Microphone config
+          AEC: true, // Acoustic Echo Cancellation
+          ANS: true, // Automatic Noise Suppression
+          AGC: true, // Automatic Gain Control
+        },
+        {
+          // Camera config
+          encoderConfig: {
+            width: 1280,
+            height: 720,
+            frameRate: 30,
+            bitrate: 1700
+          },
+          optimizationMode: 'detail'
+        }
+      );
+
+      // Publish tracks
+      await agoraClient.publish([microphoneTrack, cameraTrack]);
+      console.log('✅ Local tracks published successfully');
+
+      return {
+        audioTrack: microphoneTrack,
+        videoTrack: cameraTrack
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to create local tracks:', error);
+
+      // Handle permission errors gracefully
+      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
+        throw new Error('Camera or microphone access denied. Please check permissions.');
+      }
+      throw error;
+    }
+  };
+
+  // Toggle audio
+  const toggleAudio = async () => {
+    if (localStream?.audioTrack) {
+      try {
+        await localStream.audioTrack.setEnabled(!isAudioEnabled);
+        setIsAudioEnabled(!isAudioEnabled);
+        console.log(`🎤 Audio ${!isAudioEnabled ? 'enabled' : 'disabled'}`);
+      } catch (error) {
+        console.error('Error toggling audio:', error);
+      }
+    }
+  };
+
+  // Toggle video
+  const toggleVideo = async () => {
+    if (localStream?.videoTrack) {
+      try {
+        await localStream.videoTrack.setEnabled(!isVideoEnabled);
+        setIsVideoEnabled(!isVideoEnabled);
+        console.log(`📹 Video ${!isVideoEnabled ? 'enabled' : 'disabled'}`);
+      } catch (error) {
+        console.error('Error toggling video:', error);
+      }
+    }
+  };
+
+  // Screen sharing
+  const toggleScreenShare = async () => {
+    try {
+      if (!isScreenSharing) {
+        // Start screen share
+        const screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: {
+            width: 1280,
+            height: 720,
+            frameRate: 15,
+            bitrate: 1500
+          }
+        });
+
+        // Unpublish camera track and publish screen track
+        if (localStream?.videoTrack) {
+          await agoraClient.unpublish(localStream.videoTrack);
+        }
+
+        await agoraClient.publish(screenTrack);
+        setScreenStream(screenTrack);
+        setIsScreenSharing(true);
+        console.log('🖥️ Screen sharing started');
+
+      } else {
+        // Stop screen share
+        if (screenStream) {
+          await agoraClient.unpublish(screenStream);
+          screenStream.close();
+          setScreenStream(null);
+        }
+
+        // Publish camera track again
+        if (localStream?.videoTrack) {
+          await agoraClient.publish(localStream.videoTrack);
+        }
+
+        setIsScreenSharing(false);
+        console.log('🖥️ Screen sharing stopped');
+      }
+    } catch (error) {
+      console.error('Error toggling screen share:', error);
+      if (error.name === 'NOT_READABLE_ERROR') {
+        toast.error('Screen sharing not supported or permission denied');
+      }
+    }
+  };
+
+  // Leave call cleanup
+  const leaveCall = async () => {
+    try {
+      console.log('🛑 Leaving video call...');
+
+      // Stop screen sharing if active
+      if (screenStream) {
+        screenStream.close();
+        setScreenStream(null);
+      }
+
+      // Stop and close local tracks
+      if (localStream?.audioTrack) {
+        localStream.audioTrack.close();
+      }
+      if (localStream?.videoTrack) {
+        localStream.videoTrack.close();
+      }
+
+      // Leave channel
+      if (agoraClient) {
+        await agoraClient.leave();
+      }
+
+      console.log('✅ Video call cleanup complete');
+    } catch (error) {
+      console.error('Error during call cleanup:', error);
+    } finally {
+      setAgoraClient(null);
+      setLocalStream(null);
+      setRemoteStreams(new Map());
+      onClose();
+    }
+  };
+
+  // Main initialization effect
   useEffect(() => {
     const initVideoCall = async () => {
       try {
         setIsLoading(true);
         setError(null);
 
-        const client = await initializeAgora();
+        // Initialize Agora client with backend credentials
+        const client = await initializeAgoraWithBackend();
         setAgoraClient(client);
 
-        // Create local stream
-        const stream = await AgoraRTC.createStream({
-          video: true,
-          audio: true,
-          screen: false
-        });
-
-        await stream.init();
-        await client.publish(stream);
-        setLocalStream(stream);
-
-        // Handle remote streams
-        client.on('stream-added', (evt) => {
-          const remoteStream = evt.stream;
-          client.subscribe(remoteStream, (err) => {
-            if (err) console.error('Subscribe stream failed', err);
-          });
-        });
-
-        client.on('stream-subscribed', (evt) => {
-          const remoteStream = evt.stream;
-          setRemoteStreams(prev => [...prev, remoteStream]);
-        });
-
-        client.on('stream-removed', (evt) => {
-          const remoteStream = evt.stream;
-          setRemoteStreams(prev => prev.filter(stream => stream.getId() !== remoteStream.getId()));
-        });
+        // Create and publish local tracks
+        const tracks = await createLocalTracks();
+        setLocalStream(tracks);
 
         setIsLoading(false);
+        console.log('🎉 Video call initialized successfully');
 
       } catch (err) {
         console.error('❌ Video call initialization failed:', err);
@@ -311,105 +609,193 @@ const VideoCallModal = ({ class: classData, onClose, onError }) => {
     initVideoCall();
 
     return () => {
-      if (localStream) {
-        localStream.close();
-      }
-      if (agoraClient) {
-        agoraClient.leave();
+      // Cleanup on unmount
+      if (agoraClient || localStream) {
+        leaveCall();
       }
     };
-  }, [classData, onError]);
+  }, [channel, token, appId, uid]); // Re-initialize if credentials change
 
-  const leaveCall = () => {
-    if (localStream) {
-      localStream.close();
-      setLocalStream(null);
-    }
-    if (agoraClient) {
-      agoraClient.leave();
-      setAgoraClient(null);
-    }
-    onClose();
-  };
-
+  // Error display
   if (error) {
     return (
-      <div className="video-call-modal">
-      <div className="modal-content">
-      <h2>Video Call Error</h2>
-      <div className="error-message">
-      <p>❌ {error}</p>
-      <div className="error-solutions">
-      <h4>Possible Solutions:</h4>
-      <ul>
-      <li>Check if Agora App ID is configured in environment variables</li>
-      <li>Verify your internet connection</li>
-      <li>Allow camera and microphone permissions</li>
-      <li>Contact support if the issue persists</li>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
+      <div className="bg-gradient-to-br from-red-900/50 to-pink-900/50 backdrop-blur-lg border border-red-500/20 rounded-2xl p-6 shadow-2xl max-w-md w-full">
+      <div className="text-center">
+      <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+      <XCircle className="text-red-400" size={32} />
+      </div>
+      <h2 className="text-2xl font-bold text-white mb-4">Video Call Error</h2>
+      <div className="text-red-200 mb-6">
+      <p className="mb-4">{error}</p>
+      <div className="text-left bg-red-900/30 p-4 rounded-xl">
+      <h4 className="font-semibold text-red-300 mb-2">Possible Solutions:</h4>
+      <ul className="text-sm space-y-1 text-red-200">
+      <li>• Check camera and microphone permissions</li>
+      <li>• Verify your internet connection</li>
+      <li>• Try rejoining the session</li>
+      <li>• Contact support if issue persists</li>
       </ul>
       </div>
       </div>
-      <button onClick={onClose} className="btn btn-primary">Close</button>
+      <button
+      onClick={leaveCall}
+      className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-semibold transition-colors"
+      >
+      Close
+      </button>
+      </div>
       </div>
       </div>
     );
   }
 
   return (
-    <div className="video-call-modal">
-    <div className="modal-content">
-    <div className="modal-header">
-    <h2>Video Call - {classData?.title}</h2>
-    <button onClick={leaveCall} className="close-btn">✕</button>
+    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl">
+    {/* Header */}
+    <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-r from-gray-900/80 to-purple-900/80 backdrop-blur-lg border-b border-cyan-500/20 p-4">
+    <div className="flex items-center justify-between">
+    <div className="flex items-center space-x-3">
+    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+    <h2 className="text-xl font-bold text-white">
+    {classData?.title || 'Madina Video Session'}
+    </h2>
+    <span className="text-cyan-300 text-sm">
+    {Array.from(remoteStreams.values()).filter(user => user.hasVideo || user.hasAudio).length} participants
+    </span>
     </div>
-
-    {isLoading ? (
-      <div className="loading-state">
-      <p>Initializing video call...</p>
-      </div>
-    ) : (
-      <div className="video-container">
-      <div className="local-video">
-      {localStream && (
-        <div>
-        <video
-        ref={ref => {
-          if (ref && localStream) {
-            localStream.play(ref);
-          }
-        }}
-        autoPlay
-        muted
-        />
-        <p>You</p>
-        </div>
-      )}
-      </div>
-
-      <div className="remote-videos">
-      {remoteStreams.map(stream => (
-        <div key={stream.getId()} className="remote-video">
-        <video
-        ref={ref => {
-          if (ref && stream) {
-            stream.play(ref);
-          }
-        }}
-        autoPlay
-        />
-        <p>Student {stream.getId()}</p>
-        </div>
-      ))}
-      </div>
-      </div>
-    )}
-
-    <div className="call-controls">
-    <button onClick={leaveCall} className="btn btn-danger">
-    End Call
+    <button
+    onClick={leaveCall}
+    className="p-2 text-cyan-300 hover:text-white transition-colors rounded-lg hover:bg-red-500/20"
+    title="Leave Call"
+    >
+    <PhoneOff size={24} />
     </button>
     </div>
     </div>
+
+    {/* Main Video Content */}
+    <div className="pt-20 pb-32 h-full flex flex-col">
+    {isLoading ? (
+      <div className="flex-1 flex items-center justify-center">
+      <div className="text-center">
+      <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-500 mx-auto mb-4"></div>
+      <p className="text-cyan-300 text-lg">Initializing Madina video session...</p>
+      <p className="text-cyan-400 text-sm">Connecting to neural network</p>
+      </div>
+      </div>
+    ) : (
+      <div className="flex-1 p-4">
+      {/* Remote Videos Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
+      {/* Local Video */}
+      {localStream?.videoTrack && (
+        <div className="relative bg-gray-800 rounded-2xl overflow-hidden border-2 border-cyan-500/50">
+        <video
+        ref={ref => {
+          if (ref && localStream.videoTrack) {
+            localStream.videoTrack.play(ref);
+          }
+        }}
+        className="w-full h-48 md:h-64 object-cover"
+        autoPlay
+        muted
+        />
+        <div className="absolute bottom-2 left-2 bg-black/50 text-white px-2 py-1 rounded text-sm">
+        You {!isVideoEnabled && '🔴'} {!isAudioEnabled && '🔇'}
+        </div>
+        </div>
+      )}
+
+      {/* Remote Videos */}
+      {Array.from(remoteStreams.values())
+        .filter(user => user.hasVideo)
+        .map((user) => (
+          <div key={user.uid} className="relative bg-gray-800 rounded-2xl overflow-hidden border-2 border-green-500/50">
+          <video
+          ref={ref => {
+            if (ref && user.videoTrack) {
+              user.videoTrack.play(ref);
+            }
+          }}
+          className="w-full h-48 md:h-64 object-cover"
+          autoPlay
+          />
+          <div className="absolute bottom-2 left-2 bg-black/50 text-white px-2 py-1 rounded text-sm">
+          Student {user.uid} {!user.hasAudio && '🔇'}
+          </div>
+          </div>
+        ))}
+        </div>
+
+        {/* No participants message */}
+        {Array.from(remoteStreams.values()).filter(user => user.hasVideo).length === 0 && (
+          <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-cyan-300">
+          <Users size={48} className="mx-auto mb-4 opacity-50" />
+          <p className="text-lg">Waiting for learners to join...</p>
+          <p className="text-sm">Share the session link with your students</p>
+          </div>
+          </div>
+        )}
+        </div>
+    )}
+    </div>
+
+    {/* Controls */}
+    {!isLoading && (
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/90 to-transparent p-6">
+      <div className="flex justify-center space-x-4">
+      {/* Audio Toggle */}
+      <button
+      onClick={toggleAudio}
+      className={`p-4 rounded-2xl transition-all duration-300 transform hover:scale-110 ${
+        isAudioEnabled
+        ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
+        : 'bg-red-600 hover:bg-red-500 text-white'
+      }`}
+      title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
+      >
+      {isAudioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
+      </button>
+
+      {/* Video Toggle */}
+      <button
+      onClick={toggleVideo}
+      className={`p-4 rounded-2xl transition-all duration-300 transform hover:scale-110 ${
+        isVideoEnabled
+        ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
+        : 'bg-red-600 hover:bg-red-500 text-white'
+      }`}
+      title={isVideoEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
+      >
+      {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
+      </button>
+
+      {/* Screen Share */}
+      <button
+      onClick={toggleScreenShare}
+      className={`p-4 rounded-2xl transition-all duration-300 transform hover:scale-110 ${
+        isScreenSharing
+        ? 'bg-orange-600 hover:bg-orange-500 text-white'
+        : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+      }`}
+      title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+      >
+      <Monitor size={24} />
+      </button>
+
+      {/* End Call */}
+      <button
+      onClick={leaveCall}
+      className="p-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 transform hover:scale-110"
+      title="End Call"
+      >
+      <PhoneOff size={24} />
+      </button>
+      </div>
+      </div>
+    )}
     </div>
   );
 };
@@ -1617,7 +2003,8 @@ export default function TeacherDashboard() {
       setStartingSession(classItem.id);
 
       // Use the actual video service
-      const result = await videoService.startVideoSession(classItem.id, user.id);
+      const result = await videoApi.startVideoSession(classItem.id, user.id);
+
 
       if (result.success) {
         setActiveVideoCall({
@@ -1675,28 +2062,47 @@ export default function TeacherDashboard() {
 
   const handleJoinExistingSession = async (classItem, session) => {
     try {
-      const meetingId = session?.meeting_id || `madina-${classItem.id}-existing`;
+      const meetingId = session?.meeting_id;
 
-      const sessionData = {
-        meetingId: meetingId,
-        classId: classItem.id,
-        className: classItem.title,
-        isTeacher: true,
-        startTime: session?.started_at || new Date().toISOString(),
-        sessionId: session?.id || `session-${Date.now()}`
-      };
+      if (!meetingId) {
+        throw new Error('No meeting ID found for this session');
+      }
 
-      setActiveVideoCall(sessionData);
-      
-      setRecentSessions(prev => {
-        const filtered = prev.filter(s => s.classId !== classItem.id);
-        return [sessionData, ...filtered].slice(0, 5);
-      });
+      // ✅ USE VIDEOAPI TO GET JOIN CREDENTIALS
+      const result = await videoApi.joinVideoSession(meetingId, user.id);
 
-      localStorage.setItem('teacherRecentSessions', JSON.stringify([sessionData, ...recentSessions].slice(0, 5)));
+      if (result.success) {
+        setActiveVideoCall({
+          meetingId: result.meetingId,
+          channel: result.channel,
+          token: result.token,
+          appId: result.appId,
+          uid: result.uid,
+          classId: classItem.id,
+          className: classItem.title,
+          isTeacher: true,
+          startTime: new Date().toISOString()
+        });
 
-      setShowVideoCallModal(true);
-      toast.success('🔄 Madina reconnection initiated...');
+        setRecentSessions(prev => {
+          const filtered = prev.filter(s => s.classId !== classItem.id);
+          const newSession = {
+            classId: classItem.id,
+            className: classItem.title,
+            meetingId: result.meetingId,
+            startTime: new Date().toISOString()
+          };
+          return [newSession, ...filtered].slice(0, 5);
+        });
+
+        localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions));
+
+        setShowVideoCallModal(true);
+        toast.success('🔄 Joining existing session...');
+
+      } else {
+        throw new Error(result.error || 'Failed to join session');
+      }
 
     } catch (error) {
       console.error('❌ Madina join failed:', error);
@@ -2154,7 +2560,11 @@ export default function TeacherDashboard() {
 
       {showVideoCallModal && activeVideoCall && (
         <VideoCallModal
-        class={activeVideoCall} // This should match what VideoCallModal expects
+        class={activeVideoCall}
+        channel={activeVideoCall.channel}
+        token={activeVideoCall.token}
+        appId={activeVideoCall.appId}
+        uid={activeVideoCall.uid}
         onClose={() => {
           setShowVideoCallModal(false);
           setActiveVideoCall(null);
