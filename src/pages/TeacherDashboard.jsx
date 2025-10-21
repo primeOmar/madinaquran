@@ -1436,6 +1436,7 @@ export default function TeacherDashboard() {
   const [activeTab, setActiveTab] = useState('classes');
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
+   const [error, setError] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
@@ -1612,11 +1613,11 @@ export default function TeacherDashboard() {
   // Video Call System
   const handleStartVideoSession = async (classId) => {
     try {
-      setSelectedClass(classes.find(c => c.id === classId));
+       setSelectedClass(classItem);
 
       // Check if Agora is configured
       const agoraAppId = import.meta.env.VITE_AGORA_APP_ID;
-      if (!agoraAppId || agoraAppId === 'your_agora_app_id') {
+      if (!agoraAppId || agoraAppId === '5c0225ce9a19445f95a2685647258468') {
         throw new Error('Agora video service is not configured. Please contact support.');
       }
 
