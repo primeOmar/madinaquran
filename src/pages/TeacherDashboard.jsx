@@ -252,14 +252,6 @@ const initializeAgora = async (options = {}) => {
   }
 };
 
-useEffect(() => {
-  console.log('🔧 Video Service Environment Check:', {
-    VITE_AGORA_APP_ID: import.meta.env.VITE_AGORA_APP_ID,
-    hasAppId: !!import.meta.env.VITE_AGORA_APP_ID,
-    appIdPreview: import.meta.env.VITE_AGORA_APP_ID?.substring(0, 10) + '...',
-              mode: import.meta.env.MODE
-  });
-}, []);
 // Video Call Modal Component
 const VideoCallModal = ({ class: classData, onClose, onError }) => {
   const [agoraClient, setAgoraClient] = useState(null);
