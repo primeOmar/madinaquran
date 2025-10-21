@@ -265,7 +265,7 @@ const VideoCallModal = ({
 }) => {
   const [agoraClient, setAgoraClient] = useState(null);
   const [localStream, setLocalStream] = useState(null);
-  const [remoteStreams, setRemoteStreams] = useState(new Map()); // Use Map for better performance
+  const [remoteStreams, setRemoteStreams] = useState(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
@@ -273,6 +273,18 @@ const VideoCallModal = ({
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [screenStream, setScreenStream] = useState(null);
 
+  // Debug props on component mount
+  useEffect(() => {
+    console.log('🔍 VideoCallModal Props:', {
+      classData,
+      channel,
+      token: token ? `${token.substring(0, 20)}...` : 'MISSING',
+                appId,
+                uid,
+                hasChannel: !!channel,
+                hasToken: !!token
+    });
+  }, [classData, channel, token, appId, uid]);
   // Initialize Agora with backend credentials
   const initializeAgoraWithBackend = async () => {
     try {
@@ -280,22 +292,24 @@ const VideoCallModal = ({
         appId: appId ? `${appId.substring(0, 8)}...` : 'Using env',
                   channel: channel || classData?.channel,
                   hasToken: !!token,
-                  uid: uid
+                  uid: uid,
+                  classData: classData
       });
 
-      // Validate Agora SDK
+      // ✅ ENHANCED VALIDATION WITH BETTER ERROR MESSAGES
       if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK not loaded');
+        throw new Error('Agora SDK not loaded - check network connection');
       }
 
-      // Validate credentials
-      if (!channel) {
-        throw new Error('No channel provided');
+      // Try multiple fallbacks for channel
+      const finalChannel = channel || classData?.channel || classData?.meetingId;
+      if (!finalChannel) {
+        throw new Error('No channel provided. Please try rejoining the session.');
       }
 
       const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
       if (!finalAppId || finalAppId.includes('your_')) {
-        throw new Error('Invalid Agora App ID configuration');
+        throw new Error('Invalid Agora App ID configuration. Please check environment variables.');
       }
 
       // Create client
@@ -308,23 +322,34 @@ const VideoCallModal = ({
       setupAgoraEventListeners(client);
 
       // Join channel with backend credentials
-      console.log('🚀 Joining channel with token authentication...');
-      await client.join(finalAppId, channel, token, uid);
+      console.log('🚀 Joining channel:', {
+        appId: finalAppId.substring(0, 8) + '...',
+                  channel: finalChannel,
+                  hasToken: !!token,
+                  uid: uid
+      });
 
-      console.log('✅ Successfully joined channel');
+      await client.join(finalAppId, finalChannel, token, uid);
+
+      console.log('✅ Successfully joined channel:', finalChannel);
       return client;
 
     } catch (error) {
       console.error('❌ Agora initialization failed:', error);
 
-      // Enhanced error handling
+      // Enhanced error handling with specific cases
       let userMessage = 'Failed to initialize video call. ';
-      if (error.message.includes('token') || error.message.includes('dynamic use static key')) {
-        userMessage += 'Authentication failed. Please try rejoining.';
+
+      if (error.message.includes('channel')) {
+        userMessage = 'Session configuration error. Please try starting a new session.';
+      } else if (error.message.includes('token') || error.message.includes('dynamic use static key')) {
+        userMessage = 'Authentication failed. The session may have expired. Please try rejoining.';
       } else if (error.message.includes('timeout')) {
-        userMessage += 'Connection timeout. Check your internet.';
+        userMessage = 'Connection timeout. Please check your internet connection and try again.';
       } else if (error.message.includes('App ID')) {
-        userMessage += 'Configuration error.';
+        userMessage = 'Service configuration error. Please contact support.';
+      } else if (error.message.includes('SDK')) {
+        userMessage = 'Video service not available. Please refresh the page and try again.';
       } else {
         userMessage += error.message;
       }
@@ -2002,22 +2027,45 @@ export default function TeacherDashboard() {
     try {
       setStartingSession(classItem.id);
 
-      // Use the actual video service
+      // ✅ USE VIDEOAPI INSTEAD OF VIDEOSERVICE
       const result = await videoApi.startVideoSession(classItem.id, user.id);
 
+      console.log('🔍 Backend response:', result); // Debug log
 
       if (result.success) {
-        setActiveVideoCall({
+        // ✅ ENSURE ALL REQUIRED PROPERTIES ARE SET
+        const videoCallData = {
           meetingId: result.meetingId,
+          channel: result.channel,
+          token: result.token,
+          appId: result.appId,
+          uid: result.uid,
           classId: classItem.id,
           className: classItem.title,
           isTeacher: true,
           startTime: new Date().toISOString()
-        });
+        };
+
+        console.log('🎯 Video call data:', videoCallData); // Debug log
+
+        setActiveVideoCall(videoCallData);
         setShowVideoCallModal(true);
         toast.success('🎥 Video session started!');
+
+        // Add to recent sessions
+        setRecentSessions(prev => {
+          const filtered = prev.filter(s => s.classId !== classItem.id);
+          const newSession = {
+            classId: classItem.id,
+            className: classItem.title,
+            meetingId: result.meetingId,
+            channel: result.channel, // ✅ Store channel for rejoin
+            startTime: new Date().toISOString()
+          };
+          return [newSession, ...filtered].slice(0, 5);
+        });
       } else {
-        throw new Error(result.error || result.userMessage);
+        throw new Error(result.error || 'Failed to start video session');
       }
 
     } catch (error) {
@@ -2031,6 +2079,7 @@ export default function TeacherDashboard() {
 
   const handleRejoinSession = async (classItem) => {
     try {
+      // Find the meeting ID from class data
       const meetingId = classItem.video_session?.meeting_id ||
       classItem.video_sessions?.find(s => s.status === 'active')?.meeting_id;
 
@@ -2038,20 +2087,34 @@ export default function TeacherDashboard() {
         throw new Error('No active session found to rejoin');
       }
 
-      const result = await videoService.rejoinVideoSession(meetingId, user.id);
+      console.log('🔄 Rejoining session with meetingId:', meetingId);
+
+      // ✅ USE VIDEOAPI FOR JOINING
+      const result = await videoApi.joinVideoSession(meetingId, user.id);
+
+      console.log('🔍 Join response:', result); // Debug log
 
       if (result.success) {
-        setActiveVideoCall({
+        // ✅ ENSURE ALL REQUIRED PROPERTIES ARE SET
+        const videoCallData = {
           meetingId: result.meetingId,
+          channel: result.channel,
+          token: result.token,
+          appId: result.appId,
+          uid: result.uid,
           classId: classItem.id,
           className: classItem.title,
           isTeacher: true,
           startTime: new Date().toISOString()
-        });
+        };
+
+        console.log('🎯 Rejoin video call data:', videoCallData); // Debug log
+
+        setActiveVideoCall(videoCallData);
         setShowVideoCallModal(true);
         toast.success('🔄 Rejoined video session!');
       } else {
-        throw new Error(result.error || result.userMessage);
+        throw new Error(result.error || 'Failed to join video session');
       }
 
     } catch (error) {
@@ -2561,10 +2624,11 @@ export default function TeacherDashboard() {
       {showVideoCallModal && activeVideoCall && (
         <VideoCallModal
         class={activeVideoCall}
-        channel={activeVideoCall.channel}
+        // ✅ PASS BACKEND CREDENTIALS WITH FALLBACKS
+        channel={activeVideoCall.channel || activeVideoCall.meetingId}
         token={activeVideoCall.token}
         appId={activeVideoCall.appId}
-        uid={activeVideoCall.uid}
+        uid={activeVideoCall.uid || user.id}
         onClose={() => {
           setShowVideoCallModal(false);
           setActiveVideoCall(null);
