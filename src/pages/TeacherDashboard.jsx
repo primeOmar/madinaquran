@@ -263,7 +263,7 @@ const VideoCallModal = ({
   uid
 }) => {
   const [agoraClient, setAgoraClient] = useState(null);
-  const [localTracks, setLocalTracks] = useState([]);
+  const [localTracks, setLocalTracks] = useState({});
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -443,6 +443,7 @@ const VideoCallModal = ({
   };
 
   // Create and publish local tracks with better error handling
+  // Create and publish local tracks with better error handling
   const createAndPublishLocalTracks = async (client) => {
     try {
       console.log('🎤 Creating local tracks...');
@@ -457,7 +458,7 @@ const VideoCallModal = ({
           ANS: true,
           AGC: true,
         });
-        console.log('✅ Microphone track created');
+        console.log('✅ Microphone track created:', microphoneTrack);
       } catch (audioError) {
         console.warn('❌ Microphone access failed:', audioError.message);
         toast.warn('Microphone access denied. You will be audio-only.');
@@ -474,7 +475,13 @@ const VideoCallModal = ({
           },
           optimizationMode: 'detail'
         });
-        console.log('✅ Camera track created');
+        console.log('✅ Camera track created:', cameraTrack);
+        console.log('📹 Camera track properties:', {
+          enabled: cameraTrack.enabled,
+          isPlaying: cameraTrack.isPlaying,
+          trackId: cameraTrack.getTrackId(),
+                    trackLabel: cameraTrack.getTrackLabel()
+        });
       } catch (videoError) {
         console.warn('❌ Camera access failed:', videoError.message);
         toast.warn('Camera access denied. You will be audio-only.');
@@ -495,9 +502,34 @@ const VideoCallModal = ({
         console.log('✅ Published local tracks');
       }
 
-      // Play local video if available
+      // Play local video if available - FIXED: Add proper error handling
       if (cameraTrack && localVideoRef.current) {
-        cameraTrack.play(localVideoRef.current);
+        console.log('🎬 Attempting to play local video...');
+        try {
+          await cameraTrack.play(localVideoRef.current);
+          console.log('✅ Local video playback started');
+
+          // Check if video element is properly set up
+          setTimeout(() => {
+            const videoElement = localVideoRef.current;
+            if (videoElement) {
+              console.log('📹 Video element state:', {
+                readyState: videoElement.readyState,
+                videoWidth: videoElement.videoWidth,
+                videoHeight: videoElement.videoHeight,
+                paused: videoElement.paused,
+                currentTime: videoElement.currentTime
+              });
+            }
+          }, 1000);
+        } catch (playError) {
+          console.error('❌ Failed to play local video:', playError);
+        }
+      } else {
+        console.warn('⚠️ Cannot play local video:', {
+          hasCameraTrack: !!cameraTrack,
+          hasVideoRef: !!localVideoRef.current
+        });
       }
 
       return { microphoneTrack, cameraTrack };
@@ -686,6 +718,7 @@ const VideoCallModal = ({
     );
   }
 
+
   return (
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl">
     {/* Header */}
@@ -722,19 +755,45 @@ const VideoCallModal = ({
       </div>
     ) : (
       <div className="flex-1 p-4">
+      {/* Debug Info - Remove after testing */}
+      <div className="absolute top-16 left-4 bg-black/50 text-white p-2 rounded text-xs z-20">
+      <div>Local Camera: {localTracks.cameraTrack ? '✅' : '❌'}</div>
+      <div>Local Audio: {localTracks.microphoneTrack ? '✅' : '❌'}</div>
+      <div>Remote Users: {Array.from(remoteUsers.values()).length}</div>
+      </div>
+
       {/* Remote Videos Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
-      {/* Local Video */}
-      {localTracks.cameraTrack && (
+      {/* Local Video - Enhanced */}
+      {localTracks.cameraTrack ? (
         <div className="relative bg-gray-800 rounded-2xl overflow-hidden border-2 border-cyan-500/50">
         <video
         ref={localVideoRef}
-        className="w-full h-48 md:h-64 object-cover"
+        className="w-full h-48 md:h-64 object-cover bg-black"
         autoPlay
         muted
+        playsInline
+        style={{ transform: 'scaleX(-1)' }} // Mirror effect
+        onLoadedData={() => console.log('✅ Local video data loaded')}
+        onLoadStart={() => console.log('🚀 Local video load started')}
+        onCanPlay={() => console.log('🎬 Local video can play')}
         />
         <div className="absolute bottom-2 left-2 bg-black/50 text-white px-2 py-1 rounded text-sm">
         You {!isVideoEnabled && '🔴'} {!isAudioEnabled && '🔇'}
+        </div>
+        <div className="absolute top-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-xs">
+        📹 Local
+        </div>
+        </div>
+      ) : (
+        // Camera not available fallback
+        <div className="relative bg-gray-800 rounded-2xl overflow-hidden border-2 border-cyan-500/50 flex items-center justify-center">
+        <div className="text-center text-cyan-300">
+        <VideoOff size={48} className="mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Camera not available</p>
+        </div>
+        <div className="absolute bottom-2 left-2 bg-black/50 text-white px-2 py-1 rounded text-sm">
+        You {!isAudioEnabled && '🔇'}
         </div>
         </div>
       )}
@@ -753,11 +812,16 @@ const VideoCallModal = ({
               }
             }
           }}
-          className="w-full h-48 md:h-64 object-cover"
+          className="w-full h-48 md:h-64 object-cover bg-black"
           autoPlay
+          playsInline
+          onLoadedData={() => console.log(`✅ Remote video ${user.uid} loaded`)}
           />
           <div className="absolute bottom-2 left-2 bg-black/50 text-white px-2 py-1 rounded text-sm">
           Student {user.uid} {!user.hasAudio && '🔇'}
+          </div>
+          <div className="absolute top-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-xs">
+          👤 Remote
           </div>
           </div>
         ))}
@@ -797,12 +861,13 @@ const VideoCallModal = ({
       {/* Video Toggle */}
       <button
       onClick={toggleVideo}
+      disabled={!localTracks.cameraTrack}
       className={`p-4 rounded-2xl transition-all duration-300 transform hover:scale-110 ${
         isVideoEnabled
         ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
         : 'bg-red-600 hover:bg-red-500 text-white'
-      }`}
-      title={isVideoEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
+      } ${!localTracks.cameraTrack ? 'opacity-50 cursor-not-allowed' : ''}`}
+      title={localTracks.cameraTrack ? (isVideoEnabled ? 'Turn Off Camera' : 'Turn On Camera') : 'Camera not available'}
       >
       {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
       </button>
