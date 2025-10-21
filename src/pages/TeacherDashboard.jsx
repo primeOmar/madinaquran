@@ -263,81 +263,68 @@ const VideoCallModal = ({
   uid
 }) => {
   const [agoraClient, setAgoraClient] = useState(null);
-  const [localStream, setLocalStream] = useState(null);
-  const [remoteStreams, setRemoteStreams] = useState(new Map());
+  const [localTracks, setLocalTracks] = useState([]);
+  const [remoteUsers, setRemoteUsers] = useState(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [screenStream, setScreenStream] = useState(null);
 
-  // Debug props on component mount
+  const localVideoRef = useRef(null);
+  const remoteVideoRefs = useRef(new Map());
+
+  // Debug props
   useEffect(() => {
     console.log('🔍 VideoCallModal Props:', {
-      classData,
       channel,
       token: token ? `${token.substring(0, 20)}...` : 'MISSING',
-                appId,
+                appId: appId ? `${appId.substring(0, 8)}...` : 'Using env',
                 uid,
                 hasChannel: !!channel,
                 hasToken: !!token
     });
-  }, [classData, channel, token, appId, uid]);
+  }, [channel, token, appId, uid]);
 
-  // Create and publish local tracks - FIXED: Accept client as parameter
-  const createLocalTracks = async (client) => {
+  // Initialize Agora with backend credentials
+  const initializeAgoraWithBackend = async () => {
     try {
-      console.log('🎤 Creating local tracks with client:', client);
+      console.log('🎥 Initializing Agora...');
 
-      if (!client) {
-        throw new Error('Agora client not initialized');
+      // Validate Agora SDK
+      if (typeof AgoraRTC === 'undefined') {
+        throw new Error('Agora SDK not loaded');
       }
 
-      // Create camera and microphone tracks
-      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        {
-          // Microphone config
-          AEC: true,
-          ANS: true,
-          AGC: true,
-        },
-        {
-          // Camera config
-          encoderConfig: {
-            width: 1280,
-            height: 720,
-            frameRate: 30,
-            bitrate: 1700
-          },
-          optimizationMode: 'detail'
-        }
-      );
+      // Validate credentials
+      if (!channel) {
+        throw new Error('No channel provided');
+      }
 
-      console.log('✅ Local tracks created, publishing...');
+      const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
+      if (!finalAppId || finalAppId.includes('your_')) {
+        throw new Error('Invalid Agora App ID');
+      }
 
-      // Publish tracks
-      await client.publish([microphoneTrack, cameraTrack]);
-      console.log('✅ Local tracks published successfully');
+      // Create client
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
 
-      return {
-        audioTrack: microphoneTrack,
-        videoTrack: cameraTrack
-      };
+      // Set up event listeners
+      setupAgoraEventListeners(client);
+
+      // Join channel
+      console.log('🚀 Joining channel...');
+      await client.join(finalAppId, channel, token, uid);
+
+      console.log('✅ Successfully joined channel');
+      return client;
 
     } catch (error) {
-      console.error('❌ Failed to create local tracks:', error);
-
-      // Handle permission errors gracefully
-      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
-        throw new Error('Camera or microphone access denied. Please check permissions and try again.');
-      }
-
-      if (error.message.includes('NotFoundError')) {
-        throw new Error('Camera or microphone not found. Please check your device connections.');
-      }
-
-      throw error;
+      console.error('❌ Agora initialization failed:', error);
+      throw new Error(`Failed to join video session: ${error.message}`);
     }
   };
 
@@ -350,20 +337,40 @@ const VideoCallModal = ({
         await client.subscribe(user, mediaType);
 
         if (mediaType === 'video') {
-          setRemoteStreams(prev => {
+          setRemoteUsers(prev => {
             const newMap = new Map(prev);
-            const userData = newMap.get(user.uid) || { uid: user.uid, hasVideo: false, hasAudio: false };
+            const userData = newMap.get(user.uid) || {
+              uid: user.uid,
+              hasVideo: false,
+              hasAudio: false,
+              videoTrack: null,
+              audioTrack: null
+            };
             userData.videoTrack = user.videoTrack;
             userData.hasVideo = true;
             newMap.set(user.uid, userData);
             return newMap;
           });
+
+          // Play video
+          setTimeout(() => {
+            const videoElement = remoteVideoRefs.current.get(user.uid);
+            if (videoElement && user.videoTrack) {
+              user.videoTrack.play(videoElement);
+            }
+          }, 100);
         }
 
         if (mediaType === 'audio') {
-          setRemoteStreams(prev => {
+          setRemoteUsers(prev => {
             const newMap = new Map(prev);
-            const userData = newMap.get(user.uid) || { uid: user.uid, hasVideo: false, hasAudio: false };
+            const userData = newMap.get(user.uid) || {
+              uid: user.uid,
+              hasVideo: false,
+              hasAudio: false,
+              videoTrack: null,
+              audioTrack: null
+            };
             userData.audioTrack = user.audioTrack;
             userData.hasAudio = true;
             newMap.set(user.uid, userData);
@@ -371,12 +378,10 @@ const VideoCallModal = ({
           });
 
           // Play audio
-          user.audioTrack.play().catch(err =>
-          console.warn(`Audio play failed for user ${user.uid}:`, err)
-          );
+          user.audioTrack.play();
         }
       } catch (error) {
-        console.error(`Error handling user-published for ${user.uid}:`, error);
+        console.error(`Error handling user-published:`, error);
       }
     });
 
@@ -384,7 +389,7 @@ const VideoCallModal = ({
     client.on('user-unpublished', (user, mediaType) => {
       console.log(`📹 User ${user.uid} unpublished ${mediaType}`);
 
-      setRemoteStreams(prev => {
+      setRemoteUsers(prev => {
         const newMap = new Map(prev);
         const userData = newMap.get(user.uid);
         if (userData) {
@@ -405,13 +410,15 @@ const VideoCallModal = ({
     // User joined
     client.on('user-joined', (user) => {
       console.log(`👤 User ${user.uid} joined`);
-      setRemoteStreams(prev => {
+      setRemoteUsers(prev => {
         const newMap = new Map(prev);
         if (!newMap.has(user.uid)) {
           newMap.set(user.uid, {
             uid: user.uid,
             hasVideo: false,
-            hasAudio: false
+            hasAudio: false,
+            videoTrack: null,
+            audioTrack: null
           });
         }
         return newMap;
@@ -421,9 +428,10 @@ const VideoCallModal = ({
     // User left
     client.on('user-left', (user) => {
       console.log(`👤 User ${user.uid} left`);
-      setRemoteStreams(prev => {
+      setRemoteUsers(prev => {
         const newMap = new Map(prev);
         newMap.delete(user.uid);
+        remoteVideoRefs.current.delete(user.uid);
         return newMap;
       });
     });
@@ -434,75 +442,87 @@ const VideoCallModal = ({
     });
   };
 
-  // Initialize Agora with backend credentials
-  const initializeAgoraWithBackend = async () => {
+  // Create and publish local tracks with better error handling
+  const createAndPublishLocalTracks = async (client) => {
     try {
-      console.log('🎥 Initializing Agora with backend credentials:', {
-        appId: appId ? `${appId.substring(0, 8)}...` : 'Using env',
-                  channel: channel,
-                  hasToken: !!token,
-                  uid: uid
-      });
+      console.log('🎤 Creating local tracks...');
 
-      // Validate Agora SDK
-      if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK not loaded - check network connection');
+      let microphoneTrack = null;
+      let cameraTrack = null;
+
+      // Create microphone track
+      try {
+        microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
+          AEC: true,
+          ANS: true,
+          AGC: true,
+        });
+        console.log('✅ Microphone track created');
+      } catch (audioError) {
+        console.warn('❌ Microphone access failed:', audioError.message);
+        toast.warn('Microphone access denied. You will be audio-only.');
       }
 
-      // Validate credentials
-      if (!channel) {
-        throw new Error('No channel provided. Please try rejoining the session.');
+      // Create camera track
+      try {
+        cameraTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: 1280,
+            height: 720,
+            frameRate: 30,
+            bitrate: 1700
+          },
+          optimizationMode: 'detail'
+        });
+        console.log('✅ Camera track created');
+      } catch (videoError) {
+        console.warn('❌ Camera access failed:', videoError.message);
+        toast.warn('Camera access denied. You will be audio-only.');
       }
 
-      const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
-      if (!finalAppId || finalAppId.includes('your_')) {
-        throw new Error('Invalid Agora App ID configuration. Please check environment variables.');
+      // If both tracks failed, throw error
+      if (!microphoneTrack && !cameraTrack) {
+        throw new Error('Camera and microphone access denied. Please check permissions.');
       }
 
-      // Create client
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8'
-      });
+      // Publish available tracks
+      const tracksToPublish = [];
+      if (microphoneTrack) tracksToPublish.push(microphoneTrack);
+      if (cameraTrack) tracksToPublish.push(cameraTrack);
 
-      // Set up event listeners first
-      setupAgoraEventListeners(client);
+      if (tracksToPublish.length > 0) {
+        await client.publish(tracksToPublish);
+        console.log('✅ Published local tracks');
+      }
 
-      // Join channel with backend credentials
-      console.log('🚀 Joining channel...');
-      await client.join(finalAppId, channel, token, uid);
+      // Play local video if available
+      if (cameraTrack && localVideoRef.current) {
+        cameraTrack.play(localVideoRef.current);
+      }
 
-      console.log('✅ Successfully joined channel:', channel);
-      return client;
+      return { microphoneTrack, cameraTrack };
 
     } catch (error) {
-      console.error('❌ Agora initialization failed:', error);
+      console.error('❌ Failed to create local tracks:', error);
 
-      let userMessage = 'Failed to initialize video call. ';
-
-      if (error.message.includes('channel')) {
-        userMessage = 'Session configuration error. Please try starting a new session.';
-      } else if (error.message.includes('token') || error.message.includes('dynamic use static key')) {
-        userMessage = 'Authentication failed. The session may have expired. Please try rejoining.';
-      } else if (error.message.includes('timeout')) {
-        userMessage = 'Connection timeout. Please check your internet connection and try again.';
-      } else if (error.message.includes('App ID')) {
-        userMessage = 'Service configuration error. Please contact support.';
-      } else if (error.message.includes('SDK')) {
-        userMessage = 'Video service not available. Please refresh the page and try again.';
-      } else {
-        userMessage += error.message;
+      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
+        throw new Error('Camera or microphone access denied. Please check browser permissions.');
       }
 
-      throw new Error(userMessage);
+      if (error.message.includes('NotFoundError')) {
+        throw new Error('Camera or microphone not found. Please check your device connections.');
+      }
+
+      throw error;
     }
   };
 
   // Toggle audio
   const toggleAudio = async () => {
-    if (localStream?.audioTrack) {
+    const audioTrack = localTracks.microphoneTrack;
+    if (audioTrack) {
       try {
-        await localStream.audioTrack.setEnabled(!isAudioEnabled);
+        await audioTrack.setEnabled(!isAudioEnabled);
         setIsAudioEnabled(!isAudioEnabled);
         console.log(`🎤 Audio ${!isAudioEnabled ? 'enabled' : 'disabled'}`);
       } catch (error) {
@@ -513,9 +533,10 @@ const VideoCallModal = ({
 
   // Toggle video
   const toggleVideo = async () => {
-    if (localStream?.videoTrack) {
+    const videoTrack = localTracks.cameraTrack;
+    if (videoTrack) {
       try {
-        await localStream.videoTrack.setEnabled(!isVideoEnabled);
+        await videoTrack.setEnabled(!isVideoEnabled);
         setIsVideoEnabled(!isVideoEnabled);
         console.log(`📹 Video ${!isVideoEnabled ? 'enabled' : 'disabled'}`);
       } catch (error) {
@@ -539,26 +560,18 @@ const VideoCallModal = ({
         });
 
         // Unpublish camera track and publish screen track
-        if (localStream?.videoTrack) {
-          await agoraClient.unpublish(localStream.videoTrack);
+        if (localTracks.cameraTrack) {
+          await agoraClient.unpublish(localTracks.cameraTrack);
         }
 
         await agoraClient.publish(screenTrack);
-        setScreenStream(screenTrack);
         setIsScreenSharing(true);
         console.log('🖥️ Screen sharing started');
 
       } else {
-        // Stop screen share
-        if (screenStream) {
-          await agoraClient.unpublish(screenStream);
-          screenStream.close();
-          setScreenStream(null);
-        }
-
-        // Publish camera track again
-        if (localStream?.videoTrack) {
-          await agoraClient.publish(localStream.videoTrack);
+        // Stop screen share and re-publish camera
+        if (localTracks.cameraTrack) {
+          await agoraClient.publish(localTracks.cameraTrack);
         }
 
         setIsScreenSharing(false);
@@ -577,18 +590,12 @@ const VideoCallModal = ({
     try {
       console.log('🛑 Leaving video call...');
 
-      // Stop screen sharing if active
-      if (screenStream) {
-        screenStream.close();
-        setScreenStream(null);
+      // Close local tracks
+      if (localTracks.microphoneTrack) {
+        localTracks.microphoneTrack.close();
       }
-
-      // Stop and close local tracks
-      if (localStream?.audioTrack) {
-        localStream.audioTrack.close();
-      }
-      if (localStream?.videoTrack) {
-        localStream.videoTrack.close();
+      if (localTracks.cameraTrack) {
+        localTracks.cameraTrack.close();
       }
 
       // Leave channel
@@ -601,13 +608,13 @@ const VideoCallModal = ({
       console.error('Error during call cleanup:', error);
     } finally {
       setAgoraClient(null);
-      setLocalStream(null);
-      setRemoteStreams(new Map());
+      setLocalTracks({});
+      setRemoteUsers(new Map());
       onClose();
     }
   };
 
-  // Main initialization effect - FIXED: Proper async flow
+  // Main initialization effect
   useEffect(() => {
     const initVideoCall = async () => {
       try {
@@ -616,19 +623,13 @@ const VideoCallModal = ({
 
         console.log('🚀 Starting video call initialization...');
 
-        // Step 1: Initialize Agora client with backend credentials
+        // Step 1: Initialize Agora client
         const client = await initializeAgoraWithBackend();
-        console.log('✅ Agora client initialized:', client);
-
-        // Step 2: Set client in state immediately
         setAgoraClient(client);
 
-        // Step 3: Create and publish local tracks USING THE CLIENT PARAMETER
-        console.log('🎤 Creating local tracks...');
-        const tracks = await createLocalTracks(client); // Pass client here
-        console.log('✅ Local tracks created:', tracks);
-
-        setLocalStream(tracks);
+        // Step 2: Create and publish local tracks
+        const tracks = await createAndPublishLocalTracks(client);
+        setLocalTracks(tracks);
 
         setIsLoading(false);
         console.log('🎉 Video call initialized successfully');
@@ -645,11 +646,11 @@ const VideoCallModal = ({
 
     return () => {
       // Cleanup on unmount
-      if (agoraClient || localStream) {
+      if (agoraClient || localTracks.microphoneTrack || localTracks.cameraTrack) {
         leaveCall();
       }
     };
-  }, [channel, token, appId, uid]); // Re-initialize if credentials change
+  }, [channel, token, appId, uid]);
 
   // Error display
   if (error) {
@@ -696,7 +697,7 @@ const VideoCallModal = ({
     {classData?.title || 'Madina Video Session'}
     </h2>
     <span className="text-cyan-300 text-sm">
-    {Array.from(remoteStreams.values()).filter(user => user.hasVideo || user.hasAudio).length} participants
+    {Array.from(remoteUsers.values()).filter(user => user.hasVideo || user.hasAudio).length} participants
     </span>
     </div>
     <button
@@ -724,14 +725,10 @@ const VideoCallModal = ({
       {/* Remote Videos Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
       {/* Local Video */}
-      {localStream?.videoTrack && (
+      {localTracks.cameraTrack && (
         <div className="relative bg-gray-800 rounded-2xl overflow-hidden border-2 border-cyan-500/50">
         <video
-        ref={ref => {
-          if (ref && localStream.videoTrack) {
-            localStream.videoTrack.play(ref);
-          }
-        }}
+        ref={localVideoRef}
         className="w-full h-48 md:h-64 object-cover"
         autoPlay
         muted
@@ -743,14 +740,17 @@ const VideoCallModal = ({
       )}
 
       {/* Remote Videos */}
-      {Array.from(remoteStreams.values())
+      {Array.from(remoteUsers.values())
         .filter(user => user.hasVideo)
         .map((user) => (
           <div key={user.uid} className="relative bg-gray-800 rounded-2xl overflow-hidden border-2 border-green-500/50">
           <video
           ref={ref => {
-            if (ref && user.videoTrack) {
-              user.videoTrack.play(ref);
+            if (ref) {
+              remoteVideoRefs.current.set(user.uid, ref);
+              if (user.videoTrack) {
+                user.videoTrack.play(ref);
+              }
             }
           }}
           className="w-full h-48 md:h-64 object-cover"
@@ -764,7 +764,7 @@ const VideoCallModal = ({
         </div>
 
         {/* No participants message */}
-        {Array.from(remoteStreams.values()).filter(user => user.hasVideo).length === 0 && (
+        {Array.from(remoteUsers.values()).filter(user => user.hasVideo).length === 0 && (
           <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-cyan-300">
           <Users size={48} className="mx-auto mb-4 opacity-50" />
