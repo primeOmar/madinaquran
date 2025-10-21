@@ -2,35 +2,30 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => {
-  // Load environment variables from .env files
   const env = loadEnv(mode, process.cwd(), '')
   
-  // Validate Agora configuration
-  const agoraAppId = env.VITE_AGORA_APP_ID?.trim() || ''
-  const agoraRegion = env.VITE_AGORA_REGION?.trim() || ''
-  
-  // Enhanced validation with specific checks
-  const isAppIdValid = agoraAppId && 
-                      !agoraAppId.includes('your_') && 
-                      agoraAppId.length >= 10 &&
-                      !agoraAppId.includes(' ') &&
-                      agoraAppId.indexOf('#') === -1
+  const agoraConfig = {
+    appId: env.VITE_AGORA_APP_ID?.trim() || '',
+    region: env.VITE_AGORA_REGION?.trim() || '',
+    // New: Token authentication support
+    useToken: env.VITE_AGORA_USE_TOKEN === 'true',
+    tokenServer: env.VITE_AGORA_TOKEN_SERVER || ''
+  }
 
-  console.log('🔧 Vite Configuration Analysis:', {
+  const isAppIdValid = agoraConfig.appId && 
+                      !agoraConfig.appId.includes('your_') && 
+                      agoraConfig.appId.length >= 10
+
+  console.log('🔧 Agora Configuration:', {
     mode: mode.toUpperCase(),
-    appIdProvided: !!agoraAppId,
-    appIdValid: isAppIdValid,
-    appIdPreview: isAppIdValid ? `${agoraAppId.substring(0, 8)}...${agoraAppId.substring(agoraAppId.length - 4)}` : 'INVALID',
-    region: agoraRegion || 'default',
-    nodeEnv: process.env.NODE_ENV
+    appId: isAppIdValid ? `${agoraConfig.appId.substring(0, 8)}...` : 'INVALID',
+    region: agoraConfig.region || 'default',
+    useToken: agoraConfig.useToken,
+    tokenServer: agoraConfig.tokenServer ? 'CONFIGURED' : 'NOT SET'
   })
 
   if (mode === 'production' && !isAppIdValid) {
-    console.error('❌ PRODUCTION BUILD BLOCKED: Invalid Agora App ID')
-    console.error('💡 Please check:')
-    console.error('   1. VITE_AGORA_APP_ID in .env.production')
-    console.error('   2. App ID format (32-character hex string)')
-    console.error('   3. No spaces or special characters')
+    console.error('❌ PRODUCTION BUILD: Invalid Agora App ID')
     process.exit(1)
   }
 
@@ -38,13 +33,13 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     base: './',
     
-    // Critical: Define global constants for build-time replacement
     define: {
-      __AGORA_APP_ID__: JSON.stringify(agoraAppId),
-      __AGORA_REGION__: JSON.stringify(agoraRegion),
+      __AGORA_APP_ID__: JSON.stringify(agoraConfig.appId),
+      __AGORA_REGION__: JSON.stringify(agoraConfig.region),
+      __AGORA_USE_TOKEN__: JSON.stringify(agoraConfig.useToken),
+      __AGORA_TOKEN_SERVER__: JSON.stringify(agoraConfig.tokenServer),
       __APP_ENV__: JSON.stringify(mode),
-      __BUILD_TIMESTAMP__: JSON.stringify(new Date().toISOString()),
-      __AGORA_APP_ID_VALID__: JSON.stringify(isAppIdValid)
+      __BUILD_TIMESTAMP__: JSON.stringify(new Date().toISOString())
     },
 
     build: {
@@ -52,23 +47,25 @@ export default defineConfig(({ mode }) => {
       assetsDir: 'assets',
       sourcemap: mode === 'development',
       minify: mode === 'production' ? 'esbuild' : false,
-      
       rollupOptions: {
         output: {
           assetFileNames: 'assets/[name]-[hash][extname]',
           chunkFileNames: 'assets/[name]-[hash].js',
           entryFileNames: 'assets/[name]-[hash].js'
         }
-      },
-      
-      // Clear output directory
-      emptyOutDir: true
+      }
     },
 
     server: {
       port: 3000,
       cors: true,
-      open: mode === 'development'
+      open: mode === 'development',
+      proxy: {
+        '/agora-token': {
+          target: 'http://localhost:8080',
+          changeOrigin: true
+        }
+      }
     },
 
     preview: {
