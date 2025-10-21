@@ -1014,55 +1014,88 @@ const VideoCallModal = ({
   );
 };
 // Classes Tab Component
-const ClassesTab = ({ 
-  classes, 
-  formatDateTime, 
-  onStartVideoSession, 
-  onJoinExistingSession,
-  onEndVideoSession,
-  onDeleteClass,
-  onRejoinSession,
-  startingSession,
-  endingSession,
-  videoCallError,
-  setVideoCallError,
-  recentSessions 
+const ClassesTab = ({
+  classes,
+  formatDateTime,
+    onStartVideoSession,
+    onJoinExistingSession,
+    onEndVideoSession,
+    onDeleteClass,
+    onRejoinSession,
+    startingSession,
+    endingSession,
+    videoCallError,
+    setVideoCallError,
+    recentSessions
 }) => {
   const [localDeletingClass, setLocalDeletingClass] = useState(null);
+  const [liveSessions, setLiveSessions] = useState([]);
 
-  const { upcomingClasses, completedClasses } = useMemo(() => {
+  // Enhanced session detection with background session recovery
+  const { upcomingClasses, completedClasses, activeClasses } = useMemo(() => {
     const now = new Date();
     const sortedClasses = [...classes].sort((a, b) => {
       return new Date(a.scheduled_date) - new Date(b.scheduled_date);
     });
 
+    // Active classes (currently live)
+    const active = sortedClasses.filter(cls => {
+      return hasActiveSession(cls) || isClassLive(cls);
+    });
+
+    // Upcoming classes
     const upcoming = sortedClasses.filter(cls => {
       const classTime = new Date(cls.scheduled_date);
       const timeDiff = classTime - now;
       const hoursDiff = timeDiff / (1000 * 60 * 60);
-      return hoursDiff > -2 && cls.status === 'scheduled';
+      return hoursDiff > -2 && cls.status === 'scheduled' && !hasActiveSession(cls);
     });
 
+    // Completed classes
     const completed = sortedClasses.filter(cls => {
       const classTime = new Date(cls.scheduled_date);
       const timeDiff = classTime - now;
       const hoursDiff = timeDiff / (1000 * 60 * 60);
-      return hoursDiff <= -2 || cls.status === 'completed';
+      return (hoursDiff <= -2 || cls.status === 'completed') && !hasActiveSession(cls);
     });
 
-    return { upcomingClasses: upcoming, completedClasses: completed };
+    return {
+      activeClasses: active,
+      upcomingClasses: upcoming,
+      completedClasses: completed
+    };
   }, [classes]);
+
+  // Detect active sessions
+  const hasActiveSession = (classItem) => {
+    return classItem.video_sessions?.some(s => s.status === 'active') ||
+    classItem.video_session?.status === 'active';
+  };
+
+  // Enhanced live class detection
+  const isClassLive = (classItem) => {
+    const classTime = new Date(classItem.scheduled_date);
+    const now = new Date();
+    const timeDiff = now - classTime;
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+
+    // Class is considered live if it's within 2 hours of scheduled time
+    // or has an active video session
+    return hoursDiff >= -0.5 && hoursDiff <= 2 && classItem.status === 'scheduled';
+  };
 
   const canStartVideo = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
     const now = new Date();
     const timeDiff = classTime - now;
     const hoursDiff = timeDiff / (1000 * 60 * 60);
-    return classItem.status === 'scheduled' && hoursDiff > -2;
+    return classItem.status === 'scheduled' && hoursDiff > -2 && !hasActiveSession(classItem);
   };
 
-  const hasActiveSession = (classItem) => {
-    return classItem.video_sessions?.some(s => s.status === 'active');
+  // Get active video session
+  const getActiveSession = (classItem) => {
+    return classItem.video_sessions?.find(s => s.status === 'active') ||
+    classItem.video_session;
   };
 
   const copyClassLink = (meetingId) => {
@@ -1080,278 +1113,461 @@ const ClassesTab = ({
     }
   };
 
+  // Enhanced rejoin function for background sessions
+  const handleEnhancedRejoin = async (classItem) => {
+    try {
+      const activeSession = getActiveSession(classItem);
+
+      if (activeSession) {
+        await onRejoinSession(classItem);
+      } else {
+        // If no active session found but class should be live, start a new one
+        if (isClassLive(classItem)) {
+          await onStartVideoSession(classItem);
+        } else {
+          toast.error('No active session found to rejoin');
+        }
+      }
+    } catch (error) {
+      console.error('Rejoin failed:', error);
+      toast.error('Failed to rejoin session');
+    }
+  };
+
+  // Check for background sessions on component mount
+  useEffect(() => {
+    const detectBackgroundSessions = () => {
+      const backgroundSessions = classes.filter(cls =>
+      hasActiveSession(cls) || isClassLive(cls)
+      );
+      setLiveSessions(backgroundSessions);
+
+      if (backgroundSessions.length > 0) {
+        console.log('🔄 Detected background sessions:', backgroundSessions.length);
+      }
+    };
+
+    detectBackgroundSessions();
+
+    // Check every 30 seconds for background sessions
+    const interval = setInterval(detectBackgroundSessions, 30000);
+
+    return () => clearInterval(interval);
+  }, [classes]);
+
   return (
     <div>
-      <QuickRejoinSection 
-        recentSessions={recentSessions} 
-        onRejoin={onRejoinSession}
-      />
+    <QuickRejoinSection
+    recentSessions={recentSessions}
+    onRejoin={onRejoinSession}
+    />
 
-      {videoCallError && (
-        <MadinaCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <XCircle size={20} className="text-red-400 mr-3" />
-              <div>
-                <p className="text-red-300 font-medium">Madina Link Error</p>
-                <p className="text-red-400 text-sm">{videoCallError}</p>
-              </div>
+    {/* Live Sessions Section - NEW */}
+    {activeClasses.length > 0 && (
+      <div className="mb-8">
+      <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
+      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse mr-2"></div>
+      🔴 Live Madina Sessions
+      <MadinaBadge variant="live" className="ml-3">
+      {activeClasses.length} ACTIVE
+      </MadinaBadge>
+      </h4>
+      <div className="grid gap-6">
+      {activeClasses.map((classItem) => {
+        const activeSession = getActiveSession(classItem);
+        const studentCount = classItem.students_classes?.length || 0;
+        const isStarting = startingSession === classItem.id;
+        const isEnding = endingSession === classItem.id;
+        const sessionDuration = activeSession ?
+        Math.floor((new Date() - new Date(activeSession.start_time || classItem.scheduled_date)) / 60000) : 0;
+
+        return (
+          <MadinaCard key={classItem.id} gradient="from-red-900/50 to-pink-900/50" className="border-l-4 border-red-500">
+          <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+          <div className="flex-1">
+          <div className="flex items-start justify-between mb-4">
+          <div>
+          <h4 className="font-bold text-2xl text-white mb-2 flex items-center">
+          {classItem.title}
+          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse ml-3"></div>
+          </h4>
+          <div className="flex items-center space-x-4 mt-3">
+          <MadinaBadge variant="live">
+          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
+          🔴 LIVE NOW
+          </MadinaBadge>
+          {sessionDuration > 0 && (
+            <span className="text-cyan-300 text-sm flex items-center">
+            <Clock size={16} className="mr-1" />
+            {sessionDuration}min elapsed
+            </span>
+          )}
+          {activeSession && (
+            <span className="text-green-300 text-sm flex items-center">
+            <CheckCircle size={16} className="mr-1" />
+            Session Active
+            </span>
+          )}
+          </div>
+          </div>
+          <MadinaBadge variant="live">
+          🔴 LIVE
+          </MadinaBadge>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          <div className="flex items-center text-cyan-200">
+          <Calendar size={18} className="mr-3 text-cyan-400" />
+          <div>
+          <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
+          <p className="text-xs text-cyan-300">Started</p>
+          </div>
+          </div>
+
+          {classItem.duration && (
+            <div className="flex items-center text-cyan-200">
+            <Clock size={18} className="mr-3 text-cyan-400" />
+            <div>
+            <p className="text-sm font-medium">{classItem.duration} minutes</p>
+            <p className="text-xs text-cyan-300">Scheduled Duration</p>
             </div>
-            <button onClick={() => setVideoCallError(null)} className="text-red-400 hover:text-red-300 text-sm">
-              Dismiss
-            </button>
-          </div>
-        </MadinaCard>
-      )}
+            </div>
+          )}
 
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            Madina Sessions
-          </h3>
-          <p className="text-cyan-300 text-sm">Manage your neural learning sessions</p>
-        </div>
-        <div className="text-cyan-300 text-sm">
-          {upcomingClasses.length} upcoming • {completedClasses.length} completed
-        </div>
+          <div className="flex items-center text-cyan-200">
+          <Users size={18} className="mr-3 text-cyan-400" />
+          <div>
+          <p className="text-sm font-medium">{studentCount} learners</p>
+          <p className="text-xs text-cyan-300">Connected</p>
+          </div>
+          </div>
+          </div>
+
+          {classItem.description && (
+            <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
+          )}
+
+          {/* Session Info */}
+          {activeSession && (
+            <div className="bg-red-800/20 p-4 rounded-xl border border-red-500/30 mb-4">
+            <div className="flex items-center justify-between">
+            <div>
+            <p className="text-red-300 text-sm font-medium">Active Video Session</p>
+            <p className="text-red-400 text-xs">
+            Started: {activeSession.start_time ? formatDateTime(activeSession.start_time) : 'Recently'}
+            </p>
+            </div>
+            <div className="text-red-300 text-sm">
+            Meeting ID: {activeSession.meeting_id?.substring(0, 8)}...
+            </div>
+            </div>
+            </div>
+          )}
+
+          {classItem.course?.name && (
+            <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
+            <BookOpen size={16} className="mr-2 text-cyan-400" />
+            <span className="text-cyan-300 text-sm">{classItem.course.name}</span>
+            </div>
+          )}
+          </div>
+
+          <div className="flex flex-col space-y-3 w-full lg:w-auto">
+          {/* Primary Rejoin Button */}
+          <MadinaButton
+          onClick={() => handleEnhancedRejoin(classItem)}
+          variant="warning"
+          className="min-w-[200px]"
+          >
+          <RefreshCw size={20} className="mr-3" />
+          {isStarting ? 'Rejoining...' : 'Rejoin Live Session'}
+          </MadinaButton>
+
+          {/* Session Management Buttons */}
+          {activeSession && (
+            <>
+            <MadinaButton
+            onClick={() => copyClassLink(activeSession.meeting_id)}
+            variant="ghost"
+            >
+            <Share2 size={20} className="mr-3" />
+            Copy Invite Link
+            </MadinaButton>
+
+            <MadinaButton
+            onClick={() => onEndVideoSession(classItem, activeSession)}
+            disabled={isEnding}
+            variant="danger"
+            >
+            {isEnding ? (
+              <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+              Ending Session...
+              </>
+            ) : (
+              <>
+              <X size={20} className="mr-3" />
+              End Session
+              </>
+            )}
+            </MadinaButton>
+            </>
+          )}
+
+          {/* Emergency start if no active session but class is live */}
+          {!activeSession && isClassLive(classItem) && (
+            <MadinaButton
+            onClick={() => onStartVideoSession(classItem)}
+            disabled={isStarting}
+            variant="success"
+            >
+            {isStarting ? (
+              <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+              Starting...
+              </>
+            ) : (
+              <>
+              <Rocket size={20} className="mr-3" />
+              Start Session
+              </>
+            )}
+            </MadinaButton>
+          )}
+
+          <MadinaButton
+          onClick={() => handleDeleteClass(classItem)}
+          disabled={isDeleting}
+          variant="danger"
+          className="text-sm"
+          >
+          {isDeleting ? (
+            <>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+            Deleting...
+            </>
+          ) : (
+            <>
+            <Trash2 size={16} className="mr-2" />
+            Delete Session
+            </>
+          )}
+          </MadinaButton>
+          </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
+          <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
+          <MadinaBadge variant="live">
+          LIVE SESSION
+          </MadinaBadge>
+
+          <span className="flex items-center text-green-400 text-sm">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
+          Madina channel active
+          </span>
+
+          {activeSession && (
+            <span className="text-cyan-400 text-sm">
+            Last active: {formatDateTime(activeSession.updated_at || activeSession.start_time)}
+            </span>
+          )}
+          </div>
+
+          <div className="flex items-center space-x-2 text-cyan-300 text-sm">
+          <User size={14} />
+          <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} connected</span>
+          </div>
+          </div>
+          </MadinaCard>
+        );
+      })}
       </div>
+      </div>
+    )}
 
-      {upcomingClasses.length > 0 && (
-        <div className="mb-8">
-          <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
-            <Rocket className="mr-2" size={24} />
-            Scheduled Madina Sessions
-          </h4>
-          <div className="grid gap-6">
-            {upcomingClasses.map((classItem) => {
-              const activeSession = hasActiveSession(classItem);
-              const studentCount = classItem.students_classes?.length || 0;
-              const canStart = canStartVideo(classItem);
-              const isStarting = startingSession === classItem.id;
-              const isEnding = endingSession === classItem.id;
-              const isDeleting = localDeletingClass === classItem.id;
-              const hasRecentSession = recentSessions?.some(s => s.classId === classItem.id);
-              const hasVideoSession = classItem.video_session?.meeting_id;
+    {videoCallError && (
+      <MadinaCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
+      <div className="flex items-center justify-between">
+      <div className="flex items-center">
+      <XCircle size={20} className="text-red-400 mr-3" />
+      <div>
+      <p className="text-red-300 font-medium">Madina Link Error</p>
+      <p className="text-red-400 text-sm">{videoCallError}</p>
+      </div>
+      </div>
+      <button onClick={() => setVideoCallError(null)} className="text-red-400 hover:text-red-300 text-sm">
+      Dismiss
+      </button>
+      </div>
+      </MadinaCard>
+    )}
 
-              return (
-                <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
-                  <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <h4 className="font-bold text-2xl text-white mb-2">{classItem.title}</h4>
-                          {activeSession && (
-                            <div className="flex items-center space-x-4 mt-3">
-                              <MadinaBadge variant="live">
-                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
-                                Madina LIVE
-                              </MadinaBadge>
-                              {hasRecentSession && (
-                                <span className="text-green-300 text-sm flex items-center">
-                                  <CheckCircle size={16} className="mr-1" />
-                                  Neural rejoin enabled
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {activeSession && (
-                          <MadinaBadge variant="live">
-                            🔴 LIVE
-                          </MadinaBadge>
-                        )}
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                        <div className="flex items-center text-cyan-200">
-                          <Calendar size={18} className="mr-3 text-cyan-400" />
-                          <div>
-                            <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
-                            <p className="text-xs text-cyan-300">Temporal Coordinates</p>
-                          </div>
-                        </div>
-                        
-                        {classItem.duration && (
-                          <div className="flex items-center text-cyan-200">
-                            <Clock size={18} className="mr-3 text-cyan-400" />
-                            <div>
-                              <p className="text-sm font-medium">{classItem.duration} minutes</p>
-                              <p className="text-xs text-cyan-300">Madina Duration</p>
-                            </div>
-                          </div>
-                        )}
-                        
-                        <div className="flex items-center text-cyan-200">
-                          <Users size={18} className="mr-3 text-cyan-400" />
-                          <div>
-                            <p className="text-sm font-medium">{studentCount} learners</p>
-                            <p className="text-xs text-cyan-300">Connected</p>
-                          </div>
-                        </div>
-                      </div>
+    <div className="flex justify-between items-center mb-6">
+    <div>
+    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    Madina Sessions
+    </h3>
+    <p className="text-cyan-300 text-sm">Manage your neural learning sessions</p>
+    </div>
+    <div className="text-cyan-300 text-sm">
+    {activeClasses.length > 0 && `${activeClasses.length} live • `}
+    {upcomingClasses.length} upcoming • {completedClasses.length} completed
+    </div>
+    </div>
 
-                      {classItem.description && (
-                        <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
-                      )}
+    {upcomingClasses.length > 0 && (
+      <div className="mb-8">
+      <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
+      <Rocket className="mr-2" size={24} />
+      Scheduled Madina Sessions
+      </h4>
+      <div className="grid gap-6">
+      {upcomingClasses.map((classItem) => {
+        const studentCount = classItem.students_classes?.length || 0;
+        const canStart = canStartVideo(classItem);
+        const isStarting = startingSession === classItem.id;
+        const isDeleting = localDeletingClass === classItem.id;
 
-                      {classItem.course?.name && (
-                        <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
-                          <BookOpen size={16} className="mr-2 text-cyan-400" />
-                          <span className="text-cyan-300 text-sm">{classItem.course.name}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col space-y-3 w-full lg:w-auto">
-                      {hasVideoSession && activeSession && (
-                        <MadinaButton
-                          onClick={() => onRejoinSession(classItem)}
-                          variant="warning"
-                        >
-                          <RefreshCw size={20} className="mr-3" />
-                          Madina Rejoin
-                        </MadinaButton>
-                      )}
-                      
-                      {canStart && !activeSession && (
-                        <MadinaButton
-                          onClick={() => onStartVideoSession(classItem)}
-                          disabled={isStarting}
-                          variant="success"
-                        >
-                          {isStarting ? (
-                            <>
-                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                              Madina Initiation...
-                            </>
-                          ) : (
-                            <>
-                              <Rocket size={20} className="mr-3" />
-                              Launch Session
-                            </>
-                          )}
-                        </MadinaButton>
-                      )}
-                      
-                      {activeSession && (
-                        <MadinaButton
-                          onClick={() => onJoinExistingSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
-                          variant="primary"
-                        >
-                          <Video size={20} className="mr-3" />
-                          Join Madina Channel
-                        </MadinaButton>
-                      )}
-                      
-                      {activeSession && (
-                        <>
-                          <MadinaButton
-                            onClick={() => copyClassLink(classItem.video_sessions.find(s => s.status === 'active').meeting_id)}
-                            variant="ghost"
-                          >
-                            <Share2 size={20} className="mr-3" />
-                            Neural Invite
-                          </MadinaButton>
-                          
-                          <MadinaButton
-                            onClick={() => onEndVideoSession(classItem, classItem.video_sessions.find(s => s.status === 'active'))}
-                            disabled={isEnding}
-                            variant="danger"
-                          >
-                            {isEnding ? (
-                              <>
-                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                                Madina Shutdown...
-                              </>
-                            ) : (
-                              <>
-                                <X size={20} className="mr-3" />
-                                Terminate Session
-                              </>
-                            )}
-                          </MadinaButton>
-                        </>
-                      )}
-
-                      <MadinaButton
-                        onClick={() => handleDeleteClass(classItem)}
-                        disabled={isDeleting}
-                        variant="danger"
-                        className="text-sm"
-                      >
-                        {isDeleting ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Deleting...
-                          </>
-                        ) : (
-                          <>
-                            <Trash2 size={16} className="mr-2" />
-                            Delete Session
-                          </>
-                        )}
-                      </MadinaButton>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
-                    <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
-                      <MadinaBadge variant={
-                        classItem.status === "scheduled" ? "warning" :
-                        classItem.status === "active" ? "success" :
-                        classItem.status === "completed" ? "info" : "danger"
-                      }>
-                        {classItem.status?.toUpperCase() || 'PENDING'}
-                      </MadinaBadge>
-                      
-                      {activeSession && (
-                        <span className="flex items-center text-green-400 text-sm">
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
-                          Madina channel active
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center space-x-2 text-cyan-300 text-sm">
-                      <User size={14} />
-                      <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} connected</span>
-                    </div>
-                  </div>
-                </MadinaCard>
-              );
-            })}
+        return (
+          <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
+          <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+          <div className="flex-1">
+          <div className="flex items-start justify-between mb-4">
+          <div>
+          <h4 className="font-bold text-2xl text-white mb-2">{classItem.title}</h4>
           </div>
-        </div>
-      )}
-
-      {completedClasses.length > 0 && (
-        <div>
-          <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
-            <CheckCircle className="mr-2" size={24} />
-            Madina Archive
-          </h4>
-          <div className="grid gap-4">
-            {completedClasses.map((classItem) => (
-              <MadinaCard key={classItem.id} gradient="from-gray-800/30 to-gray-900/30">
-                <h4 className="font-bold text-white text-lg">{classItem.title}</h4>
-                <p className="text-cyan-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
-                <p className="text-cyan-200 text-sm"> Learners: {classItem.students_classes?.length || 0}</p>
-                <div className="mt-3">
-                  <MadinaBadge variant="info">Madina ARCHIVE</MadinaBadge>
-                </div>
-              </MadinaCard>
-            ))}
           </div>
-        </div>
-      )}
 
-      {classes.length === 0 && (
-        <MadinaCard className="text-center py-16">
-          <Video size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-          <h3 className="text-2xl font-bold text-white mb-2">No Madina Sessions</h3>
-          <p className="text-cyan-300 text-lg">Your neural learning sessions will appear here</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          <div className="flex items-center text-cyan-200">
+          <Calendar size={18} className="mr-3 text-cyan-400" />
+          <div>
+          <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
+          <p className="text-xs text-cyan-300">Temporal Coordinates</p>
+          </div>
+          </div>
+
+          {classItem.duration && (
+            <div className="flex items-center text-cyan-200">
+            <Clock size={18} className="mr-3 text-cyan-400" />
+            <div>
+            <p className="text-sm font-medium">{classItem.duration} minutes</p>
+            <p className="text-xs text-cyan-300">Madina Duration</p>
+            </div>
+            </div>
+          )}
+
+          <div className="flex items-center text-cyan-200">
+          <Users size={18} className="mr-3 text-cyan-400" />
+          <div>
+          <p className="text-sm font-medium">{studentCount} learners</p>
+          <p className="text-xs text-cyan-300">Connected</p>
+          </div>
+          </div>
+          </div>
+
+          {classItem.description && (
+            <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
+          )}
+
+          {classItem.course?.name && (
+            <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
+            <BookOpen size={16} className="mr-2 text-cyan-400" />
+            <span className="text-cyan-300 text-sm">{classItem.course.name}</span>
+            </div>
+          )}
+          </div>
+
+          <div className="flex flex-col space-y-3 w-full lg:w-auto">
+          {canStart && (
+            <MadinaButton
+            onClick={() => onStartVideoSession(classItem)}
+            disabled={isStarting}
+            variant="success"
+            >
+            {isStarting ? (
+              <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+              Madina Initiation...
+              </>
+            ) : (
+              <>
+              <Rocket size={20} className="mr-3" />
+              Launch Session
+              </>
+            )}
+            </MadinaButton>
+          )}
+
+          <MadinaButton
+          onClick={() => handleDeleteClass(classItem)}
+          disabled={isDeleting}
+          variant="danger"
+          className="text-sm"
+          >
+          {isDeleting ? (
+            <>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+            Deleting...
+            </>
+          ) : (
+            <>
+            <Trash2 size={16} className="mr-2" />
+            Delete Session
+            </>
+          )}
+          </MadinaButton>
+          </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
+          <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
+          <MadinaBadge variant="warning">
+          SCHEDULED
+          </MadinaBadge>
+          </div>
+
+          <div className="flex items-center space-x-2 text-cyan-300 text-sm">
+          <User size={14} />
+          <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} enrolled</span>
+          </div>
+          </div>
+          </MadinaCard>
+        );
+      })}
+      </div>
+      </div>
+    )}
+
+    {completedClasses.length > 0 && (
+      <div>
+      <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
+      <CheckCircle className="mr-2" size={24} />
+      Madina Archive
+      </h4>
+      <div className="grid gap-4">
+      {completedClasses.map((classItem) => (
+        <MadinaCard key={classItem.id} gradient="from-gray-800/30 to-gray-900/30">
+        <h4 className="font-bold text-white text-lg">{classItem.title}</h4>
+        <p className="text-cyan-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
+        <p className="text-cyan-200 text-sm"> Learners: {classItem.students_classes?.length || 0}</p>
+        <div className="mt-3">
+        <MadinaBadge variant="info">Madina ARCHIVE</MadinaBadge>
+        </div>
         </MadinaCard>
-      )}
+      ))}
+      </div>
+      </div>
+    )}
+
+    {classes.length === 0 && (
+      <MadinaCard className="text-center py-16">
+      <Video size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
+      <h3 className="text-2xl font-bold text-white mb-2">No Madina Sessions</h3>
+      <p className="text-cyan-300 text-lg">Your neural learning sessions will appear here</p>
+      </MadinaCard>
+    )}
     </div>
   );
 };
