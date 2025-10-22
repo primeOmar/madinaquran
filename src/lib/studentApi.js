@@ -1,5 +1,60 @@
 import { supabase } from './supabaseClient';
 
+// ===== CONFIGURATION =====
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://madina-quran-backend.onrender.com/api';
+const AGORA_APP_ID = import.meta.env.VITE_AGORA_APP_ID;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
+// ===== UTILITY FUNCTIONS =====
+const generateDeterministicUID = (userId, meetingId) => {
+  const combined = `${userId}_${meetingId}`;
+  let hash = 0;
+  for (let i = 0; i < combined.length; i++) {
+    const char = combined.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash) % 1000000;
+};
+
+const getErrorCode = (error) => {
+  const message = error?.message || '';
+  if (message.includes('authentication')) return 'AUTH_FAILED';
+  if (message.includes('not found')) return 'SESSION_NOT_FOUND';
+  if (message.includes('not enrolled')) return 'NOT_ENROLLED';
+  if (message.includes('ended')) return 'SESSION_ENDED';
+  if (message.includes('started')) return 'SESSION_NOT_STARTED';
+  if (message.includes('full')) return 'SESSION_FULL';
+  if (message.includes('timeout')) return 'REQUEST_TIMEOUT';
+  if (message.includes('network')) return 'NETWORK_ERROR';
+  return 'UNKNOWN_ERROR';
+};
+
+const validateJoinData = (joinData) => {
+  const required = ['channel', 'appId', 'uid'];
+  const missing = required.filter(field => !joinData[field]);
+
+  if (missing.length > 0) {
+    return `Missing required fields: ${missing.join(', ')}`;
+  }
+
+  if (typeof joinData.channel !== 'string' || joinData.channel.trim().length === 0) {
+    return 'Invalid channel name';
+  }
+
+  if (typeof joinData.appId !== 'string' || joinData.appId.trim().length === 0) {
+    return 'Invalid App ID';
+  }
+
+  if (typeof joinData.uid !== 'number' || joinData.uid < 0 || joinData.uid > 4294967295) {
+    return 'Invalid UID (must be number between 0-4294967295)';
+  }
+
+  return null;
+};
+
+// ===== MAIN STUDENT API =====
 export const studentApi = {
   // Get student dashboard data
   getDashboardData: async () => {
@@ -11,39 +66,39 @@ export const studentApi = {
 
       // Get student profile with teacher info
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          name,
-          email,
-          role,
-          course,
-          status,
-          teacher_id,
-          progress,
-          attendance_rate,
-          overall_score,
-          completed_assignments,
-          total_assignments,
-          last_active,
-          teacher:teacher_id (
-            id,
-            name,
-            email,
-            subject
-          )
-        `)
-        .eq('id', studentId)
-        .single();
+      .from('profiles')
+      .select(`
+      id,
+      name,
+      email,
+      role,
+      course,
+      status,
+      teacher_id,
+      progress,
+      attendance_rate,
+      overall_score,
+      completed_assignments,
+      total_assignments,
+      last_active,
+      teacher:teacher_id (
+        id,
+        name,
+        email,
+        subject
+      )
+      `)
+      .eq('id', studentId)
+      .single();
 
       if (profileError) throw profileError;
 
       // Get all data in parallel
       const [classesData, assignmentsData, statsData, notificationsData] = await Promise.all([
         studentApi.getMyClasses(),
-        studentApi.getMyAssignments(),
-        studentApi.getMyStats(),
-        studentApi.getMyNotifications()
+                                                                                             studentApi.getMyAssignments(),
+                                                                                             studentApi.getMyStats(),
+                                                                                             studentApi.getMyNotifications()
       ]);
 
       return {
@@ -69,51 +124,51 @@ export const studentApi = {
 
       // Get student's teacher_id
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('teacher_id')
-        .eq('id', user.id)
-        .single();
+      .from('profiles')
+      .select('teacher_id')
+      .eq('id', user.id)
+      .single();
 
       if (profileError) throw profileError;
-      
+
       if (!profile?.teacher_id) {
         return { classes: [], teacher: null };
       }
 
       // Get classes from the student's assigned teacher
       const { data: classes, error: classesError } = await supabase
-        .from('classes')
-        .select(`
-          id,
-          title,
-          description,
-          scheduled_date,
-          end_date,
-          duration,
-          status,
-          teacher_id,
-          course_id,
-          max_students,
-          is_exam,
-          teacher:teacher_id (
-            name,
-            email,
-            subject
-          ),
-          video_sessions (
-            id,
-            meeting_id,
-            status,
-            channel_name,
-            started_at,
-            ended_at
-          ),
-          courses (
-            name
-          )
-        `)
-        .eq('teacher_id', profile.teacher_id)
-        .order('scheduled_date', { ascending: true });
+      .from('classes')
+      .select(`
+      id,
+      title,
+      description,
+      scheduled_date,
+      end_date,
+      duration,
+      status,
+      teacher_id,
+      course_id,
+      max_students,
+      is_exam,
+      teacher:teacher_id (
+        name,
+        email,
+        subject
+      ),
+      video_sessions (
+        id,
+        meeting_id,
+        status,
+        channel_name,
+        started_at,
+        ended_at
+      ),
+      courses (
+        name
+      )
+      `)
+      .eq('teacher_id', profile.teacher_id)
+      .order('scheduled_date', { ascending: true });
 
       if (classesError) throw classesError;
 
@@ -155,48 +210,48 @@ export const studentApi = {
 
       // Get assignments for the student
       const { data: assignments, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select(`
-          id,
-          title,
-          description,
-          due_date,
-          max_score,
-          subject,
-          status,
-          created_at,
-          updated_at,
-          teacher_id,
-          class_id,
-          file_url,
-          class:class_id (
-            title
-          ),
-          teacher:teacher_id (
-            name,
-            email
-          ),
-          assignment_submissions (
-            id,
-            status,
-            submission_text,
-            audio_url,
-            score,
-            feedback,
-            submitted_at,
-            graded_at,
-            audio_feedback_url
-          )
-        `)
-        .eq('student_id', user.id)
-        .order('due_date', { ascending: true });
+      .from('assignments')
+      .select(`
+      id,
+      title,
+      description,
+      due_date,
+      max_score,
+      subject,
+      status,
+      created_at,
+      updated_at,
+      teacher_id,
+      class_id,
+      file_url,
+      class:class_id (
+        title
+      ),
+      teacher:teacher_id (
+        name,
+        email
+      ),
+      assignment_submissions (
+        id,
+        status,
+        submission_text,
+        audio_url,
+        score,
+        feedback,
+        submitted_at,
+        graded_at,
+        audio_feedback_url
+      )
+      `)
+      .eq('student_id', user.id)
+      .order('due_date', { ascending: true });
 
       if (assignmentsError) throw assignmentsError;
 
       // Transform assignments data
       const transformedAssignments = (assignments || []).map(assignment => {
         const submission = assignment.assignment_submissions?.[0];
-        
+
         // Determine assignment status
         let status = assignment.status || 'assigned';
         if (submission) {
@@ -205,11 +260,11 @@ export const studentApi = {
             status = 'graded';
           }
         }
-        
+
         // Check if overdue
-        const isOverdue = assignment.due_date && 
-          new Date(assignment.due_date) < new Date() && 
-          status === 'assigned';
+        const isOverdue = assignment.due_date &&
+        new Date(assignment.due_date) < new Date() &&
+        status === 'assigned';
 
         return {
           id: assignment.id,
@@ -255,11 +310,11 @@ export const studentApi = {
 
       // Validate assignment exists and belongs to student
       const { data: assignment, error: assignmentError } = await supabase
-        .from('assignments')
-        .select('id, student_id, due_date, status')
-        .eq('id', assignment_id)
-        .eq('student_id', user.id)
-        .single();
+      .from('assignments')
+      .select('id, student_id, due_date, status')
+      .eq('id', assignment_id)
+      .eq('student_id', user.id)
+      .single();
 
       if (assignmentError) {
         throw new Error('Assignment not found or not authorized');
@@ -267,11 +322,11 @@ export const studentApi = {
 
       // Check if already submitted
       const { data: existingSubmission } = await supabase
-        .from('assignment_submissions')
-        .select('id')
-        .eq('assignment_id', assignment_id)
-        .eq('student_id', user.id)
-        .single();
+      .from('assignment_submissions')
+      .select('id')
+      .eq('assignment_id', assignment_id)
+      .eq('student_id', user.id)
+      .single();
 
       // Determine if submission is late
       const isLate = assignment.due_date && new Date(assignment.due_date) < new Date();
@@ -280,34 +335,34 @@ export const studentApi = {
       if (existingSubmission) {
         // Update existing submission
         const { data, error } = await supabase
-          .from('assignment_submissions')
-          .update({
-            submission_text,
-            audio_url,
-            status: status,
-            submitted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingSubmission.id)
-          .select()
-          .single();
+        .from('assignment_submissions')
+        .update({
+          submission_text,
+          audio_url,
+          status: status,
+          submitted_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+        })
+        .eq('id', existingSubmission.id)
+        .select()
+        .single();
 
         if (error) throw error;
         return { success: true, data, message: 'Assignment resubmitted successfully' };
       } else {
         // Create new submission
         const { data, error } = await supabase
-          .from('assignment_submissions')
-          .insert({
-            assignment_id,
-            student_id: user.id,
-            submission_text,
-            audio_url,
-            status: status,
-            submitted_at: new Date().toISOString()
-          })
-          .select()
-          .single();
+        .from('assignment_submissions')
+        .insert({
+          assignment_id,
+          student_id: user.id,
+          submission_text,
+          audio_url,
+          status: status,
+          submitted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
 
         if (error) throw error;
         return { success: true, data, message: 'Assignment submitted successfully' };
@@ -326,18 +381,18 @@ export const studentApi = {
 
       // Get student profile with stats
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select(`
-          progress,
-          attendance_rate,
-          overall_score,
-          completed_assignments,
-          total_assignments,
-          last_active,
-          teacher_id
-        `)
-        .eq('id', user.id)
-        .single();
+      .from('profiles')
+      .select(`
+      progress,
+      attendance_rate,
+      overall_score,
+      completed_assignments,
+      total_assignments,
+      last_active,
+      teacher_id
+      `)
+      .eq('id', user.id)
+      .single();
 
       if (profileError) throw profileError;
 
@@ -366,29 +421,29 @@ export const studentApi = {
       ] = await Promise.all([
         // Count classes from student's teacher
         supabase
-          .from('classes')
-          .select('id', { count: 'exact', head: true })
-          .eq('teacher_id', profile.teacher_id),
-        
-        // Get assignments count
-        supabase
-          .from('assignments')
-          .select('id', { count: 'exact', head: true })
-          .eq('student_id', user.id),
-        
-        // Get graded submissions for average score
-        supabase
-          .from('assignment_submissions')
-          .select('score')
-          .eq('student_id', user.id)
-          .not('score', 'is', null)
+        .from('classes')
+        .select('id', { count: 'exact', head: true })
+        .eq('teacher_id', profile.teacher_id),
+
+                            // Get assignments count
+                            supabase
+                            .from('assignments')
+                            .select('id', { count: 'exact', head: true })
+                            .eq('student_id', user.id),
+
+                            // Get graded submissions for average score
+                            supabase
+                            .from('assignment_submissions')
+                            .select('score')
+                            .eq('student_id', user.id)
+                            .not('score', 'is', null)
       ]);
 
       // Calculate stats
       const totalClasses = classesCount.count || 0;
       const totalAssignments = assignmentsData.count || 0;
       const completedAssignments = profile.completed_assignments || 0;
-      
+
       // Calculate average score from actual submissions
       let avgScore = profile.overall_score || 0;
       if (submissionsData.data && submissionsData.data.length > 0) {
@@ -398,13 +453,13 @@ export const studentApi = {
 
       // Calculate hours learned (based on completed classes and duration)
       const { data: completedClasses } = await supabase
-        .from('classes')
-        .select('duration')
-        .eq('teacher_id', profile.teacher_id)
-        .eq('status', 'completed');
+      .from('classes')
+      .select('duration')
+      .eq('teacher_id', profile.teacher_id)
+      .eq('status', 'completed');
 
-      const hoursLearned = completedClasses?.reduce((total, classItem) => 
-        total + (classItem.duration || 60) / 60, 0) || 0;
+      const hoursLearned = completedClasses?.reduce((total, classItem) =>
+      total + (classItem.duration || 60) / 60, 0) || 0;
 
       // Calculate progress metrics
       const completionRate = profile.progress || 0;
@@ -459,11 +514,11 @@ export const studentApi = {
       const to = from + limit - 1;
 
       const { data: notifications, error, count } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .range(from, to);
+      .from('notifications')
+      .select('*', { count: 'exact' })
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(from, to);
 
       if (error) throw error;
 
@@ -487,15 +542,15 @@ export const studentApi = {
       if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
-        .from('notifications')
-        .update({ 
-          read: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', notificationId)
-        .eq('user_id', user.id)
-        .select()
-        .single();
+      .from('notifications')
+      .update({
+        read: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', notificationId)
+      .eq('user_id', user.id)
+      .select()
+      .single();
 
       if (error) throw error;
       return data;
@@ -512,14 +567,14 @@ export const studentApi = {
       if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
-        .from('notifications')
-        .update({ 
-          read: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', user.id)
-        .eq('read', false)
-        .select();
+      .from('notifications')
+      .update({
+        read: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', user.id)
+      .eq('read', false)
+      .select();
 
       if (error) throw error;
       return data || [];
@@ -536,12 +591,12 @@ export const studentApi = {
       if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', notificationId)
-        .eq('user_id', user.id)
-        .select()
-        .single();
+      .from('notifications')
+      .delete()
+      .eq('id', notificationId)
+      .eq('user_id', user.id)
+      .select()
+      .single();
 
       if (error) throw error;
       return data;
@@ -558,10 +613,10 @@ export const studentApi = {
       if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('user_id', user.id)
-        .select();
+      .from('notifications')
+      .delete()
+      .eq('user_id', user.id)
+      .select();
 
       if (error) throw error;
       return data || [];
@@ -578,10 +633,10 @@ export const studentApi = {
       if (!user) throw new Error('User not authenticated');
 
       const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('read', false);
 
       if (error) throw error;
       return count || 0;
@@ -599,10 +654,10 @@ export const studentApi = {
 
       // Get student's teacher_id
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('teacher_id')
-        .eq('id', user.id)
-        .single();
+      .from('profiles')
+      .select('teacher_id')
+      .eq('id', user.id)
+      .single();
 
       if (!profile?.teacher_id) {
         return [];
@@ -610,27 +665,27 @@ export const studentApi = {
 
       // Get video sessions from student's teacher
       const { data: sessions, error } = await supabase
-        .from('video_sessions')
-        .select(`
-          id,
-          meeting_id,
-          class_id,
-          status,
-          started_at,
-          ended_at,
-          channel_name,
-          agenda,
-          scheduled_date,
-          classes (
-            title,
-            teacher:teacher_id (
-              name,
-              email
-            )
-          )
-        `)
-        .eq('classes.teacher_id', profile.teacher_id)
-        .order('scheduled_date', { ascending: false });
+      .from('video_sessions')
+      .select(`
+      id,
+      meeting_id,
+      class_id,
+      status,
+      started_at,
+      ended_at,
+      channel_name,
+      agenda,
+      scheduled_date,
+      classes (
+        title,
+        teacher:teacher_id (
+          name,
+          email
+        )
+      )
+      `)
+      .eq('classes.teacher_id', profile.teacher_id)
+      .order('scheduled_date', { ascending: false });
 
       if (error) throw error;
 
@@ -661,10 +716,10 @@ export const studentApi = {
 
       // Get payments from fee_payments table
       const { data: payments, error } = await supabase
-        .from('fee_payments')
-        .select('*')
-        .eq('student_id', user.id)
-        .order('payment_date', { ascending: false });
+      .from('fee_payments')
+      .select('*')
+      .eq('student_id', user.id)
+      .order('payment_date', { ascending: false });
 
       if (error) {
         console.error('Error fetching payments:', error);
@@ -686,10 +741,10 @@ export const studentApi = {
 
       // Get student name for the notification
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', user.id)
-        .single();
+      .from('profiles')
+      .select('name')
+      .eq('id', user.id)
+      .single();
 
       if (!message || message.trim().length === 0) {
         throw new Error('Message is required');
@@ -697,16 +752,16 @@ export const studentApi = {
 
       // Create admin notification
       const { data, error } = await supabase
-        .from('admin_notifications')
-        .insert({
-          student_id: user.id,
-          student_name: profile?.name || user.email,
-          message: message.trim(),
-          type: 'contact_request',
-          status: 'pending'
-        })
-        .select()
-        .single();
+      .from('admin_notifications')
+      .insert({
+        student_id: user.id,
+        student_name: profile?.name || user.email,
+        message: message.trim(),
+              type: 'contact_request',
+              status: 'pending'
+      })
+      .select()
+      .single();
 
       if (error) throw error;
 
@@ -735,11 +790,11 @@ export const studentApi = {
       updateData.updated_at = new Date().toISOString();
 
       const { data, error } = await supabase
-        .from('profiles')
-        .update(updateData)
-        .eq('id', user.id)
-        .select()
-        .single();
+      .from('profiles')
+      .update(updateData)
+      .eq('id', user.id)
+      .select()
+      .single();
 
       if (error) throw error;
 
@@ -750,13 +805,12 @@ export const studentApi = {
     }
   },
 
+  // ===== VIDEO SESSION METHODS =====
+
   /**
    * PRODUCTION-READY: Enhanced video session join with comprehensive error handling
    */
   joinVideoSession: async (meetingId) => {
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 1000;
-
     let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -793,7 +847,7 @@ export const studentApi = {
         }
 
         // 4. Validate join data structure
-        const validationError = studentApi.validateJoinData(joinData);
+        const validationError = validateJoinData(joinData);
         if (validationError) {
           throw new Error(`Invalid join data: ${validationError}`);
         }
@@ -842,7 +896,7 @@ export const studentApi = {
     return {
       success: false,
       error: lastError?.message || 'Failed to join video session after multiple attempts',
-      errorCode: this.getErrorCode(lastError),
+      errorCode: getErrorCode(lastError),
       retryCount: MAX_RETRIES,
       timestamp: new Date().toISOString()
     };
@@ -854,9 +908,8 @@ export const studentApi = {
   getJoinCredentials: async (meetingId, userId, userEmail) => {
     const credentialSources = [
       { name: 'primary-backend', priority: 1, method: studentApi.getCredentialsFromBackend },
-      { name: 'secondary-backend', priority: 2, method: studentApi.getCredentialsFromBackendFallback },
-      { name: 'database-fallback', priority: 3, method: studentApi.getCredentialsFromDatabase },
-      { name: 'emergency-fallback', priority: 4, method: studentApi.getEmergencyCredentials }
+      { name: 'database-fallback', priority: 2, method: studentApi.getCredentialsFromDatabase },
+      { name: 'emergency-fallback', priority: 3, method: studentApi.getEmergencyCredentials }
     ];
 
     // Sort by priority
@@ -888,8 +941,6 @@ export const studentApi = {
    * PRODUCTION-READY: Primary backend credential source
    */
   getCredentialsFromBackend: async (meetingId, userId, userEmail) => {
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://madina-quran-backend.onrender.com/api';
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
@@ -938,21 +989,6 @@ export const studentApi = {
   },
 
   /**
-   * PRODUCTION-READY: Secondary backend fallback
-   */
-  getCredentialsFromBackendFallback: async (meetingId, userId, userEmail) => {
-    // Try alternative endpoint or method
-    const FALLBACK_URL = import.meta.env.VITE_API_FALLBACK_URL || 'https://madina-quran-backend.onrender.com/api';
-
-    if (FALLBACK_URL === import.meta.env.VITE_API_URL) {
-      throw new Error('No alternative backend available');
-    }
-
-    // Same implementation as primary but with fallback URL
-    return studentApi.getCredentialsFromBackend(meetingId, userId, userEmail);
-  },
-
-  /**
    * PRODUCTION-READY: Database fallback with cached configuration
    */
   getCredentialsFromDatabase: async (meetingId, userId, userEmail) => {
@@ -978,9 +1014,9 @@ export const studentApi = {
         throw new Error('Session not found in database');
       }
 
-      // Try to get Agora config from teacher profile
+      // Try to get Agora config from teacher profile or use environment variable
       const teacherConfig = session.classes?.teacher?.agora_config;
-      const appId = teacherConfig?.appId || import.meta.env.VITE_AGORA_APP_ID;
+      const appId = teacherConfig?.appId || AGORA_APP_ID;
 
       if (!appId) {
         throw new Error('No Agora App ID configured');
@@ -993,7 +1029,7 @@ export const studentApi = {
         channel: channel,
         token: null, // Token-less mode for fallback
         appId: appId,
-        uid: studentApi.generateDeterministicUID(userId, meetingId),
+        uid: generateDeterministicUID(userId, meetingId),
         isFallback: true
       };
 
@@ -1007,70 +1043,24 @@ export const studentApi = {
    */
   getEmergencyCredentials: async (meetingId, userId, userEmail) => {
     // Generate consistent credentials based on meeting and user
-    const appId = import.meta.env.VITE_AGORA_APP_ID;
-
-    if (!appId) {
+    if (!AGORA_APP_ID) {
       throw new Error('Emergency fallback: No Agora App ID in environment');
     }
 
     // Create deterministic channel name that teacher can predict
     const channel = `emergency_${meetingId.substring(0, 8)}`;
-    const uid = studentApi.generateDeterministicUID(userId, meetingId);
+    const uid = generateDeterministicUID(userId, meetingId);
 
     console.warn('🚨 Using emergency fallback credentials');
 
     return {
       channel: channel,
       token: null,
-      appId: appId,
+      appId: AGORA_APP_ID,
       uid: uid,
       isEmergency: true,
       warning: 'Using emergency fallback mode - limited functionality'
     };
-  },
-
-  /**
-   * PRODUCTION-READY: Generate deterministic UID for consistent reconnects
-   */
-  generateDeterministicUID: (userId, meetingId) => {
-    // Combine user ID and meeting ID to create a hash-like number
-    const combined = `${userId}_${meetingId}`;
-    let hash = 0;
-
-    for (let i = 0; i < combined.length; i++) {
-      const char = combined.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-
-    // Ensure positive number and within Agora's UID range
-    return Math.abs(hash) % 1000000;
-  },
-
-  /**
-   * PRODUCTION-READY: Validate join data structure
-   */
-  validateJoinData: (joinData) => {
-    const required = ['channel', 'appId', 'uid'];
-    const missing = required.filter(field => !joinData[field]);
-
-    if (missing.length > 0) {
-      return `Missing required fields: ${missing.join(', ')}`;
-    }
-
-    if (typeof joinData.channel !== 'string' || joinData.channel.trim().length === 0) {
-      return 'Invalid channel name';
-    }
-
-    if (typeof joinData.appId !== 'string' || joinData.appId.trim().length === 0) {
-      return 'Invalid App ID';
-    }
-
-    if (typeof joinData.uid !== 'number' || joinData.uid < 0 || joinData.uid > 4294967295) {
-      return 'Invalid UID (must be number between 0-4294967295)';
-    }
-
-    return null; // No errors
   },
 
   /**
@@ -1212,97 +1202,6 @@ export const studentApi = {
     } catch (error) {
       console.warn('Non-critical: Participation recording failed:', error);
       // Silently fail - this is non-critical for joining
-    }
-  },
-
-  /**
-   * PRODUCTION-READY: Error code mapping for better client handling
-   */
-  getErrorCode: (error) => {
-    const message = error?.message || '';
-
-    if (message.includes('authentication')) return 'AUTH_FAILED';
-    if (message.includes('not found')) return 'SESSION_NOT_FOUND';
-    if (message.includes('not enrolled')) return 'NOT_ENROLLED';
-    if (message.includes('ended')) return 'SESSION_ENDED';
-    if (message.includes('started')) return 'SESSION_NOT_STARTED';
-    if (message.includes('full')) return 'SESSION_FULL';
-    if (message.includes('timeout')) return 'REQUEST_TIMEOUT';
-    if (message.includes('network')) return 'NETWORK_ERROR';
-
-    return 'UNKNOWN_ERROR';
-  },
-
-  /**
-   * Fallback method when backend is unavailable
-   */
-  joinVideoSessionFallback: async (meetingId, studentId) => {
-    try {
-      console.log('🔄 Using fallback join method for student:', studentId);
-
-      // Get session from database
-      const { data: session, error: sessionError } = await supabase
-      .from('video_sessions')
-      .select(`
-      *,
-      class:classes (
-        id,
-        title,
-        teacher_id
-      )
-      `)
-      .eq('meeting_id', meetingId)
-      .eq('status', 'active')
-      .is('ended_at', null)
-      .single();
-
-      if (sessionError || !session) {
-        throw new Error('Active session not found');
-      }
-
-      // Verify student enrollment
-      const { data: enrollment } = await supabase
-      .from('student_classes')
-      .select('id')
-      .eq('class_id', session.class_id)
-      .eq('student_id', studentId)
-      .single();
-
-      if (!enrollment) {
-        throw new Error('Student not enrolled in this class');
-      }
-
-      // Record participation
-      await supabase
-      .from('video_session_participants')
-      .insert({
-        session_id: session.id,
-        student_id: studentId,
-        joined_at: new Date().toISOString(),
-              status: 'joined'
-      });
-
-      // For fallback, we'll use a basic channel name and generate a simple token
-      // In production, you should have a token generation service
-      const fallbackData = {
-        meetingId: meetingId,
-        channel: `class_${session.class_id}`,
-        token: null, // Would need proper token generation
-        appId: import.meta.env.VITE_AGORA_APP_ID, // From environment
-        uid: Math.floor(Math.random() * 100000), // Random UID for fallback
-        source: 'fallback'
-      };
-
-      console.log('✅ Fallback join successful:', fallbackData);
-      return {
-        success: true,
-        ...fallbackData,
-        warning: 'Using fallback mode - limited functionality'
-      };
-
-    } catch (error) {
-      console.error('❌ Fallback join failed:', error);
-      throw error;
     }
   },
 
@@ -1481,73 +1380,6 @@ export const studentApi = {
   },
 
   /**
-   * Verify student can join session
-   */
-  verifySessionAccess: async (meetingId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get session and class info
-      const { data: session, error: sessionError } = await supabase
-      .from('video_sessions')
-      .select(`
-      *,
-      class:classes (
-        id,
-        title,
-        teacher_id
-      )
-      `)
-      .eq('meeting_id', meetingId)
-      .single();
-
-      if (sessionError || !session) {
-        return {
-          can_join: false,
-          reason: 'Session not found'
-        };
-      }
-
-      // Check if session is active
-      if (session.status !== 'active' || session.ended_at) {
-        return {
-          can_join: false,
-          reason: 'Session has ended'
-        };
-      }
-
-      // Verify student enrollment
-      const { data: enrollment } = await supabase
-      .from('student_classes')
-      .select('id')
-      .eq('class_id', session.class_id)
-      .eq('student_id', user.id)
-      .single();
-
-      if (!enrollment) {
-        return {
-          can_join: false,
-          reason: 'Not enrolled in this class'
-        };
-      }
-
-      return {
-        can_join: true,
-        session: session,
-        class_title: session.class?.title
-      };
-
-    } catch (error) {
-      console.error('❌ Error verifying session access:', error);
-      return {
-        can_join: false,
-        reason: error.message
-      };
-    }
-  },
-
-  /**
    * Get active video sessions for student
    */
   getActiveVideoSessions: async () => {
@@ -1569,15 +1401,13 @@ export const studentApi = {
       // Get active sessions from student's teacher
       const { data: sessions, error } = await supabase
       .from('video_sessions')
-      .select(
-
-        `
-        *,
-        class:classes (
-          title,
-          teacher:teacher_id (name)
-        )
-        `)
+      .select(`
+      *,
+      class:classes (
+        title,
+        teacher:teacher_id (name)
+      )
+      `)
       .eq('classes.teacher_id', profile.teacher_id)
       .eq('status', 'active')
       .is('ended_at', null)
@@ -1593,6 +1423,5 @@ export const studentApi = {
     }
   }
 };
-
 
 export default studentApi;
