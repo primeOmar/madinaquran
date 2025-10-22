@@ -34,23 +34,23 @@ const getErrorCode = (error) => {
 const validateJoinData = (joinData) => {
   const required = ['channel', 'appId', 'uid'];
   const missing = required.filter(field => !joinData[field]);
-
+  
   if (missing.length > 0) {
     return `Missing required fields: ${missing.join(', ')}`;
   }
-
+  
   if (typeof joinData.channel !== 'string' || joinData.channel.trim().length === 0) {
     return 'Invalid channel name';
   }
-
+  
   if (typeof joinData.appId !== 'string' || joinData.appId.trim().length === 0) {
     return 'Invalid App ID';
   }
-
+  
   if (typeof joinData.uid !== 'number' || joinData.uid < 0 || joinData.uid > 4294967295) {
     return 'Invalid UID (must be number between 0-4294967295)';
   }
-
+  
   return null;
 };
 
@@ -61,9 +61,9 @@ export const studentApi = {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw new Error('User not authenticated');
-
+      
       const studentId = user.id;
-
+      
       // Get student profile with teacher info
       const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -90,9 +90,9 @@ export const studentApi = {
       `)
       .eq('id', studentId)
       .single();
-
+      
       if (profileError) throw profileError;
-
+      
       // Get all data in parallel
       const [classesData, assignmentsData, statsData, notificationsData] = await Promise.all([
         studentApi.getMyClasses(),
@@ -100,7 +100,7 @@ export const studentApi = {
                                                                                              studentApi.getMyStats(),
                                                                                              studentApi.getMyNotifications()
       ]);
-
+      
       return {
         student: profile,
         teacher: profile.teacher,
@@ -115,26 +115,26 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Get student's classes from their assigned teacher
   getMyClasses: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get student's teacher_id
       const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('teacher_id')
       .eq('id', user.id)
       .single();
-
+      
       if (profileError) throw profileError;
-
+      
       if (!profile?.teacher_id) {
         return { classes: [], teacher: null };
       }
-
+      
       // Get classes from the student's assigned teacher
       const { data: classes, error: classesError } = await supabase
       .from('classes')
@@ -169,9 +169,9 @@ export const studentApi = {
       `)
       .eq('teacher_id', profile.teacher_id)
       .order('scheduled_date', { ascending: true });
-
+      
       if (classesError) throw classesError;
-
+      
       // Transform data to match frontend expectations
       const transformedClasses = (classes || []).map(classItem => ({
         id: classItem.id,
@@ -191,7 +191,7 @@ export const studentApi = {
         course_name: classItem.courses?.name,
         video_session: classItem.video_sessions?.[0] || null
       }));
-
+      
       return {
         classes: transformedClasses,
         teacher: classes?.[0]?.teacher || null
@@ -201,13 +201,13 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Get student's assignments with submissions
   getMyAssignments: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get assignments for the student
       const { data: assignments, error: assignmentsError } = await supabase
       .from('assignments')
@@ -245,13 +245,13 @@ export const studentApi = {
       `)
       .eq('student_id', user.id)
       .order('due_date', { ascending: true });
-
+      
       if (assignmentsError) throw assignmentsError;
-
+      
       // Transform assignments data
       const transformedAssignments = (assignments || []).map(assignment => {
         const submission = assignment.assignment_submissions?.[0];
-
+        
         // Determine assignment status
         let status = assignment.status || 'assigned';
         if (submission) {
@@ -260,12 +260,12 @@ export const studentApi = {
             status = 'graded';
           }
         }
-
+        
         // Check if overdue
         const isOverdue = assignment.due_date &&
         new Date(assignment.due_date) < new Date() &&
         status === 'assigned';
-
+        
         return {
           id: assignment.id,
           title: assignment.title,
@@ -292,22 +292,22 @@ export const studentApi = {
           graded_at: submission?.graded_at
         };
       });
-
+      
       return { assignments: transformedAssignments };
     } catch (error) {
       console.error('Error fetching assignments:', error);
       throw error;
     }
   },
-
+  
   // Submit assignment
   submitAssignment: async (submissionData) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { assignment_id, submission_text, audio_url } = submissionData;
-
+      
       // Validate assignment exists and belongs to student
       const { data: assignment, error: assignmentError } = await supabase
       .from('assignments')
@@ -315,11 +315,11 @@ export const studentApi = {
       .eq('id', assignment_id)
       .eq('student_id', user.id)
       .single();
-
+      
       if (assignmentError) {
         throw new Error('Assignment not found or not authorized');
       }
-
+      
       // Check if already submitted
       const { data: existingSubmission } = await supabase
       .from('assignment_submissions')
@@ -327,11 +327,11 @@ export const studentApi = {
       .eq('assignment_id', assignment_id)
       .eq('student_id', user.id)
       .single();
-
+      
       // Determine if submission is late
       const isLate = assignment.due_date && new Date(assignment.due_date) < new Date();
       const status = isLate ? 'late' : 'submitted';
-
+      
       if (existingSubmission) {
         // Update existing submission
         const { data, error } = await supabase
@@ -346,7 +346,7 @@ export const studentApi = {
         .eq('id', existingSubmission.id)
         .select()
         .single();
-
+        
         if (error) throw error;
         return { success: true, data, message: 'Assignment resubmitted successfully' };
       } else {
@@ -363,7 +363,7 @@ export const studentApi = {
         })
         .select()
         .single();
-
+        
         if (error) throw error;
         return { success: true, data, message: 'Assignment submitted successfully' };
       }
@@ -372,13 +372,13 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Get student statistics - using profile data and actual counts
   getMyStats: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get student profile with stats
       const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -393,9 +393,9 @@ export const studentApi = {
       `)
       .eq('id', user.id)
       .single();
-
+      
       if (profileError) throw profileError;
-
+      
       // If no teacher_id, return empty stats
       if (!profile?.teacher_id) {
         return {
@@ -412,7 +412,7 @@ export const studentApi = {
           streak: 0
         };
       }
-
+      
       // Get actual counts from database
       const [
         classesCount,
@@ -424,13 +424,13 @@ export const studentApi = {
         .from('classes')
         .select('id', { count: 'exact', head: true })
         .eq('teacher_id', profile.teacher_id),
-
+                            
                             // Get assignments count
                             supabase
                             .from('assignments')
                             .select('id', { count: 'exact', head: true })
                             .eq('student_id', user.id),
-
+                            
                             // Get graded submissions for average score
                             supabase
                             .from('assignment_submissions')
@@ -438,41 +438,41 @@ export const studentApi = {
                             .eq('student_id', user.id)
                             .not('score', 'is', null)
       ]);
-
+      
       // Calculate stats
       const totalClasses = classesCount.count || 0;
       const totalAssignments = assignmentsData.count || 0;
       const completedAssignments = profile.completed_assignments || 0;
-
+      
       // Calculate average score from actual submissions
       let avgScore = profile.overall_score || 0;
       if (submissionsData.data && submissionsData.data.length > 0) {
         const totalScore = submissionsData.data.reduce((sum, sub) => sum + (sub.score || 0), 0);
         avgScore = Math.round(totalScore / submissionsData.data.length);
       }
-
+      
       // Calculate hours learned (based on completed classes and duration)
       const { data: completedClasses } = await supabase
       .from('classes')
       .select('duration')
       .eq('teacher_id', profile.teacher_id)
       .eq('status', 'completed');
-
+      
       const hoursLearned = completedClasses?.reduce((total, classItem) =>
       total + (classItem.duration || 60) / 60, 0) || 0;
-
+      
       // Calculate progress metrics
       const completionRate = profile.progress || 0;
       const attendanceRate = profile.attendance_rate || 0;
-
+      
       // Calculate points and level based on completed work
       const points = completedAssignments * 10 + (avgScore || 0);
       const level = Math.floor(points / 100) + 1;
       const nextLevel = 100 - (points % 100);
-
+      
       // Calculate streak (placeholder - you might want to implement actual streak logic)
       const streak = Math.floor(Math.random() * 14) + 1;
-
+      
       return {
         total_classes: totalClasses,
         hours_learned: Math.round(hoursLearned),
@@ -503,25 +503,25 @@ export const studentApi = {
       };
     }
   },
-
+  
   // Get student's notifications
   getMyNotifications: async (limit = 20, page = 1) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const from = (page - 1) * limit;
       const to = from + limit - 1;
-
+      
       const { data: notifications, error, count } = await supabase
       .from('notifications')
       .select('*', { count: 'exact' })
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .range(from, to);
-
+      
       if (error) throw error;
-
+      
       return {
         notifications: notifications || [],
         total: count || 0,
@@ -534,13 +534,13 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Mark notification as read
   markNotificationAsRead: async (notificationId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { data, error } = await supabase
       .from('notifications')
       .update({
@@ -551,7 +551,7 @@ export const studentApi = {
       .eq('user_id', user.id)
       .select()
       .single();
-
+      
       if (error) throw error;
       return data;
     } catch (error) {
@@ -559,13 +559,13 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Mark all notifications as read
   markAllNotificationsAsRead: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { data, error } = await supabase
       .from('notifications')
       .update({
@@ -575,7 +575,7 @@ export const studentApi = {
       .eq('user_id', user.id)
       .eq('read', false)
       .select();
-
+      
       if (error) throw error;
       return data || [];
     } catch (error) {
@@ -583,13 +583,13 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Delete notification
   deleteNotification: async (notificationId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { data, error } = await supabase
       .from('notifications')
       .delete()
@@ -597,7 +597,7 @@ export const studentApi = {
       .eq('user_id', user.id)
       .select()
       .single();
-
+      
       if (error) throw error;
       return data;
     } catch (error) {
@@ -605,19 +605,19 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Clear all notifications
   clearAllNotifications: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { data, error } = await supabase
       .from('notifications')
       .delete()
       .eq('user_id', user.id)
       .select();
-
+      
       if (error) throw error;
       return data || [];
     } catch (error) {
@@ -625,19 +625,19 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Get unread notifications count
   getUnreadNotificationsCount: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { count, error } = await supabase
       .from('notifications')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
       .eq('read', false);
-
+      
       if (error) throw error;
       return count || 0;
     } catch (error) {
@@ -645,24 +645,24 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Get student's video sessions
   getMyVideoSessions: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get student's teacher_id
       const { data: profile } = await supabase
       .from('profiles')
       .select('teacher_id')
       .eq('id', user.id)
       .single();
-
+      
       if (!profile?.teacher_id) {
         return [];
       }
-
+      
       // Get video sessions from student's teacher
       const { data: sessions, error } = await supabase
       .from('video_sessions')
@@ -686,9 +686,9 @@ export const studentApi = {
       `)
       .eq('classes.teacher_id', profile.teacher_id)
       .order('scheduled_date', { ascending: false });
-
+      
       if (error) throw error;
-
+      
       return (sessions || []).map(session => ({
         id: session.id,
         meeting_id: session.meeting_id,
@@ -707,49 +707,49 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   // Get student's payments
   getMyPayments: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get payments from fee_payments table
       const { data: payments, error } = await supabase
       .from('fee_payments')
       .select('*')
       .eq('student_id', user.id)
       .order('payment_date', { ascending: false });
-
+      
       if (error) {
         console.error('Error fetching payments:', error);
         return [];
       }
-
+      
       return payments || [];
     } catch (error) {
       console.error('Error fetching payments:', error);
       return [];
     }
   },
-
+  
   // Contact admin
   contactAdmin: async (message) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get student name for the notification
       const { data: profile } = await supabase
       .from('profiles')
       .select('name')
       .eq('id', user.id)
       .single();
-
+      
       if (!message || message.trim().length === 0) {
         throw new Error('Message is required');
       }
-
+      
       // Create admin notification
       const { data, error } = await supabase
       .from('admin_notifications')
@@ -762,127 +762,195 @@ export const studentApi = {
       })
       .select()
       .single();
-
+      
       if (error) throw error;
-
+      
       return { success: true, data, message: 'Message sent to admin successfully' };
     } catch (error) {
       console.error('Error contacting admin:', error);
       throw error;
     }
   },
-
+  
   // Update student profile
   updateProfile: async (updates) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       const { name, course } = updates;
-
+      
       if (!name && !course) {
         throw new Error('At least one field (name or course) is required');
       }
-
+      
       const updateData = {};
       if (name) updateData.name = name;
       if (course) updateData.course = course;
       updateData.updated_at = new Date().toISOString();
-
+      
       const { data, error } = await supabase
       .from('profiles')
       .update(updateData)
       .eq('id', user.id)
       .select()
       .single();
-
+      
       if (error) throw error;
-
+      
       return { success: true, data, message: 'Profile updated successfully' };
     } catch (error) {
       console.error('Error updating profile:', error);
       throw error;
     }
   },
-
+  
   // ===== VIDEO SESSION METHODS =====
-
+  
   /**
    * PRODUCTION-READY: Enhanced video session join with comprehensive error handling
    */
   joinVideoSession: async (meetingId) => {
     let lastError = null;
-
+    
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        console.log(`🔄 Join attempt ${attempt}/${MAX_RETRIES} for session:`, meetingId);
-
+        console.log(`🔄 REAL Join attempt ${attempt}/${MAX_RETRIES} for session:`, meetingId);
+        
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
           throw new Error('User authentication failed: ' + (authError?.message || 'No user found'));
         }
-
+        
         // 1. Validate meeting ID format
         if (!meetingId || typeof meetingId !== 'string' || meetingId.trim().length === 0) {
           throw new Error('Invalid meeting ID format');
         }
-
-        // 2. Verify session access with timeout
-        const accessCheck = await Promise.race([
-          studentApi.verifySessionAccess(meetingId),
-                                               new Promise((_, reject) =>
-                                               setTimeout(() => reject(new Error('Session verification timeout')), 10000)
-                                               )
-        ]);
-
-        if (!accessCheck.can_join) {
-          throw new Error(accessCheck.reason || 'Access denied to this session');
+        
+        // 2. FIRST: Check if session exists and is active
+        console.log('🔍 Checking session status...');
+        const sessionStatus = await fetch(
+          `${API_BASE_URL}/agora/session-status/${meetingId}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${await getToken()}`,
+                                          'Content-Type': 'application/json',
+            },
+          }
+        );
+        
+        if (!sessionStatus.ok) {
+          if (sessionStatus.status === 404) {
+            throw new Error('SESSION_NOT_FOUND');
+          }
+          throw new Error(`Session status check failed: ${sessionStatus.status}`);
         }
-
-        // 3. Try multiple credential sources with fallbacks
-        const joinData = await studentApi.getJoinCredentials(meetingId, user.id, user.email);
-
-        if (!joinData) {
-          throw new Error('Failed to obtain join credentials from all sources');
+        
+        const statusData = await sessionStatus.json();
+        console.log('📊 Session status response:', statusData);
+        
+        if (!statusData.success) {
+          throw new Error('SESSION_NOT_ACTIVE');
         }
-
-        // 4. Validate join data structure
-        const validationError = validateJoinData(joinData);
-        if (validationError) {
-          throw new Error(`Invalid join data: ${validationError}`);
+        
+        // 3. Get REAL Agora credentials from backend
+        console.log('🎫 Requesting Agora credentials...');
+        const joinResponse = await fetch(
+          `${API_BASE_URL}/agora/join-session`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${await getToken()}`,
+                                         'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              meeting_id: meetingId,
+              role: 'student',
+              user_id: user.id,
+              user_email: user.email
+            }),
+          }
+        );
+        
+        if (!joinResponse.ok) {
+          const errorText = await joinResponse.text();
+          console.error('❌ Join credentials failed:', joinResponse.status, errorText);
+          
+          if (joinResponse.status === 404) {
+            throw new Error('JOIN_ENDPOINT_NOT_FOUND');
+          } else if (joinResponse.status === 403) {
+            throw new Error('ACCESS_DENIED');
+          } else if (joinResponse.status === 400) {
+            throw new Error('INVALID_REQUEST');
+          }
+          throw new Error('CREDENTIALS_FAILED');
         }
-
-        // 5. Record participation (fire-and-forget, don't block join)
-        studentApi.recordSessionParticipation(meetingId, user.id)
-        .catch(error => console.warn('Non-critical: Participation recording failed:', error));
-
-        // 6. Return standardized success response
+        
+        const joinData = await joinResponse.json();
+        console.log('✅ Join credentials received:', {
+          hasAppId: !!joinData.appId,
+          hasChannel: !!joinData.channel,
+          hasToken: !!joinData.token,
+          hasUid: !!joinData.uid,
+          success: joinData.success
+        });
+        
+        if (!joinData.success) {
+          throw new Error(joinData.error || 'JOIN_FAILED');
+        }
+        
+        // 4. Validate REAL Agora data structure
+        if (!joinData.appId || !joinData.channel) {
+          throw new Error('MISSING_AGORA_CREDENTIALS');
+        }
+        
+        // 5. Record participation (fire-and-forget)
+        try {
+          await fetch(`${API_BASE_URL}/agora/record-participation`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${await getToken()}`,
+                      'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              meeting_id: meetingId,
+              user_id: user.id,
+              action: 'joined'
+            }),
+          });
+        } catch (recordError) {
+          console.warn('Non-critical: Participation recording failed:', recordError);
+        }
+        
+        // 6. Return standardized REAL success response
         return {
           success: true,
           meetingId: meetingId,
           channel: joinData.channel,
           token: joinData.token,
           appId: joinData.appId,
-          uid: joinData.uid,
-          source: joinData.source,
+          uid: joinData.uid || generateRandomUid(),
           timestamp: new Date().toISOString(),
           sessionInfo: {
-            classTitle: accessCheck.class_title,
-            teacherName: accessCheck.teacher_name
+            isActive: true,
+            participantCount: statusData.session?.participant_count || 0,
+            teacherId: statusData.session?.teacher_id
           }
         };
-
+        
       } catch (error) {
         lastError = error;
-        console.error(`❌ Join attempt ${attempt} failed:`, error.message);
-
-        // Don't retry for authentication or validation errors
-        if (error.message.includes('authentication') ||
-          error.message.includes('Invalid') ||
-          error.message.includes('Access denied')) {
+        console.error(`❌ REAL Join attempt ${attempt} failed:`, error.message);
+        
+        // Don't retry for these critical errors
+        if (error.message.includes('SESSION_NOT_FOUND') ||
+          error.message.includes('JOIN_ENDPOINT_NOT_FOUND') ||
+          error.message.includes('ACCESS_DENIED') ||
+          error.message.includes('MISSING_AGORA_CREDENTIALS')) {
           break;
           }
-
+          
           // Wait before retry (except on last attempt)
           if (attempt < MAX_RETRIES) {
             console.log(`⏳ Retrying in ${RETRY_DELAY}ms...`);
@@ -890,18 +958,21 @@ export const studentApi = {
           }
       }
     }
-
-    // All retries failed
-    console.error('❌ All join attempts failed:', lastError?.message);
-    return {
+    
+    // All retries failed - return detailed error
+    const errorResponse = {
       success: false,
       error: lastError?.message || 'Failed to join video session after multiple attempts',
       errorCode: getErrorCode(lastError),
       retryCount: MAX_RETRIES,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      meetingId: meetingId
     };
+    
+    console.error('💥 All REAL join attempts failed:', errorResponse);
+    return errorResponse;
   },
-
+  
   /**
    * PRODUCTION-READY: Get join credentials from multiple sources with priority
    */
@@ -911,15 +982,15 @@ export const studentApi = {
       { name: 'database-fallback', priority: 2, method: studentApi.getCredentialsFromDatabase },
       { name: 'emergency-fallback', priority: 3, method: studentApi.getEmergencyCredentials }
     ];
-
+    
     // Sort by priority
     credentialSources.sort((a, b) => a.priority - b.priority);
-
+    
     for (const source of credentialSources) {
       try {
         console.log(`🔍 Trying credential source: ${source.name}`);
         const credentials = await source.method(meetingId, userId, userEmail);
-
+        
         if (credentials && credentials.channel && credentials.appId) {
           console.log(`✅ Credentials obtained from ${source.name}`);
           return {
@@ -933,17 +1004,17 @@ export const studentApi = {
         // Continue to next source
       }
     }
-
+    
     return null;
   },
-
+  
   /**
    * PRODUCTION-READY: Primary backend credential source
    */
   getCredentialsFromBackend: async (meetingId, userId, userEmail) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
+    
     try {
       const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
         method: 'POST',
@@ -962,23 +1033,23 @@ export const studentApi = {
         }),
         signal: controller.signal
       });
-
+      
       clearTimeout(timeoutId);
-
+      
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-
+      
       const data = await response.json();
-
+      
       // Validate response structure
       if (!data.channel || !data.appId) {
         throw new Error('Invalid response format from backend');
       }
-
+      
       return data;
-
+      
     } catch (error) {
       clearTimeout(timeoutId);
       if (error.name === 'AbortError') {
@@ -987,7 +1058,7 @@ export const studentApi = {
       throw error;
     }
   },
-
+  
   /**
    * PRODUCTION-READY: Database fallback with cached configuration
    */
@@ -1009,22 +1080,22 @@ export const studentApi = {
       `)
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (error || !session) {
         throw new Error('Session not found in database');
       }
-
+      
       // Try to get Agora config from teacher profile or use environment variable
       const teacherConfig = session.classes?.teacher?.agora_config;
       const appId = teacherConfig?.appId || AGORA_APP_ID;
-
+      
       if (!appId) {
         throw new Error('No Agora App ID configured');
       }
-
+      
       // Use channel name from session or generate consistent one
       const channel = session.channel_name || `class_${session.class_id}_${meetingId}`;
-
+      
       return {
         channel: channel,
         token: null, // Token-less mode for fallback
@@ -1032,12 +1103,12 @@ export const studentApi = {
         uid: generateDeterministicUID(userId, meetingId),
         isFallback: true
       };
-
+      
     } catch (error) {
       throw new Error(`Database fallback failed: ${error.message}`);
     }
   },
-
+  
   /**
    * PRODUCTION-READY: Emergency credentials when all else fails
    */
@@ -1046,13 +1117,13 @@ export const studentApi = {
     if (!AGORA_APP_ID) {
       throw new Error('Emergency fallback: No Agora App ID in environment');
     }
-
+    
     // Create deterministic channel name that teacher can predict
     const channel = `emergency_${meetingId.substring(0, 8)}`;
     const uid = generateDeterministicUID(userId, meetingId);
-
+    
     console.warn('🚨 Using emergency fallback credentials');
-
+    
     return {
       channel: channel,
       token: null,
@@ -1062,7 +1133,7 @@ export const studentApi = {
       warning: 'Using emergency fallback mode - limited functionality'
     };
   },
-
+  
   /**
    * PRODUCTION-READY: Enhanced session access verification
    */
@@ -1072,7 +1143,7 @@ export const studentApi = {
       if (!user) {
         return { can_join: false, reason: 'Not authenticated' };
       }
-
+      
       // Get session with detailed access control
       const { data: session, error } = await supabase
       .from('video_sessions')
@@ -1099,16 +1170,16 @@ export const studentApi = {
       `)
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (error || !session) {
         return { can_join: false, reason: 'Session not found' };
       }
-
+      
       // Check session status
       if (session.status !== 'active' || session.ended_at) {
         return { can_join: false, reason: 'Session has ended' };
       }
-
+      
       // Check if session has started (with grace period)
       const scheduledTime = new Date(session.scheduled_date || session.started_at);
       const now = new Date();
@@ -1116,12 +1187,12 @@ export const studentApi = {
       if (now < scheduledTime - gracePeriod) {
         return { can_join: false, reason: 'Session has not started yet' };
       }
-
+      
       // Check teacher status
       if (!session.classes?.teacher?.is_active) {
         return { can_join: false, reason: 'Teacher account is not active' };
       }
-
+      
       // Verify student enrollment
       const { data: enrollment } = await supabase
       .from('student_classes')
@@ -1129,34 +1200,34 @@ export const studentApi = {
       .eq('class_id', session.class_id)
       .eq('student_id', user.id)
       .single();
-
+      
       if (!enrollment) {
         return { can_join: false, reason: 'Not enrolled in this class' };
       }
-
+      
       if (enrollment.status !== 'active') {
         return { can_join: false, reason: 'Student enrollment is not active' };
       }
-
+      
       // Check participant limit
       const participantCount = session.participants?.[0]?.count || 0;
       if (session.max_participants && participantCount >= session.max_participants) {
         return { can_join: false, reason: 'Session is full' };
       }
-
+      
       return {
         can_join: true,
         session: session,
         class_title: session.classes?.title,
         teacher_name: session.classes?.teacher?.name
       };
-
+      
     } catch (error) {
       console.error('Session access verification error:', error);
       return { can_join: false, reason: 'Access verification failed' };
     }
   },
-
+  
   /**
    * PRODUCTION-READY: Enhanced participation recording
    */
@@ -1167,11 +1238,11 @@ export const studentApi = {
       .select('id, class_id')
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (!session) {
         throw new Error('Session not found for participation recording');
       }
-
+      
       // Upsert participant record with conflict handling
       const { error } = await supabase
       .from('video_session_participants')
@@ -1192,7 +1263,7 @@ export const studentApi = {
         onConflict: 'session_id,student_id',
         ignoreDuplicates: false
       });
-
+      
       if (error) {
         console.warn('Participation recording failed:', error);
         // Don't throw - this shouldn't block the join process
@@ -1204,14 +1275,14 @@ export const studentApi = {
       // Silently fail - this is non-critical for joining
     }
   },
-
+  
   /**
    * Get session status with enhanced checking
    */
   getSessionStatus: async (meetingId) => {
     try {
       console.log('🔍 Checking session status:', meetingId);
-
+      
       // Try backend API first
       try {
         const response = await fetch(`${API_BASE_URL}/agora/session-status/${meetingId}`, {
@@ -1219,7 +1290,7 @@ export const studentApi = {
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
           }
         });
-
+        
         if (response.ok) {
           const data = await response.json();
           console.log('✅ Backend status check successful:', data);
@@ -1231,10 +1302,10 @@ export const studentApi = {
       } catch (backendError) {
         console.warn('⚠️ Backend status check failed, using fallback:', backendError.message);
       }
-
+      
       // Fallback to database check
       return await studentApi.getSessionStatusFallback(meetingId);
-
+      
     } catch (error) {
       console.error('❌ Error checking session status:', error);
       // Return optimistic fallback to allow joining
@@ -1248,7 +1319,7 @@ export const studentApi = {
       };
     }
   },
-
+  
   /**
    * Fallback session status check
    */
@@ -1267,7 +1338,7 @@ export const studentApi = {
       `)
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (error || !session) {
         return {
           is_active: false,
@@ -1277,10 +1348,10 @@ export const studentApi = {
           source: 'fallback'
         };
       }
-
+      
       const teacherJoined = session.participants?.some(p => p.is_teacher) || false;
       const studentCount = session.participants?.filter(p => !p.is_teacher).length || 0;
-
+      
       return {
         is_active: session.status === 'active' && !session.ended_at,
         is_teacher_joined: teacherJoined,
@@ -1288,13 +1359,13 @@ export const studentApi = {
         started_at: session.started_at,
         source: 'fallback'
       };
-
+      
     } catch (error) {
       console.error('❌ Fallback status check failed:', error);
       throw error;
     }
   },
-
+  
   /**
    * Leave video session with proper cleanup
    */
@@ -1302,9 +1373,9 @@ export const studentApi = {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       console.log('🚪 Student leaving video session:', { meetingId, userId: user.id, duration });
-
+      
       // Try backend API first
       try {
         const response = await fetch(`${API_BASE_URL}/agora/leave-session`, {
@@ -1320,22 +1391,22 @@ export const studentApi = {
             user_type: 'student'
           })
         });
-
+        
         if (response.ok) {
           console.log('✅ Backend leave successful');
         }
       } catch (backendError) {
         console.warn('⚠️ Backend leave failed, using fallback:', backendError.message);
       }
-
+      
       // Always update database regardless of backend status
       await studentApi.leaveVideoSessionFallback(meetingId, user.id, duration);
-
+      
       return {
         success: true,
         message: 'Successfully left video session'
       };
-
+      
     } catch (error) {
       console.error('❌ Error leaving video session:', error);
       // Don't throw error for leave operations
@@ -1345,7 +1416,7 @@ export const studentApi = {
       };
     }
   },
-
+  
   /**
    * Fallback leave session method
    */
@@ -1357,9 +1428,9 @@ export const studentApi = {
       .select('id')
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (!session) return;
-
+      
       // Update participant status
       await supabase
       .from('video_session_participants')
@@ -1371,14 +1442,16 @@ export const studentApi = {
       .eq('session_id', session.id)
       .eq('student_id', studentId)
       .is('left_at', null);
-
+      
       console.log('✅ Fallback leave recorded');
-
+      
     } catch (error) {
       console.error('❌ Fallback leave failed:', error);
     }
   },
-
+  
+  
+  
   /**
    * Get active video sessions for student
    */
@@ -1386,18 +1459,18 @@ export const studentApi = {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
+      
       // Get student's teacher
       const { data: profile } = await supabase
       .from('profiles')
       .select('teacher_id')
       .eq('id', user.id)
       .single();
-
+      
       if (!profile?.teacher_id) {
         return [];
       }
-
+      
       // Get active sessions from student's teacher
       const { data: sessions, error } = await supabase
       .from('video_sessions')
@@ -1412,16 +1485,43 @@ export const studentApi = {
       .eq('status', 'active')
       .is('ended_at', null)
       .order('started_at', { ascending: false });
-
+      
       if (error) throw error;
-
+      
       return sessions || [];
-
+      
     } catch (error) {
       console.error('❌ Error fetching active video sessions:', error);
       return [];
     }
   }
+};
+// Helper function to get authentication token
+const getToken = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token;
+};
+
+// Generate random UID for Agora
+const generateRandomUid = () => {
+  return Math.floor(Math.random() * 100000);
+};
+
+// Enhanced error code mapping
+const getErrorCode = (error) => {
+  if (!error) return 'UNKNOWN_ERROR';
+  
+  const message = error.message;
+  if (message.includes('SESSION_NOT_FOUND')) return 'SESSION_NOT_FOUND';
+  if (message.includes('SESSION_NOT_ACTIVE')) return 'SESSION_NOT_ACTIVE';
+  if (message.includes('JOIN_ENDPOINT_NOT_FOUND')) return 'JOIN_ENDPOINT_NOT_FOUND';
+  if (message.includes('ACCESS_DENIED')) return 'ACCESS_DENIED';
+  if (message.includes('MISSING_AGORA_CREDENTIALS')) return 'MISSING_CREDENTIALS';
+  if (message.includes('CREDENTIALS_FAILED')) return 'CREDENTIALS_FAILED';
+  if (message.includes('authentication')) return 'AUTH_FAILED';
+  if (message.includes('Invalid')) return 'INVALID_INPUT';
+  
+  return 'NETWORK_ERROR';
 };
 
 export default studentApi;
