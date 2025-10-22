@@ -1916,9 +1916,12 @@ export default function Dashboard() {
                           <Settings className="mr-3" size={18} />
                           Madina Settings
                         </button>
-                        <button className="w-full flex items-center px-4 py-3 text-sm text-red-300 hover:bg-red-500/10 rounded-xl transition-all duration-200">
-                          <LogOut className="mr-3" size={18} />
-                          Logout
+                        <button
+                        onClick={handleLogout}
+                        className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                        <LogOut size={16} className="mr-2" />
+                        Madina Logout
                         </button>
                       </div>
                     </div>
