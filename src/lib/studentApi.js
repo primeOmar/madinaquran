@@ -1496,32 +1496,6 @@ export const studentApi = {
     }
   }
 };
-// Helper function to get authentication token
-const getToken = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token;
-};
 
-// Generate random UID for Agora
-const generateRandomUid = () => {
-  return Math.floor(Math.random() * 100000);
-};
-
-// Enhanced error code mapping
-const getErrorCode = (error) => {
-  if (!error) return 'UNKNOWN_ERROR';
-  
-  const message = error.message;
-  if (message.includes('SESSION_NOT_FOUND')) return 'SESSION_NOT_FOUND';
-  if (message.includes('SESSION_NOT_ACTIVE')) return 'SESSION_NOT_ACTIVE';
-  if (message.includes('JOIN_ENDPOINT_NOT_FOUND')) return 'JOIN_ENDPOINT_NOT_FOUND';
-  if (message.includes('ACCESS_DENIED')) return 'ACCESS_DENIED';
-  if (message.includes('MISSING_AGORA_CREDENTIALS')) return 'MISSING_CREDENTIALS';
-  if (message.includes('CREDENTIALS_FAILED')) return 'CREDENTIALS_FAILED';
-  if (message.includes('authentication')) return 'AUTH_FAILED';
-  if (message.includes('Invalid')) return 'INVALID_INPUT';
-  
-  return 'NETWORK_ERROR';
-};
 
 export default studentApi;
