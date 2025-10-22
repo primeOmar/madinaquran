@@ -1,4 +1,4 @@
-// lib/agora/videoApi.js - UPDATED FOR COMPLETE INTEGRATION
+// lib/agora/videoApi.js - UPDATED WITH BETTER DEBUGGING
 
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
@@ -8,7 +8,10 @@ const videoApi = {
    */
   async startVideoSession(classId, userId) {
     try {
-      console.log('📡 API: Starting video session via /agora/start-session');
+      console.log('📡 API: Starting video session via /agora/start-session', {
+        classId,
+        userId
+      });
 
       const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
         method: 'POST',
@@ -25,11 +28,20 @@ const videoApi = {
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('❌ API Error:', data);
-        throw new Error(data.error || 'Failed to start video session');
+        console.error('❌ API Error Response:', {
+          status: response.status,
+          statusText: response.statusText,
+          data
+        });
+        throw new Error(data.error || `Failed to start video session: ${response.status}`);
       }
 
-      console.log('✅ API: Video session started:', data);
+      console.log('✅ API: Video session started successfully:', {
+        meetingId: data.meeting_id,
+        channel: data.channel,
+        hasToken: !!data.token,
+        appId: data.app_id
+      });
 
       return {
         success: true,
@@ -52,53 +64,195 @@ const videoApi = {
   },
 
   /**
-   * Join a video session (for students and teachers)
+   * Join a video session (for students and teachers) - UPDATED
    */
- async joinVideoSession(meetingId, userId) {
-  try {
-    console.log('🔍 FRONTEND: Attempting to join session:', { meetingId, userId });
+  async joinVideoSession(meetingId, userId) {
+    try {
+      console.log('🔍 FRONTEND: Attempting to join session:', {
+        meetingId,
+        userId,
+        meetingIdType: typeof meetingId,
+        meetingIdLength: meetingId?.length
+      });
 
-    const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        meeting_id: meetingId,
-        user_id: userId
-      })
-    });
+      // Validate meeting ID
+      if (!meetingId || meetingId === 'undefined' || meetingId === 'null') {
+        throw new Error('Invalid meeting ID: ' + meetingId);
+      }
 
-    const data = await response.json();
-    console.log('🔍 FRONTEND: Join response:', data);
+      const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId.toString(), // Ensure it's a string
+                             user_id: userId
+        })
+      });
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to join video session');
+      const data = await response.json();
+
+      console.log('🔍 FRONTEND: Join response details:', {
+        status: response.status,
+        ok: response.ok,
+        data: data,
+        hasError: data.error,
+        hasSession: !!data.session
+      });
+
+      if (!response.ok) {
+        // More specific error handling
+        let errorMessage = data.error || 'Failed to join video session';
+
+        if (response.status === 404) {
+          errorMessage = 'Session not found. It may have ended or the meeting ID is incorrect.';
+        } else if (response.status === 400) {
+          errorMessage = 'Invalid request. Please check the meeting ID.';
+        } else if (response.status === 403) {
+          errorMessage = 'Access denied to this session.';
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      // Validate response data
+      if (!data.token || !data.channel) {
+        throw new Error('Invalid response: missing token or channel');
+      }
+
+      console.log('✅ FRONTEND: Join successful, received:', {
+        meetingId: data.meeting_id,
+        channel: data.channel,
+        tokenLength: data.token?.length,
+        uid: data.uid,
+        appId: data.appId
+      });
+
+      return {
+        success: true,
+        meetingId: data.meeting_id,
+        channel: data.channel,
+        token: data.token,
+        appId: data.appId,
+        uid: data.uid,
+        session: data.session
+      };
+
+    } catch (error) {
+      console.error('❌ FRONTEND: joinVideoSession failed:', {
+        error: error.message,
+        meetingId,
+        userId,
+        stack: error.stack
+      });
+      throw error;
     }
+  },
 
-    // Use the UID provided by the backend (it's now a valid integer)
-    return {
-      success: true,
-      meetingId: data.meeting_id,
-      channel: data.channel,
-      token: data.token,
-      appId: data.appId,
-      uid: data.uid, 
-      session: data.session
-    };
+  /**
+   * Get session info without joining
+   */
+  async getSessionInfo(meetingId) {
+    try {
+      console.log('🔍 API: Getting session info for:', meetingId);
 
-  } catch (error) {
-    console.error('❌ FRONTEND: joinVideoSession failed:', error);
-    throw error;
-  }
-},
+      const response = await fetch(`${API_BASE_URL}/agora/session-info`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.warn('⚠️ API: getSessionInfo failed:', data.error);
+        return {
+          success: false,
+          error: data.error,
+          exists: false
+        };
+      }
+
+      console.log('✅ API: Session info retrieved:', {
+        exists: true,
+        status: data.session?.status,
+        meetingId: data.session?.meeting_id
+      });
+
+      return {
+        success: true,
+        session: data.session,
+        exists: true
+      };
+
+    } catch (error) {
+      console.error('❌ API: getSessionInfo failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        exists: false
+      };
+    }
+  },
+
+  /**
+   * Check if session exists and get valid meeting ID
+   */
+  async findValidSession(classId, userId) {
+    try {
+      console.log('🔍 API: Finding valid session for class:', { classId, userId });
+      
+      // Method 1: Get active sessions and find matching class
+      const activeSessions = await this.getActiveSessions();
+      if (activeSessions.success) {
+        const classSession = activeSessions.sessions.find(s => s.class_id === classId);
+        if (classSession) {
+          console.log('✅ Found valid session via active sessions:', classSession.meeting_id);
+          return {
+            success: true,
+            meetingId: classSession.meeting_id,
+            session: classSession,
+            source: 'active_sessions'
+          };
+        }
+      }
+      
+      // Method 2: Try to start a new session if no active one found
+      console.log('🔄 No active session found, starting new session...');
+      const newSession = await this.startVideoSession(classId, userId);
+      
+      if (newSession.success) {
+        return {
+          success: true,
+          meetingId: newSession.meetingId,
+          session: newSession.session,
+          source: 'new_session'
+        };
+      }
+      
+      throw new Error('Could not find or create a valid session');
+      
+    } catch (error) {
+      console.error('❌ API: findValidSession failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
   /**
    * Leave a video session
    */
   async leaveVideoSession(meetingId, userId) {
     try {
-      console.log('📡 API: Leaving video session via /agora/leave-session');
+      console.log('📡 API: Leaving video session:', { meetingId, userId });
 
       const response = await fetch(`${API_BASE_URL}/agora/leave-session`, {
         method: 'POST',
@@ -112,21 +266,18 @@ const videoApi = {
         })
       });
 
-      // Don't throw errors for leave - it's optional
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ API: Left video session:', data);
+        console.log('✅ API: Left video session successfully');
+      } else {
+        console.warn('⚠️ API: Leave session returned non-200:', response.status);
       }
 
-      return {
-        success: true
-      };
+      return { success: true };
 
     } catch (error) {
       console.warn('⚠️ API: leaveVideoSession failed:', error);
-      return {
-        success: true // Always return success for leave
-      };
+      return { success: true };
     }
   },
 
@@ -135,7 +286,7 @@ const videoApi = {
    */
   async endVideoSession(meetingId, userId) {
     try {
-      console.log('📡 API: Ending video session via /agora/end-session');
+      console.log('📡 API: Ending video session:', { meetingId, userId });
 
       const response = await fetch(`${API_BASE_URL}/agora/end-session`, {
         method: 'POST',
@@ -152,11 +303,11 @@ const videoApi = {
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('❌ API Error:', data);
-        throw new Error(data.error || 'Failed to end video session');
+        console.error('❌ API Error ending session:', data);
+        throw new Error(data.error || `Failed to end session: ${response.status}`);
       }
 
-      console.log('✅ API: Video session ended:', data);
+      console.log('✅ API: Video session ended successfully');
 
       return {
         success: true,
@@ -167,7 +318,7 @@ const videoApi = {
       console.error('❌ API: endVideoSession failed:', error);
       return {
         success: false,
-        error: error.message || 'Failed to end video session'
+        error: error.message
       };
     }
   },
@@ -177,6 +328,8 @@ const videoApi = {
    */
   async getActiveSessions() {
     try {
+      console.log('📡 API: Getting active sessions');
+
       const response = await fetch(`${API_BASE_URL}/agora/active-sessions`, {
         method: 'GET',
         headers: {
@@ -191,6 +344,16 @@ const videoApi = {
         throw new Error(data.error || 'Failed to get active sessions');
       }
 
+      console.log('✅ API: Retrieved active sessions:', {
+        count: data.sessions?.length || 0,
+        sessions: data.sessions?.map(s => ({
+          id: s.id,
+          meeting_id: s.meeting_id,
+          status: s.status,
+          class_id: s.class_id
+        }))
+      });
+
       return {
         success: true,
         sessions: data.sessions || []
@@ -202,69 +365,6 @@ const videoApi = {
         success: false,
         error: error.message,
         sessions: []
-      };
-    }
-  },
-
-  /**
-   * Generate Agora token directly
-   */
-  async generateToken(channelName, uid, role = 'publisher') {
-    try {
-      const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          channelName,
-          uid,
-          role
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate token');
-      }
-
-      return {
-        success: true,
-        token: data.token,
-        appId: data.appId,
-        channelName: data.channelName,
-        uid: data.uid
-      };
-
-    } catch (error) {
-      console.error('❌ API: generateToken failed:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  /**
-   * Check video service health
-   */
-  async checkHealth() {
-    try {
-      const response = await fetch(`${API_BASE_URL}/agora/health`);
-      const data = await response.json();
-      
-      return {
-        success: true,
-        healthy: data.videoEnabled,
-        ...data
-      };
-    } catch (error) {
-      console.error('❌ API: checkHealth failed:', error);
-      return {
-        success: false,
-        healthy: false,
-        error: error.message
       };
     }
   }
