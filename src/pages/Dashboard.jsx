@@ -1,6 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import AgoraRTC from 'agora-rtc-sdk-ng';
 import { studentApi } from "../lib/studentApi";
 import {
   FileText,
@@ -180,8 +181,10 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 };
 
 // === MADINA VIDEO CALL COMPONENT ===
+// === COMPLETE StudentVideoCall Component ===
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [localStream, setLocalStream] = useState(null);
+  const [remoteUsers, setRemoteUsers] = useState(new Map());
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -190,250 +193,456 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [participants, setParticipants] = useState([]);
   const [teacherStream, setTeacherStream] = useState(null);
   const [connectionQuality, setConnectionQuality] = useState('excellent');
-  const [studentId, setStudentId] = useState(null); // 🔧 NEW: Student ID from auth
+  const [agoraClient, setAgoraClient] = useState(null);
+
   const localVideoRef = useRef(null);
-  const teacherVideoRef = useRef(null);
+  const remoteVideosContainerRef = useRef(null);
   const timerRef = useRef(null);
-  const videoServiceRef = useRef(null);
+  const localTracksRef = useRef({ audio: null, video: null });
 
   useEffect(() => {
     if (isOpen) {
-      // 🔧 UPDATED: Use real Agora call instead of simulation
       initializeRealCall();
       simulateConnectionQuality();
-      
-      // 🔧 NEW: Get student ID from auth context or localStorage
-      const studentId = localStorage.getItem('student_id') || `student_${Date.now()}`;
-      setStudentId(studentId);
     }
     return () => cleanupCall();
   }, [isOpen]);
 
-  // 🔧 REPLACED: Real Agora call initialization
+  // Initialize Agora call
   const initializeRealCall = async () => {
     try {
       setIsConnecting(true);
-      
-      // Import your video service
-      const videoServiceModule = await import('../lib/videoService');
-      videoServiceRef.current = videoServiceModule.default;
-      
-      // Check session status first
-      const sessionStatus = await studentApi.getSessionStatus(classItem.video_session.meeting_id);
-      
-      if (!sessionStatus.is_active) {
-        toast.error('Session is not active');
-        setIsConnecting(false);
-        return;
-      }
+      console.log('🎯 Student joining REAL video session:', classItem.video_session);
 
-      if (!sessionStatus.is_teacher_joined) {
-        toast.error('Teacher has not joined the session yet');
-        setIsConnecting(false);
-        return;
-      }
-
-      // Setup event listeners
-      videoServiceRef.current.onUserJoined((user) => {
-        console.log('User joined:', user.uid);
-        updateParticipantsList();
-      });
-
-      videoServiceRef.current.onUserLeft((user) => {
-        console.log('User left:', user.uid);
-        updateParticipantsList();
-        
-        // If teacher left, show message
-        if (videoServiceRef.current.isTeacher(user.uid)) {
-          toast.info('Teacher has left the session');
-          setTeacherStream(null);
-        }
-      });
-
-      videoServiceRef.current.onUserPublished((user, mediaType) => {
-        console.log('User published:', user.uid, mediaType);
-        
-        if (mediaType === 'video') {
-          // Create video element for remote user
-          const videoContainer = document.createElement('div');
-          videoContainer.className = 'remote-video-container';
-          videoContainer.id = `remote-video-${user.uid}`;
-          
-          const videoElement = document.createElement('video');
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.className = 'remote-video w-full h-full object-cover';
-          
-          videoContainer.appendChild(videoElement);
-          
-          // Add to teacher video area
-          const teacherVideoArea = document.querySelector('.teacher-video-area');
-          if (teacherVideoArea) {
-            teacherVideoArea.innerHTML = '';
-            teacherVideoArea.appendChild(videoContainer);
-            
-            // Play the remote video track
-            if (user.videoTrack) {
-              user.videoTrack.play(videoElement);
-              setTeacherStream(user.videoTrack);
-              
-              // Check if this is the teacher
-              if (videoServiceRef.current.isTeacher(user.uid)) {
-                toast.success('Teacher joined the session!');
-              }
-            }
-          }
-        }
-        
-        if (mediaType === 'audio') {
-          // Auto-play remote audio
-          if (user.audioTrack) {
-            user.audioTrack.play();
-          }
-        }
-      });
-
-      videoServiceRef.current.onUserUnpublished((user, mediaType) => {
-        console.log('User unpublished:', user.uid, mediaType);
-        
-        if (mediaType === 'video') {
-          // Remove video element if user stopped video
-          const videoContainer = document.getElementById(`remote-video-${user.uid}`);
-          if (videoContainer) {
-            videoContainer.remove();
-          }
-          
-          if (videoServiceRef.current.isTeacher(user.uid)) {
-            setTeacherStream(null);
-          }
-        }
-      });
-
-      // Join video session with media options
-      const joinResult = await videoServiceRef.current.joinVideoSessionWithMedia(
-        classItem.video_session.meeting_id,
-        studentId,
-        { audio: true, video: true }
+      // Get join credentials from backend
+      const joinResult = await studentApi.joinVideoSession(
+        classItem.video_session.meeting_id
       );
 
       if (!joinResult.success) {
-        throw new Error(joinResult.error);
+        throw new Error(joinResult.error || 'Failed to get session credentials');
       }
 
-      // Setup local video
-      if (joinResult.localVideoTrack && localVideoRef.current) {
-        joinResult.localVideoTrack.play(localVideoRef.current);
-        setLocalStream(joinResult.localVideoTrack);
+      console.log('🔑 REAL Join credentials received:', {
+        channel: joinResult.channel,
+        hasToken: !!joinResult.token,
+        uid: joinResult.uid,
+        appId: joinResult.appId
+      });
+
+      // Create Agora client with REAL configuration
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
+      setAgoraClient(client);
+
+      // Set up REAL event listeners
+      setupAgoraEventListeners(client);
+
+      // Join REAL channel with proper error handling
+      try {
+        await client.join(
+          joinResult.appId,
+          joinResult.channel,
+          joinResult.token || null, // Token can be null for testing
+          joinResult.uid || null
+        );
+        console.log('✅ Student joined REAL channel successfully');
+      } catch (joinError) {
+        console.error('❌ Agora join failed:', joinError);
+        throw new Error(`Failed to connect: ${joinError.message}`);
       }
 
-      // Set initial audio/video states
-      setIsAudioMuted(!joinResult.hasAudio);
-      setIsVideoOff(!joinResult.hasVideo);
+      // Create and publish local tracks
+      await createAndPublishLocalTracks(client);
 
       setIsConnected(true);
       setIsConnecting(false);
       startTimer();
-      
-      // Record session join
-      await studentApi.joinVideoSession(classItem.id, classItem.video_session.meeting_id);
-      
-      toast.success('Connected to Madina session!');
-      
+
+      toast.success('🎉 Connected to REAL Madina session!');
+
     } catch (error) {
-      console.error('Failed to initialize call:', error);
-      toast.error(`Connection failed: ${error.message}`);
+      console.error('❌ REAL Student call initialization failed:', error);
+
+      // Specific error messages
+      let errorMessage = 'Connection failed';
+      if (error.message === 'CLASS_NOT_FOUND') {
+        errorMessage = 'Class session not found. Please check with your teacher.';
+      } else if (error.message === 'SESSION_NOT_ACTIVE') {
+        errorMessage = 'Session is not active. Teacher may not have started yet.';
+      } else if (error.message.includes('Failed to connect')) {
+        errorMessage = 'Network connection failed. Please check your internet.';
+      } else {
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
       setIsConnecting(false);
+
+      // Close after error
+      setTimeout(() => {
+        onClose();
+      }, 3000);
     }
   };
 
-  // 🔧 UPDATED: Toggle audio with videoService
-  const toggleAudio = async () => {
-    if (videoServiceRef.current) {
-      const isEnabled = await videoServiceRef.current.toggleAudio();
-      setIsAudioMuted(!isEnabled);
+  // Set up Agora event listeners
+  const setupAgoraEventListeners = (client) => {
+    // User published (when someone joins with media)
+    client.on('user-published', async (user, mediaType) => {
+      try {
+        console.log('📹 REMOTE USER PUBLISHED:', user.uid, mediaType);
+
+        // Subscribe to the remote user
+        await client.subscribe(user, mediaType);
+        console.log('✅ Subscribed to user:', user.uid, mediaType);
+
+        if (mediaType === 'video') {
+          console.log('🎥 REMOTE VIDEO AVAILABLE for user:', user.uid);
+
+          // Update remote users state
+          setRemoteUsers(prev => {
+            const newMap = new Map(prev);
+            const userData = newMap.get(user.uid) || {
+              uid: user.uid,
+              hasVideo: false,
+              hasAudio: false,
+              videoTrack: user.videoTrack,
+              audioTrack: null,
+              isTeacher: user.uid === 1 // You might need to adjust this logic
+            };
+            userData.videoTrack = user.videoTrack;
+            userData.hasVideo = true;
+            newMap.set(user.uid, userData);
+            return newMap;
+          });
+
+          // Play remote video immediately
+          setTimeout(() => {
+            playRemoteVideo(user.uid, user.videoTrack);
+          }, 100);
+
+        } else if (mediaType === 'audio') {
+          console.log('🎤 REMOTE AUDIO AVAILABLE for user:', user.uid);
+
+          setRemoteUsers(prev => {
+            const newMap = new Map(prev);
+            const userData = newMap.get(user.uid) || {
+              uid: user.uid,
+              hasVideo: false,
+              hasAudio: true,
+              videoTrack: null,
+              audioTrack: user.audioTrack,
+              isTeacher: user.uid === 1
+            };
+            userData.audioTrack = user.audioTrack;
+            userData.hasAudio = true;
+            newMap.set(user.uid, userData);
+            return newMap;
+          });
+
+          // Play remote audio
+          user.audioTrack.play().catch(e => console.log('Audio play error:', e));
+        }
+
+        updateParticipantsList();
+
+      } catch (error) {
+        console.error('Error handling user-published:', error);
+      }
+    });
+
+    // User joined (when someone enters channel)
+    client.on('user-joined', (user) => {
+      console.log('👤 USER JOINED CHANNEL:', user.uid);
+      toast.info(`👤 Participant ${user.uid} joined`);
+    });
+
+    // User left (when someone leaves channel)
+    client.on('user-left', (user) => {
+      console.log('👤 USER LEFT CHANNEL:', user.uid);
+
+      setRemoteUsers(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(user.uid);
+        // Remove video element
+        const videoElement = document.getElementById(`remote-video-${user.uid}`);
+        if (videoElement) videoElement.remove();
+        return newMap;
+      });
+
+      updateParticipantsList();
+      toast.info(`👤 Participant ${user.uid} left`);
+    });
+
+    // Connection state changes
+    client.on('connection-state-change', (curState, prevState) => {
+      console.log('🔗 CONNECTION STATE:', prevState, '→', curState);
+
+      if (curState === 'CONNECTED') {
+        toast.success('✅ Fully connected to video call');
+      } else if (curState === 'DISCONNECTED') {
+        toast.error('❌ Disconnected from video call');
+      }
+    });
+  };
+
+  // Create and publish local tracks
+  const createAndPublishLocalTracks = async (client) => {
+    try {
+      console.log('🎤 Creating local tracks...');
+
+      // Create microphone track
+      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      localTracksRef.current.audio = microphoneTrack;
+
+      // Create camera track
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+      localTracksRef.current.video = cameraTrack;
+
+      // Play local video
+      if (localVideoRef.current) {
+        cameraTrack.play(localVideoRef.current);
+        setLocalStream(cameraTrack);
+      }
+
+      // Publish tracks
+      await client.publish([microphoneTrack, cameraTrack]);
+      console.log('✅ Local tracks published successfully');
+
+    } catch (error) {
+      console.error('❌ Failed to create local tracks:', error);
+
+      // Handle permission errors gracefully
+      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
+        toast.warning('Camera/microphone access required for full experience');
+        // Try to continue with audio only
+        try {
+          const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+          localTracksRef.current.audio = microphoneTrack;
+          await client.publish([microphoneTrack]);
+          toast.info('Connected with audio only');
+        } catch (audioError) {
+          console.error('Failed to create audio track:', audioError);
+        }
+      }
     }
   };
 
-  // 🔧 UPDATED: Toggle video with videoService
-  const toggleVideo = async () => {
-    if (videoServiceRef.current) {
-      const isEnabled = await videoServiceRef.current.toggleVideo();
-      setIsVideoOff(!isEnabled);
+  // Play remote video with proper element creation
+  const playRemoteVideo = (uid, videoTrack) => {
+    try {
+      console.log('🎬 Playing remote video for user:', uid);
+
+      let videoContainer = document.getElementById(`remote-video-${uid}`);
+      let videoElement = document.getElementById(`remote-video-element-${uid}`);
+
+      if (!videoContainer) {
+        // Create new video container
+        videoContainer = document.createElement('div');
+        videoContainer.id = `remote-video-${uid}`;
+        videoContainer.className = `remote-video-container relative rounded-2xl overflow-hidden border-2 min-h-[300px] ${
+          uid === 1
+          ? 'border-yellow-500/50 bg-gradient-to-br from-yellow-900/20 to-amber-900/20'
+          : 'border-green-500/50 bg-gradient-to-br from-green-900/20 to-emerald-900/20'
+        }`;
+
+        videoElement = document.createElement('video');
+        videoElement.id = `remote-video-element-${uid}`;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.muted = false; // Important: unmuted for remote videos
+        videoElement.className = 'w-full h-full object-cover bg-black';
+
+        const userInfo = document.createElement('div');
+        userInfo.className = `absolute bottom-3 left-3 text-white px-3 py-2 rounded-lg backdrop-blur-lg border ${
+          uid === 1
+          ? 'bg-black/70 border-yellow-500/30'
+          : 'bg-black/70 border-green-500/30'
+        }`;
+        userInfo.innerHTML = `
+        <div class="flex items-center space-x-2">
+        ${uid === 1 ? '👨‍🏫' : '👤'}
+        <span class="${uid === 1 ? 'text-yellow-300' : 'text-green-300'} font-medium">
+        ${uid === 1 ? 'TEACHER' : `Student ${uid}`}
+        </span>
+        <div class="w-2 h-2 ${uid === 1 ? 'bg-yellow-500' : 'bg-green-500'} rounded-full animate-pulse"></div>
+        </div>
+        `;
+
+        videoContainer.appendChild(videoElement);
+        videoContainer.appendChild(userInfo);
+
+        // Add to appropriate container
+        const teacherVideoArea = document.querySelector('.teacher-video-area');
+        const studentsVideoArea = document.querySelector('.students-video-area');
+
+        if (uid === 1 && teacherVideoArea) {
+          // Teacher video - replace existing content
+          teacherVideoArea.innerHTML = '';
+          teacherVideoArea.appendChild(videoContainer);
+          setTeacherStream(videoTrack);
+        } else if (studentsVideoArea) {
+          // Student video - append to grid
+          studentsVideoArea.appendChild(videoContainer);
+        }
+      }
+
+      // Play the video track
+      if (videoElement && videoTrack) {
+        videoTrack.play(videoElement);
+        console.log('✅ Successfully playing remote video for user:', uid);
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to play remote video:', error);
     }
   };
 
-  // 🔧 UPDATED: Leave call with proper cleanup
-  const leaveCall = async () => {
-    if (videoServiceRef.current) {
-      await videoServiceRef.current.leaveVideoSession();
-    }
-    
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    
-    await studentApi.leaveVideoSession(classItem.video_session.meeting_id, callDuration);
-    
-    setIsConnected(false);
-    setCallDuration(0);
-    setLocalStream(null);
-    setTeacherStream(null);
-    onClose();
-    toast.info('Session ended - AI summary generated');
-  };
+  // Update participants list
+  const updateParticipantsList = () => {
+    const remoteUsersArray = Array.from(remoteUsers.values());
 
-  // 🔧 NEW: Update participants list
-  const updateParticipantsList = async () => {
-    if (!videoServiceRef.current) return;
-    
-    const remoteUsers = videoServiceRef.current.getRemoteUsers();
-    
     const participantsList = [
-      { name: classItem.teacher_name || 'AI Teacher', role: 'teacher', isOnline: true },
-      { name: 'You', role: 'student', isOnline: true },
-      ...remoteUsers
-        .filter(user => !videoServiceRef.current.isTeacher(user.uid))
-        .map(user => ({
-          name: `Student ${user.uid}`,
-          role: 'student', 
-          isOnline: true
-        }))
+      // Teacher (if present)
+      ...remoteUsersArray
+      .filter(user => user.isTeacher)
+      .map(user => ({
+        name: classItem.teacher_name || 'AI Teacher',
+        role: 'teacher',
+        isOnline: true,
+        hasVideo: user.hasVideo,
+        hasAudio: user.hasAudio,
+        uid: user.uid
+      })),
+
+      // You (local user)
+      {
+        name: 'You',
+        role: 'student',
+        isOnline: true,
+        hasVideo: !isVideoOff,
+        hasAudio: !isAudioMuted,
+        uid: 'local'
+      },
+
+      // Other students
+      ...remoteUsersArray
+      .filter(user => !user.isTeacher)
+      .map(user => ({
+        name: `Student ${user.uid}`,
+        role: 'student',
+        isOnline: true,
+        hasVideo: user.hasVideo,
+        hasAudio: user.hasAudio,
+        uid: user.uid
+      }))
     ];
-    
+
     setParticipants(participantsList);
+    console.log('📊 Participants updated:', participantsList.length, 'total');
   };
 
-  // 🔧 UPDATED: Cleanup call
+  // Toggle audio
+  const toggleAudio = async () => {
+    if (localTracksRef.current.audio) {
+      try {
+        await localTracksRef.current.audio.setEnabled(isAudioMuted);
+        setIsAudioMuted(!isAudioMuted);
+        console.log(`🎤 Audio ${!isAudioMuted ? 'enabled' : 'disabled'}`);
+        updateParticipantsList();
+        toast.info(isAudioMuted ? '🎤 Microphone unmuted' : '🔇 Microphone muted');
+      } catch (error) {
+        console.error('Error toggling audio:', error);
+      }
+    }
+  };
+
+  // Toggle video
+  const toggleVideo = async () => {
+    if (localTracksRef.current.video) {
+      try {
+        await localTracksRef.current.video.setEnabled(isVideoOff);
+        setIsVideoOff(!isVideoOff);
+        console.log(`📹 Video ${!isVideoOff ? 'enabled' : 'disabled'}`);
+        updateParticipantsList();
+        toast.info(isVideoOff ? '📹 Camera enabled' : '📷 Camera disabled');
+      } catch (error) {
+        console.error('Error toggling video:', error);
+      }
+    }
+  };
+
+  // Leave call with proper cleanup
+  const leaveCall = async () => {
+    try {
+      console.log('🛑 Student leaving call...');
+
+      // Stop and close local tracks
+      if (localTracksRef.current.audio) {
+        localTracksRef.current.audio.stop();
+        localTracksRef.current.audio.close();
+      }
+      if (localTracksRef.current.video) {
+        localTracksRef.current.video.stop();
+        localTracksRef.current.video.close();
+      }
+
+      // Leave Agora channel
+      if (agoraClient) {
+        await agoraClient.leave();
+      }
+
+      // Clean up timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+
+      // Notify backend
+      await studentApi.leaveVideoSession(classItem.video_session.meeting_id, callDuration);
+
+      console.log('✅ Call cleanup complete');
+
+    } catch (error) {
+      console.error('Error during call cleanup:', error);
+    } finally {
+      setIsConnected(false);
+      setCallDuration(0);
+      setLocalStream(null);
+      setTeacherStream(null);
+      setRemoteUsers(new Map());
+      setAgoraClient(null);
+      onClose();
+      toast.info('Session ended - AI summary generated');
+    }
+  };
+
+  // Cleanup function
   const cleanupCall = () => {
-    if (localStream) {
-      if (localStream.close) localStream.close();
-      if (localStream.stop) localStream.stop();
-    }
-    if (teacherStream) {
-      if (teacherStream.close) teacherStream.close();
-      if (teacherStream.stop) teacherStream.stop();
-    }
     if (timerRef.current) clearInterval(timerRef.current);
     setCallDuration(0);
     setIsConnected(false);
-    
+    setRemoteUsers(new Map());
+
     // Leave Agora session if still connected
-    if (videoServiceRef.current && videoServiceRef.current.isAgoraInitialized()) {
-      videoServiceRef.current.leaveVideoSession();
+    if (agoraClient) {
+      agoraClient.leave().catch(console.error);
     }
   };
 
-  // 🔧 KEPT: Connection quality simulation (can be enhanced with real stats)
+  // Simulate connection quality
   const simulateConnectionQuality = () => {
     const qualities = ['excellent', 'good', 'fair', 'poor'];
     const interval = setInterval(() => {
       setConnectionQuality(qualities[Math.floor(Math.random() * qualities.length)]);
     }, 10000);
-    
+
     return () => clearInterval(interval);
   };
 
-  // 🔧 KEPT: Start timer
+  // Start timer
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
@@ -441,22 +650,20 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }, 1000);
   };
 
-  // 🔧 KEPT: Raise hand function
+  // Raise hand function
   const raiseHand = () => {
     toast.info('🤖 AI Assistant notified the teacher');
-    
-    // 🔧 OPTIONAL: Implement actual raise hand feature
-    // You can add WebSocket or Agora data channel implementation here
+    // You can implement actual raise hand feature with data channels here
   };
 
-  // 🔧 KEPT: Format time
+  // Format time
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // 🔧 KEPT: Connection quality color
+  // Get connection quality color
   const getConnectionColor = () => {
     switch(connectionQuality) {
       case 'excellent': return 'text-green-400';
@@ -468,229 +675,259 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   };
 
   if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex flex-col">
-      {/* Madina Header */}
-      <div className="bg-gradient-to-r from-purple-900 via-blue-900 to-cyan-900 text-white p-4 border-b border-cyan-500/30">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${
-                isConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
-              }`}></div>
-              <span className="text-sm font-mono">
-                {isConnected ? 'MADINA_CONNECTED' : 'CONNECTING...'}
-              </span>
-            </div>
-            <div className="h-6 w-px bg-cyan-500/50"></div>
-            <div>
-              <h2 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                {classItem.title}
-              </h2>
-              <p className="text-cyan-200 text-sm">
-                {classItem.teacher_name} • {formatTime(callDuration)} • 
-                <span className={`ml-2 ${getConnectionColor()}`}>
-                  {connectionQuality.toUpperCase()}
-                </span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="bg-cyan-700/50 px-3 py-1 rounded-full text-sm font-mono">
-              {participants.length} ONLINE
-            </div>
-            <button
-              onClick={leaveCall}
-              className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-4 py-2 rounded-lg flex items-center transition-all duration-200 shadow-lg"
-            >
-              <PhoneOff size={18} className="mr-2" />
-              Madina Exit
-            </button>
-          </div>
+    {/* Madina Header */}
+    <div className="bg-gradient-to-r from-purple-900 via-blue-900 to-cyan-900 text-white p-4 border-b border-cyan-500/30">
+    <div className="flex justify-between items-center">
+    <div className="flex items-center space-x-4">
+    <div className="flex items-center space-x-2">
+    <div className={`w-3 h-3 rounded-full ${
+      isConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
+    }`}></div>
+    <span className="text-sm font-mono">
+    {isConnected ? 'MADINA_CONNECTED' : 'CONNECTING...'}
+    </span>
+    </div>
+    <div className="h-6 w-px bg-cyan-500/50"></div>
+    <div>
+    <h2 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    {classItem.title}
+    </h2>
+    <p className="text-cyan-200 text-sm">
+    {classItem.teacher_name} • {formatTime(callDuration)} •
+    <span className={`ml-2 ${getConnectionColor()}`}>
+    {connectionQuality.toUpperCase()}
+    </span>
+    <span className="ml-2 text-green-300">
+    • {participants.length} ONLINE
+    </span>
+    </p>
+    </div>
+    </div>
+    <div className="flex items-center space-x-3">
+    <div className="bg-cyan-700/50 px-3 py-1 rounded-full text-sm font-mono">
+    {participants.length} ONLINE
+    </div>
+    <button
+    onClick={leaveCall}
+    className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-4 py-2 rounded-lg flex items-center transition-all duration-200 shadow-lg"
+    >
+    <PhoneOff size={18} className="mr-2" />
+    Madina Exit
+    </button>
+    </div>
+    </div>
+    </div>
+
+    {/* Neural Network Video Grid */}
+    <div className="flex-1 bg-gradient-to-br from-gray-900 to-black relative p-6">
+    {isConnecting ? (
+      <div className="flex items-center justify-center h-full">
+      <div className="text-center">
+      <div className="relative">
+      <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
+      <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
+      </div>
+      <p className="text-white mt-6 text-xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+      Establishing Madina Class Link
+      </p>
+      <p className="text-gray-400 mt-2">AI optimizing your learning experience</p>
+      <div className="mt-6 flex justify-center space-x-2">
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce"
+        style={{ animationDelay: `${i * 0.1}s` }} />
+      ))}
+      </div>
+      </div>
+      </div>
+    ) : (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      {/* Teacher's Holo-Display */}
+      <div className="lg:col-span-2 bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl relative overflow-hidden border-2 border-cyan-500/50 shadow-2xl min-h-[500px]">
+      <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/20 to-purple-900/20"></div>
+
+      {/* Teacher Video Area */}
+      <div className="teacher-video-area w-full h-full">
+      {!teacherStream && (
+        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="text-center text-white">
+        <User size={80} className="mx-auto text-cyan-400 mb-4" />
+        <p className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+        Teacher Joining
+        </p>
+        <p className="text-gray-400 mt-2">Preparing optimal learning environment</p>
+        <div className="mt-4 text-cyan-300 text-sm">
+        <p>Waiting for teacher to join...</p>
+        <p>Remote participants: {Array.from(remoteUsers.values()).length}</p>
         </div>
+        </div>
+        </div>
+      )}
       </div>
 
-      {/* Neural Network Video Grid */}
-      <div className="flex-1 bg-gradient-to-br from-gray-900 to-black relative p-6">
-        {isConnecting ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="relative">
-                <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
-                <Sparkles className="absolute inset-0 text-purple-400 animate-pulse" size={64} />
-              </div>
-              <p className="text-white mt-6 text-xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-                Establishing Madina Class Link
-              </p>
-              <p className="text-gray-400 mt-2">AI optimizing your learning experience</p>
-              <div className="mt-6 flex justify-center space-x-2">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" 
-                    style={{ animationDelay: `${i * 0.1}s` }} />
-                ))}
-              </div>
-            </div>
-          </div>
+      {/* Students Video Grid */}
+      {Array.from(remoteUsers.values()).filter(user => !user.isTeacher && user.hasVideo).length > 0 && (
+        <div className="absolute bottom-4 right-4 w-64 h-48 bg-gradient-to-br from-gray-900 to-black rounded-2xl border-2 border-green-500/30 overflow-hidden">
+        <div className="students-video-area w-full h-full grid grid-cols-2 gap-1 p-1">
+        {/* Student videos will be dynamically added here */}
+        </div>
+        <div className="absolute top-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
+        Students ({Array.from(remoteUsers.values()).filter(user => !user.isTeacher && user.hasVideo).length})
+        </div>
+        </div>
+      )}
+      </div>
+
+      {/* Student Interface */}
+      <div className="space-y-6">
+      {/* Student Holo-Cam */}
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl relative overflow-hidden border border-cyan-500/30 shadow-xl">
+      <video
+      ref={localVideoRef}
+      autoPlay
+      muted
+      playsInline
+      className="w-full h-48 object-cover bg-black"
+      />
+      <div className="absolute bottom-3 left-3 bg-black/80 text-white px-3 py-2 rounded-lg backdrop-blur-lg border border-cyan-500/20">
+      <span className="text-cyan-300 font-medium">YOU</span>
+      {isVideoOff && <span className="text-red-400 ml-2">• CAMERA OFF</span>}
+      {isAudioMuted && <span className="text-red-400 ml-2">• MUTED</span>}
+      </div>
+      {isVideoOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+        <CameraOff size={40} className="text-cyan-500" />
+        </div>
+      )}
+      </div>
+
+      {/* Madina Controls */}
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 space-y-4 border border-cyan-500/20">
+      <h3 className="text-white font-bold text-sm uppercase tracking-widest text-cyan-300">
+      Madina CONTROLS
+      </h3>
+
+      <div className="grid grid-cols-2 gap-3">
+      <button
+      onClick={toggleAudio}
+      className={`flex items-center justify-center space-x-2 py-4 rounded-xl transition-all duration-200 backdrop-blur-lg ${
+        isAudioMuted
+        ? 'bg-gradient-to-r from-red-600 to-pink-600 shadow-lg'
+        : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg'
+      }`}
+      >
+      {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
+      <span className="text-sm font-medium">{isAudioMuted ? 'UNMUTE' : 'MUTE'}</span>
+      </button>
+
+      <button
+      onClick={toggleVideo}
+      className={`flex items-center justify-center space-x-2 py-4 rounded-xl transition-all duration-200 backdrop-blur-lg ${
+        isVideoOff
+        ? 'bg-gradient-to-r from-red-600 to-pink-600 shadow-lg'
+        : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg'
+      }`}
+      >
+      {isVideoOff ? <CameraOff size={20} /> : <Camera size={20} />}
+      <span className="text-sm font-medium">{isVideoOff ? 'CAM ON' : 'CAM OFF'}</span>
+      </button>
+      </div>
+
+      <button
+      onClick={raiseHand}
+      className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white py-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-200 shadow-lg backdrop-blur-lg"
+      >
+      <Zap size={20} />
+      <span className="font-bold">RAISE HAND</span>
+      </button>
+      </div>
+
+      {/* Neural Participants */}
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 border border-cyan-500/20">
+      <h3 className="text-cyan-300 font-bold text-sm uppercase tracking-widest mb-4">
+      NEURAL NETWORK ({participants.length})
+      </h3>
+      <div className="space-y-3 max-h-40 overflow-y-auto">
+      {participants.map((participant, index) => (
+        <div
+        key={participant.uid}
+        className={`flex items-center space-x-3 p-3 rounded-xl backdrop-blur-lg transition-all duration-200 ${
+          participant.role === 'teacher'
+          ? 'bg-gradient-to-r from-cyan-900/40 to-blue-900/40 border border-cyan-500/30'
+          : participant.uid === 'local'
+          ? 'bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/30'
+          : 'bg-gray-700/40 border border-gray-600/30'
+        }`}
+        >
+        <div className={`w-3 h-3 rounded-full ${
+          participant.isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
+        }`}></div>
+        {participant.role === 'teacher' ? (
+          <Crown size={16} className="text-yellow-400" />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-            {/* Teacher's Holo-Display */}
-            <div className="lg:col-span-2 bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl relative overflow-hidden border-2 border-cyan-500/50 shadow-2xl">
-              <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/20 to-purple-900/20"></div>
-              <video
-                ref={teacherVideoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-3 rounded-xl backdrop-blur-lg border border-cyan-500/30">
-                <div className="flex items-center space-x-3">
-                  <Crown size={20} className="text-yellow-400" />
-                  <span className="font-bold text-cyan-300">{classItem.teacher_name}</span>
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-green-300 text-sm font-mono">LIVE</span>
-                </div>
-              </div>
-              {!teacherStream && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center text-white">
-                    <User size={80} className="mx-auto text-cyan-400 mb-4" />
-                    <p className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                      Teacher Joining
-                    </p>
-                    <p className="text-gray-400 mt-2">Preparing optimal learning environment</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Student Interface */}
-            <div className="space-y-6">
-              {/* Student Holo-Cam */}
-              <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl relative overflow-hidden border border-cyan-500/30 shadow-xl">
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-48 object-cover"
-                />
-                <div className="absolute bottom-3 left-3 bg-black/80 text-white px-3 py-2 rounded-lg backdrop-blur-lg border border-cyan-500/20">
-                  <span className="text-cyan-300 font-medium">YOU</span>
-                  {isVideoOff && <span className="text-red-400 ml-2">• CAMERA OFF</span>}
-                </div>
-                {isVideoOff && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
-                    <CameraOff size={40} className="text-cyan-500" />
-                  </div>
-                )}
-              </div>
-
-              {/* Madina Controls */}
-              <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 space-y-4 border border-cyan-500/20">
-                <h3 className="text-white font-bold text-sm uppercase tracking-widest text-cyan-300">
-                  Madina CONTROLS
-                </h3>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={toggleAudio}
-                    className={`flex items-center justify-center space-x-2 py-4 rounded-xl transition-all duration-200 backdrop-blur-lg ${
-                      isAudioMuted 
-                        ? 'bg-gradient-to-r from-red-600 to-pink-600 shadow-lg' 
-                        : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg'
-                    }`}
-                  >
-                    {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                    <span className="text-sm font-medium">{isAudioMuted ? 'UNMUTE' : 'MUTE'}</span>
-                  </button>
-                  
-                  <button
-                    onClick={toggleVideo}
-                    className={`flex items-center justify-center space-x-2 py-4 rounded-xl transition-all duration-200 backdrop-blur-lg ${
-                      isVideoOff 
-                        ? 'bg-gradient-to-r from-red-600 to-pink-600 shadow-lg' 
-                        : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg'
-                    }`}
-                  >
-                    {isVideoOff ? <CameraOff size={20} /> : <Camera size={20} />}
-                    <span className="text-sm font-medium">{isVideoOff ? 'CAM ON' : 'CAM OFF'}</span>
-                  </button>
-                </div>
-
-                <button
-                  onClick={raiseHand}
-                  className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white py-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-200 shadow-lg backdrop-blur-lg"
-                >
-                  <Zap size={20} />
-                  <span className="font-bold">HAND</span>
-                </button>
-              </div>
-
-              {/* Neural Participants */}
-              <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 border border-cyan-500/20">
-                <h3 className="text-cyan-300 font-bold text-sm uppercase tracking-widest mb-4">
-                  NEURAL NETWORK ({participants.length})
-                </h3>
-                <div className="space-y-3 max-h-40 overflow-y-auto">
-                  {participants.map((participant, index) => (
-                    <div
-                      key={index}
-                      className={`flex items-center space-x-3 p-3 rounded-xl backdrop-blur-lg transition-all duration-200 ${
-                        participant.role === 'teacher' 
-                          ? 'bg-gradient-to-r from-cyan-900/40 to-blue-900/40 border border-cyan-500/30' 
-                          : 'bg-gray-700/40 border border-gray-600/30'
-                      }`}
-                    >
-                      <div className={`w-3 h-3 rounded-full ${
-                        participant.isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
-                      }`}></div>
-                      <User size={18} className={
-                        participant.role === 'teacher' ? 'text-yellow-400' : 'text-cyan-400'
-                      } />
-                      <span className="text-white text-sm font-medium flex-1">
-                        {participant.name}
-                      </span>
-                      {participant.role === 'teacher' && (
-                        <Crown size={16} className="text-yellow-400" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          <User size={16} className={
+            participant.uid === 'local' ? 'text-purple-400' : 'text-cyan-400'
+          } />
         )}
-      </div>
-
-      {/* Madina Control Bar */}
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-t border-cyan-500/20 p-4 backdrop-blur-lg">
-        <div className="flex justify-center items-center space-x-6">
-          {[
-            { icon: isAudioMuted ? MicOff : Mic, label: isAudioMuted ? 'UNMUTE' : 'MUTE', action: toggleAudio },
-            { icon: isVideoOff ? CameraOff : Camera, label: isVideoOff ? 'CAM ON' : 'CAM OFF', action: toggleVideo },
-            { icon: Zap, label: 'AI ASSIST', action: raiseHand },
-            { icon: PhoneOff, label: 'EXIT', action: leaveCall }
-          ].map((item, index) => (
-            <button
-              key={index}
-              onClick={item.action}
-              className={`flex flex-col items-center space-y-2 p-4 rounded-2xl transition-all duration-200 backdrop-blur-lg ${
-                index === 3 
-                  ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500' 
-                  : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
-              }`}
-            >
-              <item.icon size={24} />
-              <span className="text-white text-xs font-bold">{item.label}</span>
-            </button>
-          ))}
+        <span className="text-white text-sm font-medium flex-1">
+        {participant.name}
+        </span>
+        <div className="flex space-x-1">
+        {participant.hasVideo && (
+          <Camera size={14} className="text-green-400" />
+        )}
+        {participant.hasAudio && (
+          <Mic size={14} className="text-blue-400" />
+        )}
         </div>
+        </div>
+      ))}
       </div>
+      </div>
+      </div>
+      </div>
+    )}
+    </div>
+
+    {/* Madina Control Bar */}
+    <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-t border-cyan-500/20 p-4 backdrop-blur-lg">
+    <div className="flex justify-center items-center space-x-6">
+    {/* Connection Timer */}
+    <div className="flex items-center bg-black/50 px-4 py-2 rounded-2xl border border-cyan-500/30">
+    <Clock size={20} className="text-cyan-400 mr-2" />
+    <span className="text-cyan-300 font-mono text-sm">
+    {formatTime(callDuration)}
+    </span>
+    </div>
+
+    {[
+      { icon: isAudioMuted ? MicOff : Mic, label: isAudioMuted ? 'UNMUTE' : 'MUTE', action: toggleAudio },
+      { icon: isVideoOff ? CameraOff : Camera, label: isVideoOff ? 'CAM ON' : 'CAM OFF', action: toggleVideo },
+      { icon: Zap, label: 'RAISE HAND', action: raiseHand },
+      { icon: PhoneOff, label: 'EXIT', action: leaveCall }
+    ].map((item, index) => (
+      <button
+      key={index}
+      onClick={item.action}
+      className={`flex flex-col items-center space-y-2 p-4 rounded-2xl transition-all duration-200 backdrop-blur-lg ${
+        index === 3
+        ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500'
+        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
+      }`}
+      >
+      <item.icon size={24} />
+      <span className="text-white text-xs font-bold">{item.label}</span>
+      </button>
+    ))}
+    </div>
+    </div>
     </div>
   );
 };
 
-// === AI-POWERED CLASS MANAGEMENT ===
+// ===  CLASS MANAGEMENT ===
 const sortClasses = (classes) => {
   if (!Array.isArray(classes)) return [];
   
@@ -1341,6 +1578,48 @@ const NotificationsDropdown = ({
   );
 };
 
+const handleLogout = async () => {
+  try {
+    console.log('🎓 Student logout initiated...');
+
+    // 1. Emergency video call cleanup
+    if (showVideoCall) {
+      try {
+        // Force leave any active call
+        if (agoraClient) {
+          await agoraClient.leave().catch(console.warn);
+        }
+        // Stop all media tracks
+        Object.values(localTracksRef.current).forEach(track => {
+          if (track) {
+            track.stop().catch(console.warn);
+            track.close().catch(console.warn);
+          }
+        });
+      } catch (e) {
+        console.warn('Video cleanup warning:', e);
+      }
+    }
+
+    // 2. Clear all application data
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // 3. Sign out from Supabase
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+
+    // 4. Navigate to login
+    toast.success('🎓 Successfully logged out');
+    navigate('/login');
+
+  } catch (error) {
+    console.error('Logout error:', error);
+    // Force navigation even if error
+    localStorage.clear();
+    navigate('/login');
+  }
+};
 // === Madina DASHBOARD COMPONENT ===
 export default function Dashboard() {
   // Madina State Management
