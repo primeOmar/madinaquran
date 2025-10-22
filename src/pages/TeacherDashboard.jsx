@@ -2451,47 +2451,109 @@ export default function TeacherDashboard() {
 
   const handleRejoinSession = async (classItem) => {
     try {
-      // Find the meeting ID from class data
-      const meetingId = classItem.video_session?.meeting_id ||
-      classItem.video_sessions?.find(s => s.status === 'active')?.meeting_id;
+      console.log('🔄 Enhanced rejoin for class:', {
+        className: classItem.title,
+        classId: classItem.id,
+        availableSessions: classItem.video_sessions?.length || 0
+      });
 
-      if (!meetingId) {
-        throw new Error('No active session found to rejoin');
+      // Step 1: Try to find a valid session using multiple methods
+      let validSession = null;
+
+      // Method A: Check backend for active sessions for this class
+      console.log('🔍 Checking backend for active sessions...');
+      const sessionSearch = await videoApi.findValidSession(classItem.id, user.id);
+
+      if (sessionSearch.success) {
+        validSession = sessionSearch;
+        console.log('✅ Found valid session via backend:', {
+          meetingId: validSession.meetingId,
+          source: validSession.source
+        });
+      } else {
+        // Method B: Start a completely new session
+        console.log('🚀 Starting completely new session...');
+        const newSession = await videoApi.startVideoSession(classItem.id, user.id);
+
+        if (newSession.success) {
+          validSession = {
+            success: true,
+            meetingId: newSession.meetingId,
+            session: newSession.session,
+            source: 'brand_new_session'
+          };
+          console.log('✅ Created new session:', validSession.meetingId);
+        } else {
+          throw new Error('Failed to create new session: ' + (newSession.error || 'Unknown error'));
+        }
       }
 
-      console.log('🔄 Rejoining session with meetingId:', meetingId);
+      // Step 2: Join the valid session
+      console.log('🎯 Joining session with meetingId:', validSession.meetingId);
+      const joinResult = await videoApi.joinVideoSession(validSession.meetingId, user.id);
 
-      // ✅ USE VIDEOAPI FOR JOINING
-      const result = await videoApi.joinVideoSession(meetingId, user.id);
+      if (!joinResult.success) {
+        throw new Error(joinResult.error || 'Failed to join session');
+      }
 
-      console.log('🔍 Join response:', result); // Debug log
+      // Step 3: Setup video call data
+      const videoCallData = {
+        meetingId: joinResult.meetingId,
+        channel: joinResult.channel,
+        token: joinResult.token,
+        appId: joinResult.appId,
+        uid: joinResult.uid,
+        classId: classItem.id,
+        className: classItem.title,
+        isTeacher: true,
+        startTime: new Date().toISOString()
+      };
 
-      if (result.success) {
-        // ✅ ENSURE ALL REQUIRED PROPERTIES ARE SET
-        const videoCallData = {
-          meetingId: result.meetingId,
-          channel: result.channel,
-          token: result.token,
-          appId: result.appId,
-          uid: result.uid,
+      console.log('✅ Rejoin successful! Video call data:', videoCallData);
+
+      // Step 4: Update state and show modal
+      setActiveVideoCall(videoCallData);
+      setShowVideoCallModal(true);
+
+      // Update recent sessions
+      setRecentSessions(prev => {
+        const filtered = prev.filter(s => s.classId !== classItem.id);
+        const newSession = {
           classId: classItem.id,
           className: classItem.title,
-          isTeacher: true,
-          startTime: new Date().toISOString()
+          meetingId: joinResult.meetingId,
+          channel: joinResult.channel,
+          startTime: new Date().toISOString(),
+                        source: validSession.source
         };
+        return [newSession, ...filtered].slice(0, 5);
+      });
 
-        console.log('🎯 Rejoin video call data:', videoCallData); // Debug log
-
-        setActiveVideoCall(videoCallData);
-        setShowVideoCallModal(true);
-        toast.success('🔄 Rejoined video session!');
+      // Show appropriate success message
+      if (validSession.source === 'new_session' || validSession.source === 'brand_new_session') {
+        toast.success('🚀 Started new video session!');
       } else {
-        throw new Error(result.error || 'Failed to join video session');
+        toast.success('🔄 Successfully rejoined video session!');
       }
 
     } catch (error) {
-      console.error('❌ Madina rejoin failed:', error);
-      toast.error(error.message);
+      console.error('❌ Enhanced rejoin failed:', {
+        error: error.message,
+        class: classItem.title,
+        classId: classItem.id,
+        stack: error.stack
+      });
+
+      // More specific error messages
+      if (error.message.includes('Active session not found') ||
+        error.message.includes('Session not found') ||
+        error.message.includes('404')) {
+        toast.error('Session expired. Please start a new session.');
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          toast.error('Network error. Please check your connection.');
+        } else {
+          toast.error(`Video session error: ${error.message}`);
+        }
     }
   };
 
@@ -2602,6 +2664,39 @@ export default function TeacherDashboard() {
     }
   };
 
+  const cleanupInvalidSessions = async () => {
+    try {
+      console.log('🧹 Cleaning up invalid recent sessions...');
+
+      const validSessions = [];
+
+      for (const session of recentSessions) {
+        try {
+          // Try to get session info for each recent session
+          const sessionInfo = await videoApi.getSessionInfo(session.meetingId);
+          if (sessionInfo.exists && sessionInfo.session?.status === 'active') {
+            validSessions.push(session);
+          } else {
+            console.log('🗑️ Removing invalid session:', session.meetingId);
+          }
+        } catch (error) {
+          console.log('🗑️ Removing errored session:', session.meetingId);
+        }
+      }
+
+      if (validSessions.length !== recentSessions.length) {
+        setRecentSessions(validSessions);
+        console.log('✅ Session cleanup completed. Kept:', validSessions.length);
+      }
+    } catch (error) {
+      console.warn('⚠️ Session cleanup failed:', error);
+    }
+  };
+
+  // Call this on component mount
+  useEffect(() => {
+    cleanupInvalidSessions();
+  }, []);
   // Assignment System
   const handleAssignmentChange = (field, value) => {
     setNewAssignment(prev => {
