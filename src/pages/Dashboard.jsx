@@ -208,184 +208,259 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     return () => cleanupCall();
   }, [isOpen]);
 
+  
+  const DebugPanel = () => {
+    const [schemaCheck, setSchemaCheck] = useState({});
+    
+    const checkSchema = async () => {
+      const checks = {};
+      
+      // Check if session exists in database
+      const { data: session } = await supabase
+      .from('video_sessions')
+      .select('meeting_id, channel_name, status')
+      .eq('meeting_id', selectedClassForCall?.video_session?.meeting_id)
+      .single();
+      checks.sessionExists = !!session;
+      
+      // Check video_session_participants table
+      const { data: participants } = await supabase
+      .from('video_session_participants')
+      .select('id')
+      .limit(1);
+      checks.participantsTable = !!participants;
+      
+      setSchemaCheck(checks);
+    };
+    
+    useEffect(() => {
+      if (isOpen) {
+        checkSchema();
+      }
+    }, [isOpen]);
+    
+    return (
+      <div className="fixed top-20 right-4 bg-black/90 text-white p-4 rounded-lg z-50 max-w-sm border border-yellow-500">
+      <h4 className="font-bold text-yellow-400 mb-2">🔧 Schema Debug</h4>
+      <div className="text-xs space-y-1">
+      <div>Session in DB: <span className={schemaCheck.sessionExists ? 'text-green-400' : 'text-red-400'}>
+      {schemaCheck.sessionExists ? '✅' : '❌'}
+      </span></div>
+      <div>Participants Table: <span className={schemaCheck.participantsTable ? 'text-green-400' : 'text-red-400'}>
+      {schemaCheck.participantsTable ? '✅' : '❌'}
+      </span></div>
+      <div>Connection: <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
+      {isConnected ? '✅ CONNECTED' : '❌ DISCONNECTED'}
+      </span></div>
+      <div>Remote Users: <span className="text-blue-400">{remoteUsers.size}</span></div>
+      <button 
+      onClick={checkSchema}
+      className="mt-2 px-2 py-1 bg-blue-600 text-white rounded text-xs"
+      >
+      Refresh Checks
+      </button>
+      </div>
+      </div>
+    );
+  };
+  // debugconnection
+  const debugConnection = async () => {
+    console.log('🐛 DEBUG CONNECTION STATE:');
+    console.log('-> Is Connected:', isConnected);
+    console.log('-> Is Connecting:', isConnecting);
+    console.log('-> Remote Users:', Array.from(remoteUsers.entries()));
+    console.log('-> Agora Client State:', agoraClient?.connectionState);
+    console.log('-> Local Tracks:', {
+      audio: !!localTracksRef.current.audio,
+      video: !!localTracksRef.current.video
+    });
+    console.log('-> Class Video Session:', classItem.video_session);
+
+    // Check if we're in the right channel
+    if (agoraClient) {
+      const channelName = agoraClient.channelName;
+      console.log('-> Current Channel:', channelName);
+      console.log('-> Expected Channel:', classItem.video_session?.meeting_id);
+    }
+  };
   // Initialize Agora call
+  // SCHEMA-COMPATIBLE: Initialize Agora call
   const initializeRealCall = async () => {
     try {
       setIsConnecting(true);
-      console.log('🎯 Student joining REAL video session:', classItem.video_session);
-
-      // Get join credentials from backend
-      const joinResult = await studentApi.joinVideoSession(
-        classItem.video_session.meeting_id
-      );
-
-      if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to get session credentials');
+      console.log('🎯 Student joining video session:', classItem);
+      
+      // Get meeting ID from class video session
+      const meetingId = classItem.video_session?.meeting_id;
+      if (!meetingId) {
+        throw new Error('No active video session found for this class');
       }
-
-      console.log('🔑 REAL Join credentials received:', {
+      
+      console.log('🔍 Using meeting ID:', meetingId);
+      
+      // Get join credentials
+      const joinResult = await studentApi.joinVideoSession(meetingId);
+      
+      if (!joinResult.success) {
+        throw new Error(joinResult.error || 'Failed to join session');
+      }
+      
+      console.log('🔑 Join credentials received:', {
         channel: joinResult.channel,
         hasToken: !!joinResult.token,
         uid: joinResult.uid,
         appId: joinResult.appId
       });
-
-      // Create Agora client with REAL configuration
+      
+      // Create Agora client
       const client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8'
       });
       setAgoraClient(client);
-
-      // Set up REAL event listeners
+      
+      // Setup event listeners
       setupAgoraEventListeners(client);
-
-      // Join REAL channel with proper error handling
-      try {
-        await client.join(
-          joinResult.appId,
-          joinResult.channel,
-          joinResult.token || null, // Token can be null for testing
-          joinResult.uid || null
-        );
-        console.log('✅ Student joined REAL channel successfully');
-      } catch (joinError) {
-        console.error('❌ Agora join failed:', joinError);
-        throw new Error(`Failed to connect: ${joinError.message}`);
-      }
-
+      
+      // Join channel
+      console.log('🚀 Joining Agora channel:', joinResult.channel);
+      await client.join(
+        joinResult.appId,
+        joinResult.channel,
+        joinResult.token || null,
+        joinResult.uid || null
+      );
+      
+      console.log('✅ Successfully joined channel');
+      
       // Create and publish local tracks
       await createAndPublishLocalTracks(client);
-
+      
       setIsConnected(true);
       setIsConnecting(false);
       startTimer();
-
-      toast.success('🎉 Connected to REAL Madina session!');
-
+      
+      toast.success('🎉 Connected to live session!');
+      
+      // Log connection details
+      console.log('📊 Connection established:', {
+        channel: joinResult.channel,
+        uid: joinResult.uid,
+        class: classItem.title,
+        teacher: classItem.teacher_name
+      });
+      
     } catch (error) {
-      console.error('❌ REAL Student call initialization failed:', error);
-
-      // Specific error messages
-      let errorMessage = 'Connection failed';
-      if (error.message === 'CLASS_NOT_FOUND') {
-        errorMessage = 'Class session not found. Please check with your teacher.';
-      } else if (error.message === 'SESSION_NOT_ACTIVE') {
-        errorMessage = 'Session is not active. Teacher may not have started yet.';
-      } else if (error.message.includes('Failed to connect')) {
-        errorMessage = 'Network connection failed. Please check your internet.';
-      } else {
-        errorMessage = error.message;
+      console.error('❌ Video call initialization failed:', error);
+      
+      let errorMessage = 'Failed to connect to video session';
+      if (error.message.includes('SESSION_NOT_FOUND')) {
+        errorMessage = 'Session not found or ended';
+      } else if (error.message.includes('Access denied')) {
+        errorMessage = 'Not authorized to join this session';
+      } else if (error.message.includes('channel')) {
+        errorMessage = 'Connection failed - please try again';
       }
-
+      
       toast.error(errorMessage);
       setIsConnecting(false);
-
-      // Close after error
-      setTimeout(() => {
-        onClose();
-      }, 3000);
+      setIsConnected(false);
     }
   };
 
   // Set up Agora event listeners
   const setupAgoraEventListeners = (client) => {
-    // User published (when someone joins with media)
-    client.on('user-published', async (user, mediaType) => {
-      try {
-        console.log('📹 REMOTE USER PUBLISHED:', user.uid, mediaType);
+    console.log('🔊 Setting up enhanced Agora event listeners...');
 
-        // Subscribe to the remote user
+    // User published (when someone shares media)
+    client.on('user-published', async (user, mediaType) => {
+      console.log('🎯 USER-PUBLISHED EVENT - UID:', user.uid, 'Media:', mediaType);
+
+      try {
+        // Subscribe to the user
         await client.subscribe(user, mediaType);
-        console.log('✅ Subscribed to user:', user.uid, mediaType);
+        console.log('✅ Successfully subscribed to user:', user.uid);
 
         if (mediaType === 'video') {
-          console.log('🎥 REMOTE VIDEO AVAILABLE for user:', user.uid);
+          console.log('📹 VIDEO TRACK AVAILABLE for UID:', user.uid);
 
           // Update remote users state
           setRemoteUsers(prev => {
             const newMap = new Map(prev);
-            const userData = newMap.get(user.uid) || {
+            newMap.set(user.uid, {
               uid: user.uid,
-              hasVideo: false,
-              hasAudio: false,
               videoTrack: user.videoTrack,
-              audioTrack: null,
-              isTeacher: user.uid === 1 // You might need to adjust this logic
-            };
-            userData.videoTrack = user.videoTrack;
-            userData.hasVideo = true;
-            newMap.set(user.uid, userData);
+              audioTrack: user.audioTrack,
+              hasVideo: true,
+              hasAudio: !!user.audioTrack,
+              isTeacher: user.uid === 1 // Adjust based on your logic
+            });
             return newMap;
           });
 
-          // Play remote video immediately
+          // Play the video immediately
           setTimeout(() => {
             playRemoteVideo(user.uid, user.videoTrack);
           }, 100);
 
         } else if (mediaType === 'audio') {
-          console.log('🎤 REMOTE AUDIO AVAILABLE for user:', user.uid);
-
-          setRemoteUsers(prev => {
-            const newMap = new Map(prev);
-            const userData = newMap.get(user.uid) || {
-              uid: user.uid,
-              hasVideo: false,
-              hasAudio: true,
-              videoTrack: null,
-              audioTrack: user.audioTrack,
-              isTeacher: user.uid === 1
-            };
-            userData.audioTrack = user.audioTrack;
-            userData.hasAudio = true;
-            newMap.set(user.uid, userData);
-            return newMap;
-          });
+          console.log('🎤 AUDIO TRACK AVAILABLE for UID:', user.uid);
 
           // Play remote audio
-          user.audioTrack.play().catch(e => console.log('Audio play error:', e));
+          user.audioTrack.play().catch(e =>
+          console.log('Audio play error:', e)
+          );
         }
 
         updateParticipantsList();
+        toast.success(`👤 User ${user.uid} joined with ${mediaType}`);
 
       } catch (error) {
-        console.error('Error handling user-published:', error);
+        console.error('❌ Error in user-published:', error);
       }
     });
 
-    // User joined (when someone enters channel)
+    // User joined the channel (without media yet)
     client.on('user-joined', (user) => {
-      console.log('👤 USER JOINED CHANNEL:', user.uid);
-      toast.info(`👤 Participant ${user.uid} joined`);
+      console.log('👤 USER-JOINED CHANNEL - UID:', user.uid);
+      toast.info(`👤 User ${user.uid} joined the channel`);
     });
 
-    // User left (when someone leaves channel)
+    // User left the channel
     client.on('user-left', (user) => {
-      console.log('👤 USER LEFT CHANNEL:', user.uid);
+      console.log('👤 USER-LEFT CHANNEL - UID:', user.uid);
 
       setRemoteUsers(prev => {
         const newMap = new Map(prev);
         newMap.delete(user.uid);
-        // Remove video element
-        const videoElement = document.getElementById(`remote-video-${user.uid}`);
-        if (videoElement) videoElement.remove();
         return newMap;
       });
 
+      // Remove video element from DOM
+      const videoElement = document.getElementById(`remote-video-${user.uid}`);
+      if (videoElement) videoElement.remove();
+
       updateParticipantsList();
-      toast.info(`👤 Participant ${user.uid} left`);
+      toast.info(`👤 User ${user.uid} left the channel`);
     });
 
     // Connection state changes
     client.on('connection-state-change', (curState, prevState) => {
-      console.log('🔗 CONNECTION STATE:', prevState, '→', curState);
+      console.log('🔗 CONNECTION STATE CHANGE:', prevState, '→', curState);
 
       if (curState === 'CONNECTED') {
-        toast.success('✅ Fully connected to video call');
+        toast.success('✅ Fully connected to video channel');
+        console.log('🎉 Successfully connected to channel:', client.channelName);
       } else if (curState === 'DISCONNECTED') {
-        toast.error('❌ Disconnected from video call');
+        toast.error('❌ Disconnected from video channel');
+      } else if (curState === 'CONNECTING') {
+        console.log('🔄 Connecting to channel...');
       }
+    });
+
+    // Stream type changed
+    client.on('user-info-updated', (uid, msg) => {
+      console.log('🔄 USER INFO UPDATED:', uid, msg);
     });
   };
 
@@ -750,18 +825,33 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       {/* Teacher Video Area */}
       <div className="teacher-video-area w-full h-full">
-      {!teacherStream && (
+      {teacherStream ? (
+        <div className="relative w-full h-full">
+        {/* Teacher video will be inserted here */}
+        </div>
+      ) : (
         <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center text-white">
-        <User size={80} className="mx-auto text-cyan-400 mb-4" />
-        <p className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-        Teacher Joining
+        <Loader2 className="animate-spin mx-auto text-cyan-400 mb-4" size={48} />
+        <p className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+        {remoteUsers.size > 0 ? 'Connected to Session' : 'Waiting for Teacher'}
         </p>
-        <p className="text-gray-400 mt-2">Preparing optimal learning environment</p>
+        <p className="text-gray-400 mt-2">
+        {remoteUsers.size > 0
+          ? `${remoteUsers.size} participant(s) in call`
+          : 'Teacher will appear here when they join'
+        }
+        </p>
         <div className="mt-4 text-cyan-300 text-sm">
-        <p>Waiting for teacher to join...</p>
+        <p>Channel: {classItem.video_session?.meeting_id}</p>
         <p>Remote participants: {Array.from(remoteUsers.values()).length}</p>
         </div>
+        <button
+        onClick={debugConnection}
+        className="mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white text-sm transition-all duration-200"
+        >
+        Debug Connection
+        </button>
         </div>
         </div>
       )}
