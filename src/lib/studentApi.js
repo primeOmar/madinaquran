@@ -940,47 +940,59 @@ export const studentApi = {
   /**
    * PRODUCTION-READY: Primary backend credential source
    */
+ 
   getCredentialsFromBackend: async (meetingId, userId, userEmail) => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
     try {
+      console.log('🔄 Calling backend join-session endpoint...');
+      
       const response = await fetch(`${API_BASE_URL}/video/join-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-ID': userId,
-          'X-User-Type': 'student'
         },
         body: JSON.stringify({
           meeting_id: meetingId,
           user_id: userId,
           user_type: 'student',
-          user_name: userEmail || 'Student',
-          user_agent: navigator.userAgent,
-          timestamp: new Date().toISOString()
+          user_name: userEmail || 'Student'
         }),
         signal: controller.signal
       });
-
+      
       clearTimeout(timeoutId);
-
+      
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('❌ Backend response not OK:', response.status, errorText);
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-
+      
       const data = await response.json();
-
-      // Validate response structure
-      if (!data.channel || !data.appId) {
-        throw new Error('Invalid response format from backend');
+      console.log('✅ Backend response:', data);
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Join request failed');
       }
-
-      return data;
-
+      
+      // Validate response has required fields
+      if (!data.channel || !data.app_id) {
+        throw new Error('Invalid response: missing channel or app_id');
+      }
+      
+      return {
+        channel: data.channel,
+        token: data.token,
+        appId: data.app_id || data.appId,
+        uid: data.uid
+      };
+      
     } catch (error) {
       clearTimeout(timeoutId);
+      console.error('❌ Backend credential fetch failed:', error.message);
+      
       if (error.name === 'AbortError') {
         throw new Error('Backend request timeout');
       }
