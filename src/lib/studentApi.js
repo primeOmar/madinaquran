@@ -812,34 +812,51 @@ export const studentApi = {
    */
   joinVideoSession: async (meetingId) => {
     let lastError = null;
-    
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         console.log(`🔄 Join attempt ${attempt}/${MAX_RETRIES} for session:`, meetingId);
-        
+
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-          throw new Error('User authentication failed');
+          throw new Error('User authentication failed: ' + (authError?.message || 'No user found'));
         }
-        
-        // 1. Verify session access with schema-compatible check
-        const accessCheck = await studentApi.verifySessionAccess(meetingId);
-        
+
+        // 1. Validate meeting ID format
+        if (!meetingId || typeof meetingId !== 'string' || meetingId.trim().length === 0) {
+          throw new Error('Invalid meeting ID format');
+        }
+
+        // 2. Verify session access with timeout
+        const accessCheck = await Promise.race([
+          studentApi.verifySessionAccess(meetingId),
+                                               new Promise((_, reject) =>
+                                               setTimeout(() => reject(new Error('Session verification timeout')), 10000)
+                                               )
+        ]);
+
         if (!accessCheck.can_join) {
-          throw new Error(accessCheck.reason || 'Access denied');
+          throw new Error(accessCheck.reason || 'Access denied to this session');
         }
-        
-        // 2. Get credentials
+
+        // 3. Try multiple credential sources with fallbacks
         const joinData = await studentApi.getJoinCredentials(meetingId, user.id, user.email);
-        
+
         if (!joinData) {
-          throw new Error('Failed to obtain join credentials');
+          throw new Error('Failed to obtain join credentials from all sources');
         }
-        
-        // 3. Record participation (non-blocking)
+
+        // 4. Validate join data structure
+        const validationError = validateJoinData(joinData);
+        if (validationError) {
+          throw new Error(`Invalid join data: ${validationError}`);
+        }
+
+        // 5. Record participation (fire-and-forget, don't block join)
         studentApi.recordSessionParticipation(meetingId, user.id)
-        .catch(error => console.warn('Participation recording failed:', error));
-        
+        .catch(error => console.warn('Non-critical: Participation recording failed:', error));
+
+        // 6. Return standardized success response
         return {
           success: true,
           meetingId: meetingId,
@@ -848,30 +865,42 @@ export const studentApi = {
           appId: joinData.appId,
           uid: joinData.uid,
           source: joinData.source,
+          timestamp: new Date().toISOString(),
           sessionInfo: {
             classTitle: accessCheck.class_title,
-            teacherName: accessCheck.teacher_name,
-            channel: accessCheck.channel_name
+            teacherName: accessCheck.teacher_name
           }
         };
-        
+
       } catch (error) {
         lastError = error;
         console.error(`❌ Join attempt ${attempt} failed:`, error.message);
-        
-        if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
-        }
+
+        // Don't retry for authentication or validation errors
+        if (error.message.includes('authentication') ||
+          error.message.includes('Invalid') ||
+          error.message.includes('Access denied')) {
+          break;
+          }
+
+          // Wait before retry (except on last attempt)
+          if (attempt < MAX_RETRIES) {
+            console.log(`⏳ Retrying in ${RETRY_DELAY}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
+          }
       }
     }
-    
+
+    // All retries failed
+    console.error('❌ All join attempts failed:', lastError?.message);
     return {
       success: false,
-      error: lastError?.message || 'Failed to join video session',
-      errorCode: getErrorCode(lastError)
+      error: lastError?.message || 'Failed to join video session after multiple attempts',
+      errorCode: getErrorCode(lastError),
+      retryCount: MAX_RETRIES,
+      timestamp: new Date().toISOString()
     };
-  }
-},
+  },
 
   /**
    * PRODUCTION-READY: Get join credentials from multiple sources with priority
@@ -911,101 +940,103 @@ export const studentApi = {
   /**
    * PRODUCTION-READY: Primary backend credential source
    */
-  etCredentialsFromBackend: async (meetingId, userId, userEmail) => {
+  getCredentialsFromBackend: async (meetingId, userId, userEmail) => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
     try {
-      const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
+      const response = await fetch(`${API_BASE_URL}/video/join-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-User-ID': userId,
+          'X-User-Type': 'student'
         },
         body: JSON.stringify({
           meeting_id: meetingId,
           user_id: userId,
           user_type: 'student',
-          user_name: userEmail || 'Student'
+          user_name: userEmail || 'Student',
+          user_agent: navigator.userAgent,
+          timestamp: new Date().toISOString()
         }),
         signal: controller.signal
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-      
+
       const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Join request failed');
+
+      // Validate response structure
+      if (!data.channel || !data.appId) {
+        throw new Error('Invalid response format from backend');
       }
-      
-      return {
-        channel: data.channel,
-        token: data.token,
-        appId: data.appId,
-        uid: data.uid
-      };
-      
+
+      return data;
+
     } catch (error) {
       clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Backend request timeout');
+      }
       throw error;
     }
   },
-  
-  
 
   /**
    * PRODUCTION-READY: Database fallback with cached configuration
    */
   getCredentialsFromDatabase: async (meetingId, userId, userEmail) => {
     try {
-      // Get session with channel_name
+      // Get session with class and teacher info
       const { data: session, error } = await supabase
       .from('video_sessions')
       .select(`
-      channel_name,
       class_id,
+      channel_name,
       classes (
+        title,
         teacher:teacher_id (
+          name,
           agora_config
         )
       )
       `)
       .eq('meeting_id', meetingId)
       .single();
-      
+
       if (error || !session) {
         throw new Error('Session not found in database');
       }
-      
-      // Get Agora config
+
+      // Try to get Agora config from teacher profile or use environment variable
       const teacherConfig = session.classes?.teacher?.agora_config;
       const appId = teacherConfig?.appId || AGORA_APP_ID;
-      
+
       if (!appId) {
         throw new Error('No Agora App ID configured');
       }
-      
-      // Use channel from database or generate fallback
-      const channel = session.channel_name || `class_${session.class_id}_${meetingId.substring(0, 8)}`;
-      
+
+      // Use channel name from session or generate consistent one
+      const channel = session.channel_name || `class_${session.class_id}_${meetingId}`;
+
       return {
         channel: channel,
-        token: null, // Token-less mode
+        token: null, // Token-less mode for fallback
         appId: appId,
         uid: generateDeterministicUID(userId, meetingId),
         isFallback: true
       };
-      
+
     } catch (error) {
       throw new Error(`Database fallback failed: ${error.message}`);
     }
   },
-  
-  
 
   /**
    * PRODUCTION-READY: Emergency credentials when all else fails
@@ -1041,22 +1072,18 @@ export const studentApi = {
       if (!user) {
         return { can_join: false, reason: 'Not authenticated' };
       }
-      
-      console.log('🔍 Verifying session access for student:', user.id, 'meeting:', meetingId);
-      
-      // Get session with video_session_participants
+
+      // Get session with detailed access control
       const { data: session, error } = await supabase
       .from('video_sessions')
       .select(`
       id,
-      meeting_id,
       status,
       started_at,
       ended_at,
       scheduled_date,
+      max_participants,
       class_id,
-      teacher_id,
-      channel_name,
       classes (
         id,
         title,
@@ -1068,80 +1095,67 @@ export const studentApi = {
           is_active
         )
       ),
-      video_session_participants (
-        student_id,
-        is_teacher,
-        status
-      )
+      participants:session_participants(count)
       `)
       .eq('meeting_id', meetingId)
       .single();
-      
+
       if (error || !session) {
-        console.log('❌ Session not found in database:', error);
         return { can_join: false, reason: 'Session not found' };
       }
-      
+
       // Check session status
       if (session.status !== 'active' || session.ended_at) {
-        console.log('❌ Session not active:', { status: session.status, ended_at: session.ended_at });
         return { can_join: false, reason: 'Session has ended' };
       }
-      
-      // Check if teacher is joined
-      const teacherJoined = session.video_session_participants?.some(p => p.is_teacher) || false;
-      if (!teacherJoined) {
-        console.log('⚠️ Teacher not joined yet, but allowing student to wait');
+
+      // Check if session has started (with grace period)
+      const scheduledTime = new Date(session.scheduled_date || session.started_at);
+      const now = new Date();
+      const gracePeriod = 15 * 60 * 1000; // 15 minutes
+      if (now < scheduledTime - gracePeriod) {
+        return { can_join: false, reason: 'Session has not started yet' };
       }
-      
-      // ✅ AUTO-ENROLLMENT: Ensure student is enrolled in the class
+
+      // Check teacher status
+      if (!session.classes?.teacher?.is_active) {
+        return { can_join: false, reason: 'Teacher account is not active' };
+      }
+
+      // Verify student enrollment
       const { data: enrollment } = await supabase
       .from('student_classes')
       .select('id, status')
       .eq('class_id', session.class_id)
       .eq('student_id', user.id)
       .single();
-      
+
       if (!enrollment) {
-        console.log('📝 Creating automatic enrollment for student...');
-        const { error: enrollError } = await supabase
-        .from('student_classes')
-        .insert({
-          class_id: session.class_id,
-          student_id: user.id,
-          status: 'active',
-          enrolled_at: new Date().toISOString()
-        });
-        
-        if (enrollError) {
-          console.warn('⚠️ Auto-enrollment failed:', enrollError);
-        } else {
-          console.log('✅ Auto-enrollment created successfully');
-        }
+        return { can_join: false, reason: 'Not enrolled in this class' };
       }
-      
-      console.log('✅ Access granted to session:', meetingId);
-      
+
+      if (enrollment.status !== 'active') {
+        return { can_join: false, reason: 'Student enrollment is not active' };
+      }
+
+      // Check participant limit
+      const participantCount = session.participants?.[0]?.count || 0;
+      if (session.max_participants && participantCount >= session.max_participants) {
+        return { can_join: false, reason: 'Session is full' };
+      }
+
       return {
         can_join: true,
         session: session,
-        class_title: session.classes?.title || 'Live Class',
-        teacher_name: session.classes?.teacher?.name || 'Teacher',
-        teacher_joined: teacherJoined,
-        channel_name: session.channel_name
+        class_title: session.classes?.title,
+        teacher_name: session.classes?.teacher?.name
       };
-      
+
     } catch (error) {
-      console.error('❌ Session access verification error:', error);
-      // FALLBACK: Allow join with warning
-      return { 
-        can_join: true, 
-        reason: 'Fallback access granted due to error',
-        fallback: true 
-      };
+      console.error('Session access verification error:', error);
+      return { can_join: false, reason: 'Access verification failed' };
     }
   },
-  
 
   /**
    * PRODUCTION-READY: Enhanced participation recording
@@ -1153,35 +1167,43 @@ export const studentApi = {
       .select('id, class_id')
       .eq('meeting_id', meetingId)
       .single();
-      
+
       if (!session) {
         throw new Error('Session not found for participation recording');
       }
-      
-      // Use video_session_participants table (matches backend)
+
+      // Upsert participant record with conflict handling
       const { error } = await supabase
-      .from('video_session_participants')
+      .from('session_participants')
       .upsert({
         session_id: session.id,
         student_id: studentId,
+        class_id: session.class_id,
         joined_at: new Date().toISOString(),
               status: 'joined',
               is_teacher: false,
-              user_type: 'student'
+              connection_quality: 'unknown',
+              device_info: {
+                user_agent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language
+              }
       }, {
-        onConflict: 'session_id,student_id'
+        onConflict: 'session_id,student_id',
+        ignoreDuplicates: false
       });
-      
+
       if (error) {
         console.warn('Participation recording failed:', error);
+        // Don't throw - this shouldn't block the join process
       } else {
-        console.log('✅ Participation recorded in video_session_participants');
+        console.log('✅ Participation recorded successfully');
       }
     } catch (error) {
       console.warn('Non-critical: Participation recording failed:', error);
+      // Silently fail - this is non-critical for joining
     }
   },
-  
 
   /**
    * Get session status with enhanced checking
