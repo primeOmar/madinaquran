@@ -208,61 +208,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     return () => cleanupCall();
   }, [isOpen]);
 
-  
-  const DebugPanel = () => {
-    const [schemaCheck, setSchemaCheck] = useState({});
-    
-    const checkSchema = async () => {
-      const checks = {};
-      
-      // Check if session exists in database
-      const { data: session } = await supabase
-      .from('video_sessions')
-      .select('meeting_id, channel_name, status')
-      .eq('meeting_id', selectedClassForCall?.video_session?.meeting_id)
-      .single();
-      checks.sessionExists = !!session;
-      
-      // Check video_session_participants table
-      const { data: participants } = await supabase
-      .from('video_session_participants')
-      .select('id')
-      .limit(1);
-      checks.participantsTable = !!participants;
-      
-      setSchemaCheck(checks);
-    };
-    
-    useEffect(() => {
-      if (isOpen) {
-        checkSchema();
-      }
-    }, [isOpen]);
-    
-    return (
-      <div className="fixed top-20 right-4 bg-black/90 text-white p-4 rounded-lg z-50 max-w-sm border border-yellow-500">
-      <h4 className="font-bold text-yellow-400 mb-2">🔧 Schema Debug</h4>
-      <div className="text-xs space-y-1">
-      <div>Session in DB: <span className={schemaCheck.sessionExists ? 'text-green-400' : 'text-red-400'}>
-      {schemaCheck.sessionExists ? '✅' : '❌'}
-      </span></div>
-      <div>Participants Table: <span className={schemaCheck.participantsTable ? 'text-green-400' : 'text-red-400'}>
-      {schemaCheck.participantsTable ? '✅' : '❌'}
-      </span></div>
-      <div>Connection: <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
-      {isConnected ? '✅ CONNECTED' : '❌ DISCONNECTED'}
-      </span></div>
-      <div>Remote Users: <span className="text-blue-400">{remoteUsers.size}</span></div>
-      <button 
-      onClick={checkSchema}
-      className="mt-2 px-2 py-1 bg-blue-600 text-white rounded text-xs"
-      >
-      Refresh Checks
-      </button>
-      </div>
-      </div>
-    );
-  };
   // debugconnection
   const debugConnection = async () => {
     console.log('🐛 DEBUG CONNECTION STATE:');
@@ -284,7 +229,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
   // Initialize Agora call
-  // SCHEMA-COMPATIBLE: Initialize Agora call
   const initializeRealCall = async () => {
     try {
       setIsConnecting(true);
@@ -298,11 +242,21 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       
       console.log('🔍 Using meeting ID:', meetingId);
       
-      // Get join credentials
+      // First, check if session is active
+      console.log('🔍 Checking session status...');
+      const statusCheck = await studentApi.getSessionStatus(meetingId);
+      console.log('📊 Session status:', statusCheck);
+      
+      if (!statusCheck.is_active) {
+        throw new Error('Session is not active or has ended');
+      }
+      
+      // Get join credentials with fallback
+      console.log('🔄 Getting join credentials...');
       const joinResult = await studentApi.joinVideoSession(meetingId);
       
       if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to join session');
+        throw new Error(joinResult.error || 'Failed to get join credentials');
       }
       
       console.log('🔑 Join credentials received:', {
@@ -311,6 +265,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         uid: joinResult.uid,
         appId: joinResult.appId
       });
+      
+      // Validate credentials
+      if (!joinResult.channel || !joinResult.appId) {
+        throw new Error('Invalid join credentials: missing channel or appId');
+      }
       
       // Create Agora client
       const client = AgoraRTC.createClient({
@@ -322,15 +281,22 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       // Setup event listeners
       setupAgoraEventListeners(client);
       
-      // Join channel
+      // Join channel with timeout
       console.log('🚀 Joining Agora channel:', joinResult.channel);
-      await client.join(
+      
+      const joinPromise = client.join(
         joinResult.appId,
         joinResult.channel,
         joinResult.token || null,
         joinResult.uid || null
       );
       
+      // Add timeout to join operation
+      const joinTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Join operation timeout')), 10000)
+      );
+      
+      await Promise.race([joinPromise, joinTimeout]);
       console.log('✅ Successfully joined channel');
       
       // Create and publish local tracks
@@ -342,7 +308,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       
       toast.success('🎉 Connected to live session!');
       
-      // Log connection details
       console.log('📊 Connection established:', {
         channel: joinResult.channel,
         uid: joinResult.uid,
@@ -354,17 +319,26 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       console.error('❌ Video call initialization failed:', error);
       
       let errorMessage = 'Failed to connect to video session';
-      if (error.message.includes('SESSION_NOT_FOUND')) {
+      if (error.message.includes('getToken is not defined')) {
+        errorMessage = 'Server configuration error - please contact support';
+      } else if (error.message.includes('SESSION_NOT_FOUND')) {
         errorMessage = 'Session not found or ended';
-      } else if (error.message.includes('Access denied')) {
-        errorMessage = 'Not authorized to join this session';
+      } else if (error.message.includes('timeout')) {
+        errorMessage = 'Connection timeout - please try again';
       } else if (error.message.includes('channel')) {
-        errorMessage = 'Connection failed - please try again';
+        errorMessage = 'Invalid channel configuration';
       }
       
       toast.error(errorMessage);
       setIsConnecting(false);
       setIsConnected(false);
+      
+      // Debug info
+      console.log('🐛 DEBUG - Failed connection details:', {
+        classItem,
+        meetingId: classItem.video_session?.meeting_id,
+        videoSession: classItem.video_session
+      });
     }
   };
 
