@@ -1081,6 +1081,37 @@ const ClassesTab = ({
       setLocalDeletingClass(null);
     }
   };
+  
+ 
+  const startVideoSession = async (classItem) => {
+    try {
+      console.log('🎬 Starting video session for class:', classItem.id);
+      
+      const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          class_id: classItem.id,
+          user_id: currentUser.id // Make sure this is the teacher's ID
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to start session');
+      }
+      
+      console.log('✅ Session started successfully:', data);
+      return data;
+      
+    } catch (error) {
+      console.error('❌ Failed to start session:', error);
+      throw error;
+    }
+  };
 
   // Enhanced rejoin function for background sessions
   const handleEnhancedRejoin = async (classItem) => {
