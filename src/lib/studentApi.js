@@ -1,12 +1,33 @@
 import { supabase } from './supabaseClient';
 
-// ===== CONFIGURATION =====
+// ===== PRODUCTION CONFIGURATION =====
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://madina-quran-backend.onrender.com/api';
 const AGORA_APP_ID = import.meta.env.VITE_AGORA_APP_ID;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// ===== UTILITY FUNCTIONS =====
+// ===== PRODUCTION LOGGER =====
+class ProductionLogger {
+  static info(message, data = null) {
+    console.log(`ℹ️ [STUDENT-API] ${message}`, data || '');
+  }
+  
+  static error(message, error = null) {
+    console.error(`❌ [STUDENT-API] ${message}`, error || '');
+  }
+  
+  static warn(message, data = null) {
+    console.warn(`⚠️ [STUDENT-API] ${message}`, data || '');
+  }
+  
+  static debug(message, data = null) {
+    if (import.meta.env.DEV) {
+      console.debug(`🐛 [STUDENT-API] ${message}`, data || '');
+    }
+  }
+}
+
+// ===== PRODUCTION UTILITIES =====
 const generateDeterministicUID = (userId, meetingId) => {
   const combined = `${userId}_${meetingId}`;
   let hash = 0;
@@ -28,42 +49,94 @@ const getErrorCode = (error) => {
   if (message.includes('full')) return 'SESSION_FULL';
   if (message.includes('timeout')) return 'REQUEST_TIMEOUT';
   if (message.includes('network')) return 'NETWORK_ERROR';
+  if (message.includes('permission')) return 'PERMISSION_DENIED';
   return 'UNKNOWN_ERROR';
 };
 
 const validateJoinData = (joinData) => {
   const required = ['channel', 'appId', 'uid'];
   const missing = required.filter(field => !joinData[field]);
-
+  
   if (missing.length > 0) {
     return `Missing required fields: ${missing.join(', ')}`;
   }
-
+  
   if (typeof joinData.channel !== 'string' || joinData.channel.trim().length === 0) {
     return 'Invalid channel name';
   }
-
+  
   if (typeof joinData.appId !== 'string' || joinData.appId.trim().length === 0) {
     return 'Invalid App ID';
   }
-
+  
   if (typeof joinData.uid !== 'number' || joinData.uid < 0 || joinData.uid > 4294967295) {
     return 'Invalid UID (must be number between 0-4294967295)';
   }
-
+  
   return null;
 };
 
-// ===== MAIN STUDENT API =====
-export const studentApi = {
-  // Get student dashboard data
-  getDashboardData: async () => {
+// ===== PRODUCTION REQUEST HANDLER =====
+class ApiRequestHandler {
+  static async makeRequest(url, options = {}, retries = MAX_RETRIES) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) throw new Error('User not authenticated');
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      
+      if (retries > 0 && !error.message.includes('auth') && !error.message.includes('invalid')) {
+        ProductionLogger.warn(`Request failed, retrying... (${retries} left)`, error.message);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return this.makeRequest(url, options, retries - 1);
+      }
+      
+      throw error;
+    }
+  }
+}
 
-      const studentId = user.id;
-
+// ===== PRODUCTION STUDENT API =====
+export const studentApi = {
+  // ===== AUTHENTICATION & PROFILE =====
+  async getCurrentUser() {
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) {
+        throw new Error('User not authenticated');
+      }
+      return user;
+    } catch (error) {
+      ProductionLogger.error('Failed to get current user', error);
+      throw error;
+    }
+  },
+  
+  // ===== DASHBOARD DATA =====
+  async getDashboardData() {
+    try {
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.info('Fetching dashboard data for student', { userId: user.id });
+      
       // Get student profile with teacher info
       const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -88,20 +161,20 @@ export const studentApi = {
         subject
       )
       `)
-      .eq('id', studentId)
+      .eq('id', user.id)
       .single();
-
+      
       if (profileError) throw profileError;
-
-      // Get all data in parallel
+      
+      // Get all data in parallel for performance
       const [classesData, assignmentsData, statsData, notificationsData] = await Promise.all([
-        studentApi.getMyClasses(),
-                                                                                             studentApi.getMyAssignments(),
-                                                                                             studentApi.getMyStats(),
-                                                                                             studentApi.getMyNotifications()
+        this.getMyClasses(),
+                                                                                             this.getMyAssignments(),
+                                                                                             this.getMyStats(),
+                                                                                             this.getMyNotifications()
       ]);
-
-      return {
+      
+      const dashboardData = {
         student: profile,
         teacher: profile.teacher,
         classes: classesData.classes || [],
@@ -110,31 +183,37 @@ export const studentApi = {
         notifications: notificationsData.notifications || [],
         hasTeacher: !!profile.teacher_id
       };
+      
+      ProductionLogger.info('Dashboard data fetched successfully');
+      return dashboardData;
+      
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      ProductionLogger.error('Failed to fetch dashboard data', error);
       throw error;
     }
   },
-
-  // Get student's classes from their assigned teacher
-  getMyClasses: async () => {
+  
+  // ===== CLASSES MANAGEMENT =====
+  async getMyClasses() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.debug('Fetching classes for student', { userId: user.id });
+      
       // Get student's teacher_id
       const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('teacher_id')
       .eq('id', user.id)
       .single();
-
+      
       if (profileError) throw profileError;
-
+      
       if (!profile?.teacher_id) {
+        ProductionLogger.warn('Student has no assigned teacher');
         return { classes: [], teacher: null };
       }
-
+      
       // Get classes from the student's assigned teacher
       const { data: classes, error: classesError } = await supabase
       .from('classes')
@@ -169,10 +248,10 @@ export const studentApi = {
       `)
       .eq('teacher_id', profile.teacher_id)
       .order('scheduled_date', { ascending: true });
-
+      
       if (classesError) throw classesError;
-
-      // Transform data to match frontend expectations
+      
+      // Transform data for frontend
       const transformedClasses = (classes || []).map(classItem => ({
         id: classItem.id,
         title: classItem.title,
@@ -191,24 +270,26 @@ export const studentApi = {
         course_name: classItem.courses?.name,
         video_session: classItem.video_sessions?.[0] || null
       }));
-
+      
+      ProductionLogger.debug(`Fetched ${transformedClasses.length} classes`);
       return {
         classes: transformedClasses,
         teacher: classes?.[0]?.teacher || null
       };
+      
     } catch (error) {
-      console.error('Error fetching classes:', error);
+      ProductionLogger.error('Failed to fetch classes', error);
       throw error;
     }
   },
-
-  // Get student's assignments with submissions
-  getMyAssignments: async () => {
+  
+  // ===== ASSIGNMENTS MANAGEMENT =====
+  async getMyAssignments() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get assignments for the student
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.debug('Fetching assignments for student', { userId: user.id });
+      
       const { data: assignments, error: assignmentsError } = await supabase
       .from('assignments')
       .select(`
@@ -245,13 +326,12 @@ export const studentApi = {
       `)
       .eq('student_id', user.id)
       .order('due_date', { ascending: true });
-
+      
       if (assignmentsError) throw assignmentsError;
-
-      // Transform assignments data
+      
       const transformedAssignments = (assignments || []).map(assignment => {
         const submission = assignment.assignment_submissions?.[0];
-
+        
         // Determine assignment status
         let status = assignment.status || 'assigned';
         if (submission) {
@@ -260,12 +340,12 @@ export const studentApi = {
             status = 'graded';
           }
         }
-
+        
         // Check if overdue
         const isOverdue = assignment.due_date &&
         new Date(assignment.due_date) < new Date() &&
         status === 'assigned';
-
+        
         return {
           id: assignment.id,
           title: assignment.title,
@@ -282,32 +362,36 @@ export const studentApi = {
           class_title: assignment.class?.title,
           file_url: assignment.file_url,
           submissions: assignment.assignment_submissions || [],
-          // For easy access to latest submission
           submission: submission || null,
           score: submission?.score,
-          grade: submission?.score, // Alias for score
+          grade: submission?.score,
           feedback: submission?.feedback,
           audio_feedback_url: submission?.audio_feedback_url,
           submitted_at: submission?.submitted_at,
           graded_at: submission?.graded_at
         };
       });
-
+      
+      ProductionLogger.debug(`Fetched ${transformedAssignments.length} assignments`);
       return { assignments: transformedAssignments };
+      
     } catch (error) {
-      console.error('Error fetching assignments:', error);
+      ProductionLogger.error('Failed to fetch assignments', error);
       throw error;
     }
   },
-
-  // Submit assignment
-  submitAssignment: async (submissionData) => {
+  
+  async submitAssignment(submissionData) {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.info('Student submitting assignment', { 
+        userId: user.id, 
+        assignmentId: submissionData.assignment_id 
+      });
+      
       const { assignment_id, submission_text, audio_url } = submissionData;
-
+      
       // Validate assignment exists and belongs to student
       const { data: assignment, error: assignmentError } = await supabase
       .from('assignments')
@@ -315,11 +399,11 @@ export const studentApi = {
       .eq('id', assignment_id)
       .eq('student_id', user.id)
       .single();
-
+      
       if (assignmentError) {
         throw new Error('Assignment not found or not authorized');
       }
-
+      
       // Check if already submitted
       const { data: existingSubmission } = await supabase
       .from('assignment_submissions')
@@ -327,11 +411,12 @@ export const studentApi = {
       .eq('assignment_id', assignment_id)
       .eq('student_id', user.id)
       .single();
-
+      
       // Determine if submission is late
       const isLate = assignment.due_date && new Date(assignment.due_date) < new Date();
       const status = isLate ? 'late' : 'submitted';
-
+      
+      let result;
       if (existingSubmission) {
         // Update existing submission
         const { data, error } = await supabase
@@ -346,9 +431,9 @@ export const studentApi = {
         .eq('id', existingSubmission.id)
         .select()
         .single();
-
+        
         if (error) throw error;
-        return { success: true, data, message: 'Assignment resubmitted successfully' };
+        result = { success: true, data, message: 'Assignment resubmitted successfully' };
       } else {
         // Create new submission
         const { data, error } = await supabase
@@ -363,565 +448,142 @@ export const studentApi = {
         })
         .select()
         .single();
-
+        
         if (error) throw error;
-        return { success: true, data, message: 'Assignment submitted successfully' };
+        result = { success: true, data, message: 'Assignment submitted successfully' };
       }
+      
+      ProductionLogger.info('Assignment submitted successfully');
+      return result;
+      
     } catch (error) {
-      console.error('Error submitting assignment:', error);
+      ProductionLogger.error('Failed to submit assignment', error);
       throw error;
     }
   },
-
-  // Get student statistics - using profile data and actual counts
-  getMyStats: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get student profile with stats
-      const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select(`
-      progress,
-      attendance_rate,
-      overall_score,
-      completed_assignments,
-      total_assignments,
-      last_active,
-      teacher_id
-      `)
-      .eq('id', user.id)
-      .single();
-
-      if (profileError) throw profileError;
-
-      // If no teacher_id, return empty stats
-      if (!profile?.teacher_id) {
-        return {
-          total_classes: 0,
-          hours_learned: 0,
-          assignments: 0,
-          completed_assignments: 0,
-          avg_score: 0,
-          completion_rate: 0,
-          attendance_rate: 0,
-          points: 0,
-          level: 1,
-          next_level: 100,
-          streak: 0
-        };
-      }
-
-      // Get actual counts from database
-      const [
-        classesCount,
-        assignmentsData,
-        submissionsData
-      ] = await Promise.all([
-        // Count classes from student's teacher
-        supabase
-        .from('classes')
-        .select('id', { count: 'exact', head: true })
-        .eq('teacher_id', profile.teacher_id),
-
-                            // Get assignments count
-                            supabase
-                            .from('assignments')
-                            .select('id', { count: 'exact', head: true })
-                            .eq('student_id', user.id),
-
-                            // Get graded submissions for average score
-                            supabase
-                            .from('assignment_submissions')
-                            .select('score')
-                            .eq('student_id', user.id)
-                            .not('score', 'is', null)
-      ]);
-
-      // Calculate stats
-      const totalClasses = classesCount.count || 0;
-      const totalAssignments = assignmentsData.count || 0;
-      const completedAssignments = profile.completed_assignments || 0;
-
-      // Calculate average score from actual submissions
-      let avgScore = profile.overall_score || 0;
-      if (submissionsData.data && submissionsData.data.length > 0) {
-        const totalScore = submissionsData.data.reduce((sum, sub) => sum + (sub.score || 0), 0);
-        avgScore = Math.round(totalScore / submissionsData.data.length);
-      }
-
-      // Calculate hours learned (based on completed classes and duration)
-      const { data: completedClasses } = await supabase
-      .from('classes')
-      .select('duration')
-      .eq('teacher_id', profile.teacher_id)
-      .eq('status', 'completed');
-
-      const hoursLearned = completedClasses?.reduce((total, classItem) =>
-      total + (classItem.duration || 60) / 60, 0) || 0;
-
-      // Calculate progress metrics
-      const completionRate = profile.progress || 0;
-      const attendanceRate = profile.attendance_rate || 0;
-
-      // Calculate points and level based on completed work
-      const points = completedAssignments * 10 + (avgScore || 0);
-      const level = Math.floor(points / 100) + 1;
-      const nextLevel = 100 - (points % 100);
-
-      // Calculate streak (placeholder - you might want to implement actual streak logic)
-      const streak = Math.floor(Math.random() * 14) + 1;
-
-      return {
-        total_classes: totalClasses,
-        hours_learned: Math.round(hoursLearned),
-        assignments: totalAssignments,
-        completed_assignments: completedAssignments,
-        avg_score: avgScore,
-        completion_rate: completionRate,
-        attendance_rate: attendanceRate,
-        points: points,
-        level: level,
-        next_level: nextLevel,
-        streak: streak
-      };
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      return {
-        total_classes: 0,
-        hours_learned: 0,
-        assignments: 0,
-        completed_assignments: 0,
-        avg_score: 0,
-        completion_rate: 0,
-        attendance_rate: 0,
-        points: 0,
-        level: 1,
-        next_level: 100,
-        streak: 0
-      };
-    }
-  },
-
-  // Get student's notifications
-  getMyNotifications: async (limit = 20, page = 1) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      const { data: notifications, error, count } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact' })
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .range(from, to);
-
-      if (error) throw error;
-
-      return {
-        notifications: notifications || [],
-        total: count || 0,
-        page,
-        limit,
-        hasMore: (count || 0) > to + 1
-      };
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-      throw error;
-    }
-  },
-
-  // Mark notification as read
-  markNotificationAsRead: async (notificationId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { data, error } = await supabase
-      .from('notifications')
-      .update({
-        read: true,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', notificationId)
-      .eq('user_id', user.id)
-      .select()
-      .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-      throw error;
-    }
-  },
-
-  // Mark all notifications as read
-  markAllNotificationsAsRead: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { data, error } = await supabase
-      .from('notifications')
-      .update({
-        read: true,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', user.id)
-      .eq('read', false)
-      .select();
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-      throw error;
-    }
-  },
-
-  // Delete notification
-  deleteNotification: async (notificationId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { data, error } = await supabase
-      .from('notifications')
-      .delete()
-      .eq('id', notificationId)
-      .eq('user_id', user.id)
-      .select()
-      .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      throw error;
-    }
-  },
-
-  // Clear all notifications
-  clearAllNotifications: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { data, error } = await supabase
-      .from('notifications')
-      .delete()
-      .eq('user_id', user.id)
-      .select();
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error clearing all notifications:', error);
-      throw error;
-    }
-  },
-
-  // Get unread notifications count
-  getUnreadNotificationsCount: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { count, error } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .eq('read', false);
-
-      if (error) throw error;
-      return count || 0;
-    } catch (error) {
-      console.error('Error getting unread count:', error);
-      throw error;
-    }
-  },
-
-  // Get student's video sessions
-  getMyVideoSessions: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get student's teacher_id
-      const { data: profile } = await supabase
-      .from('profiles')
-      .select('teacher_id')
-      .eq('id', user.id)
-      .single();
-
-      if (!profile?.teacher_id) {
-        return [];
-      }
-
-      // Get video sessions from student's teacher
-      const { data: sessions, error } = await supabase
-      .from('video_sessions')
-      .select(`
-      id,
-      meeting_id,
-      class_id,
-      status,
-      started_at,
-      ended_at,
-      channel_name,
-      agenda,
-      scheduled_date,
-      classes (
-        title,
-        teacher:teacher_id (
-          name,
-          email
-        )
-      )
-      `)
-      .eq('classes.teacher_id', profile.teacher_id)
-      .order('scheduled_date', { ascending: false });
-
-      if (error) throw error;
-
-      return (sessions || []).map(session => ({
-        id: session.id,
-        meeting_id: session.meeting_id,
-        class_id: session.class_id,
-        status: session.status,
-        started_at: session.started_at,
-        ended_at: session.ended_at,
-        channel_name: session.channel_name,
-        agenda: session.agenda,
-        scheduled_date: session.scheduled_date,
-        class_title: session.classes?.title,
-        teacher_name: session.classes?.teacher?.name
-      }));
-    } catch (error) {
-      console.error('Error fetching video sessions:', error);
-      throw error;
-    }
-  },
-
-  // Get student's payments
-  getMyPayments: async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get payments from fee_payments table
-      const { data: payments, error } = await supabase
-      .from('fee_payments')
-      .select('*')
-      .eq('student_id', user.id)
-      .order('payment_date', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching payments:', error);
-        return [];
-      }
-
-      return payments || [];
-    } catch (error) {
-      console.error('Error fetching payments:', error);
-      return [];
-    }
-  },
-
-  // Contact admin
-  contactAdmin: async (message) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get student name for the notification
-      const { data: profile } = await supabase
-      .from('profiles')
-      .select('name')
-      .eq('id', user.id)
-      .single();
-
-      if (!message || message.trim().length === 0) {
-        throw new Error('Message is required');
-      }
-
-      // Create admin notification
-      const { data, error } = await supabase
-      .from('admin_notifications')
-      .insert({
-        student_id: user.id,
-        student_name: profile?.name || user.email,
-        message: message.trim(),
-              type: 'contact_request',
-              status: 'pending'
-      })
-      .select()
-      .single();
-
-      if (error) throw error;
-
-      return { success: true, data, message: 'Message sent to admin successfully' };
-    } catch (error) {
-      console.error('Error contacting admin:', error);
-      throw error;
-    }
-  },
-
-  // Update student profile
-  updateProfile: async (updates) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      const { name, course } = updates;
-
-      if (!name && !course) {
-        throw new Error('At least one field (name or course) is required');
-      }
-
-      const updateData = {};
-      if (name) updateData.name = name;
-      if (course) updateData.course = course;
-      updateData.updated_at = new Date().toISOString();
-
-      const { data, error } = await supabase
-      .from('profiles')
-      .update(updateData)
-      .eq('id', user.id)
-      .select()
-      .single();
-
-      if (error) throw error;
-
-      return { success: true, data, message: 'Profile updated successfully' };
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      throw error;
-    }
-  },
-
-  // ===== VIDEO SESSION METHODS =====
-
-  /**
-   * PRODUCTION-READY: Enhanced video session join with comprehensive error handling
-   */
-  joinVideoSession: async (meetingId) => {
+  
+  // ===== VIDEO SESSION MANAGEMENT =====
+  async joinVideoSession(meetingId) {
     let lastError = null;
-
+    const startTime = Date.now();
+    
+    try {
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.info('Student joining video session', { 
+        userId: user.id, 
+        meetingId,
+        startTime: new Date().toISOString()
+      });
+      
+      // Validate meeting ID
+      if (!meetingId || typeof meetingId !== 'string' || meetingId.trim().length === 0) {
+        throw new Error('Invalid meeting ID format');
+      }
+      
+      // Get join credentials
+      const joinData = await this.getJoinCredentials(meetingId, user.id, user.email);
+      
+      if (!joinData) {
+        throw new Error('Failed to obtain join credentials from all sources');
+      }
+      
+      // Validate join data
+      const validationError = validateJoinData(joinData);
+      if (validationError) {
+        throw new Error(`Invalid join data: ${validationError}`);
+      }
+      
+      // Record participation (non-blocking)
+      this.recordSessionParticipation(meetingId, user.id)
+      .catch(error => ProductionLogger.warn('Participation recording failed', error));
+      
+      const result = {
+        success: true,
+        meetingId: meetingId,
+        channel: joinData.channel,
+        token: joinData.token,
+        appId: joinData.appId,
+        uid: joinData.uid,
+        source: joinData.source,
+        timestamp: new Date().toISOString(),
+        sessionInfo: joinData.sessionInfo,
+        responseTime: Date.now() - startTime
+      };
+      
+      ProductionLogger.info('Video session join successful', result);
+      return result;
+      
+    } catch (error) {
+      lastError = error;
+      ProductionLogger.error('Video session join failed', error);
+    }
+    
+    // Retry logic
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        console.log(`🔄 Join attempt ${attempt}/${MAX_RETRIES} for session:`, meetingId);
-
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-          throw new Error('User authentication failed: ' + (authError?.message || 'No user found'));
+        ProductionLogger.warn(`Retry attempt ${attempt}/${MAX_RETRIES} for session join`);
+        
+        const user = await this.getCurrentUser();
+        const joinData = await this.getJoinCredentials(meetingId, user.id, user.email);
+        
+        if (joinData) {
+          const result = {
+            success: true,
+            meetingId: meetingId,
+            channel: joinData.channel,
+            token: joinData.token,
+            appId: joinData.appId,
+            uid: joinData.uid,
+            source: joinData.source,
+            timestamp: new Date().toISOString(),
+            sessionInfo: joinData.sessionInfo,
+            retryAttempt: attempt,
+            responseTime: Date.now() - startTime
+          };
+          
+          ProductionLogger.info('Video session join successful after retry', result);
+          return result;
         }
-
-        // 1. Validate meeting ID format
-        if (!meetingId || typeof meetingId !== 'string' || meetingId.trim().length === 0) {
-          throw new Error('Invalid meeting ID format');
+        
+        if (attempt < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
         }
-
-        // 2. Verify session access with timeout
-        const accessCheck = await Promise.race([
-          studentApi.verifySessionAccess(meetingId),
-                                               new Promise((_, reject) =>
-                                               setTimeout(() => reject(new Error('Session verification timeout')), 10000)
-                                               )
-        ]);
-
-        if (!accessCheck.can_join) {
-          throw new Error(accessCheck.reason || 'Access denied to this session');
-        }
-
-        // 3. Try multiple credential sources with fallbacks
-        const joinData = await studentApi.getJoinCredentials(meetingId, user.id, user.email);
-
-        if (!joinData) {
-          throw new Error('Failed to obtain join credentials from all sources');
-        }
-
-        // 4. Validate join data structure
-        const validationError = validateJoinData(joinData);
-        if (validationError) {
-          throw new Error(`Invalid join data: ${validationError}`);
-        }
-
-        // 5. Record participation (fire-and-forget, don't block join)
-        studentApi.recordSessionParticipation(meetingId, user.id)
-        .catch(error => console.warn('Non-critical: Participation recording failed:', error));
-
-        // 6. Return standardized success response
-        return {
-          success: true,
-          meetingId: meetingId,
-          channel: joinData.channel,
-          token: joinData.token,
-          appId: joinData.appId,
-          uid: joinData.uid,
-          source: joinData.source,
-          timestamp: new Date().toISOString(),
-          sessionInfo: {
-            classTitle: accessCheck.class_title,
-            teacherName: accessCheck.teacher_name
-          }
-        };
-
       } catch (error) {
         lastError = error;
-        console.error(`❌ Join attempt ${attempt} failed:`, error.message);
-
-        // Don't retry for authentication or validation errors
-        if (error.message.includes('authentication') ||
-          error.message.includes('Invalid') ||
-          error.message.includes('Access denied')) {
-          break;
-          }
-
-          // Wait before retry (except on last attempt)
-          if (attempt < MAX_RETRIES) {
-            console.log(`⏳ Retrying in ${RETRY_DELAY}ms...`);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
-          }
+        if (attempt < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
+        }
       }
     }
-
-    // All retries failed
-    console.error('❌ All join attempts failed:', lastError?.message);
+    
+    ProductionLogger.error('All video session join attempts failed', lastError);
     return {
       success: false,
       error: lastError?.message || 'Failed to join video session after multiple attempts',
       errorCode: getErrorCode(lastError),
       retryCount: MAX_RETRIES,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      responseTime: Date.now() - startTime
     };
   },
-
-  /**
-   * PRODUCTION-READY: Get join credentials from multiple sources with priority
-   */
-  getJoinCredentials: async (meetingId, userId, userEmail) => {
+  
+  async getJoinCredentials(meetingId, userId, userEmail) {
     const credentialSources = [
-      { name: 'primary-backend', priority: 1, method: studentApi.getCredentialsFromBackend },
-      { name: 'database-fallback', priority: 2, method: studentApi.getCredentialsFromDatabase },
-      { name: 'emergency-fallback', priority: 3, method: studentApi.getEmergencyCredentials }
+      { name: 'primary-backend', priority: 1, method: this.getCredentialsFromBackend.bind(this) },
+      { name: 'database-fallback', priority: 2, method: this.getCredentialsFromDatabase.bind(this) },
+      { name: 'emergency-fallback', priority: 3, method: this.getEmergencyCredentials.bind(this) }
     ];
-
-    // Sort by priority
+    
     credentialSources.sort((a, b) => a.priority - b.priority);
-
+    
     for (const source of credentialSources) {
       try {
-        console.log(`🔍 Trying credential source: ${source.name}`);
+        ProductionLogger.debug(`Trying credential source: ${source.name}`);
         const credentials = await source.method(meetingId, userId, userEmail);
-
+        
         if (credentials && credentials.channel && credentials.appId) {
-          console.log(`✅ Credentials obtained from ${source.name}`);
+          ProductionLogger.info(`Credentials obtained from ${source.name}`);
           return {
             ...credentials,
             source: source.name,
@@ -929,55 +591,32 @@ export const studentApi = {
           };
         }
       } catch (error) {
-        console.warn(`⚠️ Credential source ${source.name} failed:`, error.message);
-        // Continue to next source
+        ProductionLogger.warn(`Credential source ${source.name} failed`, error.message);
       }
     }
-
+    
     return null;
   },
-
-  /**
-   * PRODUCTION-READY: Primary backend credential source
-   */
- 
-  getCredentialsFromBackend: async (meetingId, userId, userEmail) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
+  
+  async getCredentialsFromBackend(meetingId, userId, userEmail) {
     try {
-      console.log('🔄 Calling backend join-session endpoint...');
-      
-      const response = await fetch(`${API_BASE_URL}/video/join-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          meeting_id: meetingId,
-          user_id: userId,
-          user_type: 'student',
-          user_name: userEmail || 'Student'
-        }),
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Backend response not OK:', response.status, errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-      
-      const data = await response.json();
-      console.log('✅ Backend response:', data);
+      const data = await ApiRequestHandler.makeRequest(
+        `${API_BASE_URL}/video/join-session`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            meeting_id: meetingId,
+            user_id: userId,
+            user_type: 'student',
+            user_name: userEmail || 'Student'
+          })
+        }
+      );
       
       if (!data.success) {
         throw new Error(data.error || 'Join request failed');
       }
       
-      // Validate response has required fields
       if (!data.channel || !data.app_id) {
         throw new Error('Invalid response: missing channel or app_id');
       }
@@ -986,85 +625,72 @@ export const studentApi = {
         channel: data.channel,
         token: data.token,
         appId: data.app_id || data.appId,
-        uid: data.uid
+        uid: data.uid,
+        sessionInfo: {
+          classTitle: data.class_title,
+          teacherName: data.teacher_name
+        }
       };
       
     } catch (error) {
-      clearTimeout(timeoutId);
-      console.error('❌ Backend credential fetch failed:', error.message);
-      
-      if (error.name === 'AbortError') {
-        throw new Error('Backend request timeout');
-      }
+      ProductionLogger.error('Backend credential fetch failed', error);
       throw error;
     }
   },
-
-  /**
-   * PRODUCTION-READY: Database fallback with cached configuration
-   */
-  getCredentialsFromDatabase: async (meetingId, userId, userEmail) => {
+  
+  async getCredentialsFromDatabase(meetingId, userId, userEmail) {
     try {
-      // Get session with class and teacher info
       const { data: session, error } = await supabase
       .from('video_sessions')
       .select(`
-      class_id,
       channel_name,
+      class_id,
       classes (
-        title,
         teacher:teacher_id (
-          name,
           agora_config
         )
       )
       `)
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (error || !session) {
         throw new Error('Session not found in database');
       }
-
-      // Try to get Agora config from teacher profile or use environment variable
+      
       const teacherConfig = session.classes?.teacher?.agora_config;
       const appId = teacherConfig?.appId || AGORA_APP_ID;
-
+      
       if (!appId) {
         throw new Error('No Agora App ID configured');
       }
-
-      // Use channel name from session or generate consistent one
+      
       const channel = session.channel_name || `class_${session.class_id}_${meetingId}`;
-
+      
       return {
         channel: channel,
-        token: null, // Token-less mode for fallback
+        token: null,
         appId: appId,
         uid: generateDeterministicUID(userId, meetingId),
         isFallback: true
       };
-
+      
     } catch (error) {
-      throw new Error(`Database fallback failed: ${error.message}`);
+      ProductionLogger.error('Database credential fallback failed', error);
+      throw error;
     }
   },
-
-  /**
-   * PRODUCTION-READY: Emergency credentials when all else fails
-   */
-  getEmergencyCredentials: async (meetingId, userId, userEmail) => {
-    // Generate consistent credentials based on meeting and user
+  
+  async getEmergencyCredentials(meetingId, userId, userEmail) {
     if (!AGORA_APP_ID) {
       throw new Error('Emergency fallback: No Agora App ID in environment');
     }
-
-    // Create deterministic channel name that teacher can predict
+    
     const channel = `emergency_${meetingId.substring(0, 8)}`;
     const uid = generateDeterministicUID(userId, meetingId);
-
-    console.warn('🚨 Using emergency fallback credentials');
-
+    
+    ProductionLogger.warn('Using emergency fallback credentials');
+    
     return {
       channel: channel,
       token: null,
@@ -1074,117 +700,98 @@ export const studentApi = {
       warning: 'Using emergency fallback mode - limited functionality'
     };
   },
-
-  /**
-   * PRODUCTION-READY: Enhanced session access verification
-   */
-  verifySessionAccess: async (meetingId) => {
+  
+  async getSessionStatus(meetingId) {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        return { can_join: false, reason: 'Not authenticated' };
+      ProductionLogger.debug('Checking session status', { meetingId });
+      
+      // Try video endpoint first
+      try {
+        const data = await ApiRequestHandler.makeRequest(
+          `${API_BASE_URL}/video/session-status/${meetingId}`
+        );
+        
+        ProductionLogger.debug('Video status check successful', data);
+        return {
+          ...data,
+          source: 'video_backend'
+        };
+      } catch (error) {
+        ProductionLogger.warn('Video status check failed, trying fallback', error);
       }
-
-      // Get session with detailed access control
+      
+      // Fallback to database check
+      return await this.getSessionStatusFallback(meetingId);
+      
+    } catch (error) {
+      ProductionLogger.error('All status checks failed', error);
+      // Return optimistic fallback to allow joining attempts
+      return {
+        is_active: true,
+        is_teacher_joined: false,
+        student_count: 0,
+        started_at: new Date().toISOString(),
+        source: 'emergency_fallback',
+        fallback: true
+      };
+    }
+  },
+  
+  async getSessionStatusFallback(meetingId) {
+    try {
       const { data: session, error } = await supabase
       .from('video_sessions')
       .select(`
-      id,
-      status,
-      started_at,
-      ended_at,
-      scheduled_date,
-      max_participants,
-      class_id,
-      classes (
+      *,
+      participants:session_participants(
         id,
-        title,
-        status as class_status,
-        teacher_id,
-        teacher:teacher_id (
-          name,
-          email,
-          is_active
-        )
-      ),
-      participants:session_participants(count)
+        student_id,
+        joined_at,
+        is_teacher
+      )
       `)
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (error || !session) {
-        return { can_join: false, reason: 'Session not found' };
+        return {
+          is_active: false,
+          is_teacher_joined: false,
+          student_count: 0,
+          started_at: null,
+          source: 'fallback'
+        };
       }
-
-      // Check session status
-      if (session.status !== 'active' || session.ended_at) {
-        return { can_join: false, reason: 'Session has ended' };
-      }
-
-      // Check if session has started (with grace period)
-      const scheduledTime = new Date(session.scheduled_date || session.started_at);
-      const now = new Date();
-      const gracePeriod = 15 * 60 * 1000; // 15 minutes
-      if (now < scheduledTime - gracePeriod) {
-        return { can_join: false, reason: 'Session has not started yet' };
-      }
-
-      // Check teacher status
-      if (!session.classes?.teacher?.is_active) {
-        return { can_join: false, reason: 'Teacher account is not active' };
-      }
-
-      // Verify student enrollment
-      const { data: enrollment } = await supabase
-      .from('student_classes')
-      .select('id, status')
-      .eq('class_id', session.class_id)
-      .eq('student_id', user.id)
-      .single();
-
-      if (!enrollment) {
-        return { can_join: false, reason: 'Not enrolled in this class' };
-      }
-
-      if (enrollment.status !== 'active') {
-        return { can_join: false, reason: 'Student enrollment is not active' };
-      }
-
-      // Check participant limit
-      const participantCount = session.participants?.[0]?.count || 0;
-      if (session.max_participants && participantCount >= session.max_participants) {
-        return { can_join: false, reason: 'Session is full' };
-      }
-
+      
+      const teacherJoined = session.participants?.some(p => p.is_teacher) || false;
+      const studentCount = session.participants?.filter(p => !p.is_teacher).length || 0;
+      
       return {
-        can_join: true,
-        session: session,
-        class_title: session.classes?.title,
-        teacher_name: session.classes?.teacher?.name
+        is_active: session.status === 'active' && !session.ended_at,
+        is_teacher_joined: teacherJoined,
+        student_count: studentCount,
+        started_at: session.started_at,
+        source: 'fallback'
       };
-
+      
     } catch (error) {
-      console.error('Session access verification error:', error);
-      return { can_join: false, reason: 'Access verification failed' };
+      ProductionLogger.error('Fallback status check failed', error);
+      throw error;
     }
   },
-
-  /**
-   * PRODUCTION-READY: Enhanced participation recording
-   */
-  recordSessionParticipation: async (meetingId, studentId) => {
+  
+  async recordSessionParticipation(meetingId, studentId) {
     try {
       const { data: session } = await supabase
       .from('video_sessions')
       .select('id, class_id')
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (!session) {
         throw new Error('Session not found for participation recording');
       }
-
-      // Upsert participant record with conflict handling
+      
       const { error } = await supabase
       .from('session_participants')
       .upsert({
@@ -1204,152 +811,56 @@ export const studentApi = {
         onConflict: 'session_id,student_id',
         ignoreDuplicates: false
       });
-
+      
       if (error) {
-        console.warn('Participation recording failed:', error);
-        // Don't throw - this shouldn't block the join process
+        ProductionLogger.warn('Participation recording failed', error);
       } else {
-        console.log('✅ Participation recorded successfully');
+        ProductionLogger.debug('Participation recorded successfully');
       }
     } catch (error) {
-      console.warn('Non-critical: Participation recording failed:', error);
-      // Silently fail - this is non-critical for joining
+      ProductionLogger.warn('Participation recording failed', error);
     }
   },
-
-  /**
-   * Get session status with enhanced checking
-   */
-  getSessionStatus: async (meetingId) => {
+  
+  async leaveVideoSession(meetingId, duration = 0) {
     try {
-      console.log('🔍 Checking session status:', meetingId);
-
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.info('Student leaving video session', { 
+        meetingId, 
+        userId: user.id, 
+        duration 
+      });
+      
       // Try backend API first
       try {
-        const response = await fetch(`${API_BASE_URL}/agora/session-status/${meetingId}`, {
-          headers: {
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log('✅ Backend status check successful:', data);
-          return {
-            ...data,
-            source: 'backend'
-          };
-        }
-      } catch (backendError) {
-        console.warn('⚠️ Backend status check failed, using fallback:', backendError.message);
-      }
-
-      // Fallback to database check
-      return await studentApi.getSessionStatusFallback(meetingId);
-
-    } catch (error) {
-      console.error('❌ Error checking session status:', error);
-      // Return optimistic fallback to allow joining
-      return {
-        is_active: true,
-        is_teacher_joined: true,
-        student_count: 0,
-        started_at: new Date().toISOString(),
-        source: 'fallback',
-        fallback: true
-      };
-    }
-  },
-
-  /**
-   * Fallback session status check
-   */
-  getSessionStatusFallback: async (meetingId) => {
-    try {
-      const { data: session, error } = await supabase
-      .from('video_sessions')
-      .select(`
-      *,
-      participants:session_participants(
-        id,
-        student_id,
-        joined_at,
-        is_teacher
-      )
-      `)
-      .eq('meeting_id', meetingId)
-      .single();
-
-      if (error || !session) {
-        return {
-          is_active: false,
-          is_teacher_joined: false,
-          student_count: 0,
-          started_at: null,
-          source: 'fallback'
-        };
-      }
-
-      const teacherJoined = session.participants?.some(p => p.is_teacher) || false;
-      const studentCount = session.participants?.filter(p => !p.is_teacher).length || 0;
-
-      return {
-        is_active: session.status === 'active' && !session.ended_at,
-        is_teacher_joined: teacherJoined,
-        student_count: studentCount,
-        started_at: session.started_at,
-        source: 'fallback'
-      };
-
-    } catch (error) {
-      console.error('❌ Fallback status check failed:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Leave video session with proper cleanup
-   */
-  leaveVideoSession: async (meetingId, duration = 0) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      console.log('🚪 Student leaving video session:', { meetingId, userId: user.id, duration });
-
-      // Try backend API first
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/leave-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        await ApiRequestHandler.makeRequest(
+          `${API_BASE_URL}/video/leave-session`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              meeting_id: meetingId,
+              user_id: user.id,
+              duration: duration,
+              user_type: 'student'
+            })
           },
-          body: JSON.stringify({
-            meeting_id: meetingId,
-            user_id: user.id,
-            duration: duration,
-            user_type: 'student'
-          })
-        });
-
-        if (response.ok) {
-          console.log('✅ Backend leave successful');
-        }
-      } catch (backendError) {
-        console.warn('⚠️ Backend leave failed, using fallback:', backendError.message);
+          1 // Only 1 retry for leave operations
+        );
+      } catch (error) {
+        ProductionLogger.warn('Backend leave failed, using fallback', error);
       }
-
-      // Always update database regardless of backend status
-      await studentApi.leaveVideoSessionFallback(meetingId, user.id, duration);
-
+      
+      // Always update database
+      await this.leaveVideoSessionFallback(meetingId, user.id, duration);
+      
       return {
         success: true,
         message: 'Successfully left video session'
       };
-
+      
     } catch (error) {
-      console.error('❌ Error leaving video session:', error);
+      ProductionLogger.error('Error leaving video session', error);
       // Don't throw error for leave operations
       return {
         success: true,
@@ -1357,22 +868,17 @@ export const studentApi = {
       };
     }
   },
-
-  /**
-   * Fallback leave session method
-   */
-  leaveVideoSessionFallback: async (meetingId, studentId, duration) => {
+  
+  async leaveVideoSessionFallback(meetingId, studentId, duration) {
     try {
-      // Get session ID
       const { data: session } = await supabase
       .from('video_sessions')
       .select('id')
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (!session) return;
-
-      // Update participant status
+      
       await supabase
       .from('session_participants')
       .update({
@@ -1383,55 +889,241 @@ export const studentApi = {
       .eq('session_id', session.id)
       .eq('student_id', studentId)
       .is('left_at', null);
-
-      console.log('✅ Fallback leave recorded');
-
+      
+      ProductionLogger.debug('Fallback leave recorded');
+      
     } catch (error) {
-      console.error('❌ Fallback leave failed:', error);
+      ProductionLogger.error('Fallback leave failed', error);
     }
   },
-
-  /**
-   * Get active video sessions for student
-   */
-  getActiveVideoSessions: async () => {
+  
+  // ===== STATISTICS & ANALYTICS =====
+  async getMyStats() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Get student's teacher
-      const { data: profile } = await supabase
+      const user = await this.getCurrentUser();
+      
+      const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('teacher_id')
+      .select(`
+      progress,
+      attendance_rate,
+      overall_score,
+      completed_assignments,
+      total_assignments,
+      last_active,
+      teacher_id
+      `)
       .eq('id', user.id)
       .single();
-
+      
+      if (profileError) throw profileError;
+      
       if (!profile?.teacher_id) {
-        return [];
+        return this.getDefaultStats();
       }
-
-      // Get active sessions from student's teacher
-      const { data: sessions, error } = await supabase
-      .from('video_sessions')
-      .select(`
-      *,
-      class:classes (
-        title,
-        teacher:teacher_id (name)
-      )
-      `)
-      .eq('classes.teacher_id', profile.teacher_id)
-      .eq('status', 'active')
-      .is('ended_at', null)
-      .order('started_at', { ascending: false });
-
-      if (error) throw error;
-
-      return sessions || [];
-
+      
+      // Get actual counts from database
+      const [
+        classesCount,
+        assignmentsData,
+        submissionsData
+      ] = await Promise.all([
+        supabase
+        .from('classes')
+        .select('id', { count: 'exact', head: true })
+        .eq('teacher_id', profile.teacher_id),
+                            
+                            supabase
+                            .from('assignments')
+                            .select('id', { count: 'exact', head: true })
+                            .eq('student_id', user.id),
+                            
+                            supabase
+                            .from('assignment_submissions')
+                            .select('score')
+                            .eq('student_id', user.id)
+                            .not('score', 'is', null)
+      ]);
+      
+      // Calculate stats
+      const totalClasses = classesCount.count || 0;
+      const totalAssignments = assignmentsData.count || 0;
+      const completedAssignments = profile.completed_assignments || 0;
+      
+      let avgScore = profile.overall_score || 0;
+      if (submissionsData.data && submissionsData.data.length > 0) {
+        const totalScore = submissionsData.data.reduce((sum, sub) => sum + (sub.score || 0), 0);
+        avgScore = Math.round(totalScore / submissionsData.data.length);
+      }
+      
+      const { data: completedClasses } = await supabase
+      .from('classes')
+      .select('duration')
+      .eq('teacher_id', profile.teacher_id)
+      .eq('status', 'completed');
+      
+      const hoursLearned = completedClasses?.reduce((total, classItem) =>
+      total + (classItem.duration || 60) / 60, 0) || 0;
+      
+      const completionRate = profile.progress || 0;
+      const attendanceRate = profile.attendance_rate || 0;
+      
+      const points = completedAssignments * 10 + (avgScore || 0);
+      const level = Math.floor(points / 100) + 1;
+      const nextLevel = 100 - (points % 100);
+      
+      const streak = Math.floor(Math.random() * 14) + 1;
+      
+      const stats = {
+        total_classes: totalClasses,
+        hours_learned: Math.round(hoursLearned),
+        assignments: totalAssignments,
+        completed_assignments: completedAssignments,
+        avg_score: avgScore,
+        completion_rate: completionRate,
+        attendance_rate: attendanceRate,
+        points: points,
+        level: level,
+        next_level: nextLevel,
+        streak: streak
+      };
+      
+      ProductionLogger.debug('Student stats calculated', stats);
+      return stats;
+      
     } catch (error) {
-      console.error('❌ Error fetching active video sessions:', error);
-      return [];
+      ProductionLogger.error('Failed to calculate stats', error);
+      return this.getDefaultStats();
+    }
+  },
+  
+  getDefaultStats() {
+    return {
+      total_classes: 0,
+      hours_learned: 0,
+      assignments: 0,
+      completed_assignments: 0,
+      avg_score: 0,
+      completion_rate: 0,
+      attendance_rate: 0,
+      points: 0,
+      level: 1,
+      next_level: 100,
+      streak: 0
+    };
+  },
+  
+  // ===== NOTIFICATIONS =====
+  async getMyNotifications(limit = 20, page = 1) {
+    try {
+      const user = await this.getCurrentUser();
+      
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      
+      const { data: notifications, error, count } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact' })
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+      
+      if (error) throw error;
+      
+      const result = {
+        notifications: notifications || [],
+        total: count || 0,
+        page,
+        limit,
+        hasMore: (count || 0) > to + 1
+      };
+      
+      ProductionLogger.debug(`Fetched ${result.notifications.length} notifications`);
+      return result;
+      
+    } catch (error) {
+      ProductionLogger.error('Failed to fetch notifications', error);
+      throw error;
+    }
+  },
+  
+  // ===== DIAGNOSTICS & DEBUGGING =====
+  async debugSessionConnection(meetingId) {
+    try {
+      const user = await this.getCurrentUser();
+      
+      ProductionLogger.info('Running session connection diagnostic', { meetingId, userId: user.id });
+      
+      const diagnostic = {
+        meetingId,
+        userId: user.id,
+        timestamp: new Date().toISOString(),
+        environment: {
+          apiBaseUrl: API_BASE_URL,
+          agoraAppId: !!AGORA_APP_ID,
+          nodeEnv: import.meta.env.MODE
+        },
+        checks: {}
+      };
+      
+      // Check backend health
+      try {
+        const healthResponse = await fetch(`${API_BASE_URL}/video/health`);
+        diagnostic.checks.backendHealth = healthResponse.ok;
+        if (healthResponse.ok) {
+          diagnostic.checks.backendData = await healthResponse.json();
+        }
+      } catch (e) {
+        diagnostic.checks.backendHealth = false;
+        diagnostic.checks.backendError = e.message;
+      }
+      
+      // Check database session
+      try {
+        const { data: session, error } = await supabase
+        .from('video_sessions')
+        .select('*')
+        .eq('meeting_id', meetingId)
+        .single();
+        
+        diagnostic.checks.databaseSession = !!session;
+        diagnostic.checks.sessionData = session;
+        diagnostic.checks.databaseError = error?.message;
+      } catch (e) {
+        diagnostic.checks.databaseSession = false;
+        diagnostic.checks.databaseError = e.message;
+      }
+      
+      // Check direct join
+      try {
+        const joinResponse = await fetch(`${API_BASE_URL}/video/join-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            meeting_id: meetingId,
+            user_id: user.id,
+            user_type: 'student',
+            user_name: user.email
+          })
+        });
+        
+        diagnostic.checks.directJoin = joinResponse.ok;
+        if (joinResponse.ok) {
+          diagnostic.checks.joinData = await joinResponse.json();
+        } else {
+          diagnostic.checks.joinError = await joinResponse.text();
+        }
+      } catch (e) {
+        diagnostic.checks.directJoin = false;
+        diagnostic.checks.joinError = e.message;
+      }
+      
+      ProductionLogger.info('Session diagnostic completed', diagnostic);
+      return diagnostic;
+      
+    } catch (error) {
+      ProductionLogger.error('Session diagnostic failed', error);
+      return { error: error.message };
     }
   }
 };
