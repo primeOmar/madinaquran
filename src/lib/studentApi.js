@@ -601,7 +601,7 @@ export const studentApi = {
   async getCredentialsFromBackend(meetingId, userId, userEmail) {
     try {
       const data = await ApiRequestHandler.makeRequest(
-        `${API_BASE_URL}/video/join-session`,
+        `${API_BASE_URL}/api/video/join-session`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -1096,7 +1096,7 @@ export const studentApi = {
       
       // Check direct join
       try {
-        const joinResponse = await fetch(`${API_BASE_URL}/video/join-session`, {
+        const joinResponse = await fetch(`${API_BASE_URL}/api/video/join-session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
