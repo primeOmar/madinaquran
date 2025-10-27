@@ -708,7 +708,7 @@ export const studentApi = {
       // Try video endpoint first
       try {
         const data = await ApiRequestHandler.makeRequest(
-          `${API_BASE_URL}/video/session-status/${meetingId}`
+          `${API_BASE_URL}/api/video/session-status/${meetingId}`
         );
         
         ProductionLogger.debug('Video status check successful', data);
@@ -835,7 +835,7 @@ export const studentApi = {
       // Try backend API first
       try {
         await ApiRequestHandler.makeRequest(
-          `${API_BASE_URL}/video/leave-session`,
+          `${API_BASE_URL}/api/video/leave-session`,
           {
             method: 'POST',
             body: JSON.stringify({
