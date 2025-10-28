@@ -183,7 +183,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 };
 
 // components/StudentVideoCall.jsx
-
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [localStream, setLocalStream] = useState(null);
   const [remoteUsers, setRemoteUsers] = useState(new Map());
@@ -201,7 +200,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [sessionStatus, setSessionStatus] = useState(null);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
-  const [layoutMode, setLayoutMode] = useState('grid'); // 'grid', 'speaker', 'screenShare'
+  const [layoutMode, setLayoutMode] = useState('grid');
 
   const localVideoRef = useRef(null);
   const remoteVideosContainerRef = useRef(null);
@@ -209,44 +208,124 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const localTracksRef = useRef({ audio: null, video: null, screen: null });
   const joinAttemptRef = useRef(0);
 
-  useEffect(() => {
-    if (isOpen && classItem?.video_session?.meeting_id) {
-      initializeRealCall();
+  // Initialize real Agora call with better error handling
+  const initializeRealCall = async () => {
+    if (joinAttemptRef.current >= 3) {
+      setError('Too many connection attempts. Please refresh and try again.');
+      return;
     }
-    return () => cleanupCall();
-  }, [isOpen, classItem]);
 
-  // Auto-detect screen sharing and adjust layout
-  useEffect(() => {
-    const screenShareUser = Array.from(remoteUsers.values()).find(user =>
-    user.videoTrack && user.videoTrack.getTrackLabel().includes('screen')
-    );
+    joinAttemptRef.current++;
 
-    if (screenShareUser) {
-      setLayoutMode('screenShare');
-      setActiveSpeaker(screenShareUser.uid);
-    } else if (activeSpeaker) {
-      setLayoutMode('speaker');
-    } else {
-      setLayoutMode('grid');
+    try {
+      setIsConnecting(true);
+      setError('');
+      console.log(`🎯 Join attempt ${joinAttemptRef.current}:`, classItem);
+
+      const meetingId = classItem.video_session?.meeting_id;
+      if (!meetingId) {
+        throw new Error('No meeting ID found for this class');
+      }
+
+      // Enhanced status check with fallback
+      let statusCheck;
+      try {
+        statusCheck = await checkSessionStatus(meetingId);
+      } catch (statusError) {
+        console.warn('Status check failed, but proceeding with join attempt...', statusError);
+        statusCheck = { is_active: true, is_teacher_joined: false };
+      }
+
+      // Get join credentials with retry
+      console.log('🔄 Getting join credentials...');
+      const joinResult = await studentApi.joinVideoSession(meetingId);
+
+      if (!joinResult.success) {
+        throw new Error(joinResult.error || 'Failed to get join credentials');
+      }
+
+      console.log('🔑 Join credentials:', {
+        channel: joinResult.channel,
+        hasToken: !!joinResult.token,
+        uid: joinResult.uid,
+        appId: joinResult.appId?.substring(0, 10) + '...'
+      });
+
+      // Validate credentials
+      if (!joinResult.channel || !joinResult.appId) {
+        throw new Error('Invalid join credentials: missing channel or appId');
+      }
+
+      // Create Agora client
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
+      setAgoraClient(client);
+
+      // Setup event listeners
+      setupAgoraEventListeners(client);
+
+      // Join channel with better timeout handling
+      console.log('🚀 Joining Agora channel:', joinResult.channel);
+
+      await client.join(
+        joinResult.appId,
+        joinResult.channel,
+        joinResult.token || null,
+        joinResult.uid || null
+      );
+
+      console.log('✅ Successfully joined channel');
+
+      // Create and publish local tracks
+      await createAndPublishLocalTracks(client);
+
+      setIsConnected(true);
+      setIsConnecting(false);
+      startTimer();
+
+      console.log('🎉 Real connection established');
+
+    } catch (error) {
+      console.error(`❌ Join attempt ${joinAttemptRef.current} failed:`, error);
+      setError(error.message);
+      setIsConnecting(false);
+      setIsConnected(false);
+
+      // Auto-retry for certain errors
+      if (error.message.includes('timeout') || error.message.includes('network')) {
+        setTimeout(() => {
+          if (isOpen) {
+            console.log('🔄 Auto-retrying connection...');
+            initializeRealCall();
+          }
+        }, 2000);
+      }
     }
-  }, [remoteUsers, activeSpeaker]);
+  };
 
-  // Enhanced debug function
-  const debugConnection = async () => {
-    console.log('🐛 DEBUG CONNECTION STATE:');
-    console.log('-> Layout Mode:', layoutMode);
-    console.log('-> Active Speaker:', activeSpeaker);
-    console.log('-> Remote Users:', Array.from(remoteUsers.entries()));
-    console.log('-> Screen Sharing:', isScreenSharing);
+  // Enhanced session status check
+  const checkSessionStatus = async (meetingId) => {
+    try {
+      console.log('🔍 Checking session status for:', meetingId);
+      const status = await studentApi.getSessionStatus(meetingId);
+      console.log('📊 Session status response:', status);
+      setSessionStatus(status);
 
-    let debugText = `DEBUG INFO:\n`;
-    debugText += `Layout: ${layoutMode}\n`;
-    debugText += `Active Speaker: ${activeSpeaker}\n`;
-    debugText += `Remote Users: ${Array.from(remoteUsers.values()).length}\n`;
-    debugText += `Screen Sharing: ${isScreenSharing}\n`;
+      if (status.is_active === false) {
+        throw new Error(`Session not active: ${status.error || 'No active session found'}`);
+      }
 
-    setDebugInfo(debugText);
+      if (!status.is_teacher_joined) {
+        console.log('⚠️ Teacher not joined yet, but proceeding with join...');
+      }
+
+      return status;
+    } catch (error) {
+      console.error('❌ Session status check failed:', error);
+      throw error;
+    }
   };
 
   // Set up real Agora event listeners with screen sharing detection
@@ -310,6 +389,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }
     });
 
+    // User joined the channel
+    client.on('user-joined', (user) => {
+      console.log('👤 USER-JOINED - UID:', user.uid);
+      updateParticipantsList();
+    });
+
     // User left the channel
     client.on('user-left', (user) => {
       console.log('👤 USER-LEFT - UID:', user.uid);
@@ -338,15 +423,72 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     // Connection state changes
     client.on('connection-state-change', (curState, prevState) => {
       console.log('🔗 CONNECTION STATE:', prevState, '→', curState);
+
+      if (curState === 'CONNECTED') {
+        console.log('🎉 Successfully connected to channel:', client.channelName);
+      } else if (curState === 'DISCONNECTED') {
+        setError('Disconnected from video channel');
+      }
     });
 
     // Network quality
     client.on('network-quality', (stats) => {
       const { uplinkNetworkQuality, downlinkNetworkQuality } = stats;
       const quality = Math.min(uplinkNetworkQuality, downlinkNetworkQuality);
-      const qualityMap = { 0: 'excellent', 1: 'good', 2: 'fair', 3: 'poor', 4: 'poor', 5: 'poor', 6: 'poor' };
+
+      const qualityMap = {
+        0: 'excellent',
+        1: 'good',
+        2: 'fair',
+        3: 'poor',
+        4: 'poor',
+        5: 'poor',
+        6: 'poor'
+      };
+
       setConnectionQuality(qualityMap[quality] || 'excellent');
     });
+  };
+
+  // Create and publish real local tracks
+  const createAndPublishLocalTracks = async (client) => {
+    try {
+      console.log('🎤 Creating real local tracks...');
+
+      // Create microphone track
+      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      localTracksRef.current.audio = microphoneTrack;
+
+      // Create camera track
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+      localTracksRef.current.video = cameraTrack;
+
+      // Play local video
+      if (localVideoRef.current) {
+        cameraTrack.play(localVideoRef.current);
+        setLocalStream(cameraTrack);
+      }
+
+      // Publish tracks
+      await client.publish([microphoneTrack, cameraTrack]);
+      console.log('✅ Local tracks published successfully');
+
+    } catch (error) {
+      console.error('❌ Failed to create local tracks:', error);
+
+      // Handle permission errors
+      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
+        setError('Camera/microphone access required for full experience');
+        // Try to continue with audio only
+        try {
+          const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+          localTracksRef.current.audio = microphoneTrack;
+          await client.publish([microphoneTrack]);
+        } catch (audioError) {
+          console.error('Failed to create audio track:', audioError);
+        }
+      }
+    }
   };
 
   // Play real remote video with responsive layout
@@ -422,6 +564,50 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
+  // Update real participants list
+  const updateParticipantsList = () => {
+    const remoteUsersArray = Array.from(remoteUsers.values());
+
+    const participantsList = [
+      // Teacher (if present)
+      ...remoteUsersArray
+      .filter(user => user.isTeacher)
+      .map(user => ({
+        name: classItem.teacher_name || 'Teacher',
+        role: 'teacher',
+        isOnline: true,
+        hasVideo: user.hasVideo,
+        hasAudio: user.hasAudio,
+        uid: user.uid
+      })),
+
+      // You (local user)
+      {
+        name: 'You',
+        role: 'student',
+        isOnline: true,
+        hasVideo: !isVideoOff,
+        hasAudio: !isAudioMuted,
+        uid: 'local'
+      },
+
+      // Other students
+      ...remoteUsersArray
+      .filter(user => !user.isTeacher)
+      .map(user => ({
+        name: `Student ${user.uid}`,
+        role: 'student',
+        isOnline: true,
+        hasVideo: user.hasVideo,
+        hasAudio: user.hasAudio,
+        uid: user.uid
+      }))
+    ];
+
+    setParticipants(participantsList);
+    console.log('📊 Real participants updated:', participantsList.length, 'total');
+  };
+
   // Update video grid layout based on current mode
   const updateVideoLayout = () => {
     const videoGrid = document.getElementById('video-grid-container');
@@ -450,6 +636,34 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     const currentIndex = modes.indexOf(layoutMode);
     const nextIndex = (currentIndex + 1) % modes.length;
     setLayoutMode(modes[nextIndex]);
+  };
+
+  // Toggle audio
+  const toggleAudio = async () => {
+    if (localTracksRef.current.audio) {
+      try {
+        await localTracksRef.current.audio.setEnabled(isAudioMuted);
+        setIsAudioMuted(!isAudioMuted);
+        console.log(`🎤 Audio ${!isAudioMuted ? 'enabled' : 'disabled'}`);
+        updateParticipantsList();
+      } catch (error) {
+        console.error('Error toggling audio:', error);
+      }
+    }
+  };
+
+  // Toggle video
+  const toggleVideo = async () => {
+    if (localTracksRef.current.video) {
+      try {
+        await localTracksRef.current.video.setEnabled(isVideoOff);
+        setIsVideoOff(!isVideoOff);
+        console.log(`📹 Video ${!isVideoOff ? 'enabled' : 'disabled'}`);
+        updateParticipantsList();
+      } catch (error) {
+        console.error('Error toggling video:', error);
+      }
+    }
   };
 
   // Leave real call with proper cleanup
@@ -529,6 +743,75 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setCallDuration(prev => prev + 1);
     }, 1000);
   };
+
+  // Enhanced debug function
+  const debugConnection = async () => {
+    console.log('🐛 DEBUG CONNECTION STATE:');
+    console.log('-> Layout Mode:', layoutMode);
+    console.log('-> Active Speaker:', activeSpeaker);
+    console.log('-> Remote Users:', Array.from(remoteUsers.entries()));
+    console.log('-> Screen Sharing:', isScreenSharing);
+
+    let debugText = `DEBUG INFO:\n`;
+    debugText += `Layout: ${layoutMode}\n`;
+    debugText += `Active Speaker: ${activeSpeaker}\n`;
+    debugText += `Remote Users: ${Array.from(remoteUsers.values()).length}\n`;
+    debugText += `Screen Sharing: ${isScreenSharing}\n`;
+
+    setDebugInfo(debugText);
+  };
+
+  // Raise hand function
+  const raiseHand = () => {
+    console.log('🤝 Student raised hand');
+  };
+
+  // Format time
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Get connection quality color
+  const getConnectionColor = () => {
+    switch(connectionQuality) {
+      case 'excellent': return 'text-green-400';
+      case 'good': return 'text-blue-400';
+      case 'fair': return 'text-yellow-400';
+      case 'poor': return 'text-red-400';
+      default: return 'text-green-400';
+    }
+  };
+
+  // Auto-detect screen sharing and adjust layout
+  useEffect(() => {
+    const screenShareUser = Array.from(remoteUsers.values()).find(user =>
+    user.videoTrack && user.videoTrack.getTrackLabel().includes('screen')
+    );
+
+    if (screenShareUser) {
+      setLayoutMode('screenShare');
+      setActiveSpeaker(screenShareUser.uid);
+    } else if (activeSpeaker) {
+      setLayoutMode('speaker');
+    } else {
+      setLayoutMode('grid');
+    }
+  }, [remoteUsers, activeSpeaker]);
+
+  useEffect(() => {
+    if (isOpen && classItem?.video_session?.meeting_id) {
+      initializeRealCall();
+    }
+    return () => cleanupCall();
+  }, [isOpen, classItem]);
+
+  // Update layout when mode changes
+  useEffect(() => {
+    updateVideoLayout();
+  }, [layoutMode, remoteUsers]);
+
   // Responsive control buttons for mobile
   const ControlButton = ({ icon: Icon, label, onClick, variant = 'primary' }) => {
     const baseClasses = "flex items-center justify-center transition-all duration-200 backdrop-blur-lg";
@@ -558,29 +841,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         </button>
     );
   };
-
-  // Format time
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Get connection quality color
-  const getConnectionColor = () => {
-    switch(connectionQuality) {
-      case 'excellent': return 'text-green-400';
-      case 'good': return 'text-blue-400';
-      case 'fair': return 'text-yellow-400';
-      case 'poor': return 'text-red-400';
-      default: return 'text-green-400';
-    }
-  };
-
-  // Update layout when mode changes
-  useEffect(() => {
-    updateVideoLayout();
-  }, [layoutMode, remoteUsers]);
 
   if (!isOpen) return null;
 
@@ -767,6 +1027,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
   );
 };
+
 
 
 
