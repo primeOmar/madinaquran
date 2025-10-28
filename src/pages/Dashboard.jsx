@@ -20,6 +20,7 @@ import {
   Download,
   Upload,
   Bell,
+  Hand,
   Settings,
   LogOut,
   Menu,
