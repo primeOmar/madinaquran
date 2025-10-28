@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import { studentApi } from "../lib/studentApi";
+import studentApi  from '../lib/studentApi';
 import {
   FileText,
   CreditCard,
