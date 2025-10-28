@@ -1103,8 +1103,7 @@ export const studentApi = {
       // Fallback to direct Supabase insertion
       return await this.recordParticipationFallback(participationData);
     }
-  }
-
+  },
   // ===== STATISTICS & ANALYTICS =====
   async getMyStats() {
     try {
