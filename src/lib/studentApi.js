@@ -883,16 +883,16 @@ export const studentApi = {
       .select('id, class_id')
       .eq('meeting_id', meetingId)
       .single();
-
+      
       if (!session) {
         throw new Error('Session not found for participation recording');
       }
-
+      
       const participationData = {
-        session_id: session.id, // ✅ CORRECT: session_id instead of meeting_id
-        student_id: studentId,  // ✅ CORRECT: student_id instead of user_id
+        session_id: session.id,
+        student_id: studentId,
         class_id: session.class_id,
-        is_teacher: false,      // ✅ CORRECT: is_teacher instead of user_type
+        is_teacher: false,
         joined_at: new Date().toISOString(),
         status: 'joined',
         connection_quality: 'excellent',
@@ -906,45 +906,52 @@ export const studentApi = {
           agora_uid: agoraUid,
           browser: getBrowserInfo(),
           screen_resolution: `${window.screen.width}x${window.screen.height}`,
-          connection_type: getConnectionType()
+          connection_type: getConnectionType(),
+          recorded_via: 'recordInitialParticipation'
         }
       };
-
+      
       ProductionLogger.debug('Recording initial participation:', participationData);
-
-      const { error } = await supabase
+      
+      // ✅ FIXED: Use upsert with proper conflict handling
+      const { data, error } = await supabase
       .from('session_participants')
       .upsert(participationData, {
-        onConflict: 'session_id,student_id',
-        ignoreDuplicates: false
-      });
-
+        onConflict: 'session_id,student_id'
+      })
+      .select()
+      .single();
+      
       if (error) {
-        ProductionLogger.warn('Participation recording failed', error);
+        ProductionLogger.error('Participation recording failed', error);
         throw error;
-      } else {
-        ProductionLogger.info('Initial participation recorded successfully');
-        return { success: true };
       }
+      
+      ProductionLogger.info('Initial participation recorded successfully');
+      return { success: true, data };
+      
     } catch (error) {
-      ProductionLogger.warn('Initial participation recording failed', error);
+      ProductionLogger.error('Initial participation recording failed', error);
       throw error;
     }
   },
 
   // ✅ NEW: Record failed participation attempt
-  async recordFailedParticipation(meetingId, error) {
+  async recordFailedParticipation(meetingId, errorObj) {
     try {
       const studentId = await getCurrentUserId();
-
+      
       const { data: session } = await supabase
       .from('video_sessions')
       .select('id, class_id')
       .eq('meeting_id', meetingId)
       .single();
-
-      if (!session) return;
-
+      
+      if (!session) {
+        ProductionLogger.warn('Session not found for failed participation recording');
+        return { success: false, error: 'Session not found' };
+      }
+      
       const failedParticipationData = {
         session_id: session.id,
         student_id: studentId,
@@ -958,36 +965,102 @@ export const studentApi = {
         device_info: {
           user_agent: navigator.userAgent,
           platform: navigator.platform,
-          error_message: error.message,
-          error_type: error.name,
-          browser: getBrowserInfo()
+          error_message: errorObj.message,
+          error_type: errorObj.name,
+          browser: getBrowserInfo(),
+          recorded_via: 'recordFailedParticipation'
         },
         error_details: {
-          message: error.message,
-          code: error.code,
+          message: errorObj.message,
+          code: errorObj.code,
           timestamp: new Date().toISOString()
         }
       };
-
+      
       ProductionLogger.debug('Recording failed participation:', failedParticipationData);
-
-      const { error: dbError } = await supabase
+      
+      // ✅ FIXED: Use upsert with proper conflict handling
+      const { data, error: dbError } = await supabase
       .from('session_participants')
       .upsert(failedParticipationData, {
-        onConflict: 'session_id,student_id',
-        ignoreDuplicates: false
-      });
-
+        onConflict: 'session_id,student_id'
+      })
+      .select()
+      .single();
+      
       if (dbError) {
-        ProductionLogger.warn('Failed participation recording failed', dbError);
-      } else {
-        ProductionLogger.info('Failed participation recorded successfully');
+        ProductionLogger.error('Failed participation recording failed', dbError);
+        throw dbError;
       }
+      
+      ProductionLogger.info('Failed participation recorded successfully');
+      return { success: true, data };
+      
     } catch (recordError) {
-      ProductionLogger.warn('Failed participation recording failed', recordError);
+      ProductionLogger.error('Failed participation recording failed', recordError);
+      // Don't throw error here - this is a non-critical operation
+      return { success: false, error: recordError.message };
     }
   },
-
+  // recordparticipationfallback
+  async recordParticipationFallback(participationData) {
+    try {
+      ProductionLogger.debug('🚀 Falling back to Supabase direct insertion:', participationData);
+      
+      // Ensure we have the required fields
+      if (!participationData.session_id || !participationData.student_id) {
+        throw new Error('Missing required fields: session_id and student_id');
+      }
+      
+      // Prepare data for database
+      const dbData = {
+        session_id: participationData.session_id,
+        student_id: participationData.student_id,
+        is_teacher: participationData.is_teacher || false,
+        status: participationData.status || 'joined',
+        connection_quality: participationData.connection_quality || 'unknown',
+        device_info: participationData.device_info || {},
+        class_id: participationData.class_id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      // Add optional fields if provided
+      if (participationData.joined_at) dbData.joined_at = participationData.joined_at;
+      if (participationData.left_at) dbData.left_at = participationData.left_at;
+      if (participationData.duration !== undefined) dbData.duration = participationData.duration;
+      if (participationData.error_details) dbData.error_details = participationData.error_details;
+      
+      // Remove null/undefined fields
+      Object.keys(dbData).forEach(key => {
+        if (dbData[key] === null || dbData[key] === undefined) {
+          delete dbData[key];
+        }
+      });
+      
+      ProductionLogger.debug('Upserting participation data via fallback:', dbData);
+      
+      const { data, error } = await supabase
+      .from('session_participants')
+      .upsert(dbData, {
+        onConflict: 'session_id,student_id'
+      })
+      .select()
+      .single();
+      
+      if (error) {
+        ProductionLogger.error('❌ Supabase fallback insertion failed:', error);
+        throw error;
+      }
+      
+      ProductionLogger.info('✅ Participation recorded via Supabase fallback');
+      return { success: true, data };
+      
+    } catch (error) {
+      ProductionLogger.error('❌ Supabase fallback failed:', error);
+      throw error;
+    }
+  },
   // ✅ UPDATED: Leave video session with proper schema
   async leaveVideoSession(meetingId, duration = 0) {
     try {
