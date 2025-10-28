@@ -799,6 +799,38 @@ export const studentApi = {
       };
     }
   },
+
+  // raise hand functionality
+
+async raiseHand(meetingId, isRaised) {
+  try {
+    const user = await this.getCurrentUser();
+    
+    ProductionLogger.info('Student raising/lowering hand', {
+      meetingId,
+      userId: user.id,
+      isRaised
+    });
+
+    // Update in database
+    const { error } = await supabase
+      .from('session_participants')
+      .update({
+        hand_raised: isRaised,
+        hand_raised_at: isRaised ? new Date().toISOString() : null
+      })
+      .eq('session_id', meetingId) 
+      .eq('student_id', user.id);
+
+    if (error) throw error;
+
+    return { success: true, handRaised: isRaised };
+
+  } catch (error) {
+    ProductionLogger.error('Failed to update hand raise status', error);
+    throw error;
+  }
+},
   
   async getSessionStatusFallback(meetingId) {
     try {
