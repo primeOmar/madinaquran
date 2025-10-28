@@ -20,7 +20,6 @@ import {
   Download,
   Upload,
   Bell,
-  Hand,
   Settings,
   LogOut,
   Menu,
@@ -820,9 +819,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     const videoContainerRef = useRef(null);
 
     useEffect(() => {
-      if (user.videoTrack && videoContainerRef.current) {
-        let videoElement = remoteVideoElementsRef.current.get(user.uid);
+      if (!user.videoTrack || !videoContainerRef.current) {
+        return;
+      }
 
+      let videoElement = remoteVideoElementsRef.current.get(user.uid);
+
+      try {
         if (!videoElement) {
           // Create new video element
           videoElement = document.createElement('video');
@@ -839,15 +842,31 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         videoContainerRef.current.innerHTML = '';
         videoContainerRef.current.appendChild(videoElement);
 
-        // Play the video track
-        user.videoTrack.play(videoElement).catch(error => {
-          console.warn('Video play error:', error);
-        });
+        // Play the video track with error handling
+        if (user.videoTrack && typeof user.videoTrack.play === 'function') {
+          const playPromise = user.videoTrack.play(videoElement);
+
+          if (playPromise !== undefined) {
+            playPromise.catch(error => {
+              console.warn(`Video play error for user ${user.uid}:`, error);
+            });
+          }
+        } else {
+          console.warn(`Video track not available for user ${user.uid} or play method missing`);
+        }
+      } catch (error) {
+        console.error(`Error setting up video for user ${user.uid}:`, error);
       }
 
       return () => {
-        // Don't cleanup video element here to avoid flickering
-        // Cleanup happens in the main cleanup function
+        // Cleanup on unmount
+        if (videoElement && user.videoTrack) {
+          try {
+            user.videoTrack.stop();
+          } catch (e) {
+            console.warn(`Error stopping video track for user ${user.uid}:`, e);
+          }
+        }
       };
     }, [user.uid, user.videoTrack]);
 
