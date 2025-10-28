@@ -12,6 +12,7 @@ import {
   Clock,
   User,
   Calendar,
+  Layout,
   Award,
   RefreshCw,
   BarChart3,
@@ -47,7 +48,7 @@ import {
   Sparkles,
   Target,
   Star,
-  Gem,Layout
+  Gem
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
@@ -451,6 +452,83 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     setLayoutMode(modes[nextIndex]);
   };
 
+  // Leave real call with proper cleanup
+  const leaveCall = async () => {
+    try {
+      console.log('🛑 Student leaving real call...');
+
+      // Stop and close local tracks
+      if (localTracksRef.current.audio) {
+        localTracksRef.current.audio.stop();
+        localTracksRef.current.audio.close();
+      }
+      if (localTracksRef.current.video) {
+        localTracksRef.current.video.stop();
+        localTracksRef.current.video.close();
+      }
+      if (localTracksRef.current.screen) {
+        localTracksRef.current.screen.stop();
+        localTracksRef.current.screen.close();
+      }
+
+      // Leave Agora channel
+      if (agoraClient) {
+        await agoraClient.leave();
+      }
+
+      // Clean up timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+
+      // Notify backend
+      if (classItem?.video_session?.meeting_id) {
+        await studentApi.leaveVideoSession(classItem.video_session.meeting_id, callDuration);
+      }
+
+      console.log('✅ Real call cleanup complete');
+
+    } catch (error) {
+      console.error('Error during call cleanup:', error);
+    } finally {
+      setIsConnected(false);
+      setCallDuration(0);
+      setLocalStream(null);
+      setTeacherStream(null);
+      setRemoteUsers(new Map());
+      setAgoraClient(null);
+      joinAttemptRef.current = 0;
+      onClose();
+    }
+  };
+
+  // Cleanup function
+  const cleanupCall = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setCallDuration(0);
+    setIsConnected(false);
+    setRemoteUsers(new Map());
+    joinAttemptRef.current = 0;
+
+    if (agoraClient) {
+      agoraClient.leave().catch(console.error);
+    }
+  };
+
+  // Retry connection
+  const retryConnection = () => {
+    joinAttemptRef.current = 0;
+    setError('');
+    initializeRealCall();
+  };
+
+  // Start timer
+  const startTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+  };
   // Responsive control buttons for mobile
   const ControlButton = ({ icon: Icon, label, onClick, variant = 'primary' }) => {
     const baseClasses = "flex items-center justify-center transition-all duration-200 backdrop-blur-lg";
