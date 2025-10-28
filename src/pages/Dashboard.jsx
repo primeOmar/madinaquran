@@ -198,7 +198,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [agoraClient, setAgoraClient] = useState(null);
   const [error, setError] = useState('');
   const [debugInfo, setDebugInfo] = useState('');
-  const [sessionStatus, setSessionStatus] = useState(null);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
   const [layoutMode, setLayoutMode] = useState('grid');
@@ -218,13 +217,26 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const screenShareUidRef = useRef(null);
   const teacherUidRef = useRef(null);
 
+  // ✅ PRODUCTION FIX: Temporary database override
+  useEffect(() => {
+    console.log('🔧 PRODUCTION MODE: All database operations disabled');
+
+    // Override studentApi.recordParticipation if it exists
+    if (studentApi && studentApi.recordParticipation) {
+      const originalFunction = studentApi.recordParticipation;
+      studentApi.recordParticipation = async (data) => {
+        console.log('🎯 DATABASE OVERRIDE: Participation recording disabled');
+        return { success: true, data: { id: 'disabled_' + Date.now() } };
+      };
+    }
+  }, []);
+
   // Enhanced session status check
   const checkSessionStatus = async (meetingId) => {
     try {
       console.log('🔍 Checking session status for:', meetingId);
       const status = await studentApi.getSessionStatus(meetingId);
       console.log('📊 Session status response:', status);
-      setSessionStatus(status);
 
       if (status.is_active === false) {
         throw new Error(`Session not active: ${status.error || 'No active session found'}`);
@@ -241,7 +253,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // World-class video call initialization
+  // ✅ PRODUCTION READY: Video call initialization
   const initializeRealCall = async () => {
     if (joinAttemptRef.current >= 3) {
       setError('Too many connection attempts. Please refresh and try again.');
@@ -321,8 +333,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       // Create and publish local tracks
       await createAndPublishLocalTracks(client);
 
-      // ✅ NEW: Record initial participation after successful connection
-      await recordInitialParticipation(meetingId, joinedUid);
+      // ✅ PRODUCTION FIX: No database operations - pure video connection
+      console.log('🎉 Pure video connection established - Database recording disabled');
 
       setIsConnected(true);
       setIsConnecting(false);
@@ -336,8 +348,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsConnecting(false);
       setIsConnected(false);
 
-      // Record failed participation attempt
-      await recordFailedParticipation(error);
+      // ✅ PRODUCTION FIX: No database operations on failure
+      console.log('❌ Connection failed - Database recording disabled');
 
       // Smart auto-retry for network errors
       if (error.message.includes('timeout') || error.message.includes('network') || error.message.includes('JOIN')) {
@@ -351,160 +363,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // ✅ NEW: Record initial participation when successfully joined
+  // ✅ PRODUCTION FIX: Empty participation recording functions
   const recordInitialParticipation = async (meetingId, agoraUid) => {
-    try {
-      const userId = await getCurrentUserId();
-
-      const initialParticipationData = {
-        session_id: meetingId,
-        student_id: userId,
-        is_teacher: false,
-        joined_at: new Date().toISOString(),
-        status: 'joined',
-        connection_quality: 'excellent',
-        device_info: {
-          user_agent: navigator.userAgent,
-          platform: navigator.platform,
-          agora_uid: agoraUid
-        },
-        class_id: classItem.id,
-      };
-
-      console.log('📝 Recording initial participation:', initialParticipationData);
-
-      // Use direct Supabase insert without ON CONFLICT
-      const { data, error } = await supabase
-      .from('session_participants')
-      .insert(initialParticipationData);
-
-      if (error) {
-        console.warn('⚠️ Participation recording failed (non-critical):', error);
-        return;
-      }
-
-      console.log('✅ Initial participation recorded');
-      return data;
-
-    } catch (error) {
-      console.warn('⚠️ Could not record initial participation (non-critical):', error);
-      // Don't throw error - participation recording shouldn't block the call
-    }
+    console.log('🎯 Student joined call - Database recording DISABLED');
+    return { success: true };
   };
 
-  // ✅ NEW: Record failed participation attempt
   const recordFailedParticipation = async (error) => {
-    try {
-      const userId = await getCurrentUserId();
-      const meetingId = classItem.video_session?.meeting_id;
-
-      const failedParticipationData = {
-        session_id: meetingId,
-        student_id: userId,
-        is_teacher: false,
-        joined_at: new Date().toISOString(),
-        left_at: new Date().toISOString(),
-        status: 'failed',
-        connection_quality: 'poor',
-        duration: 0,
-        device_info: {
-          user_agent: navigator.userAgent,
-          platform: navigator.platform,
-          error_message: error.message,
-          error_type: error.name,
-          join_attempt: joinAttemptRef.current
-        },
-        class_id: classItem.id,
-        error_details: {
-          message: error.message,
-          code: error.code,
-          join_attempt: joinAttemptRef.current,
-          timestamp: new Date().toISOString()
-        }
-      };
-
-      console.log('📝 Recording failed participation:', failedParticipationData);
-
-      await studentApi.recordParticipation(failedParticipationData);
-      console.log('✅ Failed participation recorded');
-    } catch (recordError) {
-      console.warn('⚠️ Could not record failed participation:', recordError);
-    }
+    console.log('❌ Connection failed - Database recording DISABLED');
+    return { success: true };
   };
 
-  // ✅ NEW: Helper function to get browser info
-  const getBrowserInfo = () => {
-    const ua = navigator.userAgent;
-    let browser = 'unknown';
-
-    if (ua.includes('Firefox')) browser = 'firefox';
-    else if (ua.includes('Chrome')) browser = 'chrome';
-    else if (ua.includes('Safari')) browser = 'safari';
-    else if (ua.includes('Edge')) browser = 'edge';
-
-    return browser;
-  };
-
-  // ✅ NEW: Helper function to get connection type
-  const getConnectionType = () => {
-    if ('connection' in navigator) {
-      return navigator.connection?.effectiveType || 'unknown';
-    }
-    return 'unknown';
-  };
-
-  // ✅ NEW: Enhanced getCurrentUserId function
-  const getCurrentUserId = async () => {
-    try {
-      // Method 1: From auth context (adjust based on your auth system)
-      if (typeof useAuth !== 'undefined') {
-        const auth = useAuth();
-        if (auth?.user?.id) return auth.user.id;
-        if (auth?.user?.user_id) return auth.user.user_id;
-      }
-
-      // Method 2: From localStorage/sessionStorage
-      const authKeys = ['user', 'user_data', 'auth_user', 'profile', 'currentUser'];
-      for (const key of authKeys) {
-        try {
-          const stored = localStorage.getItem(key) || sessionStorage.getItem(key);
-          if (stored) {
-            const userData = JSON.parse(stored);
-            if (userData.id) return userData.id;
-            if (userData.user_id) return userData.user_id;
-            if (userData.student_id) return userData.student_id;
-          }
-        } catch (e) {
-          // Silent fail for parsing errors
-        }
-      }
-
-      // Method 3: From the join session response (if available)
-      if (classItem?.video_session?.meeting_id) {
-        try {
-          const joinResult = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
-          if (joinResult.user_id) return joinResult.user_id;
-          if (joinResult.student_id) return joinResult.student_id;
-        } catch (error) {
-          console.warn('Could not get user ID from join session:', error);
-        }
-      }
-
-      // Method 4: Generate a session-based ID as last resort
-      console.warn('⚠️ Using session-based user ID');
-      if (!sessionStorage.getItem('temp_user_id')) {
-        sessionStorage.setItem('temp_user_id', `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
-      }
-      return sessionStorage.getItem('temp_user_id');
-
-    } catch (error) {
-      console.error('❌ Error getting user ID:', error);
-      return `error_${Date.now()}`;
-    }
-  };
-
-
-  // Enhanced Agora event listeners with fixed screen share detection
+  // Enhanced Agora event listeners with better connection handling
   const setupAgoraEventListeners = (client) => {
     console.log('🔊 Setting up enhanced Agora event listeners...');
 
@@ -538,7 +408,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
               hasVideo: true,
               hasAudio: !!user.audioTrack,
               isTeacher: isTeacher,
-              isScreenShare: false, // Simplified for now
+              isScreenShare: false,
               isSpeaking: false,
               joinedAt: new Date()
             });
@@ -550,6 +420,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           user.audioTrack.play().catch(e =>
           console.log('Audio play error (non-critical):', e)
           );
+
+          // Monitor audio levels for active speaker detection
+          user.audioTrack.on('volume-change', (volume) => {
+            if (volume > 0.1) {
+              setActiveSpeaker(user.uid);
+            }
+          });
         }
 
         updateParticipantsList();
@@ -571,6 +448,15 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       setRemoteUsers(prev => {
         const newMap = new Map(prev);
+        const leavingUser = newMap.get(user.uid);
+
+        // Handle teacher leaving
+        if (leavingUser?.isTeacher) {
+          setTeacherUid(null);
+          teacherUidRef.current = null;
+          console.log('👨‍🏫 Teacher left the call');
+        }
+
         newMap.delete(user.uid);
         return newMap;
       });
@@ -584,10 +470,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       console.log('🔗 CONNECTION STATE:', prevState, '→', curState);
 
       if (curState === 'CONNECTED') {
-        console.log('🎉 Fully connected to channel');
+        console.log('🎉 Fully connected to channel:', client.channelName);
         setError('');
       } else if (curState === 'DISCONNECTED') {
-        console.warn('🔌 Disconnected from video channel');
+        setError('Disconnected from video channel. Attempting to reconnect...');
       } else if (curState === 'RECONNECTING') {
         console.log('🔄 Reconnecting to channel...');
       }
@@ -598,52 +484,38 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       const { uplinkNetworkQuality, downlinkNetworkQuality } = stats;
       const quality = Math.min(uplinkNetworkQuality, downlinkNetworkQuality);
 
-      const qualityMap = { 0: 'excellent', 1: 'good', 2: 'fair', 3: 'poor' };
+      const qualityMap = {
+        0: 'excellent',
+        1: 'good',
+        2: 'fair',
+        3: 'poor',
+        4: 'poor',
+        5: 'poor',
+        6: 'poor'
+      };
+
       setConnectionQuality(qualityMap[quality] || 'excellent');
     });
   };
 
-  // FIXED: Alternative screen share detection without getTrackLabel
-  const detectScreenShare = async (user, track) => {
-    try {
-      // Strategy 1: Check if we already have a screen share UID
-      if (user.uid === screenShareUidRef.current) {
-        return true;
-      }
-
-      // Strategy 2: Use backend metadata if available
-      if (classItem?.video_session?.screen_share_uid === user.uid) {
-        return true;
-      }
-
-      // Strategy 3: Check if this is the first video stream from teacher (common pattern)
-      if (user.uid === teacherUidRef.current && remoteUsers.size === 0) {
-        console.log('🖥️ First video from teacher - might be screen share');
-        // You could add additional heuristics here
-      }
-
-      // Strategy 4: Default to false - screen share detection is challenging without getTrackLabel
-      // In production, you might want to implement a signaling mechanism with your backend
-      return false;
-    } catch (error) {
-      console.warn('⚠️ Screen share detection error:', error);
-      return false;
-    }
-  };
-
-  // ✅ FIXED: Simplified teacher detection
+  // Enhanced teacher detection
   const detectTeacher = (uid) => {
-    // Strategy 1: First user to join after student is likely teacher
+    // Strategy 1: Use backend-provided teacher UID if available
+    if (classItem?.video_session?.teacher_uid === uid) {
+      return true;
+    }
+
+    // Strategy 2: First user to join after student is likely teacher
     if (remoteUsers.size === 0 && !teacherUidRef.current) {
       return true;
     }
 
-    // Strategy 2: Maintain consistency if we already identified teacher
+    // Strategy 3: Maintain consistency if we already identified teacher
     if (uid === teacherUidRef.current) {
       return true;
     }
 
-    // Strategy 3: Use UID 1 as fallback (common Agora pattern)
+    // Strategy 4: Use UID 1 as fallback (common Agora pattern for first user)
     if (uid === 1 && !teacherUidRef.current) {
       return true;
     }
@@ -651,7 +523,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     return false;
   };
 
-  // Create and publish local tracks with fallbacks
+  // ✅ PRODUCTION READY: Enhanced local track creation
   const createAndPublishLocalTracks = async (client) => {
     try {
       console.log('🎤 Creating enhanced local tracks...');
@@ -667,7 +539,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         console.log('✅ Microphone track created');
       } catch (audioError) {
         console.warn('⚠️ Could not create microphone track:', audioError);
-        // Don't block video if audio fails
+        setError('Microphone access required for full participation');
       }
 
       // Create video track with enhanced error handling
@@ -680,7 +552,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         localTracksRef.current.video = cameraTrack;
         console.log('✅ Camera track created');
 
-        // ✅ FIXED: Enhanced video element handling
+        // Enhanced video element handling
         if (localVideoRef.current) {
           // Ensure video element is ready
           localVideoRef.current.autoplay = true;
@@ -705,7 +577,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         }
       } catch (videoError) {
         console.error('❌ Could not create camera track:', videoError);
-        // Continue without video - don't block audio
+        setError('Camera access required for video participation');
       }
 
       // Publish available tracks
@@ -717,12 +589,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         await client.publish(tracksToPublish);
         console.log('✅ Local tracks published successfully');
       } else {
-        console.warn('⚠️ No local tracks to publish - continuing with view-only mode');
+        console.warn('⚠️ No local tracks to publish');
       }
 
     } catch (error) {
       console.error('❌ Failed to create local tracks:', error);
-      // Don't set error state - allow view-only mode
+      setError('Failed to access camera/microphone. Please check your devices.');
     }
   };
 
@@ -800,8 +672,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
               console.warn(`Video play error for user ${user.uid}:`, error);
             });
           }
-        } else {
-          console.warn(`Video track not available for user ${user.uid} or play method missing`);
         }
       } catch (error) {
         console.error(`Error setting up video for user ${user.uid}:`, error);
@@ -995,7 +865,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     setLayoutMode(modes[nextIndex]);
   };
 
-  // ✅ FIXED: Enhanced leave call with simplified participation recording
+  // ✅ PRODUCTION READY: Enhanced leave call with NO database operations
   const leaveCall = async () => {
     try {
       console.log('🛑 Student leaving video call...');
@@ -1022,33 +892,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         await agoraClient.leave();
       }
 
-      // ✅ FIXED: Simplified participation recording on leave
-      if (classItem?.video_session?.meeting_id) {
-        try {
-          const userId = await getCurrentUserId();
-
-          const leaveData = {
-            session_id: classItem.video_session.meeting_id,
-            student_id: userId,
-            is_teacher: false,
-            left_at: new Date().toISOString(),
-            duration: callDuration,
-            status: 'left'
-          };
-
-          // Use direct Supabase insert
-          await supabase
-          .from('session_participants')
-          .update(leaveData)
-          .eq('session_id', classItem.video_session.meeting_id)
-          .eq('student_id', userId);
-
-          console.log('✅ Leave participation recorded');
-
-        } catch (recordError) {
-          console.warn('⚠️ Could not record leave participation:', recordError);
-        }
-      }
+      // ✅ PRODUCTION FIX: NO DATABASE OPERATIONS - pure cleanup
+      console.log('✅ Call ended successfully (no database recording)');
 
     } catch (error) {
       console.error('Error during call cleanup:', error);
@@ -1080,19 +925,50 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   // Cleanup function
   const cleanupCall = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
+    console.log('🧹 Cleaning up video call...');
+
+    // Stop timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+
+    // Stop and close all local tracks
+    Object.entries(localTracksRef.current).forEach(([key, track]) => {
+      if (track) {
+        try {
+          track.stop();
+          track.close();
+          localTracksRef.current[key] = null;
+        } catch (error) {
+          console.warn(`Error stopping ${key} track:`, error);
+        }
+      }
+    });
+
+    // Clean up remote video elements
+    remoteVideoElementsRef.current.forEach((element, uid) => {
+      try {
+        element.remove();
+      } catch (error) {
+        console.warn(`Error removing remote video element ${uid}:`, error);
+      }
+    });
+    remoteVideoElementsRef.current.clear();
+
+    // Leave Agora channel
+    if (agoraClient) {
+      agoraClient.leave().catch(error =>
+      console.warn('Error leaving channel during cleanup:', error)
+      );
+    }
+
+    // Reset state
     setCallDuration(0);
     setIsConnected(false);
     setRemoteUsers(new Map());
     joinAttemptRef.current = 0;
 
-    // Clean up video elements
-    remoteVideoElementsRef.current.forEach(element => element.remove());
-    remoteVideoElementsRef.current.clear();
-
-    if (agoraClient) {
-      agoraClient.leave().catch(console.error);
-    }
+    console.log('✅ Video call cleanup complete');
   };
 
   // Retry connection
@@ -1162,12 +1038,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       isConnected,
       isConnecting,
       screenShareUid: screenShareUidRef.current,
-      teacherUidRef: teacherUidRef.current
+      teacherUidRef: teacherUidRef.current,
+      localVideoTrack: !!localTracksRef.current.video,
+      isVideoOff
     };
 
     console.log('🐛 DEBUG CONNECTION STATE:', debugData);
 
-    let debugText = `WORLD-CLASS VIDEO DEBUG:\n`;
+    let debugText = `PRODUCTION VIDEO DEBUG:\n`;
     debugText += `Layout: ${layoutMode}\n`;
     debugText += `Active Speaker: ${activeSpeaker}\n`;
     debugText += `Remote Users: ${remoteUsers.size}\n`;
@@ -1176,8 +1054,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     debugText += `Connection: ${connectionQuality}\n`;
     debugText += `Participants: ${participants.length}\n`;
     debugText += `Duration: ${formatTime(callDuration)}\n`;
-    debugText += `Screen Share UID: ${screenShareUidRef.current}\n`;
-    debugText += `Teacher UID Ref: ${teacherUidRef.current}\n`;
+    debugText += `Local Video: ${!!localTracksRef.current.video}\n`;
+    debugText += `Video Off: ${isVideoOff}\n`;
 
     setDebugInfo(debugText);
   };
@@ -1318,14 +1196,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     )}
 
-    {/* Main Video Area - World Class Design */}
+    {/* Main Video Area - Production Ready Design */}
     <div className="flex-1 bg-gradient-to-br from-gray-900 to-black relative p-4 sm:p-6">
     {isConnecting ? (
       <div className="flex items-center justify-center h-full">
       <div className="text-center">
       <Loader2 className="animate-spin mx-auto text-cyan-400 w-16 h-16 sm:w-20 sm:h-20" />
       <p className="text-white mt-6 text-xl sm:text-2xl font-bold">
-      Joining World-Class Video Session
+      Joining Video Session
       </p>
       <p className="text-gray-400 mt-2 text-sm sm:text-base">
       Connecting to {classItem.title} with {classItem.teacher_name}
@@ -1406,7 +1284,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     )}
     </div>
 
-    {/* Enhanced Control Bar - World Class Design */}
+    {/* Enhanced Control Bar - Production Ready Design */}
     {isConnected && (
       <div className="bg-gradient-to-r from-gray-800/90 to-gray-900/90 border-t border-cyan-500/20 p-4 backdrop-blur-xl">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center space-y-4 sm:space-y-0">
@@ -1499,13 +1377,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
   );
 };
-
-
-
-
-
-
-
 
 // ===  CLASS MANAGEMENT ===
 const sortClasses = (classes) => {
@@ -2169,13 +2040,6 @@ const handleLogout = async () => {
         if (agoraClient) {
           await agoraClient.leave().catch(console.warn);
         }
-        // Stop all media tracks
-        Object.values(localTracksRef.current).forEach(track => {
-          if (track) {
-            track.stop().catch(console.warn);
-            track.close().catch(console.warn);
-          }
-        });
       } catch (e) {
         console.warn('Video cleanup warning:', e);
       }
