@@ -507,42 +507,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // ✅ NEW: Update studentApi with enhanced recordParticipation method
-  const studentApi = {
-    // ... your existing methods ...
-
-    async recordParticipation(participationData) {
-      try {
-        console.log('🚀 Sending participation data to server:', participationData);
-
-        const response = await fetch('/api/video/record-participation', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(participationData)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('❌ Server response error:', {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorData
-          });
-          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
-        console.log('✅ Participation recorded successfully:', result);
-        return result;
-
-      } catch (error) {
-        console.error('❌ Network error recording participation:', error);
-        throw error;
-      }
-    }
-  };
 
   // Enhanced Agora event listeners with fixed screen share detection
   const setupAgoraEventListeners = (client) => {
