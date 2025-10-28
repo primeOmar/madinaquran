@@ -392,13 +392,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // ✅ FIXED: Remove failed participation recording to avoid errors
-  const recordFailedParticipation = async (error) => {
-    // Temporarily disabled to fix connection issues
-    console.log('❌ Connection failed:', error.message);
-    return;
-  };
-
   // ✅ NEW: Record failed participation attempt
   const recordFailedParticipation = async (error) => {
     try {
