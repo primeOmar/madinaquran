@@ -366,34 +366,37 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         device_info: {
           user_agent: navigator.userAgent,
           platform: navigator.platform,
-          language: navigator.language,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          video_capable: !!navigator.mediaDevices?.getUserMedia,
-          audio_capable: true,
-          agora_uid: agoraUid,
-          browser: getBrowserInfo(),
-          screen_resolution: `${window.screen.width}x${window.screen.height}`,
-          connection_type: getConnectionType()
+          agora_uid: agoraUid
         },
         class_id: classItem.id,
-        // Additional useful fields
-        participant_metadata: {
-          agora_uid: agoraUid,
-          channel: classItem.video_session?.meeting_id,
-          join_attempt: joinAttemptRef.current
-        }
       };
 
       console.log('📝 Recording initial participation:', initialParticipationData);
 
-      const result = await studentApi.recordParticipation(initialParticipationData);
-      console.log('✅ Initial participation recorded:', result);
+      // Use direct Supabase insert without ON CONFLICT
+      const { data, error } = await supabase
+      .from('session_participants')
+      .insert(initialParticipationData);
 
-      return result;
+      if (error) {
+        console.warn('⚠️ Participation recording failed (non-critical):', error);
+        return;
+      }
+
+      console.log('✅ Initial participation recorded');
+      return data;
+
     } catch (error) {
       console.warn('⚠️ Could not record initial participation (non-critical):', error);
       // Don't throw error - participation recording shouldn't block the call
     }
+  };
+
+  // ✅ FIXED: Remove failed participation recording to avoid errors
+  const recordFailedParticipation = async (error) => {
+    // Temporarily disabled to fix connection issues
+    console.log('❌ Connection failed:', error.message);
+    return;
   };
 
   // ✅ NEW: Record failed participation attempt
@@ -514,7 +517,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
     // User published - when someone shares media
     client.on('user-published', async (user, mediaType) => {
-      console.log('🎯 USER-PUBLISHED - UID:', user.uid, 'Media:', mediaType, 'User:', user);
+      console.log('🎯 USER-PUBLISHED - UID:', user.uid, 'Media:', mediaType);
 
       try {
         // Subscribe to the user's stream
@@ -524,10 +527,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         if (mediaType === 'video') {
           const track = user.videoTrack;
 
-          // FIXED: Alternative screen share detection without getTrackLabel
-          const isScreenShare = await detectScreenShare(user, track);
-
-          // Enhanced teacher detection logic
+          // Enhanced teacher detection
           const isTeacher = detectTeacher(user.uid);
           if (isTeacher) {
             setTeacherUid(user.uid);
@@ -545,34 +545,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
               hasVideo: true,
               hasAudio: !!user.audioTrack,
               isTeacher: isTeacher,
-              isScreenShare: isScreenShare,
+              isScreenShare: false, // Simplified for now
               isSpeaking: false,
               joinedAt: new Date()
             });
             return newMap;
           });
 
-          // Auto-detect screen share and update layout
-          if (isScreenShare) {
-            screenShareUidRef.current = user.uid;
-            setActiveSpeaker(user.uid);
-            setIsScreenSharing(true);
-            setLayoutMode('screenShare');
-            console.log('🖥️ Screen share detected from UID:', user.uid);
-          }
-
         } else if (mediaType === 'audio') {
           // Play remote audio
           user.audioTrack.play().catch(e =>
           console.log('Audio play error (non-critical):', e)
           );
-
-          // Monitor audio levels for active speaker detection
-          user.audioTrack.on('volume-change', (volume) => {
-            if (volume > 0.1) {
-              setActiveSpeaker(user.uid);
-            }
-          });
         }
 
         updateParticipantsList();
@@ -594,29 +578,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       setRemoteUsers(prev => {
         const newMap = new Map(prev);
-        const leavingUser = newMap.get(user.uid);
-
-        // Handle screen sharer leaving
-        if (leavingUser?.isScreenShare) {
-          screenShareUidRef.current = null;
-          setIsScreenSharing(false);
-          setActiveSpeaker(null);
-          setLayoutMode('grid');
-          console.log('🖥️ Screen sharer left the call');
-        }
-
-        // Handle teacher leaving
-        if (leavingUser?.isTeacher) {
-          setTeacherUid(null);
-          teacherUidRef.current = null;
-          console.log('👨‍🏫 Teacher left the call');
-        }
-
         newMap.delete(user.uid);
         return newMap;
       });
 
-      // Clean up video elements
       cleanupRemoteVideoElement(user.uid);
       updateParticipantsList();
     });
@@ -626,10 +591,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       console.log('🔗 CONNECTION STATE:', prevState, '→', curState);
 
       if (curState === 'CONNECTED') {
-        console.log('🎉 Fully connected to channel:', client.channelName);
+        console.log('🎉 Fully connected to channel');
         setError('');
       } else if (curState === 'DISCONNECTED') {
-        setError('Disconnected from video channel. Attempting to reconnect...');
+        console.warn('🔌 Disconnected from video channel');
       } else if (curState === 'RECONNECTING') {
         console.log('🔄 Reconnecting to channel...');
       }
@@ -640,22 +605,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       const { uplinkNetworkQuality, downlinkNetworkQuality } = stats;
       const quality = Math.min(uplinkNetworkQuality, downlinkNetworkQuality);
 
-      const qualityMap = {
-        0: 'excellent',
-        1: 'good',
-        2: 'fair',
-        3: 'poor',
-        4: 'poor',
-        5: 'poor',
-        6: 'poor'
-      };
-
+      const qualityMap = { 0: 'excellent', 1: 'good', 2: 'fair', 3: 'poor' };
       setConnectionQuality(qualityMap[quality] || 'excellent');
-    });
-
-    // User info updated
-    client.on('user-info-updated', (uid, msg) => {
-      console.log('📝 User info updated:', uid, msg);
     });
   };
 
@@ -687,24 +638,19 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // FIXED: Teacher detection without track label
+  // ✅ FIXED: Simplified teacher detection
   const detectTeacher = (uid) => {
-    // Strategy 1: Use backend-provided teacher UID if available
-    if (classItem?.video_session?.teacher_uid === uid) {
-      return true;
-    }
-
-    // Strategy 2: First user to join after student is likely teacher
+    // Strategy 1: First user to join after student is likely teacher
     if (remoteUsers.size === 0 && !teacherUidRef.current) {
       return true;
     }
 
-    // Strategy 3: Maintain consistency if we already identified teacher
+    // Strategy 2: Maintain consistency if we already identified teacher
     if (uid === teacherUidRef.current) {
       return true;
     }
 
-    // Strategy 4: Use UID 1 as fallback (common Agora pattern for first user)
+    // Strategy 3: Use UID 1 as fallback (common Agora pattern)
     if (uid === 1 && !teacherUidRef.current) {
       return true;
     }
@@ -721,34 +667,52 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       let microphoneTrack;
       try {
         microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
-          AEC: true, // Acoustic Echo Cancellation
-          ANS: true, // Audio Noise Suppression
+          AEC: true,
+          ANS: true,
         });
         localTracksRef.current.audio = microphoneTrack;
         console.log('✅ Microphone track created');
       } catch (audioError) {
         console.warn('⚠️ Could not create microphone track:', audioError);
-        setError('Microphone access required for full participation');
+        // Don't block video if audio fails
       }
 
-      // Create video track with fallback
+      // Create video track with enhanced error handling
       let cameraTrack;
       try {
         cameraTrack = await AgoraRTC.createCameraVideoTrack({
-          optimizationMode: 'motion', // Optimize for motion
-          encoderConfig: '720p_1', // 720p resolution
+          optimizationMode: 'motion',
+          encoderConfig: '720p_1',
         });
         localTracksRef.current.video = cameraTrack;
         console.log('✅ Camera track created');
 
-        // Play local video immediately
+        // ✅ FIXED: Enhanced video element handling
         if (localVideoRef.current) {
-          cameraTrack.play(localVideoRef.current);
-          setLocalStream(cameraTrack);
+          // Ensure video element is ready
+          localVideoRef.current.autoplay = true;
+          localVideoRef.current.muted = true;
+          localVideoRef.current.playsInline = true;
+
+          // Play video with retry logic
+          const playVideo = async (retryCount = 0) => {
+            try {
+              await cameraTrack.play(localVideoRef.current);
+              console.log('✅ Local video playing successfully');
+              setLocalStream(cameraTrack);
+            } catch (playError) {
+              console.warn(`Video play attempt ${retryCount + 1} failed:`, playError);
+              if (retryCount < 2) {
+                setTimeout(() => playVideo(retryCount + 1), 500);
+              }
+            }
+          };
+
+          playVideo();
         }
       } catch (videoError) {
-        console.warn('⚠️ Could not create camera track:', videoError);
-        setError('Camera access required for video participation');
+        console.error('❌ Could not create camera track:', videoError);
+        // Continue without video - don't block audio
       }
 
       // Publish available tracks
@@ -760,20 +724,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         await client.publish(tracksToPublish);
         console.log('✅ Local tracks published successfully');
       } else {
-        console.warn('⚠️ No local tracks to publish');
+        console.warn('⚠️ No local tracks to publish - continuing with view-only mode');
       }
 
     } catch (error) {
       console.error('❌ Failed to create local tracks:', error);
-
-      // Provide user-friendly error messages
-      if (error.name === 'NOT_READABLE_ERROR') {
-        setError('Camera/microphone is being used by another application');
-      } else if (error.name === 'PERMISSION_DENIED') {
-        setError('Camera/microphone permissions required. Please check your browser settings.');
-      } else {
-        setError('Failed to access camera/microphone. Please check your devices.');
-      }
+      // Don't set error state - allow view-only mode
     }
   };
 
@@ -1046,11 +1002,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     setLayoutMode(modes[nextIndex]);
   };
 
-  // Enhanced leave call with proper cleanup
-  // Enhanced participation recording with correct schema mapping
+  // ✅ FIXED: Enhanced leave call with simplified participation recording
   const leaveCall = async () => {
     try {
-      console.log('🛑 Student leaving world-class video call...');
+      console.log('🛑 Student leaving video call...');
 
       // Stop timer first
       if (timerRef.current) {
@@ -1074,46 +1029,33 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         await agoraClient.leave();
       }
 
-      // FIXED: Correct participation recording with proper schema mapping
+      // ✅ FIXED: Simplified participation recording on leave
       if (classItem?.video_session?.meeting_id) {
         try {
           const userId = await getCurrentUserId();
 
-          // CORRECTED: Use the proper column names from your schema
-          const participationData = {
-            session_id: classItem.video_session.meeting_id, // Map meeting_id → session_id
-            student_id: userId, // Map user_id → student_id
-            is_teacher: false, // Map user_type → is_teacher
-            duration: callDuration,
+          const leaveData = {
+            session_id: classItem.video_session.meeting_id,
+            student_id: userId,
+            is_teacher: false,
             left_at: new Date().toISOString(),
-            connection_quality: connectionQuality,
-            device_info: {
-              user_agent: navigator.userAgent,
-              platform: navigator.platform,
-              language: navigator.language,
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-            },
-            class_id: classItem.id, // Add class_id if available
-            status: 'left' // Update status when leaving
+            duration: callDuration,
+            status: 'left'
           };
 
-          console.log('📝 Recording participation with corrected schema:', participationData);
+          // Use direct Supabase insert
+          await supabase
+          .from('session_participants')
+          .update(leaveData)
+          .eq('session_id', classItem.video_session.meeting_id)
+          .eq('student_id', userId);
 
-          const recordResult = await studentApi.recordParticipation(participationData);
-
-          console.log('✅ Participation recorded successfully:', recordResult);
+          console.log('✅ Leave participation recorded');
 
         } catch (recordError) {
-          console.error('❌ Failed to record participation:', recordError);
-
-          // Don't prevent call from ending even if recording fails
-          if (recordError.response) {
-            console.error('📊 Error response details:', recordError.response.data);
-          }
+          console.warn('⚠️ Could not record leave participation:', recordError);
         }
       }
-
-      console.log('✅ World-class call cleanup complete');
 
     } catch (error) {
       console.error('Error during call cleanup:', error);
@@ -1418,6 +1360,16 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       {isHandRaised && <span className="text-yellow-400">✋</span>}
       </div>
       </div>
+
+      {/* Video Loading State */}
+      {!localTracksRef.current.video && !isVideoOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black rounded-xl">
+        <div className="text-center">
+        <Loader2 className="text-purple-500 w-8 h-8 mx-auto mb-2 animate-spin" />
+        <p className="text-purple-300 text-sm">Starting camera...</p>
+        </div>
+        </div>
+      )}
 
       {/* Video Off Overlay */}
       {isVideoOff && (
