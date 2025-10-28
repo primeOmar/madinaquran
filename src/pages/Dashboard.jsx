@@ -49,6 +49,7 @@ import {
   Sparkles,
   Target,
   Star,
+  Hand,
   Gem
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
