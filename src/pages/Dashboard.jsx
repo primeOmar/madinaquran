@@ -9,6 +9,7 @@ import {
   CreditCard,
   ClipboardList,
   BookOpen,
+  Signal,
   Clock,
   User,
   Users,
