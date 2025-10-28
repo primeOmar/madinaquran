@@ -301,17 +301,28 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       // Join channel with timeout
       console.log('🚀 Joining Agora channel:', joinResult.channel);
-      const joinedUid = await client.join(
+
+      // Add join timeout
+      const joinPromise = client.join(
         joinResult.appId,
         joinResult.channel,
         joinResult.token || null,
         joinResult.uid || null
       );
 
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Join timeout after 15 seconds')), 15000);
+      });
+
+      const joinedUid = await Promise.race([joinPromise, timeoutPromise]);
+
       console.log('✅ Successfully joined channel with UID:', joinedUid);
 
       // Create and publish local tracks
       await createAndPublishLocalTracks(client);
+
+      // ✅ NEW: Record initial participation after successful connection
+      await recordInitialParticipation(meetingId, joinedUid);
 
       setIsConnected(true);
       setIsConnecting(false);
@@ -325,14 +336,210 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsConnecting(false);
       setIsConnected(false);
 
+      // Record failed participation attempt
+      await recordFailedParticipation(error);
+
       // Smart auto-retry for network errors
-      if (error.message.includes('timeout') || error.message.includes('network')) {
+      if (error.message.includes('timeout') || error.message.includes('network') || error.message.includes('JOIN')) {
         setTimeout(() => {
           if (isOpen && joinAttemptRef.current < 3) {
             console.log('🔄 Auto-retrying connection...');
             initializeRealCall();
           }
         }, 2000);
+      }
+    }
+  };
+
+  // ✅ NEW: Record initial participation when successfully joined
+  const recordInitialParticipation = async (meetingId, agoraUid) => {
+    try {
+      const userId = await getCurrentUserId();
+
+      const initialParticipationData = {
+        session_id: meetingId,
+        student_id: userId,
+        is_teacher: false,
+        joined_at: new Date().toISOString(),
+        status: 'joined',
+        connection_quality: 'excellent',
+        device_info: {
+          user_agent: navigator.userAgent,
+          platform: navigator.platform,
+          language: navigator.language,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          video_capable: !!navigator.mediaDevices?.getUserMedia,
+          audio_capable: true,
+          agora_uid: agoraUid,
+          browser: getBrowserInfo(),
+          screen_resolution: `${window.screen.width}x${window.screen.height}`,
+          connection_type: getConnectionType()
+        },
+        class_id: classItem.id,
+        // Additional useful fields
+        participant_metadata: {
+          agora_uid: agoraUid,
+          channel: classItem.video_session?.meeting_id,
+          join_attempt: joinAttemptRef.current
+        }
+      };
+
+      console.log('📝 Recording initial participation:', initialParticipationData);
+
+      const result = await studentApi.recordParticipation(initialParticipationData);
+      console.log('✅ Initial participation recorded:', result);
+
+      return result;
+    } catch (error) {
+      console.warn('⚠️ Could not record initial participation (non-critical):', error);
+      // Don't throw error - participation recording shouldn't block the call
+    }
+  };
+
+  // ✅ NEW: Record failed participation attempt
+  const recordFailedParticipation = async (error) => {
+    try {
+      const userId = await getCurrentUserId();
+      const meetingId = classItem.video_session?.meeting_id;
+
+      const failedParticipationData = {
+        session_id: meetingId,
+        student_id: userId,
+        is_teacher: false,
+        joined_at: new Date().toISOString(),
+        left_at: new Date().toISOString(),
+        status: 'failed',
+        connection_quality: 'poor',
+        duration: 0,
+        device_info: {
+          user_agent: navigator.userAgent,
+          platform: navigator.platform,
+          error_message: error.message,
+          error_type: error.name,
+          join_attempt: joinAttemptRef.current
+        },
+        class_id: classItem.id,
+        error_details: {
+          message: error.message,
+          code: error.code,
+          join_attempt: joinAttemptRef.current,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      console.log('📝 Recording failed participation:', failedParticipationData);
+
+      await studentApi.recordParticipation(failedParticipationData);
+      console.log('✅ Failed participation recorded');
+    } catch (recordError) {
+      console.warn('⚠️ Could not record failed participation:', recordError);
+    }
+  };
+
+  // ✅ NEW: Helper function to get browser info
+  const getBrowserInfo = () => {
+    const ua = navigator.userAgent;
+    let browser = 'unknown';
+
+    if (ua.includes('Firefox')) browser = 'firefox';
+    else if (ua.includes('Chrome')) browser = 'chrome';
+    else if (ua.includes('Safari')) browser = 'safari';
+    else if (ua.includes('Edge')) browser = 'edge';
+
+    return browser;
+  };
+
+  // ✅ NEW: Helper function to get connection type
+  const getConnectionType = () => {
+    if ('connection' in navigator) {
+      return navigator.connection?.effectiveType || 'unknown';
+    }
+    return 'unknown';
+  };
+
+  // ✅ NEW: Enhanced getCurrentUserId function
+  const getCurrentUserId = async () => {
+    try {
+      // Method 1: From auth context (adjust based on your auth system)
+      if (typeof useAuth !== 'undefined') {
+        const auth = useAuth();
+        if (auth?.user?.id) return auth.user.id;
+        if (auth?.user?.user_id) return auth.user.user_id;
+      }
+
+      // Method 2: From localStorage/sessionStorage
+      const authKeys = ['user', 'user_data', 'auth_user', 'profile', 'currentUser'];
+      for (const key of authKeys) {
+        try {
+          const stored = localStorage.getItem(key) || sessionStorage.getItem(key);
+          if (stored) {
+            const userData = JSON.parse(stored);
+            if (userData.id) return userData.id;
+            if (userData.user_id) return userData.user_id;
+            if (userData.student_id) return userData.student_id;
+          }
+        } catch (e) {
+          // Silent fail for parsing errors
+        }
+      }
+
+      // Method 3: From the join session response (if available)
+      if (classItem?.video_session?.meeting_id) {
+        try {
+          const joinResult = await studentApi.joinVideoSession(classItem.video_session.meeting_id);
+          if (joinResult.user_id) return joinResult.user_id;
+          if (joinResult.student_id) return joinResult.student_id;
+        } catch (error) {
+          console.warn('Could not get user ID from join session:', error);
+        }
+      }
+
+      // Method 4: Generate a session-based ID as last resort
+      console.warn('⚠️ Using session-based user ID');
+      if (!sessionStorage.getItem('temp_user_id')) {
+        sessionStorage.setItem('temp_user_id', `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+      }
+      return sessionStorage.getItem('temp_user_id');
+
+    } catch (error) {
+      console.error('❌ Error getting user ID:', error);
+      return `error_${Date.now()}`;
+    }
+  };
+
+  // ✅ NEW: Update studentApi with enhanced recordParticipation method
+  const studentApi = {
+    // ... your existing methods ...
+
+    async recordParticipation(participationData) {
+      try {
+        console.log('🚀 Sending participation data to server:', participationData);
+
+        const response = await fetch('/api/video/record-participation', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(participationData)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('❌ Server response error:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorData
+          });
+          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Participation recorded successfully:', result);
+        return result;
+
+      } catch (error) {
+        console.error('❌ Network error recording participation:', error);
+        throw error;
       }
     }
   };
@@ -856,6 +1063,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   };
 
   // Enhanced leave call with proper cleanup
+  // Enhanced participation recording with correct schema mapping
   const leaveCall = async () => {
     try {
       console.log('🛑 Student leaving world-class video call...');
@@ -882,9 +1090,43 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         await agoraClient.leave();
       }
 
-      // Notify backend
+      // FIXED: Correct participation recording with proper schema mapping
       if (classItem?.video_session?.meeting_id) {
-        await studentApi.leaveVideoSession(classItem.video_session.meeting_id, callDuration);
+        try {
+          const userId = await getCurrentUserId();
+
+          // CORRECTED: Use the proper column names from your schema
+          const participationData = {
+            session_id: classItem.video_session.meeting_id, // Map meeting_id → session_id
+            student_id: userId, // Map user_id → student_id
+            is_teacher: false, // Map user_type → is_teacher
+            duration: callDuration,
+            left_at: new Date().toISOString(),
+            connection_quality: connectionQuality,
+            device_info: {
+              user_agent: navigator.userAgent,
+              platform: navigator.platform,
+              language: navigator.language,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            },
+            class_id: classItem.id, // Add class_id if available
+            status: 'left' // Update status when leaving
+          };
+
+          console.log('📝 Recording participation with corrected schema:', participationData);
+
+          const recordResult = await studentApi.recordParticipation(participationData);
+
+          console.log('✅ Participation recorded successfully:', recordResult);
+
+        } catch (recordError) {
+          console.error('❌ Failed to record participation:', recordError);
+
+          // Don't prevent call from ending even if recording fails
+          if (recordError.response) {
+            console.error('📊 Error response details:', recordError.response.data);
+          }
+        }
       }
 
       console.log('✅ World-class call cleanup complete');
