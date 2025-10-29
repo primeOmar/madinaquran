@@ -19,7 +19,7 @@ import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom'; 
 
 // Madina Design System Components
-const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
+const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-green-900/50", ...props }) => (
   <div 
     className={`bg-gradient-to-br ${gradient} backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 shadow-2xl ${className}`}
     {...props}
@@ -752,7 +752,7 @@ const VideoCallModal = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl">
     {/* Header with Timer */}
-    <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-r from-gray-900/80 to-purple-900/80 backdrop-blur-lg border-b border-cyan-500/20 p-4">
+    <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-r from-gray-900/80 to-green-900/80 backdrop-blur-lg border-b border-cyan-500/20 p-4">
     <div className="flex items-center justify-between">
     <div className="flex items-center space-x-3">
     <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
@@ -1081,37 +1081,6 @@ const ClassesTab = ({
       setLocalDeletingClass(null);
     }
   };
-  
- 
-  const startVideoSession = async (classItem) => {
-    try {
-      console.log('🎬 Starting video session for class:', classItem.id);
-      
-      const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          class_id: classItem.id,
-          user_id: currentUser.id // Make sure this is the teacher's ID
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to start session');
-      }
-      
-      console.log('✅ Session started successfully:', data);
-      return data;
-      
-    } catch (error) {
-      console.error('❌ Failed to start session:', error);
-      throw error;
-    }
-  };
 
   // Enhanced rejoin function for background sessions
   const handleEnhancedRejoin = async (classItem) => {
@@ -1367,7 +1336,7 @@ const ClassesTab = ({
     const isDeleting = localDeletingClass === classItem.id;
 
     return (
-      <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
+      <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-green-900/50">
       <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
       <div className="flex-1">
       <div className="flex items-start justify-between mb-4">
@@ -1589,7 +1558,7 @@ const StudentsTab = ({ students }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {students.map((student) => (
-          <MadinaCard key={student.id} gradient="from-blue-900/30 to-purple-900/30">
+          <MadinaCard key={student.id} gradient="from-blue-900/30 to-green-900/30">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center">
                 <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center mr-3 shadow-lg">
@@ -2135,7 +2104,7 @@ const GradingModal = ({
               Madina Audio Feedback (Optional)
             </label>
             
-            <MadinaCard gradient="from-purple-900/30 to-pink-900/30" className="p-4">
+            <MadinaCard gradient="from-green-900/30 to-pink-900/30" className="p-4">
               {!gradeData.audioFeedbackData && !audioRecorder.audioData ? (
                 <div className="space-y-4">
                   <div className="flex items-center space-x-4">
@@ -2894,9 +2863,9 @@ export default function TeacherDashboard() {
   const statsGrid = [
     { icon: BookOpen, value: stats.totalClasses, label: 'Madina Sessions', gradient: 'from-cyan-500 to-blue-500' },
     { icon: Calendar, value: stats.upcomingClasses, label: 'Scheduled', gradient: 'from-green-500 to-emerald-500' },
-    { icon: BarChart3, value: stats.completedClasses, label: 'Completed', gradient: 'from-purple-500 to-pink-500' },
+    { icon: BarChart3, value: stats.completedClasses, label: 'Completed', gradient: 'from-green-500 to-pink-500' },
     { icon: Users, value: stats.totalStudents, label: 'Learners', gradient: 'from-yellow-500 to-orange-500' },
-    { icon: FileText, value: stats.totalAssignments, label: 'Missions', gradient: 'from-indigo-500 to-purple-500' },
+    { icon: FileText, value: stats.totalAssignments, label: 'Missions', gradient: 'from-indigo-500 to-green-500' },
     { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Review', gradient: 'from-orange-500 to-red-500' }
   ];
 
@@ -2909,9 +2878,9 @@ export default function TeacherDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-green-900 to-violet-900">
       {/* Header */}
-      <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 relative z-50">
+      <header className="bg-gradient-to-r from-gray-900/50 to-green-900/50 backdrop-blur-xl border-b border-cyan-500/20 relative z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
