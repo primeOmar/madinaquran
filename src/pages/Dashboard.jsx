@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import { useState, useEffect, useRef, react } from "react";
+import { useState, useEffect, useRef, React } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import studentApi  from '../lib/studentApi';
