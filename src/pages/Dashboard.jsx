@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import { useState, useEffect, useRef, React } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import studentApi  from '../lib/studentApi';
@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
+import { useNavigate } from 'react-router-dom';
 
 // === AI-POWERED UTILITY FUNCTIONS ===
 const useAudioRecorder = () => {
