@@ -184,7 +184,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 };
 
 // components/StudentVideoCall.jsx
-
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // State declarations
   const [localStream, setLocalStream] = useState(null);
@@ -254,10 +253,16 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // ✅ FIXED: Enhanced local track creation with guaranteed video display
+  // ✅ CRITICAL FIX: Create tracks AFTER component is mounted and ref is ready
   const createAndPublishLocalTracks = async (client) => {
     try {
       console.log('🎤 Creating enhanced local tracks...');
+      console.log('📹 Checking video ref availability:', {
+        refExists: !!localVideoRef,
+        currentExists: !!localVideoRef.current,
+        refType: typeof localVideoRef
+      });
+
       setLocalVideoReady(false);
 
       // Create audio track with fallback
@@ -274,7 +279,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         setError('Microphone access required for full participation');
       }
 
-      // ✅ CRITICAL FIX: Enhanced video track creation with guaranteed playback
+      // ✅ CRITICAL FIX: Wait for video element to be available in DOM
       let cameraTrack;
       try {
         cameraTrack = await AgoraRTC.createCameraVideoTrack({
@@ -284,67 +289,80 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         localTracksRef.current.video = cameraTrack;
         console.log('✅ Camera track created');
 
-        // ✅ FIX: Ensure video element is ready and properly configured
-        if (localVideoRef.current) {
-          // Wait for video element to be in the DOM
-          await new Promise(resolve => setTimeout(resolve, 100));
+        // ✅ CRITICAL: Wait for React ref to be populated
+        let videoElement = localVideoRef.current;
+        let waitAttempts = 0;
+        const maxWaitAttempts = 10;
 
-          // Configure video element attributes
-          const videoElement = localVideoRef.current;
-          videoElement.autoplay = true;
-          videoElement.muted = true;
-          videoElement.playsInline = true;
-          videoElement.setAttribute('playsinline', 'true');
-          videoElement.setAttribute('webkit-playsinline', 'true');
+        while (!videoElement && waitAttempts < maxWaitAttempts) {
+          console.log(`⏳ Waiting for video element... attempt ${waitAttempts + 1}`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          videoElement = localVideoRef.current;
+          waitAttempts++;
+        }
 
-          console.log('📹 Video element configured:', {
-            exists: !!videoElement,
-            autoplay: videoElement.autoplay,
-            muted: videoElement.muted,
-            playsInline: videoElement.playsInline
+        if (!videoElement) {
+          console.error('❌ Video element still null after waiting!');
+          console.error('Current DOM state:', {
+            refCurrent: localVideoRef.current,
+            refExists: !!localVideoRef
           });
+          throw new Error('Video element not available after waiting');
+        }
 
-          // ✅ FIX: Play video with enhanced retry logic and error handling
-          const playVideoWithRetry = async (retryCount = 0) => {
-            try {
-              console.log(`📹 Playing local video (attempt ${retryCount + 1})...`);
+        console.log('✅ Video element found!');
 
-              // Play the track on the video element
-              await cameraTrack.play(videoElement);
+        // Configure video element attributes
+        videoElement.autoplay = true;
+        videoElement.muted = true;
+        videoElement.playsInline = true;
+        videoElement.setAttribute('playsinline', 'true');
+        videoElement.setAttribute('webkit-playsinline', 'true');
 
-              console.log('✅ Local video playing successfully');
+        console.log('📹 Video element configured:', {
+          exists: !!videoElement,
+          tagName: videoElement.tagName,
+          autoplay: videoElement.autoplay,
+          muted: videoElement.muted,
+          playsInline: videoElement.playsInline
+        });
+
+        // ✅ Play video with enhanced retry logic
+        const playVideoWithRetry = async (retryCount = 0) => {
+          try {
+            console.log(`📹 Playing local video (attempt ${retryCount + 1})...`);
+
+            // Play the track on the video element
+            await cameraTrack.play(videoElement);
+
+            console.log('✅ Local video playing successfully');
+            setLocalStream(cameraTrack);
+            setLocalVideoReady(true);
+
+            // Force video element to show
+            videoElement.style.display = 'block';
+            videoElement.style.visibility = 'visible';
+
+          } catch (playError) {
+            console.warn(`❌ Video play attempt ${retryCount + 1} failed:`, playError);
+
+            if (retryCount < 3) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              return playVideoWithRetry(retryCount + 1);
+            } else {
+              console.error('❌ Failed to play local video after retries');
+              setError('Camera is active but display failed. Try refreshing.');
               setLocalStream(cameraTrack);
               setLocalVideoReady(true);
-
-              // Force video element to show
-              videoElement.style.display = 'block';
-              videoElement.style.visibility = 'visible';
-
-            } catch (playError) {
-              console.warn(`❌ Video play attempt ${retryCount + 1} failed:`, playError);
-
-              if (retryCount < 3) {
-                // Wait longer between retries
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                return playVideoWithRetry(retryCount + 1);
-              } else {
-                console.error('❌ Failed to play local video after 3 attempts');
-                setError('Camera is active but display failed. Try refreshing.');
-                // Still set the track as ready even if display fails
-                setLocalStream(cameraTrack);
-                setLocalVideoReady(true);
-              }
             }
-          };
+          }
+        };
 
-          await playVideoWithRetry();
-        } else {
-          console.error('❌ Local video element ref is null!');
-          setError('Video element not found. Please refresh.');
-        }
+        await playVideoWithRetry();
+
       } catch (videoError) {
-        console.error('❌ Could not create camera track:', videoError);
-        setError('Camera access required for video participation');
+        console.error('❌ Could not create/play camera track:', videoError);
+        setError(videoError.message || 'Camera access required for video participation');
       }
 
       // Publish available tracks
@@ -368,7 +386,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // ✅ PRODUCTION READY: Video call initialization
+  // ✅ PRODUCTION READY: Video call initialization with delayed track creation
   const initializeRealCall = async () => {
     if (joinAttemptRef.current >= 3) {
       setError('Too many connection attempts. Please refresh and try again.');
@@ -444,15 +462,19 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       console.log('✅ Successfully joined channel with UID:', joinedUid);
 
-      // Create and publish local tracks
-      await createAndPublishLocalTracks(client);
-
-      console.log('🎉 Pure video connection established - Database recording disabled');
-
+      // ✅ CRITICAL FIX: Set connected state FIRST to render UI, THEN create tracks
       setIsConnected(true);
       setIsConnecting(false);
       startTimer();
 
+      // ✅ Wait for React to render the video element before creating tracks
+      console.log('⏳ Waiting for UI render before creating tracks...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Now create and publish local tracks
+      await createAndPublishLocalTracks(client);
+
+      console.log('🎉 Pure video connection established - Database recording disabled');
       console.log('🎉 World-class video connection established');
 
     } catch (error) {
@@ -1326,6 +1348,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
   );
 };
+
+
 
 // ===  CLASS MANAGEMENT ===
 const sortClasses = (classes) => {
