@@ -184,6 +184,7 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 };
 
 // components/StudentVideoCall.jsx
+
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // State declarations
   const [localStream, setLocalStream] = useState(null);
@@ -518,7 +519,16 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
             console.log('👨‍🏫 Teacher identified with UID:', user.uid);
           }
 
+          // ✅ FIX: Only update if user doesn't exist or video track changed
           setRemoteUsers(prev => {
+            const existing = prev.get(user.uid);
+
+            // If user exists and track is the same, don't update
+            if (existing && existing.videoTrack === track) {
+              console.log(`⏭️ Skipping update for user ${user.uid} - same video track`);
+              return prev;
+            }
+
             const newMap = new Map(prev);
             newMap.set(user.uid, {
               uid: user.uid,
@@ -529,7 +539,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
               isTeacher: isTeacher,
               isScreenShare: false,
               isSpeaking: false,
-              joinedAt: new Date()
+              joinedAt: existing?.joinedAt || new Date()
             });
             return newMap;
           });
@@ -543,6 +553,20 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
             if (volume > 0.1) {
               setActiveSpeaker(user.uid);
             }
+          });
+
+          // ✅ FIX: Update audio status without changing video track
+          setRemoteUsers(prev => {
+            const existing = prev.get(user.uid);
+            if (!existing) return prev;
+
+            const newMap = new Map(prev);
+            newMap.set(user.uid, {
+              ...existing,
+              audioTrack: user.audioTrack,
+              hasAudio: true
+            });
+            return newMap;
           });
         }
 
@@ -667,16 +691,26 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   const RemoteVideoPlayer = ({ user, isActiveSpeaker, layoutMode }) => {
     const videoContainerRef = useRef(null);
+    const isPlayingRef = useRef(false);
+    const currentTrackRef = useRef(null);
 
     useEffect(() => {
       if (!user.videoTrack || !videoContainerRef.current) {
         return;
       }
 
+      // Check if this is the same track we're already playing
+      if (currentTrackRef.current === user.videoTrack && isPlayingRef.current) {
+        console.log(`✅ Already playing video for user ${user.uid}, skipping...`);
+        return;
+      }
+
       let videoElement = remoteVideoElementsRef.current.get(user.uid);
 
       try {
+        // Only create video element if it doesn't exist
         if (!videoElement) {
+          console.log(`📹 Creating new video element for user ${user.uid}`);
           videoElement = document.createElement('video');
           videoElement.id = `remote-video-element-${user.uid}`;
           videoElement.autoplay = true;
@@ -685,32 +719,44 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           videoElement.className = 'w-full h-full object-cover bg-black rounded-xl';
 
           remoteVideoElementsRef.current.set(user.uid, videoElement);
+
+          // Only clear and append if this is a new element
+          videoContainerRef.current.innerHTML = '';
+          videoContainerRef.current.appendChild(videoElement);
+        } else if (!videoContainerRef.current.contains(videoElement)) {
+          // Video element exists but not in container, append it
+          console.log(`📹 Reattaching existing video element for user ${user.uid}`);
+          videoContainerRef.current.innerHTML = '';
+          videoContainerRef.current.appendChild(videoElement);
         }
 
-        videoContainerRef.current.innerHTML = '';
-        videoContainerRef.current.appendChild(videoElement);
+        // Only play if we have a new track or haven't started playing yet
+        if (user.videoTrack && !isPlayingRef.current && typeof user.videoTrack.play === 'function') {
+          console.log(`▶️ Playing video track for user ${user.uid}`);
 
-        if (user.videoTrack && typeof user.videoTrack.play === 'function') {
           const playPromise = user.videoTrack.play(videoElement);
 
           if (playPromise !== undefined) {
-            playPromise.catch(error => {
-              console.warn(`Video play error for user ${user.uid}:`, error);
+            playPromise
+            .then(() => {
+              console.log(`✅ Video playing successfully for user ${user.uid}`);
+              isPlayingRef.current = true;
+              currentTrackRef.current = user.videoTrack;
+            })
+            .catch(error => {
+              console.warn(`❌ Video play error for user ${user.uid}:`, error);
+              isPlayingRef.current = false;
             });
           }
         }
       } catch (error) {
-        console.error(`Error setting up video for user ${user.uid}:`, error);
+        console.error(`❌ Error setting up video for user ${user.uid}:`, error);
+        isPlayingRef.current = false;
       }
 
       return () => {
-        if (videoElement && user.videoTrack) {
-          try {
-            user.videoTrack.stop();
-          } catch (e) {
-            console.warn(`Error stopping video track for user ${user.uid}:`, e);
-          }
-        }
+        // Only stop if component is unmounting, not on every render
+        console.log(`🧹 Cleanup called for user ${user.uid}`);
       };
     }, [user.uid, user.videoTrack]);
 
@@ -1348,6 +1394,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
   );
 };
+
 
 
 
