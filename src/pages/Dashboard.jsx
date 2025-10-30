@@ -201,13 +201,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [isHandRaised, setIsHandRaised] = useState(false);
   const [isPinned, setIsPinned] = useState(null);
 
-  // 🎯 NEW: Single source of truth for local video state
-  const [localVideoState, setLocalVideoState] = useState({
-    isPlaying: false,
-    isLoading: false,
-    error: null,
-    trackReady: false
-  });
+  // 🎯 SIMPLIFIED: Single state for local video
+  const [localVideoReady, setLocalVideoReady] = useState(false);
 
   // Refs
   const localVideoRef = useRef(null);
@@ -217,11 +212,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const screenShareUidRef = useRef(null);
   const teacherUidRef = useRef(null);
   const videoElementsRef = useRef(new Map());
-
-  // 🎯 NEW: Critical refs to prevent race conditions
-  const videoSetupLockRef = useRef(false);
-  const lastTrackIdRef = useRef(null);
-  const cleanupRef = useRef(null);
 
   // ✅ Database override
   useEffect(() => {
@@ -255,109 +245,23 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // 🎯 FIXED: Enhanced video play method with Agora compatibility
-  const playVideoTrack = useCallback(async (track, videoElement) => {
+  // 🎯 SIMPLIFIED: Direct Agora video setup
+  const setupLocalVideo = async (videoTrack) => {
     try {
-      console.log('🎬 Playing video track...');
+      console.log('🎬 Setting up local video with Agora track...');
+      setLocalVideoReady(false);
 
-      if (!track || !videoElement) {
-        throw new Error('Track or video element not available');
+      if (!videoTrack) {
+        throw new Error('No video track available');
       }
 
-      // Configure video element
-      videoElement.autoplay = true;
-      videoElement.muted = true;
-      videoElement.playsInline = true;
-      videoElement.setAttribute('playsinline', 'true');
-      videoElement.setAttribute('webkit-playsinline', 'true');
-
-      // Clear any existing content
-      if (videoElement.srcObject) {
-        videoElement.srcObject = null;
-      }
-
-      // 🎯 CRITICAL FIX: Handle Agora play() method that returns undefined
-      const playResult = track.play(videoElement);
-
-      if (playResult && typeof playResult.then === 'function') {
-        // If play() returns a Promise (modern Agora versions)
-        await playResult;
-        console.log('✅ Video track playing via Promise');
-      } else {
-        // If play() returns undefined or void (older Agora versions)
-        console.log('✅ Video track playing via void method');
-        // Wait a bit for the video to start
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
-      // Verify video is actually playing
-      await new Promise((resolve, reject) => {
-        const checkPlaying = () => {
-          if (videoElement.readyState >= 2) { // HAVE_CURRENT_DATA or better
-            resolve();
-          } else {
-            setTimeout(checkPlaying, 100);
-          }
-        };
-        setTimeout(() => checkPlaying(), 500);
-      });
-
-      return true;
-    } catch (error) {
-      console.error('❌ Video play failed:', error);
-      throw error;
-    }
-  }, []);
-
-  // 🎯 FIXED: Single, stable local video management
-  const initializeLocalVideo = useCallback(async () => {
-    // Prevent multiple simultaneous initializations
-    if (videoSetupLockRef.current) {
-      console.log('🔒 Video setup already in progress, skipping...');
-      return;
-    }
-
-    videoSetupLockRef.current = true;
-
-    try {
-      const videoTrack = localTracksRef.current.video;
       const videoElement = localVideoRef.current;
-
-      console.log('🎯 Initializing local video...', {
-        hasTrack: !!videoTrack,
-        hasElement: !!videoElement,
-        trackEnabled: videoTrack?.enabled,
-        isVideoOff
-      });
-
-      if (!videoTrack || !videoElement) {
-        console.warn('❌ Missing track or element');
-        setLocalVideoState(prev => ({ ...prev, error: 'Missing track or video element' }));
-        return;
+      if (!videoElement) {
+        throw new Error('Video element not found');
       }
 
-      // Skip if video is turned off
-      if (isVideoOff) {
-        console.log('📹 Video is off, skipping initialization');
-        setLocalVideoState({ isPlaying: false, isLoading: false, error: null, trackReady: true });
-        return;
-      }
-
-      // Check if we're already playing the same track
-      const currentTrackId = videoTrack._ID || videoTrack.trackId;
-      if (lastTrackIdRef.current === currentTrackId && localVideoState.isPlaying) {
-        console.log('✅ Already playing current track, skipping');
-        return;
-      }
-
-      setLocalVideoState({ isPlaying: false, isLoading: true, error: null, trackReady: true });
-
-      // 🎯 CRITICAL: Clean up any existing setup first
-      if (cleanupRef.current) {
-        cleanupRef.current();
-      }
-
-      // Configure video element once
+      // 🎯 CRITICAL: Clear any existing content and configure element
+      videoElement.innerHTML = '';
       videoElement.style.cssText = `
       display: block !important;
       visibility: visible !important;
@@ -369,130 +273,50 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       transform: scaleX(-1);
       `;
 
-      // Clear any existing content
-      videoElement.innerHTML = '';
-
-      console.log('🎬 Starting Agora video playback...');
-
-      // 🎯 Use Agora's play method directly with proper error handling
+      // 🎯 CRITICAL: Use Agora's play method directly
+      console.log('🚀 Playing Agora video track...');
       const playResult = videoTrack.play(videoElement);
 
-      let playSuccess = false;
-
+      // Handle both Promise and void return types
       if (playResult && typeof playResult.then === 'function') {
         await playResult;
-        playSuccess = true;
         console.log('✅ Agora video playing via Promise');
       } else {
-        // For void return, wait and check if video starts
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // Check if video has content
-        const hasVideoContent = videoElement.childNodes.length > 0 ||
-        videoElement.readyState >= 2;
-
-        if (hasVideoContent) {
-          playSuccess = true;
-          console.log('✅ Agora video playing via void method');
-        }
+        console.log('✅ Agora video playing via void method');
+        // Wait for video to start
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      if (playSuccess) {
-        lastTrackIdRef.current = currentTrackId;
-        setLocalVideoState({ isPlaying: true, isLoading: false, error: null, trackReady: true });
-
-        console.log('🎉 Local video successfully initialized and playing');
-      } else {
-        throw new Error('Video playback failed to start');
-      }
-
-      // 🎯 Set up cleanup function
-      cleanupRef.current = () => {
-        console.log('🧹 Cleaning up local video');
-        try {
-          if (videoTrack && typeof videoTrack.stop === 'function') {
-            videoTrack.stop();
+      // Verify video is playing
+      const isPlaying = await new Promise((resolve) => {
+        const checkVideo = () => {
+          if (videoElement.readyState >= 2) {
+            resolve(true);
+          } else {
+            setTimeout(checkVideo, 100);
           }
-        } catch (err) {
-          console.warn('Cleanup warning:', err);
-        }
-      };
-
-    } catch (error) {
-      console.error('❌ Local video initialization failed:', error);
-      setLocalVideoState(prev => ({
-        ...prev,
-        isPlaying: false,
-        isLoading: false,
-        error: error.message
-      }));
-    } finally {
-      videoSetupLockRef.current = false;
-    }
-  }, [isVideoOff, localVideoState.isPlaying]);
-
-  // 🎯 FIXED: Effect to manage local video lifecycle
-  useEffect(() => {
-    const videoTrack = localTracksRef.current.video;
-
-    if (!videoTrack) {
-      console.log('⏳ Waiting for video track...');
-      setLocalVideoState({ isPlaying: false, isLoading: false, error: null, trackReady: false });
-      return;
-    }
-
-    console.log('📹 Video track available, initializing...');
-    initializeLocalVideo();
-
-    // 🎯 Handle track state changes
-    const handleTrackStateChange = () => {
-      console.log('🔄 Track state changed:', {
-        enabled: videoTrack.enabled,
-        muted: videoTrack.muted,
-        isVideoOff
+        };
+        setTimeout(() => checkVideo(), 1000);
       });
 
-      if (!videoTrack.enabled || isVideoOff) {
-        setLocalVideoState(prev => ({ ...prev, isPlaying: false }));
+      if (isPlaying) {
+        console.log('🎉 Local video successfully playing');
+        setLocalVideoReady(true);
       } else {
-        // Re-initialize when track becomes enabled
-        setTimeout(() => initializeLocalVideo(), 100);
+        throw new Error('Video failed to start playing');
       }
-    };
 
-    // Listen for track state changes
-    videoTrack.on('track-ended', handleTrackStateChange);
-    videoTrack.on('track-state-changed', handleTrackStateChange);
-
-    return () => {
-      if (videoTrack) {
-        videoTrack.off('track-ended', handleTrackStateChange);
-        videoTrack.off('track-state-changed', handleTrackStateChange);
-      }
-    };
-  }, [localTracksRef.current.video, initializeLocalVideo]);
-
-  // 🎯 FIXED: Effect to handle video on/off state changes
-  useEffect(() => {
-    if (!localTracksRef.current.video) return;
-
-    console.log('🎚️ Video state changed:', { isVideoOff });
-
-    if (isVideoOff) {
-      setLocalVideoState({ isPlaying: false, isLoading: false, error: null, trackReady: true });
-    } else {
-      // Small delay to ensure track is ready
-      setTimeout(() => initializeLocalVideo(), 200);
+    } catch (error) {
+      console.error('❌ Failed to setup local video:', error);
+      setError(`Video setup failed: ${error.message}`);
+      setLocalVideoReady(false);
     }
-  }, [isVideoOff, initializeLocalVideo]);
+  };
 
-  // 🎯 FIXED: createAndPublishLocalTracks with better error handling
+  // 🎯 SIMPLIFIED: Create and publish tracks
   const createAndPublishLocalTracks = async (client) => {
     try {
       console.log('🎤 Creating local tracks...');
-
-      // Reset video state
-      setLocalVideoState({ isPlaying: false, isLoading: true, error: null, trackReady: false });
 
       // Create audio track
       let microphoneTrack;
@@ -515,17 +339,16 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           optimizationMode: 'motion',
           encoderConfig: '720p_1',
         });
-
         localTracksRef.current.video = cameraTrack;
         console.log('✅ Camera track created');
 
-        // Mark track as ready - initializeLocalVideo will handle the rest
-        setLocalVideoState(prev => ({ ...prev, trackReady: true, isLoading: false }));
+        // 🎯 CRITICAL: Setup local video immediately after track creation
+        await setupLocalVideo(cameraTrack);
 
       } catch (videoError) {
         console.error('❌ Could not create camera track:', videoError);
         setError(videoError.message || 'Camera access required');
-        setLocalVideoState(prev => ({ ...prev, error: videoError.message, isLoading: false }));
+        return;
       }
 
       // Publish tracks
@@ -540,7 +363,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     } catch (error) {
       console.error('❌ Failed to create local tracks:', error);
       setError(`Media access failed: ${error.message}`);
-      setLocalVideoState(prev => ({ ...prev, error: error.message, isLoading: false }));
     }
   };
 
@@ -596,8 +418,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsConnecting(false);
       startTimer();
 
-      // Give time for connection to stabilize
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 🎯 CRITICAL: Create and publish tracks immediately after joining
       await createAndPublishLocalTracks(client);
 
       console.log('🎉 Video connection established');
@@ -789,19 +610,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     };
   };
 
-  // 🎯 WORLD-CLASS: Stable LocalVideoPlayer Component
+  // 🎯 SIMPLIFIED: LocalVideoPlayer Component
   const LocalVideoPlayer = React.memo(() => {
-    // Internal state for UI-only
-    const [internalError, setInternalError] = useState(null);
-
-    // Reset internal error when track changes
-    useEffect(() => {
-      setInternalError(null);
-    }, [localTracksRef.current.video]);
-
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
-      {/* Video Container - Single, stable element */}
+      {/* Video Container - Agora injects video here */}
       <div
       ref={localVideoRef}
       className="w-full h-full bg-black"
@@ -811,13 +624,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
             visibility: 'visible'
       }}
       />
-
-      {/* Error Display */}
-      {(localVideoState.error || internalError) && (
-        <div className="absolute top-10 left-2 right-2 bg-red-500 text-white px-2 py-1 rounded text-xs z-50">
-        ⚠️ {localVideoState.error || internalError}
-        </div>
-      )}
 
       {/* User label */}
       <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm z-20">
@@ -835,13 +641,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       <div className="absolute bottom-2 right-2 flex items-center space-x-1 z-20">
       {isVideoOff && <VideoOff size={14} className="text-red-400" />}
       {isAudioMuted && <MicOff size={14} className="text-red-400" />}
-      {localVideoState.isPlaying && !isVideoOff && (
+      {localVideoReady && !isVideoOff && (
         <div className="bg-green-500 rounded-full w-2 h-2 animate-pulse" title="Camera active" />
       )}
       </div>
 
-      {/* Loading state - Only show when actively loading */}
-      {localVideoState.isLoading && (
+      {/* Loading state */}
+      {!localVideoReady && !isVideoOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black z-10">
         <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
         <span className="text-purple-300 text-sm mt-2">Starting camera...</span>
@@ -853,14 +659,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black z-10">
         <VideoOff className="text-purple-500 w-12 h-12" />
         <span className="ml-2 text-purple-300 text-sm">Camera off</span>
-        </div>
-      )}
-
-      {/* Track not ready state */}
-      {!localVideoState.trackReady && !isVideoOff && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black z-10">
-        <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
-        <span className="text-purple-300 text-sm mt-2">Initializing camera...</span>
         </div>
       )}
       </div>
@@ -884,8 +682,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       // Store reference for cleanup
       videoElementsRef.current.set(user.uid, videoElement);
 
-      // Use our enhanced play method
-      playVideoTrack(user.videoTrack, videoElement).catch(error => {
+      // Play the track
+      user.videoTrack.play(videoElement).catch(error => {
         console.warn(`Video play error for user ${user.uid}:`, error);
       });
 
@@ -893,7 +691,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         user.videoTrack?.stop();
         videoElementsRef.current.delete(user.uid);
       };
-    }, [user.uid, user.videoTrack, playVideoTrack]);
+    }, [user.uid, user.videoTrack]);
 
     const getUserLabel = () => {
       if (user.isScreenShare) return '🖥️ Screen Share';
@@ -1054,7 +852,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // 🎯 FIXED: toggleVideo with proper state management
   const toggleVideo = async () => {
     if (localTracksRef.current.video) {
       try {
@@ -1062,7 +859,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         await localTracksRef.current.video.setEnabled(newVideoState);
         setIsVideoOff(!isVideoOff);
 
-        console.log('📹 Video toggled:', { newState: newVideoState });
+        // Update local video display
+        if (newVideoState && localTracksRef.current.video) {
+          setLocalVideoReady(false);
+          setTimeout(() => setupLocalVideo(localTracksRef.current.video), 100);
+        } else {
+          setLocalVideoReady(false);
+        }
 
         updateParticipantsList();
       } catch (error) {
@@ -1082,13 +885,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // 🎯 FIXED: leaveCall with comprehensive cleanup
   const leaveCall = async () => {
     try {
       if (timerRef.current) clearInterval(timerRef.current);
-
-      // Reset video state
-      setLocalVideoState({ isPlaying: false, isLoading: false, error: null, trackReady: false });
 
       // Stop all local tracks
       Object.values(localTracksRef.current).forEach(track => {
@@ -1108,16 +907,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       });
       videoElementsRef.current.clear();
 
-      // Run custom cleanup
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
-
-      // Reset refs
-      videoSetupLockRef.current = false;
-      lastTrackIdRef.current = null;
-
       if (agoraClient) {
         await agoraClient.leave();
       }
@@ -1131,6 +920,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setTeacherUid(null);
       setIsScreenSharing(false);
       setIsHandRaised(false);
+      setLocalVideoReady(false);
       setIsPinned(null);
       joinAttemptRef.current = 0;
 
