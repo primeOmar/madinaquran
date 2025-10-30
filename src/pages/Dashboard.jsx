@@ -658,29 +658,104 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   };
 
   // 🎯 FIXED: LocalVideoPlayer with proper error handling
-  const LocalVideoPlayer = React.memo(() => {
+  const LocalVideoPlayer = React.memo(({ localStream }) => {
+    const [streamAttached, setStreamAttached] = React.useState(false);
+    const [error, setError] = React.useState(null);
+
+    useEffect(() => {
+      const videoElement = localVideoRef.current;
+      if (!videoElement) {
+        console.error('❌ Video element ref not available');
+        return;
+      }
+
+      // Clear any existing stream first
+      if (videoElement.srcObject) {
+        const tracks = videoElement.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+        videoElement.srcObject = null;
+      }
+
+      // Attach new stream if available
+      if (localStream && localStream.active) {
+        console.log('✅ Attaching stream to video element:', {
+          streamId: localStream.id,
+          tracks: localStream.getTracks().map(t => ({
+            kind: t.kind,
+            enabled: t.enabled,
+            readyState: t.readyState
+          }))
+        });
+
+        try {
+          videoElement.srcObject = localStream;
+
+          // Handle video metadata loaded
+          const handleLoadedMetadata = () => {
+            console.log('✅ Video metadata loaded');
+            videoElement.play()
+            .then(() => {
+              console.log('✅ Video playing successfully');
+              setStreamAttached(true);
+              setError(null);
+            })
+            .catch(err => {
+              console.error('❌ Video play failed:', err);
+              setError(`Play failed: ${err.message}`);
+            });
+          };
+
+          const handleError = (e) => {
+            console.error('❌ Video element error:', e);
+            setError('Video element error');
+          };
+
+          videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+          videoElement.addEventListener('error', handleError);
+
+          return () => {
+            videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            videoElement.removeEventListener('error', handleError);
+          };
+        } catch (err) {
+          console.error('❌ Error attaching stream:', err);
+          setError(`Stream attach failed: ${err.message}`);
+        }
+      } else {
+        console.warn('⚠️ No active local stream available');
+        setStreamAttached(false);
+      }
+    }, [localStream]);
+
+    // Force video visibility when stream is ready
     useEffect(() => {
       if (!localVideoRef.current) return;
-
       const videoElement = localVideoRef.current;
 
-      // Ensure video element is always visible when ready
-      if (localVideoReady && !isVideoOff) {
+      if (streamAttached && !isVideoOff) {
         videoElement.style.cssText = `
-        display: block;
-        visibility: visible;
-        opacity: 1;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
         width: 100%;
         height: 100%;
         object-fit: cover;
         background: black;
         transform: scaleX(-1);
         `;
+        console.log('✅ Video element styles applied');
       }
-    }, [localVideoReady, isVideoOff]);
+    }, [streamAttached, isVideoOff]);
 
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
+      {/* Debug overlay - remove in production */}
+      {error && (
+        <div className="absolute top-10 left-2 right-2 bg-red-500 text-white px-2 py-1 rounded text-xs z-50">
+        ⚠️ {error}
+        </div>
+      )}
+
       {/* Video Element */}
       <video
       ref={localVideoRef}
@@ -689,8 +764,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       playsInline
       className="w-full h-full object-cover bg-black"
       style={{
-        transform: 'scaleX(-1)'
+        transform: 'scaleX(-1)',
+            display: 'block',
+            visibility: 'visible'
       }}
+      onLoadedMetadata={() => console.log('📹 Video metadata loaded')}
+      onPlay={() => console.log('▶️ Video playing')}
+      onError={(e) => console.error('❌ Video error:', e)}
       />
 
       {/* User label */}
@@ -709,13 +789,21 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       <div className="absolute bottom-2 right-2 flex items-center space-x-1">
       {isVideoOff && <VideoOff size={14} className="text-red-400" />}
       {isAudioMuted && <MicOff size={14} className="text-red-400" />}
+      {streamAttached && !isVideoOff && (
+        <div className="bg-green-500 rounded-full w-2 h-2" title="Stream active" />
+      )}
       </div>
 
       {/* Loading state */}
-      {!localVideoReady && !isVideoOff && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+      {!streamAttached && !isVideoOff && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black">
         <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
         <span className="ml-2 text-purple-300 text-sm">Initializing camera...</span>
+        {localStream && (
+          <span className="text-xs text-gray-400 mt-2">
+          Stream ID: {localStream.id.slice(0, 8)}...
+          </span>
+        )}
         </div>
       )}
 
