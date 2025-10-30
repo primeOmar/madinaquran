@@ -186,7 +186,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 // components/StudentVideoCall
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // State declarations
-  const [localStream, setLocalStream] = useState(null);
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -200,7 +199,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [teacherUid, setTeacherUid] = useState(null);
   const [isHandRaised, setIsHandRaised] = useState(false);
-  const [localVideoReady, setLocalVideoReady] = useState(false);
   const [isPinned, setIsPinned] = useState(null);
 
   // Refs
@@ -302,7 +300,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const setupLocalVideo = useCallback(async (track) => {
     try {
       console.log('🎬 Setting up local video...');
-      setLocalVideoReady(false);
 
       if (!track) {
         throw new Error('No camera track available');
@@ -336,9 +333,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       // Configure video element styling
       videoElement.style.cssText = `
-      display: block;
-      visibility: visible;
-      opacity: 1;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
       width: 100%;
       height: 100%;
       object-fit: cover;
@@ -346,24 +343,24 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       transform: scaleX(-1);
       `;
 
-      // Play the track
-      await playVideoTrack(track, videoElement);
+      // Play the track using Agora's method
+      const playResult = track.play(videoElement);
+
+      if (playResult && typeof playResult.then === 'function') {
+        await playResult;
+      }
 
       console.log('✅ Local video setup complete');
-      setLocalVideoReady(true);
-      setLocalStream(track);
 
     } catch (error) {
       console.error('❌ Failed to setup local video:', error);
       setError(`Video setup failed: ${error.message}`);
-      setLocalVideoReady(false);
     }
-  }, [playVideoTrack]);
+  }, []);
 
   const createAndPublishLocalTracks = async (client) => {
     try {
       console.log('🎤 Creating local tracks...');
-      setLocalVideoReady(false);
 
       // Create audio track
       let microphoneTrack;
@@ -657,145 +654,103 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     };
   };
 
-  // 🎯 FIXED: LocalVideoPlayer with proper error handling
-  const LocalVideoPlayer = React.memo(({ localStream }) => {
-    const [streamAttached, setStreamAttached] = React.useState(false);
+  // 🎯 FIXED: LocalVideoPlayer for Agora RTC SDK
+  const LocalVideoPlayer = React.memo(() => {
+    const [isPlaying, setIsPlaying] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const [debugInfo, setDebugInfo] = React.useState('');
 
     useEffect(() => {
-      console.log('🔄 LocalVideoPlayer useEffect triggered');
-      console.log('📦 localStream:', localStream);
-      console.log('📦 localStream?.active:', localStream?.active);
+      console.log('🔄 LocalVideoPlayer mounting');
       console.log('📦 localVideoRef.current:', localVideoRef.current);
+      console.log('📦 localTracksRef.current.video:', localTracksRef.current.video);
 
       const videoElement = localVideoRef.current;
+      const videoTrack = localTracksRef.current.video;
+
       if (!videoElement) {
-        const msg = '❌ Video element ref not available';
-        console.error(msg);
-        setError(msg);
+        console.error('❌ Video element ref not available');
+        setError('Video element not found');
         return;
       }
 
-      if (!localStream) {
-        const msg = '⚠️ localStream is null/undefined';
-        console.warn(msg);
-        setDebugInfo(msg);
-        setStreamAttached(false);
-        return;
-      }
-
-      if (!localStream.active) {
-        const msg = '⚠️ localStream exists but not active';
-        console.warn(msg);
-        setDebugInfo(msg);
-        setStreamAttached(false);
-        return;
-      }
-
-      // Log stream details
-      const tracks = localStream.getTracks();
-      console.log('✅ Stream is active with tracks:', tracks.map(t => ({
-        kind: t.kind,
-        enabled: t.enabled,
-        readyState: t.readyState,
-        label: t.label
-      })));
-
-      const videoTrack = localStream.getVideoTracks()[0];
       if (!videoTrack) {
-        const msg = '❌ No video track found in stream';
-        console.error(msg);
-        setError(msg);
+        console.warn('⚠️ No video track available yet');
+        setIsPlaying(false);
         return;
       }
 
-      if (videoTrack.readyState !== 'live') {
-        const msg = `⚠️ Video track not live: ${videoTrack.readyState}`;
-        console.warn(msg);
-        setDebugInfo(msg);
+      // Check if track is enabled
+      if (!videoTrack.enabled) {
+        console.warn('⚠️ Video track is disabled');
+        setIsPlaying(false);
+        return;
       }
 
       try {
-        // Clear existing stream
-        if (videoElement.srcObject) {
-          console.log('🧹 Clearing existing stream');
-          videoElement.srcObject = null;
+        console.log('🎬 Playing Agora video track...');
+        console.log('📊 Track details:', {
+          enabled: videoTrack.enabled,
+          muted: videoTrack.muted,
+          trackMediaType: videoTrack.trackMediaType
+        });
+
+        // Clear any existing content
+        videoElement.innerHTML = '';
+
+        // Configure video element
+    videoElement.style.cssText = `
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: black;
+    transform: scaleX(-1);
+    `;
+
+    // Play the Agora track using its play() method
+    const playResult = videoTrack.play(videoElement);
+
+    // Handle both Promise and void return types
+    if (playResult && typeof playResult.then === 'function') {
+      playResult
+      .then(() => {
+        console.log('✅ Agora video track playing (Promise)');
+        setIsPlaying(true);
+        setError(null);
+      })
+      .catch(err => {
+        console.error('❌ Failed to play Agora track:', err);
+        setError(`Play failed: ${err.message}`);
+      });
+    } else {
+      console.log('✅ Agora video track playing (void)');
+      // Wait a bit to verify it's playing
+      setTimeout(() => {
+        if (videoElement.childNodes.length > 0) {
+          setIsPlaying(true);
+          setError(null);
         }
+      }, 500);
+    }
 
-        // Attach stream
-        console.log('🔗 Attaching stream to video element...');
-        videoElement.srcObject = localStream;
-
-        // CRITICAL: Set loading timeout
-        const loadTimeout = setTimeout(() => {
-          console.warn('⏰ Video metadata load timeout - forcing play');
-          videoElement.play()
-          .then(() => {
-            console.log('✅ Force play succeeded');
-            setStreamAttached(true);
-            setError(null);
-          })
-          .catch(err => {
-            console.error('❌ Force play failed:', err);
-            setError(`Force play failed: ${err.message}`);
-          });
-        }, 2000);
-
-        const handleLoadedMetadata = () => {
-          clearTimeout(loadTimeout);
-          console.log('✅ Video metadata loaded naturally');
-          console.log('📊 Video dimensions:', videoElement.videoWidth, 'x', videoElement.videoHeight);
-
-          videoElement.play()
-          .then(() => {
-            console.log('✅ Video playing successfully');
-            setStreamAttached(true);
-            setError(null);
-            setDebugInfo('');
-          })
-          .catch(err => {
-            console.error('❌ Video play failed:', err);
-            setError(`Play failed: ${err.message}`);
-          });
-        };
-
-        const handleCanPlay = () => {
-          console.log('✅ Video can play');
-        };
-
-        const handleError = (e) => {
-          clearTimeout(loadTimeout);
-          console.error('❌ Video element error:', e);
-          console.error('❌ Error target:', e.target);
-          setError(`Video error: ${e.target?.error?.message || 'Unknown'}`);
-        };
-
-        videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
-        videoElement.addEventListener('canplay', handleCanPlay);
-        videoElement.addEventListener('error', handleError);
-
-        // Force immediate play attempt for some browsers
-        setTimeout(() => {
-          if (videoElement.readyState >= 2) {
-            console.log('🚀 ReadyState sufficient, attempting immediate play');
-            videoElement.play().catch(err => {
-              console.log('Immediate play failed (normal):', err.message);
-            });
-          }
-        }, 100);
-
-        return () => {
-          clearTimeout(loadTimeout);
-          videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          videoElement.removeEventListener('canplay', handleCanPlay);
-          videoElement.removeEventListener('error', handleError);
-        };
-      } catch (err) {
-        console.error('❌ Error attaching stream:', err);
-        setError(`Stream attach failed: ${err.message}`);
+    // Cleanup function
+    return () => {
+      console.log('🧹 Cleaning up local video');
+      if (videoTrack && videoElement) {
+        try {
+          videoTrack.stop();
+        } catch (err) {
+          console.warn('Cleanup warning:', err);
+        }
       }
-    }, [localStream]);
+    };
+      } catch (err) {
+        console.error('❌ Error setting up Agora video:', err);
+        setError(`Setup failed: ${err.message}`);
+      }
+    }, [localTracksRef.current.video, isVideoOff]);
 
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
@@ -805,65 +760,52 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         ⚠️ {error}
         </div>
       )}
-      {debugInfo && !error && (
-        <div className="absolute top-10 left-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded text-xs z-50">
-        ℹ️ {debugInfo}
-        </div>
-      )}
 
-      {/* Video Element */}
-      <video
+      {/* Video Container - Agora will inject video element here */}
+      <div
       ref={localVideoRef}
-      autoPlay
-      muted
-      playsInline
-      className="w-full h-full object-cover bg-black"
+      className="w-full h-full bg-black"
       style={{
         transform: 'scaleX(-1)',
             display: 'block',
             visibility: 'visible'
       }}
-      onLoadedMetadata={() => console.log('📹 [Event] Video metadata loaded')}
-      onCanPlay={() => console.log('🎬 [Event] Video can play')}
-      onPlay={() => console.log('▶️ [Event] Video playing')}
-      onError={(e) => console.error('❌ [Event] Video error:', e)}
       />
 
       {/* User label */}
-      <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
+      <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm z-20">
       💜 You
       </div>
 
       {/* Hand raised indicator */}
       {isHandRaised && (
-        <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg text-xs font-bold animate-bounce">
+        <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg text-xs font-bold animate-bounce z-20">
         ✋ Hand Raised
         </div>
       )}
 
       {/* Status indicators */}
-      <div className="absolute bottom-2 right-2 flex items-center space-x-1">
+      <div className="absolute bottom-2 right-2 flex items-center space-x-1 z-20">
       {isVideoOff && <VideoOff size={14} className="text-red-400" />}
       {isAudioMuted && <MicOff size={14} className="text-red-400" />}
-      {streamAttached && !isVideoOff && (
-        <div className="bg-green-500 rounded-full w-2 h-2" title="Stream active" />
+      {isPlaying && !isVideoOff && (
+        <div className="bg-green-500 rounded-full w-2 h-2" title="Camera active" />
       )}
       </div>
 
       {/* Loading state */}
-      {!streamAttached && !isVideoOff && (
+      {!isPlaying && !isVideoOff && !error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black z-10">
         <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
         <span className="text-purple-300 text-sm mt-2">Initializing camera...</span>
-        {localStream && (
-          <div className="text-xs text-gray-400 mt-2 text-center">
-          <div>Stream ID: {localStream.id.slice(0, 8)}...</div>
-          <div>Active: {localStream.active ? '✅' : '❌'}</div>
-          <div>Tracks: {localStream.getTracks().length}</div>
+        {localTracksRef.current.video ? (
+          <div className="text-xs text-gray-400 mt-2">
+          Track ready, loading video...
           </div>
-        )}
-        {!localStream && (
-          <div className="text-xs text-red-400 mt-2">No stream provided</div>
+        ) : (
+          <div className="text-xs text-red-400 mt-2">
+          Waiting for camera track...
+          </div>
         )}
         </div>
       )}
