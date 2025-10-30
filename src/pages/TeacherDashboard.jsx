@@ -2,16 +2,34 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import videoApi from '../lib/agora/videoApi';
 import { 
-  BookOpen, Calendar, Clock, User, Video, Play, 
-  Users, BarChart3, LogOut, Bell,
-  Search, Plus, FileText, 
-  FileCheck, Trash2, Share2, X,
-  ChevronDown, Menu, XCircle,
-  MessageCircle, CheckCircle,
-  Edit, Eye, Award,
-  Zap, Rocket, RefreshCw, Brain,
-  TrendingUp, Mic, Square,MicOff, VideoOff, PhoneOff, ScreenShare, StopCircle, 
-  Settings, Maximize, Minimize, Copy, Monitor, Shield,Phone
+  Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Users, Clock,Settings,Share2,
+  MessageCircle,User,Maximize2,Minimize2,Grid3X3,Pin,MoreVertical,Crown,Shield,Zap,
+  BarChart3,Download,MessageSquare,BookOpen, 
+  Calendar, 
+  Play, 
+  Search, 
+  Plus, 
+  FileText, 
+  FileCheck, 
+  Trash2, 
+  X,
+  ChevronDown, 
+  Menu, 
+  XCircle,
+  CheckCircle,
+  Edit, 
+  Eye, 
+  Award,
+  Rocket, 
+  RefreshCw, 
+  Brain,
+  TrendingUp, 
+  Square,
+  StopCircle,
+  Maximize,
+  Minimize,
+  Copy,
+  Phone
 } from "lucide-react";
 import { useAuth } from '../components/AuthContext';
 import { teacherApi } from '../lib/teacherApi';
