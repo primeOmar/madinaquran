@@ -4,7 +4,7 @@ import videoApi from '../lib/agora/videoApi';
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Users, Clock,Settings,Share2,
   MessageCircle,User,Maximize2,Minimize2,Grid3X3,Pin,MoreVertical,Crown,Shield,Zap,
-  BarChart3,Download,MessageSquare,BookOpen,Bell,
+  BarChart3,Download,MessageSquare,BookOpen,Bell,LogOut,
   Calendar,
   Play,
   Search,
