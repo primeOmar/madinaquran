@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import React,{ useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import studentApi  from '../lib/studentApi';
@@ -49,7 +49,7 @@ import {
   Sparkles,
   Target,
   Star,
-  Gem
+  Gem,Hand
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
@@ -197,16 +197,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [connectionQuality, setConnectionQuality] = useState('excellent');
   const [agoraClient, setAgoraClient] = useState(null);
   const [error, setError] = useState('');
-  const [debugInfo, setDebugInfo] = useState('');
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
-  const [layoutMode, setLayoutMode] = useState('auto');
   const [teacherUid, setTeacherUid] = useState(null);
   const [isHandRaised, setIsHandRaised] = useState(false);
   const [localVideoReady, setLocalVideoReady] = useState(false);
   const [isPinned, setIsPinned] = useState(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [localVideoElement, setLocalVideoElement] = useState(null);
 
   // Refs
   const localVideoRef = useRef(null);
@@ -217,7 +213,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const screenShareUidRef = useRef(null);
   const teacherUidRef = useRef(null);
   const updateParticipantsTimeoutRef = useRef(null);
-  const videoContainerRef = useRef(null);
 
   // ✅ Database override
   useEffect(() => {
@@ -251,30 +246,41 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
-  // 🎯 FIXED: Enhanced local video setup with proper ref handling
-  const setupLocalVideo = async (cameraTrack) => {
+  // 🎯 FIXED: Simplified and robust local video setup
+  const setupLocalVideo = useCallback(async (cameraTrack) => {
     try {
       console.log('🎬 Setting up local video...');
       setLocalVideoReady(false);
 
-      // Wait for React ref to be available
-      let videoElement = localVideoRef.current;
-      let waitAttempts = 0;
-      const maxWaitAttempts = 20;
-
-      while (!videoElement && waitAttempts < maxWaitAttempts) {
-        console.log(`⏳ Waiting for video element... attempt ${waitAttempts + 1}`);
-        await new Promise(resolve => setTimeout(resolve, 100));
-        videoElement = localVideoRef.current;
-        waitAttempts++;
+      if (!cameraTrack) {
+        throw new Error('No camera track available');
       }
 
-      if (!videoElement) {
-        console.error('❌ Video element not found after waiting');
-        throw new Error('Video element not available');
-      }
+      // Wait for React ref to be available with timeout
+      const waitForVideoElement = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds total
 
-      console.log('✅ Video element found, configuring...');
+          const checkElement = () => {
+            attempts++;
+            const videoElement = localVideoRef.current;
+
+            if (videoElement) {
+              console.log('✅ Video element found after', attempts, 'attempts');
+              resolve(videoElement);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error('Video element not found after waiting'));
+            } else {
+              setTimeout(checkElement, 100);
+            }
+          };
+
+          checkElement();
+        });
+      };
+
+      const videoElement = await waitForVideoElement();
 
       // Configure video element
       videoElement.autoplay = true;
@@ -282,70 +288,36 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       videoElement.playsInline = true;
       videoElement.setAttribute('playsinline', 'true');
       videoElement.setAttribute('webkit-playsinline', 'true');
-      videoElement.style.display = 'block';
-      videoElement.style.visibility = 'visible';
-      videoElement.style.objectFit = 'cover';
-      videoElement.style.width = '100%';
-      videoElement.style.height = '100%';
 
-      // Play video with enhanced error handling
-      const playVideoWithRetry = async (retryCount = 0) => {
-        try {
-          console.log(`🎥 Attempting to play local video (attempt ${retryCount + 1})...`);
+      // Clear any existing content
+      videoElement.innerHTML = '';
 
-          if (!cameraTrack) {
-            throw new Error('Camera track not available');
-          }
+      console.log('🎥 Playing camera track on video element...');
 
-          if (!videoElement) {
-            throw new Error('Video element not available');
-          }
+      // 🎯 CRITICAL FIX: Use Agora's track.play() method correctly
+      try {
+        await cameraTrack.play(videoElement);
+        console.log('✅ Local video playing successfully');
 
-          // Stop any existing track on the element
-          if (videoElement.srcObject) {
-            videoElement.srcObject = null;
-          }
+        setLocalVideoReady(true);
+        setLocalStream(cameraTrack);
 
-          // Use the modern approach for Agora tracks
-          await cameraTrack.play(videoElement);
+        // Force DOM update
+        videoElement.style.display = 'block';
+        videoElement.style.visibility = 'visible';
+        videoElement.style.opacity = '1';
 
-          console.log('✅ Local video playing successfully');
-          setLocalVideoReady(true);
-          setLocalStream(cameraTrack);
-
-          // Force a re-render and style update
-          videoElement.style.display = 'block';
-          videoElement.style.visibility = 'visible';
-          videoElement.style.opacity = '1';
-
-        } catch (playError) {
-          console.warn(`❌ Video play attempt ${retryCount + 1} failed:`, playError);
-
-          if (retryCount < 3) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return playVideoWithRetry(retryCount + 1);
-          } else {
-            // Final fallback - set the track but don't play
-            console.warn('⚠️ Using fallback video setup');
-            setLocalStream(cameraTrack);
-            setLocalVideoReady(true);
-            throw playError;
-          }
-        }
-      };
-
-      await playVideoWithRetry();
+      } catch (playError) {
+        console.error('❌ Camera track play failed:', playError);
+        throw new Error(`Failed to play video: ${playError.message}`);
+      }
 
     } catch (error) {
       console.error('❌ Failed to setup local video:', error);
-      setError('Failed to initialize camera');
-      // Still set the track for audio functionality
-      if (cameraTrack) {
-        setLocalStream(cameraTrack);
-        setLocalVideoReady(true);
-      }
+      setError(`Video setup failed: ${error.message}`);
+      setLocalVideoReady(false);
     }
-  };
+  }, []);
 
   const createAndPublishLocalTracks = async (client) => {
     try {
@@ -376,12 +348,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         localTracksRef.current.video = cameraTrack;
         console.log('✅ Camera track created');
 
-        // Setup local video playback
-        await setupLocalVideo(cameraTrack);
+        // Setup local video playback - don't await, let it run in background
+        setupLocalVideo(cameraTrack);
 
       } catch (videoError) {
-        console.error('❌ Could not create/play camera track:', videoError);
+        console.error('❌ Could not create camera track:', videoError);
         setError(videoError.message || 'Camera access required');
+        // Continue without video
       }
 
       // Publish tracks
@@ -455,7 +428,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsConnecting(false);
       startTimer();
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Give time for connection to stabilize
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await createAndPublishLocalTracks(client);
 
       console.log('🎉 Video connection established');
@@ -501,65 +475,48 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           }
 
           setRemoteUsers(prev => {
-            const existing = prev.get(user.uid);
-            if (existing && existing.videoTrack === track) {
-              return prev;
-            }
-
             const newMap = new Map(prev);
-            newMap.set(user.uid, {
-              uid: user.uid,
-              videoTrack: track,
-              audioTrack: user.audioTrack,
-              hasVideo: true,
-              hasAudio: !!user.audioTrack,
-              isTeacher: isTeacher,
-              isScreenShare: isScreen,
-              isSpeaking: false,
-              joinedAt: existing?.joinedAt || new Date()
-            });
+            const existing = newMap.get(user.uid);
+
+            if (!existing || existing.videoTrack !== track) {
+              newMap.set(user.uid, {
+                uid: user.uid,
+                videoTrack: track,
+                audioTrack: user.audioTrack,
+                hasVideo: true,
+                hasAudio: !!user.audioTrack,
+                isTeacher: isTeacher,
+                isScreenShare: isScreen,
+                isSpeaking: false,
+                joinedAt: existing?.joinedAt || new Date()
+              });
+            }
             return newMap;
           });
         } else if (mediaType === 'audio') {
-          if (user.audioTrack && typeof user.audioTrack.play === 'function') {
+          if (user.audioTrack) {
             try {
-              const playResult = user.audioTrack.play();
-              if (playResult && typeof playResult.catch === 'function') {
-                playResult.catch(e => console.log('Audio play error:', e));
-              }
+              user.audioTrack.play();
             } catch (audioError) {
               console.log('Audio play error:', audioError);
             }
           }
 
-          if (user.audioTrack && typeof user.audioTrack.on === 'function') {
-            user.audioTrack.on('volume-change', (volume) => {
-              if (volume > 0.1) {
-                setActiveSpeaker(user.uid);
-              }
-            });
-          }
-
           setRemoteUsers(prev => {
-            const existing = prev.get(user.uid);
-            if (!existing) return prev;
-
             const newMap = new Map(prev);
-            newMap.set(user.uid, {
-              ...existing,
-              audioTrack: user.audioTrack,
-              hasAudio: true
-            });
+            const existing = newMap.get(user.uid);
+            if (existing) {
+              newMap.set(user.uid, {
+                ...existing,
+                audioTrack: user.audioTrack,
+                hasAudio: true
+              });
+            }
             return newMap;
           });
         }
 
-        if (updateParticipantsTimeoutRef.current) {
-          clearTimeout(updateParticipantsTimeoutRef.current);
-        }
-        updateParticipantsTimeoutRef.current = setTimeout(() => {
-          updateParticipantsList();
-        }, 100);
+        updateParticipantsList();
       } catch (error) {
         console.error('❌ Error in user-published handler:', error);
       }
@@ -671,173 +628,83 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     };
   };
 
-  // 🎯 FIXED: Enhanced LocalVideoPlayer with proper video handling
-  const LocalVideoPlayer = React.memo(() => {
-    // Use effect to ensure video element is properly managed
-    useEffect(() => {
-      if (!localVideoRef.current) return;
+  // 🎯 FIXED: Simplified LocalVideoPlayer component
+  const LocalVideoPlayer = () => (
+    <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
+    {/* Video Element - Critical: Keep this simple */}
+    <video
+    ref={localVideoRef}
+    autoPlay
+    muted
+    playsInline
+    className="w-full h-full object-cover bg-black"
+    style={{
+      display: localVideoReady && !isVideoOff ? 'block' : 'none',
+      visibility: localVideoReady && !isVideoOff ? 'visible' : 'hidden',
+      transform: 'scaleX(-1)' // Mirror for self-view
+    }}
+    />
 
-      const videoElement = localVideoRef.current;
+    {/* User label */}
+    <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
+    💜 You
+    </div>
 
-      // Ensure proper styling
-      videoElement.style.display = 'block';
-      videoElement.style.visibility = 'visible';
-      videoElement.style.objectFit = 'cover';
-      videoElement.style.width = '100%';
-      videoElement.style.height = '100%';
-      videoElement.style.backgroundColor = '#000';
-
-      // Cleanup function
-    return () => {
-      if (videoElement && videoElement.srcObject) {
-        videoElement.srcObject = null;
-      }
-    };
-    }, []);
-
-    return (
-      <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
-      {/* Video Element with enhanced attributes */}
-      <video
-      ref={localVideoRef}
-      autoPlay
-      muted
-      playsInline
-      className="w-full h-full object-cover bg-black"
-      style={{
-        display: 'block',
-        visibility: 'visible',
-        transform: 'scaleX(-1)' // Mirror for self-view
-      }}
-      />
-
-      {/* User label */}
-      <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
-      💜 You
+    {/* Hand raised indicator */}
+    {isHandRaised && (
+      <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg text-xs font-bold animate-bounce">
+      ✋ Hand Raised
       </div>
+    )}
 
-      {/* Hand raised indicator */}
-      {isHandRaised && (
-        <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg text-xs font-bold animate-bounce">
-        ✋ Hand Raised
-        </div>
-      )}
+    {/* Status indicators */}
+    <div className="absolute bottom-2 right-2 flex items-center space-x-1">
+    {isVideoOff && <VideoOff size={14} className="text-red-400" />}
+    {isAudioMuted && <MicOff size={14} className="text-red-400" />}
+    </div>
 
-      {/* Status indicators */}
-      <div className="absolute bottom-2 right-2 flex items-center space-x-1">
-      {isVideoOff && <CameraOff size={14} className="text-red-400" />}
-      {isAudioMuted && <MicOff size={14} className="text-red-400" />}
+    {/* Loading state */}
+    {!localVideoReady && !isVideoOff && (
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+      <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
+      <span className="ml-2 text-purple-300 text-sm">Initializing camera...</span>
       </div>
+    )}
 
-      {/* Loading state */}
-      {!localVideoReady && !isVideoOff && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
-        <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
-        <span className="ml-2 text-purple-300 text-sm">Initializing camera...</span>
-        </div>
-      )}
-
-      {/* Video off state */}
-      {isVideoOff && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
-        <CameraOff className="text-purple-500 w-12 h-12" />
-        <span className="ml-2 text-purple-300 text-sm">Camera off</span>
-        </div>
-      )}
-
-      {/* Error state */}
-      {error && !localVideoReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-900 to-black">
-        <CameraOff className="text-red-500 w-12 h-12" />
-        <span className="ml-2 text-red-300 text-sm">Camera error</span>
-        </div>
-      )}
+    {/* Video off state */}
+    {isVideoOff && (
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+      <VideoOff className="text-purple-500 w-12 h-12" />
+      <span className="ml-2 text-purple-300 text-sm">Camera off</span>
       </div>
-    );
-  });
+    )}
+    </div>
+  );
 
   const RemoteVideoPlayer = React.memo(({ user, size = 'large', onPin }) => {
     const videoContainerRef = useRef(null);
-    const isPlayingRef = useRef(false);
-    const currentTrackRef = useRef(null);
-    const videoElementRef = useRef(null);
 
     useEffect(() => {
       if (!user.videoTrack || !videoContainerRef.current) return;
 
-      if (currentTrackRef.current === user.videoTrack &&
-        isPlayingRef.current &&
-        videoElementRef.current &&
-        videoContainerRef.current.contains(videoElementRef.current)) {
-        return;
-        }
+      const videoElement = document.createElement('video');
+      videoElement.className = 'w-full h-full object-cover bg-black';
+      videoElement.autoplay = true;
+      videoElement.playsInline = true;
 
-        let videoElement = videoElementRef.current || remoteVideoElementsRef.current.get(user.uid);
+      videoContainerRef.current.innerHTML = '';
+      videoContainerRef.current.appendChild(videoElement);
 
-      try {
-        if (!videoElement) {
-          videoElement = document.createElement('video');
-          videoElement.id = `remote-video-${user.uid}`;
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.muted = false;
-          videoElement.className = 'w-full h-full object-cover bg-black';
-
-          videoElementRef.current = videoElement;
-          remoteVideoElementsRef.current.set(user.uid, videoElement);
-
-          videoContainerRef.current.innerHTML = '';
-          videoContainerRef.current.appendChild(videoElement);
-          isPlayingRef.current = false;
-        } else if (!videoContainerRef.current.contains(videoElement)) {
-          videoContainerRef.current.innerHTML = '';
-          videoContainerRef.current.appendChild(videoElement);
-        }
-
-        if (user.videoTrack &&
-          currentTrackRef.current !== user.videoTrack &&
-          typeof user.videoTrack.play === 'function') {
-
-          if (currentTrackRef.current && typeof currentTrackRef.current.stop === 'function') {
-            try {
-              currentTrackRef.current.stop();
-            } catch (e) {
-              console.warn('Error stopping previous track:', e);
-            }
-          }
-
-          const playPromise = user.videoTrack.play(videoElement);
-
-          if (playPromise && typeof playPromise.then === 'function') {
-            playPromise
-            .then(() => {
-              isPlayingRef.current = true;
-              currentTrackRef.current = user.videoTrack;
-            })
-            .catch(error => {
-              console.warn(`Video play error for user ${user.uid}:`, error);
-              isPlayingRef.current = false;
-            });
-          } else {
-            isPlayingRef.current = true;
-            currentTrackRef.current = user.videoTrack;
-          }
-          }
-      } catch (error) {
-        console.error(`Error setting up video for user ${user.uid}:`, error);
-        isPlayingRef.current = false;
-      }
+      user.videoTrack.play(videoElement).catch(error => {
+        console.warn(`Video play error for user ${user.uid}:`, error);
+      });
 
       return () => {
-        console.log(`🧹 RemoteVideoPlayer unmounting for user ${user.uid}`);
+        if (videoElement) {
+          user.videoTrack?.stop();
+        }
       };
     }, [user.uid, user.videoTrack]);
-
-    const sizeClasses = {
-      large: 'w-full h-full',
-      small: 'w-full h-full',
-      thumbnail: 'w-full h-full'
-    };
 
     const getUserLabel = () => {
       if (user.isScreenShare) return '🖥️ Screen Share';
@@ -852,7 +719,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     };
 
     return (
-      <div className={`relative ${sizeClasses[size]} rounded-xl overflow-hidden bg-black border-2 ${getBorderColor()} transition-all duration-300`}>
+      <div className={`relative w-full h-full rounded-xl overflow-hidden bg-black border-2 ${getBorderColor()} transition-all duration-300`}>
       <div ref={videoContainerRef} className="w-full h-full" />
 
       {/* User label */}
@@ -860,41 +727,19 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       {getUserLabel()}
       </div>
 
-      {/* Pin button */}
-      {size === 'small' && onPin && (
-        <button
-        onClick={() => onPin(user.uid)}
-        className="absolute top-2 right-2 bg-black/80 p-1 rounded-lg hover:bg-black/100 transition-colors"
-        title="Pin this video"
-        >
-        <Maximize2 size={14} className="text-white" />
-        </button>
-      )}
-
       {/* Status indicators */}
       <div className="absolute bottom-2 right-2 flex items-center space-x-1">
-      {!user.hasVideo && <CameraOff size={14} className="text-red-400" />}
+      {!user.hasVideo && <VideoOff size={14} className="text-red-400" />}
       {!user.hasAudio && <MicOff size={14} className="text-red-400" />}
-      {user.hasAudio && (
-        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-      )}
       </div>
 
       {/* No video overlay */}
       {!user.hasVideo && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
-        <CameraOff className="text-gray-600 w-12 h-12" />
+        <VideoOff className="text-gray-600 w-12 h-12" />
         </div>
       )}
       </div>
-    );
-  }, (prevProps, nextProps) => {
-    return (
-      prevProps.user.uid === nextProps.user.uid &&
-      prevProps.user.videoTrack === nextProps.user.videoTrack &&
-      prevProps.user.hasVideo === nextProps.user.hasVideo &&
-      prevProps.user.hasAudio === nextProps.user.hasAudio &&
-      prevProps.size === nextProps.size
     );
   });
 
@@ -902,10 +747,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     const layout = getOptimalLayout();
 
     if (layout.type === 'screenshare') {
-      // Fullscreen mode for screen share
       return (
         <div className="h-full flex flex-col lg:flex-row gap-2">
-        {/* Main screen share - takes most space */}
+        {/* Main screen share */}
         <div className="flex-1 min-h-0">
         <RemoteVideoPlayer user={layout.mainVideo} size="large" />
         </div>
@@ -933,10 +777,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
 
     if (layout.type === 'spotlight' || layout.type === 'pinned') {
-      // Spotlight mode - teacher or pinned user gets main stage
       return (
         <div className="h-full flex flex-col gap-2">
-        {/* Main video - 70% on mobile, 75% on desktop */}
+        {/* Main video */}
         <div className="flex-[7] lg:flex-[3] min-h-0">
         <RemoteVideoPlayer user={layout.mainVideo} size="large" />
         </div>
@@ -1013,7 +856,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const toggleAudio = async () => {
     if (localTracksRef.current.audio) {
       try {
-        await localTracksRef.current.audio.setEnabled(isAudioMuted);
+        await localTracksRef.current.audio.setEnabled(!isAudioMuted);
         setIsAudioMuted(!isAudioMuted);
         updateParticipantsList();
       } catch (error) {
@@ -1025,16 +868,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const toggleVideo = async () => {
     if (localTracksRef.current.video) {
       try {
-        await localTracksRef.current.video.setEnabled(isVideoOff);
+        await localTracksRef.current.video.setEnabled(!isVideoOff);
         setIsVideoOff(!isVideoOff);
         updateParticipantsList();
-
-        // Force video element update when toggling video
-        if (localVideoRef.current && !isVideoOff) {
-          // Video is being turned on
-          localVideoRef.current.style.display = 'block';
-          localVideoRef.current.style.visibility = 'visible';
-        }
       } catch (error) {
         console.error('Error toggling video:', error);
       }
@@ -1056,6 +892,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     try {
       if (timerRef.current) clearInterval(timerRef.current);
 
+      // Stop all local tracks
       Object.values(localTracksRef.current).forEach(track => {
         if (track) {
           try {
@@ -1067,7 +904,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         }
       });
 
-      if (agoraClient) await agoraClient.leave();
+      if (agoraClient) {
+        await agoraClient.leave();
+      }
     } catch (error) {
       console.error('Error during cleanup:', error);
     } finally {
@@ -1084,60 +923,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsPinned(null);
       joinAttemptRef.current = 0;
 
+      // Clear remote video elements
       remoteVideoElementsRef.current.forEach((element) => {
         element.remove();
       });
       remoteVideoElementsRef.current.clear();
 
-      screenShareUidRef.current = null;
-      teacherUidRef.current = null;
-
       onClose();
     }
-  };
-
-  const cleanupCall = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (updateParticipantsTimeoutRef.current) clearTimeout(updateParticipantsTimeoutRef.current);
-
-    Object.entries(localTracksRef.current).forEach(([key, track]) => {
-      if (track) {
-        try {
-          track.stop();
-          track.close();
-          localTracksRef.current[key] = null;
-        } catch (error) {
-          console.warn(`Error stopping ${key} track:`, error);
-        }
-      }
-    });
-
-    remoteVideoElementsRef.current.forEach((element) => {
-      try {
-        element.remove();
-      } catch (error) {
-        console.warn('Error removing video element:', error);
-      }
-    });
-    remoteVideoElementsRef.current.clear();
-
-    if (agoraClient) {
-      agoraClient.leave().catch(error =>
-      console.warn('Error leaving channel:', error)
-      );
-    }
-
-    setCallDuration(0);
-    setIsConnected(false);
-    setRemoteUsers(new Map());
-    setLocalVideoReady(false);
-    joinAttemptRef.current = 0;
-  };
-
-  const retryConnection = () => {
-    joinAttemptRef.current = 0;
-    setError('');
-    initializeRealCall();
   };
 
   const startTimer = () => {
@@ -1167,19 +960,15 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     if (isOpen && classItem?.video_session?.meeting_id) {
       initializeRealCall();
     }
-    return () => cleanupCall();
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [isOpen, classItem]);
 
   useEffect(() => {
     updateParticipantsList();
-  }, [remoteUsers, isAudioMuted, isVideoOff, activeSpeaker]);
-
-  // Auto-adjust layout based on screen share
-  useEffect(() => {
-    if (isScreenSharing && isPinned !== screenShareUidRef.current) {
-      setIsPinned(null); // Clear pin when screen sharing starts
-    }
-  }, [isScreenSharing]);
+  }, [remoteUsers, isAudioMuted, isVideoOff]);
 
   if (!isOpen) return null;
 
@@ -1225,19 +1014,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </button>
     </div>
     </div>
-
-    {/* Mobile-only second row */}
-    <div className="flex items-center justify-between mt-2 sm:hidden text-xs">
-    <div className="flex items-center gap-2">
-    <Users size={12} />
-    <span>{participants.length}</span>
-    <span className="text-cyan-200">•</span>
-    <span>{formatTime(callDuration)}</span>
-    </div>
-    <div className={`${getConnectionColor()}`}>
-    {connectionQuality.toUpperCase()}
-    </div>
-    </div>
     </div>
 
     {/* Error Display */}
@@ -1275,7 +1051,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       <p className="text-white text-lg sm:text-xl font-bold mb-2">Connection Failed</p>
       <p className="text-gray-400 mb-4 text-sm sm:text-base">Unable to connect to the video session</p>
       <button
-      onClick={retryConnection}
+      onClick={initializeRealCall}
       className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 px-6 py-3 rounded-lg text-white font-medium transition-all duration-200"
       >
       Retry Connection
@@ -1312,7 +1088,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }`}
       title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
       >
-      {isVideoOff ? <CameraOff size={20} className="text-white" /> : <Camera size={20} className="text-white" />}
+      {isVideoOff ? <VideoOff size={20} className="text-white" /> : <Video size={20} className="text-white" />}
       </button>
 
       {/* Raise Hand */}
@@ -1327,52 +1103,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       >
       <Hand size={20} className="text-white" />
       </button>
-
-      {/* Unpin button (when something is pinned) */}
-      {isPinned && (
-        <button
-        onClick={() => setIsPinned(null)}
-        className="p-3 sm:p-4 rounded-xl bg-orange-600 hover:bg-orange-500 transition-all duration-200"
-        title="Unpin video"
-        >
-        <Minimize2 size={20} className="text-white" />
-        </button>
-      )}
-
-      {/* Leave Button (duplicate for easy access on mobile) */}
-      <button
-      onClick={leaveCall}
-      className="p-3 sm:p-4 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 transition-all duration-200 sm:hidden"
-      title="Leave call"
-      >
-      <PhoneOff size={20} className="text-white" />
-      </button>
-      </div>
-
-      {/* Desktop additional info */}
-      <div className="hidden sm:flex items-center justify-between mt-3 text-xs text-gray-400">
-      <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2">
-      <Clock size={14} />
-      <span>{formatTime(callDuration)}</span>
-      </div>
-      <div className={`flex items-center gap-2 ${getConnectionColor()}`}>
-      <Signal size={14} />
-      <span>{connectionQuality}</span>
-      </div>
-      </div>
-
-      <div className="text-gray-500">
-      {isScreenSharing && '🖥️ Screen sharing active'}
-      {isPinned && !isScreenSharing && '📌 Video pinned'}
-      {!isPinned && !isScreenSharing && teacherUid && '👨‍🏫 Teacher spotlight'}
-      </div>
       </div>
       </div>
     )}
     </div>
   );
 };
+
+
 
 // ===  CLASS MANAGEMENT ===
 const sortClasses = (classes) => {
