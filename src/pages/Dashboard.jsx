@@ -22,7 +22,7 @@ import {
   Bell,
   Settings,
   LogOut,
-  Menu,
+  Menu,Hand,
   X,
   ChevronDown,
   CheckCircle,
@@ -202,8 +202,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [isHandRaised, setIsHandRaised] = useState(false);
   const [localVideoReady, setLocalVideoReady] = useState(false);
   const [isPinned, setIsPinned] = useState(null);
-  const [cameraTrack, setCameraTrack] = useState(null);
-  
+
   // Refs
   const localVideoRef = useRef(null);
   const timerRef = useRef(null);
@@ -211,7 +210,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const joinAttemptRef = useRef(0);
   const screenShareUidRef = useRef(null);
   const teacherUidRef = useRef(null);
-  
+  const videoElementsRef = useRef(new Map());
+
   // ✅ Database override
   useEffect(() => {
     console.log('🔧 PRODUCTION MODE: All database operations disabled');
@@ -222,163 +222,155 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       };
     }
   }, []);
-  
+
   const checkSessionStatus = async (meetingId) => {
     try {
       console.log('🔍 Checking session status for:', meetingId);
       const status = await studentApi.getSessionStatus(meetingId);
       console.log('📊 Session status response:', status);
-      
+
       if (status.is_active === false) {
         throw new Error(`Session not active: ${status.error || 'No active session found'}`);
       }
-      
+
       if (!status.is_teacher_joined) {
         console.log('⚠️ Teacher not joined yet, but proceeding with join...');
       }
-      
+
       return status;
     } catch (error) {
       console.error('❌ Session status check failed:', error);
       throw error;
     }
   };
-  
-  // 🎯 FIXED: Enhanced local video setup with direct DOM manipulation
-  const setupLocalVideo = useCallback(async (track) => {
+
+  // 🎯 FIXED: Enhanced video play method with Agora compatibility
+  const playVideoTrack = useCallback(async (track, videoElement) => {
     try {
-      console.log('🎬 Setting up local video with track:', track);
-      setLocalVideoReady(false);
-      
-      if (!track) {
-        throw new Error('No camera track available');
+      console.log('🎬 Playing video track...');
+
+      if (!track || !videoElement) {
+        throw new Error('Track or video element not available');
       }
-      
-      // Use a more reliable approach to get the video element
-      const getVideoElement = () => {
-        return new Promise((resolve, reject) => {
-          let attempts = 0;
-          const maxAttempts = 30;
-          
-          const checkElement = () => {
-            attempts++;
-            const element = localVideoRef.current;
-            
-            if (element) {
-              console.log('✅ Video element found after', attempts, 'attempts');
-              resolve(element);
-            } else if (attempts >= maxAttempts) {
-              reject(new Error('Video element not found after waiting'));
-            } else {
-              setTimeout(checkElement, 100);
-            }
-          };
-          
-          checkElement();
-        });
-      };
-      
-      const videoElement = await getVideoElement();
-      
-      // Reset and configure video element
-      videoElement.innerHTML = '';
+
+      // Configure video element
       videoElement.autoplay = true;
       videoElement.muted = true;
       videoElement.playsInline = true;
       videoElement.setAttribute('playsinline', 'true');
       videoElement.setAttribute('webkit-playsinline', 'true');
+
+      // Clear any existing content
+      if (videoElement.srcObject) {
+        videoElement.srcObject = null;
+      }
+
+      // 🎯 CRITICAL FIX: Handle Agora play() method that returns undefined
+      const playResult = track.play(videoElement);
+
+      if (playResult && typeof playResult.then === 'function') {
+        // If play() returns a Promise (modern Agora versions)
+        await playResult;
+        console.log('✅ Video track playing via Promise');
+      } else {
+        // If play() returns undefined or void (older Agora versions)
+        console.log('✅ Video track playing via void method');
+        // Wait a bit for the video to start
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // Verify video is actually playing
+      await new Promise((resolve, reject) => {
+        const checkPlaying = () => {
+          if (videoElement.readyState >= 2) { // HAVE_CURRENT_DATA or better
+            resolve();
+          } else {
+            setTimeout(checkPlaying, 100);
+          }
+        };
+        setTimeout(() => checkPlaying(), 500);
+      });
+
+      return true;
+    } catch (error) {
+      console.error('❌ Video play failed:', error);
+      throw error;
+    }
+  }, []);
+
+  // 🎯 FIXED: Simplified local video setup
+  const setupLocalVideo = useCallback(async (track) => {
+    try {
+      console.log('🎬 Setting up local video...');
+      setLocalVideoReady(false);
+
+      if (!track) {
+        throw new Error('No camera track available');
+      }
+
+      // Wait for video element
+      const waitForVideoElement = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 30;
+
+          const checkElement = () => {
+            attempts++;
+            const element = localVideoRef.current;
+
+            if (element) {
+              console.log('✅ Video element found after', attempts, 'attempts');
+              resolve(element);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error('Video element not found'));
+            } else {
+              setTimeout(checkElement, 100);
+            }
+          };
+
+          checkElement();
+        });
+      };
+
+      const videoElement = await waitForVideoElement();
+
+      // Configure video element styling
       videoElement.style.cssText = `
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      width: 100% !important;
-      height: 100% !important;
-      object-fit: cover !important;
-      background: black !important;
+      display: block;
+      visibility: visible;
+      opacity: 1;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: black;
       transform: scaleX(-1);
       `;
-      
-      console.log('🎥 Attempting to play track on video element...');
-      
-      // 🎯 CRITICAL FIX: Use Agora's play method with proper error handling
-      try {
-        await track.play(videoElement);
-        console.log('✅ Local video playing successfully');
-        
-        setLocalVideoReady(true);
-        setLocalStream(track);
-        setCameraTrack(track);
-        
-      } catch (playError) {
-        console.error('❌ Track play failed:', playError);
-        throw new Error(`Failed to play video track: ${playError.message}`);
-      }
-      
+
+      // Play the track
+      await playVideoTrack(track, videoElement);
+
+      console.log('✅ Local video setup complete');
+      setLocalVideoReady(true);
+      setLocalStream(track);
+
     } catch (error) {
       console.error('❌ Failed to setup local video:', error);
       setError(`Video setup failed: ${error.message}`);
       setLocalVideoReady(false);
     }
-  }, []);
-  
-  // 🎯 ENHANCED: Camera track creation with better error handling
-  const createCameraTrack = async () => {
-    try {
-      console.log('📹 Creating camera track...');
-      
-      const track = await AgoraRTC.createCameraVideoTrack({
-        optimizationMode: 'motion',
-        encoderConfig: {
-          width: 1280,
-          height: 720,
-          frameRate: 30,
-          bitrate: 1700
-        },
-        cameraId: await getPreferredCamera()
-      });
-      
-      console.log('✅ Camera track created successfully');
-      return track;
-      
-    } catch (error) {
-      console.error('❌ Camera track creation failed:', error);
-      
-      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
-        throw new Error('Camera access denied. Please check browser permissions.');
-      } else if (error.name === 'NOT_FOUND_ERROR') {
-        throw new Error('No camera found. Please check your device.');
-      } else {
-        throw new Error(`Camera error: ${error.message}`);
-      }
-    }
-  };
-  
-  const getPreferredCamera = async () => {
-    try {
-      const devices = await AgoraRTC.getCameras();
-      const frontCamera = devices.find(device =>
-      device.label.toLowerCase().includes('front') ||
-      device.label.includes('facetime')
-      );
-      return frontCamera?.deviceId || devices[0]?.deviceId;
-    } catch (error) {
-      console.log('Camera detection error:', error);
-      return undefined;
-    }
-  };
-  
+  }, [playVideoTrack]);
+
   const createAndPublishLocalTracks = async (client) => {
     try {
-      console.log('🎤 Creating enhanced local tracks...');
+      console.log('🎤 Creating local tracks...');
       setLocalVideoReady(false);
-      
+
       // Create audio track
       let microphoneTrack;
       try {
         microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
           AEC: true,
           ANS: true,
-          AGC: true,
         });
         localTracksRef.current.audio = microphoneTrack;
         console.log('✅ Microphone track created');
@@ -386,82 +378,79 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         console.warn('⚠️ Could not create microphone track:', audioError);
         setError('Microphone access required for full participation');
       }
-      
+
       // Create video track
       let cameraTrack;
       try {
-        cameraTrack = await createCameraTrack();
+        cameraTrack = await AgoraRTC.createCameraVideoTrack({
+          optimizationMode: 'motion',
+          encoderConfig: '720p_1',
+        });
         localTracksRef.current.video = cameraTrack;
-        console.log('✅ Camera track created and stored');
-        
-        // Setup local video playback
-        await setupLocalVideo(cameraTrack);
-        
+        console.log('✅ Camera track created');
+
+        // Setup local video - don't await to avoid blocking
+        setupLocalVideo(cameraTrack);
+
       } catch (videoError) {
         console.error('❌ Could not create camera track:', videoError);
-        setError(videoError.message);
-        // Continue without video but don't block the call
+        setError(videoError.message || 'Camera access required');
       }
-      
+
       // Publish tracks
       const tracksToPublish = [];
       if (microphoneTrack) tracksToPublish.push(microphoneTrack);
       if (cameraTrack) tracksToPublish.push(cameraTrack);
-      
+
       if (tracksToPublish.length > 0) {
         await client.publish(tracksToPublish);
-        console.log('✅ Local tracks published successfully');
-      } else {
-        console.warn('⚠️ No tracks to publish');
+        console.log('✅ Local tracks published');
       }
     } catch (error) {
       console.error('❌ Failed to create local tracks:', error);
       setError(`Media access failed: ${error.message}`);
     }
   };
-  
+
   const initializeRealCall = async () => {
     if (joinAttemptRef.current >= 3) {
       setError('Too many connection attempts. Please refresh and try again.');
       return;
     }
-    
+
     joinAttemptRef.current++;
-    
+
     try {
       setIsConnecting(true);
       setError('');
       console.log(`🎯 Join attempt ${joinAttemptRef.current}`);
-      
+
       const meetingId = classItem.video_session?.meeting_id;
       if (!meetingId) {
         throw new Error('No meeting ID found for this class');
       }
-      
+
       try {
         await checkSessionStatus(meetingId);
       } catch (statusError) {
         console.warn('Status check failed, proceeding...', statusError);
       }
-      
+
       const joinResult = await studentApi.joinVideoSession(meetingId);
-      
+
       if (!joinResult.success) {
         throw new Error(joinResult.error || 'Failed to get join credentials');
       }
-      
+
       if (!joinResult.channel || !joinResult.appId) {
         throw new Error('Invalid join credentials');
       }
-      
-      const client = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: 'vp8'
-      });
+
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       setAgoraClient(client);
-      
+
       setupAgoraEventListeners(client);
-      
+
       console.log('🚀 Joining channel...');
       await client.join(
         joinResult.appId,
@@ -469,23 +458,23 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         joinResult.token || null,
         joinResult.uid || null
       );
-      
+
       console.log('✅ Successfully joined channel');
       setIsConnected(true);
       setIsConnecting(false);
       startTimer();
-      
-      // Give time for connection to stabilize before publishing
+
+      // Give time for connection to stabilize
       await new Promise(resolve => setTimeout(resolve, 1000));
       await createAndPublishLocalTracks(client);
-      
-      console.log('🎉 Video connection fully established');
+
+      console.log('🎉 Video connection established');
     } catch (error) {
       console.error(`❌ Join attempt ${joinAttemptRef.current} failed:`, error);
       setError(error.message);
       setIsConnecting(false);
       setIsConnected(false);
-      
+
       if (error.message.includes('timeout') || error.message.includes('network')) {
         setTimeout(() => {
           if (isOpen && joinAttemptRef.current < 3) {
@@ -495,32 +484,32 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }
     }
   };
-  
+
   const setupAgoraEventListeners = (client) => {
     client.on('user-published', async (user, mediaType) => {
       console.log('🎯 USER-PUBLISHED - UID:', user.uid, 'Media:', mediaType);
-      
+
       try {
         await client.subscribe(user, mediaType);
-        
+
         if (mediaType === 'video') {
           const track = user.videoTrack;
           const isTeacher = detectTeacher(user.uid);
-          
+
           if (isTeacher) {
             setTeacherUid(user.uid);
             teacherUidRef.current = user.uid;
           }
-          
+
           // Check if this is screen share
           const isScreen = user.uid.toString().includes('screen') ||
           (user._videoTrack && user._videoTrack._ID && user._videoTrack._ID.includes('screen'));
-          
+
           if (isScreen) {
             setIsScreenSharing(true);
             screenShareUidRef.current = user.uid;
           }
-          
+
           setRemoteUsers(prev => {
             const newMap = new Map(prev);
             newMap.set(user.uid, {
@@ -544,7 +533,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
               console.log('Audio play error:', audioError);
             }
           }
-          
+
           setRemoteUsers(prev => {
             const newMap = new Map(prev);
             const existing = newMap.get(user.uid);
@@ -558,37 +547,44 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
             return newMap;
           });
         }
-        
+
         updateParticipantsList();
       } catch (error) {
         console.error('❌ Error in user-published handler:', error);
       }
     });
-    
+
     client.on('user-left', (user) => {
       console.log('👤 USER-LEFT - UID:', user.uid);
-      
+
       setRemoteUsers(prev => {
         const newMap = new Map(prev);
         const leavingUser = newMap.get(user.uid);
-        
+
         if (leavingUser?.isTeacher) {
           setTeacherUid(null);
           teacherUidRef.current = null;
         }
-        
+
         if (leavingUser?.isScreenShare) {
           setIsScreenSharing(false);
           screenShareUidRef.current = null;
         }
-        
+
         newMap.delete(user.uid);
         return newMap;
       });
-      
+
+      // Clean up video element
+      const videoElement = videoElementsRef.current.get(user.uid);
+      if (videoElement) {
+        videoElement.remove();
+        videoElementsRef.current.delete(user.uid);
+      }
+
       updateParticipantsList();
     });
-    
+
     client.on('connection-state-change', (curState, prevState) => {
       console.log('🔗 CONNECTION STATE:', prevState, '→', curState);
       if (curState === 'CONNECTED') {
@@ -597,36 +593,28 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         setError('Disconnected. Attempting to reconnect...');
       }
     });
-    
+
     client.on('network-quality', (stats) => {
       const quality = Math.min(stats.uplinkNetworkQuality, stats.downlinkNetworkQuality);
-      const qualityMap = { 
-        0: 'excellent', 
-        1: 'good', 
-        2: 'fair', 
-        3: 'poor', 
-        4: 'poor', 
-        5: 'poor', 
-        6: 'poor' 
-      };
+      const qualityMap = { 0: 'excellent', 1: 'good', 2: 'fair', 3: 'poor', 4: 'poor', 5: 'poor', 6: 'poor' };
       setConnectionQuality(qualityMap[quality] || 'excellent');
     });
   };
-  
+
   const detectTeacher = (uid) => {
     if (classItem?.video_session?.teacher_uid === uid) return true;
     if (uid === teacherUidRef.current) return true;
     if (uid === 1 && !teacherUidRef.current) return true;
     return false;
   };
-  
+
   // ✅ ENTERPRISE LAYOUT SYSTEM
   const getOptimalLayout = () => {
     const remoteUsersArray = Array.from(remoteUsers.values());
     const teacher = remoteUsersArray.find(u => u.isTeacher);
     const screenShare = remoteUsersArray.find(u => u.isScreenShare);
     const students = remoteUsersArray.filter(u => !u.isTeacher && !u.isScreenShare);
-    
+
     // Priority 1: Screen share gets fullscreen
     if (screenShare) {
       return {
@@ -636,7 +624,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         showLocal: true
       };
     }
-    
+
     // Priority 2: Pinned user
     if (isPinned) {
       const pinnedUser = remoteUsersArray.find(u => u.uid === isPinned);
@@ -649,7 +637,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         };
       }
     }
-    
+
     // Priority 3: Teacher spotlight (default for education)
     if (teacher) {
       return {
@@ -659,7 +647,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         showLocal: true
       };
     }
-    
+
     // Priority 4: Grid for peer learning
     return {
       type: 'grid',
@@ -668,36 +656,32 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       showLocal: true
     };
   };
-  
-  // 🎯 FIXED: Enhanced LocalVideoPlayer with proper video handling
+
+  // 🎯 FIXED: LocalVideoPlayer with proper error handling
   const LocalVideoPlayer = React.memo(() => {
-    // Force video element update when track changes
     useEffect(() => {
-      if (cameraTrack && localVideoRef.current && !isVideoOff) {
-        const videoElement = localVideoRef.current;
-        
-        // Ensure video element is properly configured
+      if (!localVideoRef.current) return;
+
+      const videoElement = localVideoRef.current;
+
+      // Ensure video element is always visible when ready
+      if (localVideoReady && !isVideoOff) {
         videoElement.style.cssText = `
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-        background: black !important;
+        display: block;
+        visibility: visible;
+        opacity: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: black;
         transform: scaleX(-1);
         `;
-        
-        // Replay the track if needed
-        if (!videoElement.srcObject) {
-          cameraTrack.play(videoElement).catch(console.error);
-        }
       }
-    }, [cameraTrack, isVideoOff]);
-    
+    }, [localVideoReady, isVideoOff]);
+
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
-      {/* Video Element - Critical: Simplified approach */}
+      {/* Video Element */}
       <video
       ref={localVideoRef}
       autoPlay
@@ -705,28 +689,28 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       playsInline
       className="w-full h-full object-cover bg-black"
       style={{
-        transform: 'scaleX(-1)' // Mirror for self-view
+        transform: 'scaleX(-1)'
       }}
       />
-      
+
       {/* User label */}
       <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
       💜 You
       </div>
-      
+
       {/* Hand raised indicator */}
       {isHandRaised && (
         <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg text-xs font-bold animate-bounce">
         ✋ Hand Raised
         </div>
       )}
-      
+
       {/* Status indicators */}
       <div className="absolute bottom-2 right-2 flex items-center space-x-1">
       {isVideoOff && <VideoOff size={14} className="text-red-400" />}
       {isAudioMuted && <MicOff size={14} className="text-red-400" />}
       </div>
-      
+
       {/* Loading state */}
       {!localVideoReady && !isVideoOff && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
@@ -734,7 +718,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         <span className="ml-2 text-purple-300 text-sm">Initializing camera...</span>
         </div>
       )}
-      
+
       {/* Video off state */}
       {isVideoOff && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
@@ -745,57 +729,62 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     );
   });
-  
+
   const RemoteVideoPlayer = React.memo(({ user, size = 'large', onPin }) => {
     const videoContainerRef = useRef(null);
-    
+
     useEffect(() => {
       if (!user.videoTrack || !videoContainerRef.current) return;
-      
+
       const videoElement = document.createElement('video');
       videoElement.className = 'w-full h-full object-cover bg-black';
       videoElement.autoplay = true;
       videoElement.playsInline = true;
-      
+
       videoContainerRef.current.innerHTML = '';
       videoContainerRef.current.appendChild(videoElement);
-      
-      user.videoTrack.play(videoElement).catch(error => {
+
+      // Store reference for cleanup
+      videoElementsRef.current.set(user.uid, videoElement);
+
+      // Use our enhanced play method
+      playVideoTrack(user.videoTrack, videoElement).catch(error => {
         console.warn(`Video play error for user ${user.uid}:`, error);
       });
-      
+
       return () => {
         user.videoTrack?.stop();
+        videoElementsRef.current.delete(user.uid);
       };
-    }, [user.uid, user.videoTrack]);
-    
+    }, [user.uid, user.videoTrack, playVideoTrack]);
+
     const getUserLabel = () => {
       if (user.isScreenShare) return '🖥️ Screen Share';
       if (user.isTeacher) return `👨‍🏫 ${classItem.teacher_name || 'Teacher'}`;
       return `👤 Student ${user.uid}`;
     };
-    
+
     const getBorderColor = () => {
       if (user.isScreenShare) return 'border-orange-500';
       if (user.isTeacher) return 'border-yellow-500';
       return 'border-green-500';
     };
-    
+
     return (
       <div className={`relative w-full h-full rounded-xl overflow-hidden bg-black border-2 ${getBorderColor()} transition-all duration-300`}>
       <div ref={videoContainerRef} className="w-full h-full" />
-      
+
       {/* User label */}
       <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
       {getUserLabel()}
       </div>
-      
+
       {/* Status indicators */}
       <div className="absolute bottom-2 right-2 flex items-center space-x-1">
       {!user.hasVideo && <VideoOff size={14} className="text-red-400" />}
       {!user.hasAudio && <MicOff size={14} className="text-red-400" />}
       </div>
-      
+
       {/* No video overlay */}
       {!user.hasVideo && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
@@ -805,10 +794,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     );
   });
-  
+
   const renderVideoLayout = () => {
     const layout = getOptimalLayout();
-    
+
     if (layout.type === 'screenshare') {
       return (
         <div className="h-full flex flex-col lg:flex-row gap-2">
@@ -816,14 +805,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         <div className="flex-1 min-h-0">
         <RemoteVideoPlayer user={layout.mainVideo} size="large" />
         </div>
-        
+
         {/* Sidebar with thumbnails */}
         <div className="lg:w-48 xl:w-64 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-y-auto pb-2 lg:pb-0">
         {/* Local video thumbnail */}
         <div className="w-32 h-24 lg:w-full lg:h-32 flex-shrink-0">
         <LocalVideoPlayer />
         </div>
-        
+
         {/* Other participants thumbnails */}
         {layout.sidebarVideos.map(user => (
           <div key={user.uid} className="w-32 h-24 lg:w-full lg:h-32 flex-shrink-0">
@@ -838,7 +827,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         </div>
       );
     }
-    
+
     if (layout.type === 'spotlight' || layout.type === 'pinned') {
       return (
         <div className="h-full flex flex-col gap-2">
@@ -846,14 +835,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         <div className="flex-[7] lg:flex-[3] min-h-0">
         <RemoteVideoPlayer user={layout.mainVideo} size="large" />
         </div>
-        
+
         {/* Bottom strip with other videos */}
         <div className="flex-[3] lg:flex-[1] flex gap-2 overflow-x-auto">
         {/* Local video */}
         <div className="w-32 lg:w-48 flex-shrink-0">
         <LocalVideoPlayer />
         </div>
-        
+
         {/* Other participants */}
         {layout.sidebarVideos.map(user => (
           <div key={user.uid} className="w-32 lg:w-48 flex-shrink-0">
@@ -868,18 +857,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         </div>
       );
     }
-    
+
     // Grid mode
     const allVideos = [{ type: 'local' }, ...layout.sidebarVideos];
     const videoCount = allVideos.length;
-    
+
     const getGridClasses = () => {
       if (videoCount <= 2) return 'grid-cols-1 sm:grid-cols-2';
       if (videoCount <= 4) return 'grid-cols-2';
       if (videoCount <= 6) return 'grid-cols-2 sm:grid-cols-3';
       return 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4';
     };
-    
+
     return (
       <div className={`h-full grid ${getGridClasses()} gap-2 overflow-y-auto p-2`}>
       {allVideos.map((item, index) => (
@@ -898,7 +887,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     );
   };
-  
+
   const updateParticipantsList = () => {
     const remoteUsersArray = Array.from(remoteUsers.values());
     setParticipants([
@@ -915,7 +904,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }))
     ]);
   };
-  
+
   const toggleAudio = async () => {
     if (localTracksRef.current.audio) {
       try {
@@ -927,32 +916,19 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }
     }
   };
-  
+
   const toggleVideo = async () => {
     if (localTracksRef.current.video) {
       try {
-        const newState = !isVideoOff;
-        await localTracksRef.current.video.setEnabled(newState);
-        setIsVideoOff(!newState);
+        await localTracksRef.current.video.setEnabled(!isVideoOff);
+        setIsVideoOff(!isVideoOff);
         updateParticipantsList();
-        
-        // Force video element update
-        if (localVideoRef.current) {
-          if (newState) {
-            // Video turned on
-            localVideoRef.current.style.display = 'block';
-            localVideoRef.current.style.visibility = 'visible';
-          } else {
-            // Video turned off
-            localVideoRef.current.style.display = 'none';
-          }
-        }
       } catch (error) {
         console.error('Error toggling video:', error);
       }
     }
   };
-  
+
   const raiseHand = async () => {
     try {
       setIsHandRaised(!isHandRaised);
@@ -963,11 +939,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       console.error('Error raising hand:', error);
     }
   };
-  
+
   const leaveCall = async () => {
     try {
       if (timerRef.current) clearInterval(timerRef.current);
-      
+
       // Stop all local tracks
       Object.values(localTracksRef.current).forEach(track => {
         if (track) {
@@ -979,7 +955,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           }
         }
       });
-      
+
+      // Clean up remote video elements
+      videoElementsRef.current.forEach(element => {
+        element.remove();
+      });
+      videoElementsRef.current.clear();
+
       if (agoraClient) {
         await agoraClient.leave();
       }
@@ -996,26 +978,25 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsHandRaised(false);
       setLocalVideoReady(false);
       setIsPinned(null);
-      setCameraTrack(null);
       joinAttemptRef.current = 0;
-      
+
       onClose();
     }
   };
-  
+
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setCallDuration(prev => prev + 1);
     }, 1000);
   };
-  
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-  
+
   const getConnectionColor = () => {
     switch(connectionQuality) {
       case 'excellent': return 'text-green-400';
@@ -1025,23 +1006,23 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       default: return 'text-green-400';
     }
   };
-  
+
   useEffect(() => {
     if (isOpen && classItem?.video_session?.meeting_id) {
       initializeRealCall();
     }
-    
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isOpen, classItem]);
-  
+
   useEffect(() => {
     updateParticipantsList();
   }, [remoteUsers, isAudioMuted, isVideoOff]);
-  
+
   if (!isOpen) return null;
-  
+
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex flex-col">
     {/* Header */}
@@ -1053,7 +1034,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       isConnected ? 'bg-green-500 animate-pulse' :
       isConnecting ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
     }`}></div>
-    
+
     <div className="min-w-0 flex-1">
     <h2 className="text-sm sm:text-base font-bold truncate">
     {classItem.title}
@@ -1063,18 +1044,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </p>
     </div>
     </div>
-    
+
     {/* Right: Controls */}
     <div className="flex items-center gap-2 flex-shrink-0">
     <div className="bg-cyan-700/50 px-2 py-1 rounded-full text-xs font-mono hidden sm:flex items-center gap-1">
     <Users size={12} />
     <span>{participants.length}</span>
     </div>
-    
+
     <div className={`text-xs font-mono px-2 py-1 rounded-full ${getConnectionColor()} bg-black/30 hidden sm:block`}>
     {connectionQuality.toUpperCase()}
     </div>
-    
+
     <button
     onClick={leaveCall}
     className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-1"
@@ -1085,7 +1066,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
     </div>
     </div>
-    
+
     {/* Error Display */}
     {error && (
       <div className="bg-red-600 text-white p-2 mx-2 sm:mx-4 mt-2 rounded-lg flex justify-between items-center text-sm flex-shrink-0">
@@ -1095,7 +1076,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </button>
       </div>
     )}
-    
+
     {/* Main Video Area */}
     <div className="flex-1 min-h-0 p-2 sm:p-4">
     {isConnecting ? (
@@ -1130,7 +1111,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     )}
     </div>
-    
+
     {/* Control Bar */}
     {isConnected && (
       <div className="bg-gradient-to-r from-gray-800/95 to-gray-900/95 border-t border-cyan-500/20 p-2 sm:p-4 backdrop-blur-xl flex-shrink-0">
@@ -1147,7 +1128,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       >
       {isAudioMuted ? <MicOff size={20} className="text-white" /> : <Mic size={20} className="text-white" />}
       </button>
-      
+
       {/* Video Button */}
       <button
       onClick={toggleVideo}
@@ -1160,7 +1141,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       >
       {isVideoOff ? <VideoOff size={20} className="text-white" /> : <Video size={20} className="text-white" />}
       </button>
-      
+
       {/* Raise Hand */}
       <button
       onClick={raiseHand}
