@@ -182,7 +182,12 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     throw error;
   }
 };
-
+let AgoraRTC;
+try {
+  AgoraRTC = require('agora-rtc-sdk-ng');
+} catch (error) {
+  console.warn('Agora SDK not available:', error);
+}
 // components/StudentVideoCall
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // Core state
