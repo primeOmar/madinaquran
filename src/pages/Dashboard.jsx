@@ -15,7 +15,7 @@ import {
   Calendar,
   Layout,
   Award,
-  RefreshCw,AlertCircle,
+  RefreshCw,
   BarChart3,
   Download,
   Upload,
