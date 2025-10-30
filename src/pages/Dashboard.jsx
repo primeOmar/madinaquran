@@ -22,7 +22,7 @@ import {
   Bell,
   Settings,
   LogOut,
-  Menu,Hand,
+  Menu,
   X,
   ChevronDown,
   CheckCircle,
