@@ -1,121 +1,124 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+// src/pages/Dashboard.jsx
+import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoApi from '../lib/agora/videoApi';
+import studentApi  from '../lib/studentApi';
 import {
-  Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Users, Clock,Settings,Share2,
-  MessageCircle,User,Maximize2,Minimize2,Grid3X3,Pin,MoreVertical,Crown,Shield,Zap,
-  BarChart3,Download,MessageSquare,BookOpen,Bell,LogOut,Loader2,
-  Calendar,
-  Play,
-  Search,
-  Plus,
   FileText,
-  FileCheck,
-  Trash2,
+  CreditCard,
+  ClipboardList,
+  BookOpen,
+  Signal,
+  Clock,
+  User,
+  Users,
+  Calendar,
+  Layout,
+  Award,
+  RefreshCw,
+  BarChart3,
+  Download,
+  Upload,
+  Bell,
+  Settings,
+  LogOut,
+  Menu,Hand,
   X,
   ChevronDown,
-  Menu,
-  XCircle,
   CheckCircle,
-  Edit,
-  Eye,
-  Award,
-  Rocket,
-  RefreshCw,
-  Brain,
-  TrendingUp,
+  AlertCircle,
+  PlayCircle,
+  Mail,
+  Mic,
   Square,
-  StopCircle,
-  Maximize,
-  Minimize,
-  Copy,
-  Phone
+  Play,
+  Pause,
+  Trash2,
+  Loader2,
+  TrendingUp,
+  Video,
+  MessageCircle,
+  ShieldCheck,
+  MicOff,
+  Camera,
+  CameraOff,
+  PhoneOff,
+  Crown,
+  Zap,
+  Rocket,
+  Sparkles,
+  Target,
+  Star,
+  Gem
 } from "lucide-react";
-import { useAuth } from '../components/AuthContext';
-import { teacherApi } from '../lib/teacherApi';
+import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
-import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from "framer-motion";
 
-// Madina Design System Components
-const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
-  <div
-  className={`bg-gradient-to-br ${gradient} backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 shadow-2xl ${className}`}
-  {...props}
-  >
-  {children}
-  </div>
-);
-
-const MadinaButton = ({ children, variant = "primary", className = "", ...props }) => {
-  const baseClasses = "px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 flex items-center justify-center";
-
-  const variants = {
-    primary: "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg",
-    success: "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-lg",
-    danger: "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg",
-    warning: "bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white shadow-lg",
-    ghost: "bg-white/10 hover:bg-white/20 text-white border border-white/20"
-  };
-
-  return (
-    <button className={`${baseClasses} ${variants[variant]} ${className}`} {...props}>
-    {children}
-    </button>
-  );
-};
-
-const MadinaBadge = ({ children, variant = "info", className = "" }) => {
-  const baseClasses = "px-3 py-1 rounded-full text-xs font-bold backdrop-blur-lg border";
-
-  const variants = {
-    info: "bg-blue-500/20 text-blue-300 border-blue-500/30",
-    success: "bg-green-500/20 text-green-300 border-green-500/30",
-    warning: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
-    danger: "bg-red-500/20 text-red-300 border-red-500/30",
-    live: "bg-red-500/20 text-red-300 border-red-500/30 animate-pulse"
-  };
-
-  return (
-    <span className={`${baseClasses} ${variants[variant]} ${className}`}>
-    {children}
-    </span>
-  );
-};
-
-// Enhanced Audio Recorder with Madina Design
+// === AI-POWERED UTILITY FUNCTIONS ===
 const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
-  const [audioData, setAudioData] = useState(null);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState('');
   const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
 
   const startRecording = async () => {
     try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorderRef.current.start(1000); // Collect data every second
       setIsRecording(true);
       setRecordingTime(0);
 
-      const interval = setInterval(() => {
+      timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
 
-      setTimeout(() => {
-        clearInterval(interval);
-        setIsRecording(false);
-        setAudioData('demo-audio-data');
-        toast.success('🎙️ Madina recording complete!');
-      }, 5000);
     } catch (error) {
-      toast.error('🚫 Failed to start neural recording');
+      console.error('Error starting recording:', error);
+      toast.error('Microphone access required for audio submissions');
     }
   };
 
   const stopRecording = () => {
-    setIsRecording(false);
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
   };
 
   const clearRecording = () => {
-    setAudioData(null);
+    setAudioBlob(null);
+    setAudioUrl('');
     setRecordingTime(0);
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
   };
 
   const formatTime = (seconds) => {
@@ -124,3732 +127,2529 @@ const useAudioRecorder = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [audioUrl]);
+
   return {
     isRecording,
-    audioData,
+    audioBlob,
+    audioUrl,
     recordingTime: formatTime(recordingTime),
     startRecording,
     stopRecording,
     clearRecording,
-    hasRecording: !!audioData
+    hasRecording: !!audioBlob
   };
 };
 
-// Quick Rejoin Section Component
-const QuickRejoinSection = ({ recentSessions, onRejoin }) => {
-  if (!recentSessions || recentSessions.length === 0) return null;
-
-
-};
-
-/**
- * Production-ready Agora RTC initialization function
- * Features: Error handling, logging, token support, and fallback mechanisms
- */
-const initializeAgora = async (options = {}) => {
-  const {
-    channelName = `class-${Date.now()}`,
-    enableAudio = true,
-    enableVideo = true,
-    token = null,
-    uid = null
-  } = options;
-
+const uploadAudioToSupabase = async (audioBlob, fileName) => {
   try {
-    console.group('🎥 Agora RTC Initialization');
-
-    // 1. Validate Agora SDK
-    if (typeof AgoraRTC === 'undefined') {
-      throw new Error('Agora SDK not loaded. Check network and script tags.');
-    }
-
-    // 2. Validate App ID
-    const appId = import.meta.env.VITE_AGORA_APP_ID?.trim();
-
-    if (!appId) {
-      throw new Error('Agora App ID not found in environment variables.');
-    }
-
-    if (appId.includes('your_agora_app_id') || appId.length < 10) {
-      throw new Error('Invalid Agora App ID. Please check your VITE_AGORA_APP_ID environment variable.');
-    }
-
-    console.log('📋 Agora Configuration:', {
-      appId: `${appId.substring(0, 8)}...`,
-                channelName,
-                hasToken: !!token
+    const audioFile = new File([audioBlob], fileName, {
+      type: 'audio/webm',
+      lastModified: Date.now()
     });
 
-    // 3. Network connectivity check
-    if (!navigator.onLine) {
-      throw new Error('No internet connection. Please check your network.');
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      throw new Error('Authentication required');
     }
 
-    // 4. Initialize client with better error handling
-    const client = AgoraRTC.createClient({
-      mode: 'rtc',
-      codec: 'vp8'
+    const { data, error } = await supabase.storage
+    .from('assignment-audio')
+    .upload(fileName, audioFile, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: 'audio/webm'
     });
 
-    // 5. Set up connection state monitoring
-    client.on('connection-state-change', (curState, prevState) => {
-      console.log('🔗 Connection State:', { from: prevState, to: curState });
-    });
+    if (error) throw error;
 
-    // 6. Join channel with timeout
-    console.log('🚀 Joining channel...');
-
-    const joinPromise = client.join(appId, channelName, token, uid);
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Connection timeout - check firewall/network')), 15000);
-    });
-
-    await Promise.race([joinPromise, timeoutPromise]);
-
-    console.log('✅ Agora initialized successfully');
-    console.groupEnd();
+    const { data: urlData } = supabase.storage
+    .from('assignment-audio')
+    .getPublicUrl(fileName);
 
     return {
-      client,
-      appId: `${appId.substring(0, 8)}...`,
-      channelName,
-      localUid: client.uid
+      storagePath: data.path,
+      publicUrl: urlData.publicUrl
     };
 
   } catch (error) {
-    console.groupEnd();
-
-    // Enhanced error analysis
-    let userMessage = 'Video service unavailable. ';
-
-    if (error.message.includes('CAN_NOT_GET_GATEWAY_SERVER')) {
-      userMessage += 'Network blocked. Check firewall or try different network.';
-    } else if (error.message.includes('timeout')) {
-      userMessage += 'Connection timeout. Check internet stability.';
-    } else if (error.message.includes('INVALID_APP_ID')) {
-      userMessage += 'Invalid App ID configuration.';
-    } else if (error.message.includes('network') || error.message.includes('firewall')) {
-      userMessage += 'Network issue detected.';
-    } else {
-      userMessage += 'Please try again or contact support.';
-    }
-
-    console.error('❌ Agora Initialization Failed:', {
-      error: error.message,
-      code: error.code,
-      suggestion: userMessage
-    });
-
-    throw new Error(userMessage);
+    console.error('Upload failed:', error);
+    throw error;
   }
 };
 
-// Video Call Modal Component
-const VideoCallModal = ({
-  class: classData,
-  onClose,
-  onError,
-  channel,
-  token,
-  appId,
-  uid
-}) => {
-  // State Management
-  const [agoraClient, setAgoraClient] = useState(null);
-  const [localTracks, setLocalTracks] = useState({});
+// components/StudentVideoCall
+const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
+  // State declarations
+  const [localStream, setLocalStream] = useState(null);
   const [remoteUsers, setRemoteUsers] = useState(new Map());
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const [participants, setParticipants] = useState([]);
+  const [connectionQuality, setConnectionQuality] = useState('excellent');
+  const [agoraClient, setAgoraClient] = useState(null);
+  const [error, setError] = useState('');
+  const [debugInfo, setDebugInfo] = useState('');
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [connectionTime, setConnectionTime] = useState(0);
-  const [callStartTime] = useState(Date.now());
-  const [layoutMode, setLayoutMode] = useState('auto');
-  const [pinnedUser, setPinnedUser] = useState(null);
-  const [showParticipants, setShowParticipants] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [connectionStats, setConnectionStats] = useState({});
   const [activeSpeaker, setActiveSpeaker] = useState(null);
+  const [layoutMode, setLayoutMode] = useState('auto');
+  const [teacherUid, setTeacherUid] = useState(null);
+  const [isHandRaised, setIsHandRaised] = useState(false);
+  const [localVideoReady, setLocalVideoReady] = useState(false);
+  const [isPinned, setIsPinned] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [showChat, setShowChat] = useState(false);
-  const [debugLogs, setDebugLogs] = useState([]);
-
+  const [localVideoElement, setLocalVideoElement] = useState(null);
+  
   // Refs
   const localVideoRef = useRef(null);
-  const remoteVideoRefs = useRef(new Map());
-  const timerIntervalRef = useRef(null);
-  const containerRef = useRef(null);
-  const statsIntervalRef = useRef(null);
-
-  // Add debug logging
-  const addDebugLog = useCallback((message) => {
-    console.log(`🔍 ${message}`);
-    setDebugLogs(prev => [...prev.slice(-99), `${new Date().toISOString().split('T')[1].split('.')[0]}: ${message}`]);
+  const timerRef = useRef(null);
+  const localTracksRef = useRef({ audio: null, video: null, screen: null });
+  const joinAttemptRef = useRef(0);
+  const remoteVideoElementsRef = useRef(new Map());
+  const screenShareUidRef = useRef(null);
+  const teacherUidRef = useRef(null);
+  const updateParticipantsTimeoutRef = useRef(null);
+  const videoContainerRef = useRef(null);
+  
+  // ✅ Database override
+  useEffect(() => {
+    console.log('🔧 PRODUCTION MODE: All database operations disabled');
+    if (typeof studentApi !== 'undefined' && studentApi.recordParticipation) {
+      studentApi.recordParticipation = async (data) => {
+        console.log('🎯 DATABASE OVERRIDE: Participation recording disabled');
+        return { success: true, data: { id: 'disabled_' + Date.now() } };
+      };
+    }
   }, []);
-
-  // Enhanced Timer
-  useEffect(() => {
-    timerIntervalRef.current = setInterval(() => {
-      setConnectionTime(Math.floor((Date.now() - callStartTime) / 1000));
-    }, 1000);
-
-    return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-    };
-  }, [callStartTime]);
-
-  // Connection Statistics
-  useEffect(() => {
-    const updateStats = async () => {
-      if (agoraClient) {
-        try {
-          const stats = await agoraClient.getRTCStats();
-          const remoteStats = Array.from(remoteUsers.values()).map(user => ({
-            uid: user.uid,
-            video: user.videoTrack?.getStats?.(),
-                                                                            audio: user.audioTrack?.getStats?.()
-          }));
-
-          setConnectionStats({
-            uplink: stats.TxBitrate,
-            downlink: stats.RxBitrate,
-            packetLoss: stats.RXPacketLossRate,
-            remoteUsers: remoteStats
-          });
-        } catch (error) {
-          console.log('Stats update error:', error);
-        }
-      }
-    };
-
-    statsIntervalRef.current = setInterval(updateStats, 2000);
-    return () => {
-      if (statsIntervalRef.current) {
-        clearInterval(statsIntervalRef.current);
-      }
-    };
-  }, [agoraClient, remoteUsers]);
-
-  // Enhanced Remote Stream Detection
-  const checkRemoteStreams = useCallback(() => {
-    if (!agoraClient) return;
-
-    addDebugLog('Checking all remote streams...');
-    const remoteUsers = agoraClient.remoteUsers || [];
-
-    if (remoteUsers.length === 0) {
-      addDebugLog('No remote users found in client.remoteUsers');
-      return;
-    }
-
-    remoteUsers.forEach(remoteUser => {
-      addDebugLog(`Remote user ${remoteUser.uid} - Video: ${!!remoteUser.videoTrack}, Audio: ${!!remoteUser.audioTrack}`);
-
-      // If user has video but we're not showing it, force subscription
-      if (remoteUser.videoTrack && !remoteVideoRefs.current.get(remoteUser.uid)) {
-        addDebugLog(`Force subscribing to ${remoteUser.uid} video`);
-        agoraClient.subscribe(remoteUser, 'video').then(() => {
-          addDebugLog(`Force subscribed to ${remoteUser.uid}`);
-        }).catch(err => {
-          addDebugLog(`Force subscription failed: ${err.message}`);
-        });
-      }
-    });
-  }, [agoraClient, addDebugLog]);
-
-  // Check for remote streams periodically
-  useEffect(() => {
-    if (agoraClient) {
-      const interval = setInterval(checkRemoteStreams, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [agoraClient, checkRemoteStreams]);
-
-  // Format timer display
-  const formatConnectionTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hours > 0) {
-      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Enhanced Agora Initialization
-  const initializeAgoraWithBackend = async () => {
+  
+  const checkSessionStatus = async (meetingId) => {
     try {
-      addDebugLog('Initializing Agora Teacher Session...');
-
-      if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK not loaded');
+      console.log('🔍 Checking session status for:', meetingId);
+      const status = await studentApi.getSessionStatus(meetingId);
+      console.log('📊 Session status response:', status);
+      
+      if (status.is_active === false) {
+        throw new Error(`Session not active: ${status.error || 'No active session found'}`);
       }
-
-      if (!channel) {
-        throw new Error('No channel provided');
+      
+      if (!status.is_teacher_joined) {
+        console.log('⚠️ Teacher not joined yet, but proceeding with join...');
       }
-
-      const finalAppId = appId || import.meta.env.VITE_AGORA_APP_ID;
-      if (!finalAppId || finalAppId.includes('your_')) {
-        throw new Error('Invalid Agora App ID');
-      }
-
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8'
-      });
-
-      setupEnhancedEventListeners(client);
-
-      addDebugLog('Joining as Teacher...');
-      await client.join(finalAppId, channel, token, uid);
-
-      addDebugLog('Teacher successfully joined channel');
-      return client;
-
+      
+      return status;
     } catch (error) {
-      addDebugLog(`Agora initialization failed: ${error.message}`);
-      throw new Error(`Failed to join video session: ${error.message}`);
+      console.error('❌ Session status check failed:', error);
+      throw error;
     }
   };
-
-  // Enhanced Event Listeners with Debugging
-  const setupEnhancedEventListeners = (client) => {
-    client.on('user-published', async (user, mediaType) => {
-      addDebugLog(`TEACHER DETECTED: Student ${user.uid} published ${mediaType}`);
-
-      try {
-        // Enhanced subscription with retry
-        await client.subscribe(user, mediaType);
-        addDebugLog(`TEACHER SUBSCRIBED: to student ${user.uid} ${mediaType}`);
-
-        if (mediaType === 'video') {
-          addDebugLog(`TEACHER: Setting up video for student ${user.uid}`);
-
-          setRemoteUsers(prev => {
-            const newMap = new Map(prev);
-            const userData = newMap.get(user.uid) || {
-              uid: user.uid,
-              hasVideo: false,
-              hasAudio: false,
-              videoTrack: null,
-              audioTrack: null,
-              isSpeaking: false,
-              joinedAt: new Date(),
-                         role: 'student'
-            };
-            userData.videoTrack = user.videoTrack;
-            userData.hasVideo = true;
-            newMap.set(user.uid, userData);
-            addDebugLog(`TEACHER: Updated remote users map for ${user.uid}`);
-            return newMap;
-          });
-
-          // Enhanced video playback with retry
-          setTimeout(() => {
-            const videoElement = remoteVideoRefs.current.get(user.uid);
-            if (videoElement && user.videoTrack) {
-              try {
-                user.videoTrack.play(videoElement);
-                addDebugLog(`TEACHER: Playing video for student ${user.uid}`);
-              } catch (playError) {
-                addDebugLog(`TEACHER: Video play failed for ${user.uid}: ${playError.message}`);
-                // Retry after delay
-                setTimeout(() => {
-                  if (user.videoTrack && videoElement) {
-                    user.videoTrack.play(videoElement).catch(e =>
-                    addDebugLog(`TEACHER: Retry failed for ${user.uid}: ${e.message}`)
-                    );
-                  }
-                }, 1000);
-              }
-            } else {
-              addDebugLog(`TEACHER: No video element found for ${user.uid}`);
-            }
-          }, 100);
-        }
-
-        if (mediaType === 'audio') {
-          setRemoteUsers(prev => {
-            const newMap = new Map(prev);
-            const userData = newMap.get(user.uid) || {
-              uid: user.uid,
-              hasVideo: false,
-              hasAudio: false,
-              videoTrack: null,
-              audioTrack: null,
-              isSpeaking: false,
-              joinedAt: new Date(),
-                         role: 'student'
-            };
-            userData.audioTrack = user.audioTrack;
-            userData.hasAudio = true;
-            newMap.set(user.uid, userData);
-            return newMap;
-          });
-
-          // Enhanced audio playback with volume monitoring
-          try {
-            if (user.audioTrack) {
-              user.audioTrack.play();
-
-              // Monitor speaking activity
-              user.audioTrack.on('volume-change', (volume) => {
-                if (volume > 0.1) {
-                  setActiveSpeaker(user.uid);
-                  setRemoteUsers(prev => {
-                    const newMap = new Map(prev);
-                    const userData = newMap.get(user.uid);
-                    if (userData) {
-                      userData.isSpeaking = true;
-                      newMap.set(user.uid, userData);
-                    }
-                    return newMap;
-                  });
-
-                  // Auto reset speaking state
-                  setTimeout(() => {
-                    setRemoteUsers(prev => {
-                      const newMap = new Map(prev);
-                      const userData = newMap.get(user.uid);
-                      if (userData && userData.uid !== activeSpeaker) {
-                        userData.isSpeaking = false;
-                        newMap.set(user.uid, userData);
-                      }
-                      return newMap;
-                    });
-                  }, 1000);
-                }
-              });
-            }
-          } catch (audioError) {
-            addDebugLog(`TEACHER: Failed to play audio: ${audioError.message}`);
-          }
-        }
-      } catch (error) {
-        addDebugLog(`TEACHER: Subscription failed for ${user.uid}: ${error.message}`);
+  
+  // 🎯 FIXED: Enhanced local video setup with proper ref handling
+  const setupLocalVideo = async (cameraTrack) => {
+    try {
+      console.log('🎬 Setting up local video...');
+      setLocalVideoReady(false);
+      
+      // Wait for React ref to be available
+      let videoElement = localVideoRef.current;
+      let waitAttempts = 0;
+      const maxWaitAttempts = 20;
+      
+      while (!videoElement && waitAttempts < maxWaitAttempts) {
+        console.log(`⏳ Waiting for video element... attempt ${waitAttempts + 1}`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        videoElement = localVideoRef.current;
+        waitAttempts++;
       }
-    });
-
-    client.on('user-unpublished', (user, mediaType) => {
-      addDebugLog(`Student ${user.uid} unpublished ${mediaType}`);
-
-      setRemoteUsers(prev => {
-        const newMap = new Map(prev);
-        const userData = newMap.get(user.uid);
-        if (userData) {
-          if (mediaType === 'video') {
-            userData.videoTrack = null;
-            userData.hasVideo = false;
-          }
-          if (mediaType === 'audio') {
-            userData.audioTrack = null;
-            userData.hasAudio = false;
-          }
-          newMap.set(user.uid, userData);
-        }
-        return newMap;
-      });
-    });
-
-    client.on('user-joined', (user) => {
-      addDebugLog(`Student ${user.uid} joined`);
-      setRemoteUsers(prev => {
-        const newMap = new Map(prev);
-        if (!newMap.has(user.uid)) {
-          newMap.set(user.uid, {
-            uid: user.uid,
-            hasVideo: false,
-            hasAudio: false,
-            videoTrack: null,
-            audioTrack: null,
-            isSpeaking: false,
-            joinedAt: new Date(),
-                     role: 'student'
-          });
-        }
-        return newMap;
-      });
-
-      // Send welcome message
-      setChatMessages(prev => [...prev, {
-        id: Date.now(),
-                      type: 'system',
-                      message: `Student ${user.uid} joined the session`,
-                      timestamp: new Date()
-      }]);
-    });
-
-    client.on('user-left', (user) => {
-      addDebugLog(`Student ${user.uid} left`);
-      setRemoteUsers(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(user.uid);
-        remoteVideoRefs.current.delete(user.uid);
-        return newMap;
-      });
-
-      setChatMessages(prev => [...prev, {
-        id: Date.now(),
-                      type: 'system',
-                      message: `Student ${user.uid} left the session`,
-                      timestamp: new Date()
-      }]);
-    });
-
-    client.on('connection-state-change', (curState, prevState) => {
-      addDebugLog(`Connection state: ${prevState} → ${curState}`);
-
-      if (curState === 'CONNECTED') {
-        addDebugLog('Fully connected to channel');
-        // Force refresh remote streams
-        setTimeout(() => {
-          addDebugLog('Checking for existing remote streams...');
-          checkRemoteStreams();
-        }, 2000);
+      
+      if (!videoElement) {
+        console.error('❌ Video element not found after waiting');
+        throw new Error('Video element not available');
       }
-    });
-
-    client.on('network-quality', (stats) => {
-      setConnectionStats(prev => ({
-        ...prev,
-        uplinkQuality: stats.uplinkNetworkQuality,
-        downlinkQuality: stats.downlinkNetworkQuality
-      }));
-    });
+      
+      console.log('✅ Video element found, configuring...');
+      
+      // Configure video element
+      videoElement.autoplay = true;
+      videoElement.muted = true;
+      videoElement.playsInline = true;
+      videoElement.setAttribute('playsinline', 'true');
+      videoElement.setAttribute('webkit-playsinline', 'true');
+      videoElement.style.display = 'block';
+      videoElement.style.visibility = 'visible';
+      videoElement.style.objectFit = 'cover';
+      videoElement.style.width = '100%';
+      videoElement.style.height = '100%';
+      
+      // Play video with enhanced error handling
+      const playVideoWithRetry = async (retryCount = 0) => {
+        try {
+          console.log(`🎥 Attempting to play local video (attempt ${retryCount + 1})...`);
+          
+          if (!cameraTrack) {
+            throw new Error('Camera track not available');
+          }
+          
+          if (!videoElement) {
+            throw new Error('Video element not available');
+          }
+          
+          // Stop any existing track on the element
+          if (videoElement.srcObject) {
+            videoElement.srcObject = null;
+          }
+          
+          // Use the modern approach for Agora tracks
+          await cameraTrack.play(videoElement);
+          
+          console.log('✅ Local video playing successfully');
+          setLocalVideoReady(true);
+          setLocalStream(cameraTrack);
+          
+          // Force a re-render and style update
+          videoElement.style.display = 'block';
+          videoElement.style.visibility = 'visible';
+          videoElement.style.opacity = '1';
+          
+        } catch (playError) {
+          console.warn(`❌ Video play attempt ${retryCount + 1} failed:`, playError);
+          
+          if (retryCount < 3) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return playVideoWithRetry(retryCount + 1);
+          } else {
+            // Final fallback - set the track but don't play
+            console.warn('⚠️ Using fallback video setup');
+            setLocalStream(cameraTrack);
+            setLocalVideoReady(true);
+            throw playError;
+          }
+        }
+      };
+      
+      await playVideoWithRetry();
+      
+    } catch (error) {
+      console.error('❌ Failed to setup local video:', error);
+      setError('Failed to initialize camera');
+      // Still set the track for audio functionality
+      if (cameraTrack) {
+        setLocalStream(cameraTrack);
+        setLocalVideoReady(true);
+      }
+    }
   };
-
-  // Enhanced Local Tracks with Teacher Priority
+  
   const createAndPublishLocalTracks = async (client) => {
     try {
-      addDebugLog('Creating teacher tracks...');
-
-      let microphoneTrack = null;
-      let cameraTrack = null;
-
+      console.log('🎤 Creating enhanced local tracks...');
+      setLocalVideoReady(false);
+      
+      // Create audio track
+      let microphoneTrack;
       try {
         microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
           AEC: true,
           ANS: true,
-          AGC: true,
-          encoderConfig: {
-            sampleRate: 48000,
-            stereo: true,
-            bitrate: 128
-          }
         });
-        addDebugLog('Teacher microphone track created');
+        localTracksRef.current.audio = microphoneTrack;
+        console.log('✅ Microphone track created');
       } catch (audioError) {
-        addDebugLog(`Microphone access failed: ${audioError.message}`);
+        console.warn('⚠️ Could not create microphone track:', audioError);
+        setError('Microphone access required for full participation');
       }
-
+      
+      // Create video track
+      let cameraTrack;
       try {
         cameraTrack = await AgoraRTC.createCameraVideoTrack({
-          encoderConfig: {
-            width: 1280,
-            height: 720,
-            frameRate: 30,
-            bitrate: 1700
-          },
-          optimizationMode: 'detail',
-          cameraId: await getPreferredCamera()
+          optimizationMode: 'motion',
+          encoderConfig: '720p_1',
         });
-        addDebugLog('Teacher camera track created');
-
-        if (cameraTrack && localVideoRef.current) {
-          setTimeout(() => {
-            try {
-              cameraTrack.play(localVideoRef.current, { mirror: true });
-              addDebugLog('Local teacher video playback initiated');
-            } catch (playError) {
-              addDebugLog(`Failed to play local video: ${playError.message}`);
-            }
-          }, 100);
-        }
-
+        localTracksRef.current.video = cameraTrack;
+        console.log('✅ Camera track created');
+        
+        // Setup local video playback
+        await setupLocalVideo(cameraTrack);
+        
       } catch (videoError) {
-        addDebugLog(`Camera access failed: ${videoError.message}`);
+        console.error('❌ Could not create/play camera track:', videoError);
+        setError(videoError.message || 'Camera access required');
       }
-
-      if (!microphoneTrack && !cameraTrack) {
-        throw new Error('Camera and microphone access denied. Please check permissions.');
-      }
-
+      
+      // Publish tracks
       const tracksToPublish = [];
       if (microphoneTrack) tracksToPublish.push(microphoneTrack);
       if (cameraTrack) tracksToPublish.push(cameraTrack);
-
+      
       if (tracksToPublish.length > 0) {
         await client.publish(tracksToPublish);
-        addDebugLog('Published teacher tracks');
+        console.log('✅ Local tracks published');
       }
-
-      return { microphoneTrack, cameraTrack };
-
     } catch (error) {
-      addDebugLog(`Failed to create teacher tracks: ${error.message}`);
-
-      if (error.name === 'NOT_READABLE_ERROR' || error.name === 'PERMISSION_DENIED') {
-        throw new Error('Camera or microphone access denied. Please check browser permissions.');
-      }
-
-      if (error.message.includes('NotFoundError')) {
-        throw new Error('Camera or microphone not found. Please check your device connections.');
-      }
-
-      throw error;
+      console.error('❌ Failed to create local tracks:', error);
+      setError('Failed to access camera/microphone');
     }
   };
-
-  // Get preferred camera (front/back)
-  const getPreferredCamera = async () => {
+  
+  const initializeRealCall = async () => {
+    if (joinAttemptRef.current >= 3) {
+      setError('Too many connection attempts. Please refresh and try again.');
+      return;
+    }
+    
+    joinAttemptRef.current++;
+    
     try {
-      const devices = await AgoraRTC.getCameras();
-      const frontCamera = devices.find(device =>
-      device.label.toLowerCase().includes('front') ||
-      device.label.includes('facetime')
+      setIsConnecting(true);
+      setError('');
+      console.log(`🎯 Join attempt ${joinAttemptRef.current}`);
+      
+      const meetingId = classItem.video_session?.meeting_id;
+      if (!meetingId) {
+        throw new Error('No meeting ID found for this class');
+      }
+      
+      try {
+        await checkSessionStatus(meetingId);
+      } catch (statusError) {
+        console.warn('Status check failed, proceeding...', statusError);
+      }
+      
+      const joinResult = await studentApi.joinVideoSession(meetingId);
+      
+      if (!joinResult.success) {
+        throw new Error(joinResult.error || 'Failed to get join credentials');
+      }
+      
+      if (!joinResult.channel || !joinResult.appId) {
+        throw new Error('Invalid join credentials');
+      }
+      
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      setAgoraClient(client);
+      
+      setupAgoraEventListeners(client);
+      
+      const joinPromise = client.join(
+        joinResult.appId,
+        joinResult.channel,
+        joinResult.token || null,
+        joinResult.uid || null
       );
-      return frontCamera?.deviceId || devices[0]?.deviceId;
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Join timeout after 15 seconds')), 15000);
+      });
+      
+      await Promise.race([joinPromise, timeoutPromise]);
+      
+      setIsConnected(true);
+      setIsConnecting(false);
+      startTimer();
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await createAndPublishLocalTracks(client);
+      
+      console.log('🎉 Video connection established');
     } catch (error) {
-      addDebugLog(`Camera detection error: ${error.message}`);
-      return undefined;
+      console.error(`❌ Join attempt ${joinAttemptRef.current} failed:`, error);
+      setError(error.message);
+      setIsConnecting(false);
+      setIsConnected(false);
+      
+      if (error.message.includes('timeout') || error.message.includes('network')) {
+        setTimeout(() => {
+          if (isOpen && joinAttemptRef.current < 3) {
+            initializeRealCall();
+          }
+        }, 2000);
+      }
     }
   };
-
-  // Enhanced Layout System
+  
+  const setupAgoraEventListeners = (client) => {
+    client.on('user-published', async (user, mediaType) => {
+      console.log('🎯 USER-PUBLISHED - UID:', user.uid, 'Media:', mediaType);
+      
+      try {
+        await client.subscribe(user, mediaType);
+        
+        if (mediaType === 'video') {
+          const track = user.videoTrack;
+          const isTeacher = detectTeacher(user.uid);
+          
+          if (isTeacher) {
+            setTeacherUid(user.uid);
+            teacherUidRef.current = user.uid;
+          }
+          
+          // Check if this is screen share
+          const isScreen = user.uid.toString().includes('screen') ||
+          (user._videoTrack && user._videoTrack._ID && user._videoTrack._ID.includes('screen'));
+          
+          if (isScreen) {
+            setIsScreenSharing(true);
+            screenShareUidRef.current = user.uid;
+          }
+          
+          setRemoteUsers(prev => {
+            const existing = prev.get(user.uid);
+            if (existing && existing.videoTrack === track) {
+              return prev;
+            }
+            
+            const newMap = new Map(prev);
+            newMap.set(user.uid, {
+              uid: user.uid,
+              videoTrack: track,
+              audioTrack: user.audioTrack,
+              hasVideo: true,
+              hasAudio: !!user.audioTrack,
+              isTeacher: isTeacher,
+              isScreenShare: isScreen,
+              isSpeaking: false,
+              joinedAt: existing?.joinedAt || new Date()
+            });
+            return newMap;
+          });
+        } else if (mediaType === 'audio') {
+          if (user.audioTrack && typeof user.audioTrack.play === 'function') {
+            try {
+              const playResult = user.audioTrack.play();
+              if (playResult && typeof playResult.catch === 'function') {
+                playResult.catch(e => console.log('Audio play error:', e));
+              }
+            } catch (audioError) {
+              console.log('Audio play error:', audioError);
+            }
+          }
+          
+          if (user.audioTrack && typeof user.audioTrack.on === 'function') {
+            user.audioTrack.on('volume-change', (volume) => {
+              if (volume > 0.1) {
+                setActiveSpeaker(user.uid);
+              }
+            });
+          }
+          
+          setRemoteUsers(prev => {
+            const existing = prev.get(user.uid);
+            if (!existing) return prev;
+            
+            const newMap = new Map(prev);
+            newMap.set(user.uid, {
+              ...existing,
+              audioTrack: user.audioTrack,
+              hasAudio: true
+            });
+            return newMap;
+          });
+        }
+        
+        if (updateParticipantsTimeoutRef.current) {
+          clearTimeout(updateParticipantsTimeoutRef.current);
+        }
+        updateParticipantsTimeoutRef.current = setTimeout(() => {
+          updateParticipantsList();
+        }, 100);
+      } catch (error) {
+        console.error('❌ Error in user-published handler:', error);
+      }
+    });
+    
+    client.on('user-left', (user) => {
+      console.log('👤 USER-LEFT - UID:', user.uid);
+      
+      setRemoteUsers(prev => {
+        const newMap = new Map(prev);
+        const leavingUser = newMap.get(user.uid);
+        
+        if (leavingUser?.isTeacher) {
+          setTeacherUid(null);
+          teacherUidRef.current = null;
+        }
+        
+        if (leavingUser?.isScreenShare) {
+          setIsScreenSharing(false);
+          screenShareUidRef.current = null;
+        }
+        
+        newMap.delete(user.uid);
+        return newMap;
+      });
+      
+      cleanupRemoteVideoElement(user.uid);
+      updateParticipantsList();
+    });
+    
+    client.on('connection-state-change', (curState) => {
+      console.log('🔗 CONNECTION STATE:', curState);
+      if (curState === 'CONNECTED') {
+        setError('');
+      } else if (curState === 'DISCONNECTED') {
+        setError('Disconnected. Attempting to reconnect...');
+      }
+    });
+    
+    client.on('network-quality', (stats) => {
+      const quality = Math.min(stats.uplinkNetworkQuality, stats.downlinkNetworkQuality);
+      const qualityMap = { 0: 'excellent', 1: 'good', 2: 'fair', 3: 'poor', 4: 'poor', 5: 'poor', 6: 'poor' };
+      setConnectionQuality(qualityMap[quality] || 'excellent');
+    });
+  };
+  
+  const detectTeacher = (uid) => {
+    if (classItem?.video_session?.teacher_uid === uid) return true;
+    if (remoteUsers.size === 0 && !teacherUidRef.current) return true;
+    if (uid === teacherUidRef.current) return true;
+    if (uid === 1 && !teacherUidRef.current) return true;
+    return false;
+  };
+  
+  const cleanupRemoteVideoElement = (uid) => {
+    const videoElement = remoteVideoElementsRef.current.get(uid);
+    if (videoElement) {
+      videoElement.remove();
+      remoteVideoElementsRef.current.delete(uid);
+    }
+  };
+  
+  // ✅ ENTERPRISE LAYOUT SYSTEM
   const getOptimalLayout = () => {
     const remoteUsersArray = Array.from(remoteUsers.values());
-    const totalParticipants = remoteUsersArray.length + 1; // +1 for teacher
-
-    if (pinnedUser) {
-      const pinned = remoteUsersArray.find(u => u.uid === pinnedUser);
+    const teacher = remoteUsersArray.find(u => u.isTeacher);
+    const screenShare = remoteUsersArray.find(u => u.isScreenShare);
+    const students = remoteUsersArray.filter(u => !u.isTeacher && !u.isScreenShare);
+    
+    // Priority 1: Screen share gets fullscreen
+    if (screenShare) {
       return {
-        type: 'pinned',
-        main: pinned,
-        sidebar: remoteUsersArray.filter(u => u.uid !== pinnedUser),
-        local: true
+        type: 'screenshare',
+        mainVideo: screenShare,
+        sidebarVideos: [teacher, ...students].filter(Boolean),
+        showLocal: true
       };
     }
-
-    if (isScreenSharing) {
-      const screenShareUser = remoteUsersArray.find(u => u.isScreenShare);
-      return {
-        type: 'presentation',
-        main: screenShareUser,
-        sidebar: remoteUsersArray.filter(u => !u.isScreenShare),
-        local: true
-      };
+    
+    // Priority 2: Pinned user
+    if (isPinned) {
+      const pinnedUser = remoteUsersArray.find(u => u.uid === isPinned);
+      if (pinnedUser) {
+        return {
+          type: 'pinned',
+          mainVideo: pinnedUser,
+          sidebarVideos: remoteUsersArray.filter(u => u.uid !== isPinned),
+          showLocal: true
+        };
+      }
     }
-
-    if (activeSpeaker && layoutMode === 'auto') {
-      const speaker = remoteUsersArray.find(u => u.uid === activeSpeaker);
+    
+    // Priority 3: Teacher spotlight (default for education)
+    if (teacher) {
       return {
         type: 'spotlight',
-        main: speaker,
-        sidebar: remoteUsersArray.filter(u => u.uid !== activeSpeaker),
-        local: true
+        mainVideo: teacher,
+        sidebarVideos: students,
+        showLocal: true
       };
     }
-
-    if (totalParticipants <= 4 || layoutMode === 'grid') {
-      return {
-        type: 'grid',
-        main: null,
-        sidebar: remoteUsersArray,
-        local: true
-      };
-    }
-
-    // Default: Teacher spotlight
+    
+    // Priority 4: Grid for peer learning
     return {
-      type: 'teacher_spotlight',
-      main: null,
-      sidebar: remoteUsersArray,
-      local: true
+      type: 'grid',
+      mainVideo: null,
+      sidebarVideos: remoteUsersArray,
+      showLocal: true
     };
   };
-
-  // Enhanced Video Tile Component
-  const VideoTile = ({ user, size = 'medium', showInfo = true, onPin }) => {
-    const videoRef = useRef(null);
-    const isLocal = !user;
-
+  
+  // 🎯 FIXED: Enhanced LocalVideoPlayer with proper video handling
+  const LocalVideoPlayer = React.memo(() => {
+    // Use effect to ensure video element is properly managed
     useEffect(() => {
-      if (!isLocal && user?.videoTrack && videoRef.current) {
-        addDebugLog(`TEACHER: Setting up video element for ${user.uid}`);
-
-        const playVideo = async () => {
-          try {
-            await user.videoTrack.play(videoRef.current);
-            addDebugLog(`TEACHER: Video playing for ${user.uid}`);
-          } catch (error) {
-            addDebugLog(`TEACHER: Video play error for ${user.uid}: ${error.message}`);
-            // Retry after delay
-            setTimeout(() => {
-              if (user.videoTrack && videoRef.current) {
-                user.videoTrack.play(videoRef.current).catch(e =>
-                addDebugLog(`TEACHER: Retry failed for ${user.uid}: ${e.message}`)
-                );
-              }
-            }, 1000);
-          }
-        };
-
-        playVideo();
+      if (!localVideoRef.current) return;
+      
+      const videoElement = localVideoRef.current;
+      
+      // Ensure proper styling
+      videoElement.style.display = 'block';
+      videoElement.style.visibility = 'visible';
+      videoElement.style.objectFit = 'cover';
+      videoElement.style.width = '100%';
+      videoElement.style.height = '100%';
+      videoElement.style.backgroundColor = '#000';
+    
+      // Cleanup function
+    return () => {
+      if (videoElement && videoElement.srcObject) {
+        videoElement.srcObject = null;
       }
-    }, [user, isLocal]);
-
-    // Store ref for external access
-    useEffect(() => {
-      if (!isLocal && user) {
-        remoteVideoRefs.current.set(user.uid, videoRef.current);
-      }
-      return () => {
-        if (!isLocal && user) {
-          remoteVideoRefs.current.delete(user.uid);
-        }
-      };
-    }, [user, isLocal]);
-
+    };
+    }, []);
+    
     return (
-      <div className={`
-        relative rounded-xl overflow-hidden bg-gray-800 border-2 transition-all duration-300
-        ${isLocal ? 'border-cyan-500' : 'border-green-500'}
-        ${size === 'large' ? 'aspect-video' : 'aspect-video'}
-        ${user?.isSpeaking ? 'ring-2 ring-yellow-400' : ''}
-        `}>
-        {/* Video Element */}
-        {isLocal ? (
-          <video
-          ref={localVideoRef}
-          className="w-full h-full object-cover bg-black"
-          autoPlay
-          muted
-          playsInline
-          style={{ transform: 'scaleX(-1)' }}
-          />
-        ) : user.hasVideo ? (
-          <video
-          ref={videoRef}
-          className="w-full h-full object-cover bg-black"
-          autoPlay
-          playsInline
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-900">
-          <User className="text-gray-400" size={size === 'large' ? 48 : 32} />
-          </div>
-        )}
-
-        {/* User Info Overlay */}
-        {showInfo && (
-          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-          <div className="bg-black/70 text-white px-2 py-1 rounded text-sm backdrop-blur-sm">
-          {isLocal ? '👑 You (Teacher)' : `Student ${user.uid}`}
-          {!isLocal && !user.hasAudio && ' 🔇'}
-          {!isLocal && user.isSpeaking && ' 🎤'}
-          </div>
-
-          {!isLocal && onPin && (
-            <button
-            onClick={() => onPin(user.uid)}
-            className="bg-black/70 p-1 rounded hover:bg-black/90 transition-colors"
-            >
-            <Pin size={14} className="text-white" />
-            </button>
-          )}
-          </div>
-        )}
-
-        {/* Connection Quality Indicator */}
-        {!isLocal && (
-          <div className="absolute top-2 right-2 flex items-center space-x-1">
-          <div className={`w-2 h-2 rounded-full ${
-            connectionStats.downlinkQuality <= 1 ? 'bg-green-400' :
-            connectionStats.downlinkQuality <= 3 ? 'bg-yellow-400' : 'bg-red-400'
-          }`} />
-          </div>
-        )}
+      <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
+      {/* Video Element with enhanced attributes */}
+      <video
+      ref={localVideoRef}
+      autoPlay
+      muted
+      playsInline
+      className="w-full h-full object-cover bg-black"
+      style={{ 
+        display: 'block', 
+        visibility: 'visible',
+        transform: 'scaleX(-1)' // Mirror for self-view
+      }}
+      />
+      
+      {/* User label */}
+      <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
+      💜 You
+      </div>
+      
+      {/* Hand raised indicator */}
+      {isHandRaised && (
+        <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg text-xs font-bold animate-bounce">
+        ✋ Hand Raised
         </div>
+      )}
+      
+      {/* Status indicators */}
+      <div className="absolute bottom-2 right-2 flex items-center space-x-1">
+      {isVideoOff && <CameraOff size={14} className="text-red-400" />}
+      {isAudioMuted && <MicOff size={14} className="text-red-400" />}
+      </div>
+      
+      {/* Loading state */}
+      {!localVideoReady && !isVideoOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+        <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
+        <span className="ml-2 text-purple-300 text-sm">Initializing camera...</span>
+        </div>
+      )}
+      
+      {/* Video off state */}
+      {isVideoOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+        <CameraOff className="text-purple-500 w-12 h-12" />
+        <span className="ml-2 text-purple-300 text-sm">Camera off</span>
+        </div>
+      )}
+      
+      {/* Error state */}
+      {error && !localVideoReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-900 to-black">
+        <CameraOff className="text-red-500 w-12 h-12" />
+        <span className="ml-2 text-red-300 text-sm">Camera error</span>
+        </div>
+      )}
+      </div>
     );
-  };
-
-  // Enhanced Video Grid Component
-  const VideoGrid = () => {
-    const layout = getOptimalLayout();
-    const remoteUsersArray = Array.from(remoteUsers.values());
-
-    if (layout.type === 'pinned' && layout.main) {
-      return (
-        <div className="h-full flex flex-col lg:flex-row gap-4">
-        {/* Main Pinned Video */}
-        <div className="flex-1 min-h-0">
-        <VideoTile user={layout.main} size="large" onPin={setPinnedUser} />
+  });
+  
+  const RemoteVideoPlayer = React.memo(({ user, size = 'large', onPin }) => {
+    const videoContainerRef = useRef(null);
+    const isPlayingRef = useRef(false);
+    const currentTrackRef = useRef(null);
+    const videoElementRef = useRef(null);
+    
+    useEffect(() => {
+      if (!user.videoTrack || !videoContainerRef.current) return;
+      
+      if (currentTrackRef.current === user.videoTrack &&
+        isPlayingRef.current &&
+        videoElementRef.current &&
+        videoContainerRef.current.contains(videoElementRef.current)) {
+        return;
+        }
+        
+        let videoElement = videoElementRef.current || remoteVideoElementsRef.current.get(user.uid);
+      
+      try {
+        if (!videoElement) {
+          videoElement = document.createElement('video');
+          videoElement.id = `remote-video-${user.uid}`;
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+          videoElement.muted = false;
+          videoElement.className = 'w-full h-full object-cover bg-black';
+    
+          videoElementRef.current = videoElement;
+          remoteVideoElementsRef.current.set(user.uid, videoElement);
+          
+          videoContainerRef.current.innerHTML = '';
+          videoContainerRef.current.appendChild(videoElement);
+          isPlayingRef.current = false;
+        } else if (!videoContainerRef.current.contains(videoElement)) {
+          videoContainerRef.current.innerHTML = '';
+          videoContainerRef.current.appendChild(videoElement);
+        }
+        
+        if (user.videoTrack &&
+          currentTrackRef.current !== user.videoTrack &&
+          typeof user.videoTrack.play === 'function') {
+          
+          if (currentTrackRef.current && typeof currentTrackRef.current.stop === 'function') {
+            try {
+              currentTrackRef.current.stop();
+            } catch (e) {
+              console.warn('Error stopping previous track:', e);
+            }
+          }
+          
+          const playPromise = user.videoTrack.play(videoElement);
+          
+          if (playPromise && typeof playPromise.then === 'function') {
+            playPromise
+            .then(() => {
+              isPlayingRef.current = true;
+              currentTrackRef.current = user.videoTrack;
+            })
+            .catch(error => {
+              console.warn(`Video play error for user ${user.uid}:`, error);
+              isPlayingRef.current = false;
+            });
+          } else {
+            isPlayingRef.current = true;
+            currentTrackRef.current = user.videoTrack;
+          }
+          }
+      } catch (error) {
+        console.error(`Error setting up video for user ${user.uid}:`, error);
+        isPlayingRef.current = false;
+      }
+      
+      return () => {
+        console.log(`🧹 RemoteVideoPlayer unmounting for user ${user.uid}`);
+      };
+    }, [user.uid, user.videoTrack]);
+    
+    const sizeClasses = {
+      large: 'w-full h-full',
+      small: 'w-full h-full',
+      thumbnail: 'w-full h-full'
+    };
+    
+    const getUserLabel = () => {
+      if (user.isScreenShare) return '🖥️ Screen Share';
+      if (user.isTeacher) return `👨‍🏫 ${classItem.teacher_name || 'Teacher'}`;
+      return `👤 Student ${user.uid}`;
+    };
+    
+    const getBorderColor = () => {
+      if (user.isScreenShare) return 'border-orange-500';
+      if (user.isTeacher) return 'border-yellow-500';
+      return 'border-green-500';
+    };
+    
+    return (
+      <div className={`relative ${sizeClasses[size]} rounded-xl overflow-hidden bg-black border-2 ${getBorderColor()} transition-all duration-300`}>
+      <div ref={videoContainerRef} className="w-full h-full" />
+      
+      {/* User label */}
+      <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm">
+      {getUserLabel()}
+      </div>
+      
+      {/* Pin button */}
+      {size === 'small' && onPin && (
+        <button
+        onClick={() => onPin(user.uid)}
+        className="absolute top-2 right-2 bg-black/80 p-1 rounded-lg hover:bg-black/100 transition-colors"
+        title="Pin this video"
+        >
+        <Maximize2 size={14} className="text-white" />
+        </button>
+      )}
+      
+      {/* Status indicators */}
+      <div className="absolute bottom-2 right-2 flex items-center space-x-1">
+      {!user.hasVideo && <CameraOff size={14} className="text-red-400" />}
+      {!user.hasAudio && <MicOff size={14} className="text-red-400" />}
+      {user.hasAudio && (
+        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+      )}
+      </div>
+      
+      {/* No video overlay */}
+      {!user.hasVideo && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+        <CameraOff className="text-gray-600 w-12 h-12" />
         </div>
-
-        {/* Sidebar */}
-        <div className="lg:w-80 flex flex-row lg:flex-col gap-2 overflow-x-auto">
-        <VideoTile user={null} size="small" />
-        {layout.sidebar.map(user => (
-          <div key={user.uid} className="w-32 lg:w-full aspect-video flex-shrink-0">
-          <VideoTile user={user} size="small" onPin={setPinnedUser} />
+      )}
+      </div>
+    );
+  }, (prevProps, nextProps) => {
+    return (
+      prevProps.user.uid === nextProps.user.uid &&
+      prevProps.user.videoTrack === nextProps.user.videoTrack &&
+      prevProps.user.hasVideo === nextProps.user.hasVideo &&
+      prevProps.user.hasAudio === nextProps.user.hasAudio &&
+      prevProps.size === nextProps.size
+    );
+  });
+  
+  const renderVideoLayout = () => {
+    const layout = getOptimalLayout();
+    
+    if (layout.type === 'screenshare') {
+      // Fullscreen mode for screen share
+      return (
+        <div className="h-full flex flex-col lg:flex-row gap-2">
+        {/* Main screen share - takes most space */}
+        <div className="flex-1 min-h-0">
+        <RemoteVideoPlayer user={layout.mainVideo} size="large" />
+        </div>
+        
+        {/* Sidebar with thumbnails */}
+        <div className="lg:w-48 xl:w-64 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-y-auto pb-2 lg:pb-0">
+        {/* Local video thumbnail */}
+        <div className="w-32 h-24 lg:w-full lg:h-32 flex-shrink-0">
+        <LocalVideoPlayer />
+        </div>
+        
+        {/* Other participants thumbnails */}
+        {layout.sidebarVideos.map(user => (
+          <div key={user.uid} className="w-32 h-24 lg:w-full lg:h-32 flex-shrink-0">
+          <RemoteVideoPlayer
+          user={user}
+          size="thumbnail"
+          onPin={setIsPinned}
+          />
           </div>
         ))}
         </div>
         </div>
       );
     }
-
-    // Grid Layout
-    const allVideos = [{ type: 'local' }, ...layout.sidebar];
-    const isMobile = window.innerWidth < 768;
-    const gridCols = isMobile ? 'grid-cols-1' :
-    allVideos.length <= 2 ? 'grid-cols-2' :
-    allVideos.length <= 4 ? 'grid-cols-2' :
-    allVideos.length <= 9 ? 'grid-cols-3' : 'grid-cols-4';
-
+    
+    if (layout.type === 'spotlight' || layout.type === 'pinned') {
+      // Spotlight mode - teacher or pinned user gets main stage
+      return (
+        <div className="h-full flex flex-col gap-2">
+        {/* Main video - 70% on mobile, 75% on desktop */}
+        <div className="flex-[7] lg:flex-[3] min-h-0">
+        <RemoteVideoPlayer user={layout.mainVideo} size="large" />
+        </div>
+        
+        {/* Bottom strip with other videos */}
+        <div className="flex-[3] lg:flex-[1] flex gap-2 overflow-x-auto">
+        {/* Local video */}
+        <div className="w-32 lg:w-48 flex-shrink-0">
+        <LocalVideoPlayer />
+        </div>
+        
+        {/* Other participants */}
+        {layout.sidebarVideos.map(user => (
+          <div key={user.uid} className="w-32 lg:w-48 flex-shrink-0">
+          <RemoteVideoPlayer
+          user={user}
+          size="small"
+          onPin={setIsPinned}
+          />
+          </div>
+        ))}
+        </div>
+        </div>
+      );
+    }
+    
+    // Grid mode
+    const allVideos = [{ type: 'local' }, ...layout.sidebarVideos];
+    const videoCount = allVideos.length;
+    
+    const getGridClasses = () => {
+      if (videoCount <= 2) return 'grid-cols-1 sm:grid-cols-2';
+      if (videoCount <= 4) return 'grid-cols-2';
+      if (videoCount <= 6) return 'grid-cols-2 sm:grid-cols-3';
+      return 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4';
+    };
+    
     return (
-      <div className={`h-full grid ${gridCols} gap-4 overflow-auto p-2`}>
+      <div className={`h-full grid ${getGridClasses()} gap-2 overflow-y-auto p-2`}>
       {allVideos.map((item, index) => (
         <div key={item.type === 'local' ? 'local' : item.uid} className="aspect-video">
-        <VideoTile
-        user={item.type === 'local' ? null : item}
-        size="medium"
-        onPin={setPinnedUser}
-        />
+        {item.type === 'local' ? (
+          <LocalVideoPlayer />
+        ) : (
+          <RemoteVideoPlayer
+          user={item}
+          size="small"
+          onPin={setIsPinned}
+          />
+        )}
         </div>
       ))}
       </div>
     );
   };
-
-  // Enhanced Controls
+  
+  const updateParticipantsList = () => {
+    const remoteUsersArray = Array.from(remoteUsers.values());
+    setParticipants([
+      ...remoteUsersArray.filter(u => u.isTeacher).map(u => ({
+        name: classItem.teacher_name || 'Teacher',
+        role: 'teacher',
+        uid: u.uid
+      })),
+      { name: 'You', role: 'student', uid: 'local' },
+      ...remoteUsersArray.filter(u => !u.isTeacher && !u.isScreenShare).map(u => ({
+        name: `Student ${u.uid}`,
+        role: 'student',
+        uid: u.uid
+      }))
+    ]);
+  };
+  
   const toggleAudio = async () => {
-    const audioTrack = localTracks.microphoneTrack;
-    if (audioTrack) {
+    if (localTracksRef.current.audio) {
       try {
-        await audioTrack.setEnabled(!isAudioEnabled);
-        setIsAudioEnabled(!isAudioEnabled);
-        addDebugLog(`Audio ${!isAudioEnabled ? 'enabled' : 'disabled'}`);
+        await localTracksRef.current.audio.setEnabled(isAudioMuted);
+        setIsAudioMuted(!isAudioMuted);
+        updateParticipantsList();
       } catch (error) {
-        addDebugLog(`Error toggling audio: ${error.message}`);
+        console.error('Error toggling audio:', error);
       }
     }
   };
-
+  
   const toggleVideo = async () => {
-    const videoTrack = localTracks.cameraTrack;
-    if (videoTrack) {
+    if (localTracksRef.current.video) {
       try {
-        await videoTrack.setEnabled(!isVideoEnabled);
-        setIsVideoEnabled(!isVideoEnabled);
-        addDebugLog(`Video ${!isVideoEnabled ? 'enabled' : 'disabled'}`);
+        await localTracksRef.current.video.setEnabled(isVideoOff);
+        setIsVideoOff(!isVideoOff);
+        updateParticipantsList();
+        
+        // Force video element update when toggling video
+        if (localVideoRef.current && !isVideoOff) {
+          // Video is being turned on
+          localVideoRef.current.style.display = 'block';
+          localVideoRef.current.style.visibility = 'visible';
+        }
       } catch (error) {
-        addDebugLog(`Error toggling video: ${error.message}`);
+        console.error('Error toggling video:', error);
       }
     }
   };
-
-  const toggleScreenShare = async () => {
+  
+  const raiseHand = async () => {
     try {
-      if (!isScreenSharing) {
-        const screenTrack = await AgoraRTC.createScreenVideoTrack({
-          encoderConfig: {
-            width: 1280,
-            height: 720,
-            frameRate: 15,
-            bitrate: 1500
-          },
-          optimizationMode: 'detail'
-        }, 'auto');
-
-        if (localTracks.cameraTrack) {
-          await agoraClient.unpublish(localTracks.cameraTrack);
-          localTracks.cameraTrack.stop();
-        }
-
-        await agoraClient.publish(screenTrack);
-        setLocalTracks(prev => ({ ...prev, screenTrack }));
-        setIsScreenSharing(true);
-        addDebugLog('Screen sharing started');
-
-      } else {
-        // Stop screen share and restart camera
-        if (localTracks.screenTrack) {
-          await agoraClient.unpublish(localTracks.screenTrack);
-          localTracks.screenTrack.stop();
-        }
-
-        // Restart camera
-        try {
-          const cameraTrack = await AgoraRTC.createCameraVideoTrack({
-            encoderConfig: {
-              width: 1280,
-              height: 720,
-              frameRate: 30,
-              bitrate: 1700
-            }
-          });
-
-          await agoraClient.publish(cameraTrack);
-          setLocalTracks(prev => ({ ...prev, cameraTrack, screenTrack: null }));
-
-          if (localVideoRef.current) {
-            cameraTrack.play(localVideoRef.current, { mirror: true });
-          }
-        } catch (cameraError) {
-          addDebugLog(`Could not restart camera: ${cameraError.message}`);
-        }
-
-        setIsScreenSharing(false);
-        addDebugLog('Screen sharing stopped');
+      setIsHandRaised(!isHandRaised);
+      if (classItem?.video_session?.meeting_id && typeof studentApi !== 'undefined') {
+        await studentApi.raiseHand(classItem.video_session.meeting_id, !isHandRaised);
       }
     } catch (error) {
-      addDebugLog(`Error toggling screen share: ${error.message}`);
+      console.error('Error raising hand:', error);
     }
   };
-
-  // Enhanced Leave Call with Confirmation
+  
   const leaveCall = async () => {
-    if (window.confirm('Are you sure you want to end the session for all participants?')) {
-      try {
-        addDebugLog('Teacher leaving video call...');
-
-        // Clear intervals
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
-
-        // Stop all tracks
-        Object.values(localTracks).forEach(track => {
-          if (track && typeof track.close === 'function') {
+    try {
+      if (timerRef.current) clearInterval(timerRef.current);
+      
+      Object.values(localTracksRef.current).forEach(track => {
+        if (track) {
+          try {
+            track.stop();
             track.close();
+          } catch (error) {
+            console.warn('Error closing track:', error);
           }
-        });
-
-        // Leave channel
-        if (agoraClient) {
-          await agoraClient.leave();
         }
-
-        addDebugLog('Video call cleanup complete');
-      } catch (error) {
-        addDebugLog(`Error during call cleanup: ${error.message}`);
-      } finally {
-        setAgoraClient(null);
-        setLocalTracks({});
-        setRemoteUsers(new Map());
-        onClose();
-      }
+      });
+      
+      if (agoraClient) await agoraClient.leave();
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+    } finally {
+      setIsConnected(false);
+      setCallDuration(0);
+      setLocalStream(null);
+      setRemoteUsers(new Map());
+      setAgoraClient(null);
+      setTeacherUid(null);
+      setIsScreenSharing(false);
+      setActiveSpeaker(null);
+      setIsHandRaised(false);
+      setLocalVideoReady(false);
+      setIsPinned(null);
+      joinAttemptRef.current = 0;
+      
+      remoteVideoElementsRef.current.forEach((element) => {
+        element.remove();
+      });
+      remoteVideoElementsRef.current.clear();
+      
+      screenShareUidRef.current = null;
+      teacherUidRef.current = null;
+      
+      onClose();
     }
   };
-
-  // Copy session link
-  const copySessionLink = () => {
-    const link = `${window.location.origin}/join-class/${channel}`;
-    navigator.clipboard.writeText(link).then(() => {
-      setChatMessages(prev => [...prev, {
-        id: Date.now(),
-                      type: 'system',
-                      message: 'Session link copied to clipboard',
-                      timestamp: new Date()
-      }]);
+  
+  const cleanupCall = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (updateParticipantsTimeoutRef.current) clearTimeout(updateParticipantsTimeoutRef.current);
+    
+    Object.entries(localTracksRef.current).forEach(([key, track]) => {
+      if (track) {
+        try {
+          track.stop();
+          track.close();
+          localTracksRef.current[key] = null;
+        } catch (error) {
+          console.warn(`Error stopping ${key} track:`, error);
+        }
+      }
     });
-  };
-
-  // Toggle fullscreen
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
-    setIsFullscreen(!document.fullscreenElement);
-  };
-
-  // Main initialization effect
-  useEffect(() => {
-    const initVideoCall = async () => {
+    
+    remoteVideoElementsRef.current.forEach((element) => {
       try {
-        setIsLoading(true);
-        setError(null);
-
-        addDebugLog('Starting teacher video call initialization...');
-
-        const client = await initializeAgoraWithBackend();
-        setAgoraClient(client);
-
-        const tracks = await createAndPublishLocalTracks(client);
-        setLocalTracks(tracks);
-
-        setIsLoading(false);
-        addDebugLog('Teacher video call initialized successfully');
-
-      } catch (err) {
-        addDebugLog(`Teacher video call initialization failed: ${err.message}`);
-        setError(err.message);
-        setIsLoading(false);
-        onError?.(err.message);
+        element.remove();
+      } catch (error) {
+        console.warn('Error removing video element:', error);
       }
-    };
-
-    initVideoCall();
-
-    return () => {
-      if (agoraClient || localTracks.microphoneTrack || localTracks.cameraTrack) {
-        leaveCall();
-      }
-    };
-  }, [channel, token, appId, uid]);
-
-  // Debug panel component
-  const DebugPanel = () => (
-    <div className="fixed top-20 right-4 w-80 bg-black/90 backdrop-blur-lg border border-cyan-500/20 rounded-lg p-4 max-h-96 overflow-y-auto z-50">
-    <div className="flex items-center justify-between mb-2">
-    <h4 className="text-cyan-300 font-bold">Debug Logs</h4>
+    });
+    remoteVideoElementsRef.current.clear();
+    
+    if (agoraClient) {
+      agoraClient.leave().catch(error =>
+      console.warn('Error leaving channel:', error)
+      );
+    }
+    
+    setCallDuration(0);
+    setIsConnected(false);
+    setRemoteUsers(new Map());
+    setLocalVideoReady(false);
+    joinAttemptRef.current = 0;
+  };
+  
+  const retryConnection = () => {
+    joinAttemptRef.current = 0;
+    setError('');
+    initializeRealCall();
+  };
+  
+  const startTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+  };
+  
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+  
+  const getConnectionColor = () => {
+    switch(connectionQuality) {
+      case 'excellent': return 'text-green-400';
+      case 'good': return 'text-blue-400';
+      case 'fair': return 'text-yellow-400';
+      case 'poor': return 'text-red-400';
+      default: return 'text-green-400';
+    }
+  };
+  
+  useEffect(() => {
+    if (isOpen && classItem?.video_session?.meeting_id) {
+      initializeRealCall();
+    }
+    return () => cleanupCall();
+  }, [isOpen, classItem]);
+  
+  useEffect(() => {
+    updateParticipantsList();
+  }, [remoteUsers, isAudioMuted, isVideoOff, activeSpeaker]);
+  
+  // Auto-adjust layout based on screen share
+  useEffect(() => {
+    if (isScreenSharing && isPinned !== screenShareUidRef.current) {
+      setIsPinned(null); // Clear pin when screen sharing starts
+    }
+  }, [isScreenSharing]);
+  
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex flex-col">
+    {/* Header */}
+    <div className="bg-gradient-to-r from-purple-900 via-blue-900 to-cyan-900 text-white p-2 sm:p-3 border-b border-cyan-500/30 shadow-lg flex-shrink-0">
+    <div className="flex items-center justify-between gap-2">
+    {/* Left: Status & Info */}
+    <div className="flex items-center gap-2 min-w-0 flex-1">
+    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+      isConnected ? 'bg-green-500 animate-pulse' :
+      isConnecting ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+    }`}></div>
+    
+    <div className="min-w-0 flex-1">
+    <h2 className="text-sm sm:text-base font-bold truncate">
+    {classItem.title}
+    </h2>
+    <p className="text-xs text-cyan-200 truncate hidden sm:block">
+    {classItem.teacher_name} • {formatTime(callDuration)}
+    </p>
+    </div>
+    </div>
+    
+    {/* Right: Controls */}
+    <div className="flex items-center gap-2 flex-shrink-0">
+    <div className="bg-cyan-700/50 px-2 py-1 rounded-full text-xs font-mono hidden sm:flex items-center gap-1">
+    <Users size={12} />
+    <span>{participants.length}</span>
+    </div>
+    
+    <div className={`text-xs font-mono px-2 py-1 rounded-full ${getConnectionColor()} bg-black/30 hidden sm:block`}>
+    {connectionQuality.toUpperCase()}
+    </div>
+    
     <button
-    onClick={() => setDebugLogs([])}
-    className="text-xs text-cyan-400 hover:text-cyan-300"
+    onClick={leaveCall}
+    className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-1"
     >
-    Clear
+    <PhoneOff size={14} />
+    <span className="hidden sm:inline">Leave</span>
     </button>
     </div>
-    <div className="space-y-1 text-xs font-mono">
-    {debugLogs.map((log, index) => (
-      <div key={index} className="text-cyan-200 border-b border-cyan-500/10 pb-1">
-      {log}
+    </div>
+    
+    {/* Mobile-only second row */}
+    <div className="flex items-center justify-between mt-2 sm:hidden text-xs">
+    <div className="flex items-center gap-2">
+    <Users size={12} />
+    <span>{participants.length}</span>
+    <span className="text-cyan-200">•</span>
+    <span>{formatTime(callDuration)}</span>
+    </div>
+    <div className={`${getConnectionColor()}`}>
+    {connectionQuality.toUpperCase()}
+    </div>
+    </div>
+    </div>
+    
+    {/* Error Display */}
+    {error && (
+      <div className="bg-red-600 text-white p-2 mx-2 sm:mx-4 mt-2 rounded-lg flex justify-between items-center text-sm flex-shrink-0">
+      <span>{error}</span>
+      <button onClick={() => setError('')} className="text-white text-lg hover:text-red-200 ml-2">
+      ×
+      </button>
       </div>
-    ))}
+    )}
+    
+    {/* Main Video Area */}
+    <div className="flex-1 min-h-0 p-2 sm:p-4">
+    {isConnecting ? (
+      <div className="flex items-center justify-center h-full">
+      <div className="text-center">
+      <Loader2 className="animate-spin mx-auto text-cyan-400 w-12 h-12 sm:w-16 sm:h-16" />
+      <p className="text-white mt-4 text-lg sm:text-xl font-bold">
+      Joining Session
+      </p>
+      <p className="text-gray-400 mt-2 text-sm">
+      Connecting to {classItem.title}
+      </p>
+      </div>
+      </div>
+    ) : isConnected ? (
+      <div className="h-full">
+      {renderVideoLayout()}
+      </div>
+    ) : (
+      <div className="flex items-center justify-center h-full">
+      <div className="text-center">
+      <div className="text-red-400 text-4xl sm:text-6xl mb-4">❌</div>
+      <p className="text-white text-lg sm:text-xl font-bold mb-2">Connection Failed</p>
+      <p className="text-gray-400 mb-4 text-sm sm:text-base">Unable to connect to the video session</p>
+      <button
+      onClick={retryConnection}
+      className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 px-6 py-3 rounded-lg text-white font-medium transition-all duration-200"
+      >
+      Retry Connection
+      </button>
+      </div>
+      </div>
+    )}
+    </div>
+    
+    {/* Control Bar */}
+    {isConnected && (
+      <div className="bg-gradient-to-r from-gray-800/95 to-gray-900/95 border-t border-cyan-500/20 p-2 sm:p-4 backdrop-blur-xl flex-shrink-0">
+      <div className="flex items-center justify-center gap-2 sm:gap-4">
+      {/* Mute Button */}
+      <button
+      onClick={toggleAudio}
+      className={`p-3 sm:p-4 rounded-xl transition-all duration-200 ${
+        isAudioMuted
+        ? 'bg-red-600 hover:bg-red-500'
+        : 'bg-green-600 hover:bg-green-500'
+      }`}
+      title={isAudioMuted ? 'Unmute' : 'Mute'}
+      >
+      {isAudioMuted ? <MicOff size={20} className="text-white" /> : <Mic size={20} className="text-white" />}
+      </button>
+      
+      {/* Video Button */}
+      <button
+      onClick={toggleVideo}
+      className={`p-3 sm:p-4 rounded-xl transition-all duration-200 ${
+        isVideoOff
+        ? 'bg-red-600 hover:bg-red-500'
+        : 'bg-green-600 hover:bg-green-500'
+      }`}
+      title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+      >
+      {isVideoOff ? <CameraOff size={20} className="text-white" /> : <Camera size={20} className="text-white" />}
+      </button>
+      
+      {/* Raise Hand */}
+      <button
+      onClick={raiseHand}
+      className={`p-3 sm:p-4 rounded-xl transition-all duration-200 ${
+        isHandRaised
+        ? 'bg-yellow-600 hover:bg-yellow-500 animate-pulse'
+        : 'bg-gray-600 hover:bg-gray-500'
+      }`}
+      title={isHandRaised ? 'Lower hand' : 'Raise hand'}
+      >
+      <Hand size={20} className="text-white" />
+      </button>
+      
+      {/* Unpin button (when something is pinned) */}
+      {isPinned && (
+        <button
+        onClick={() => setIsPinned(null)}
+        className="p-3 sm:p-4 rounded-xl bg-orange-600 hover:bg-orange-500 transition-all duration-200"
+        title="Unpin video"
+        >
+        <Minimize2 size={20} className="text-white" />
+        </button>
+      )}
+      
+      {/* Leave Button (duplicate for easy access on mobile) */}
+      <button
+      onClick={leaveCall}
+      className="p-3 sm:p-4 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 transition-all duration-200 sm:hidden"
+      title="Leave call"
+      >
+      <PhoneOff size={20} className="text-white" />
+      </button>
+      </div>
+      
+      {/* Desktop additional info */}
+      <div className="hidden sm:flex items-center justify-between mt-3 text-xs text-gray-400">
+      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
+      <Clock size={14} />
+      <span>{formatTime(callDuration)}</span>
+      </div>
+      <div className={`flex items-center gap-2 ${getConnectionColor()}`}>
+      <Signal size={14} />
+      <span>{connectionQuality}</span>
+      </div>
+      </div>
+      
+      <div className="text-gray-500">
+      {isScreenSharing && '🖥️ Screen sharing active'}
+      {isPinned && !isScreenSharing && '📌 Video pinned'}
+      {!isPinned && !isScreenSharing && teacherUid && '👨‍🏫 Teacher spotlight'}
+      </div>
+      </div>
+      </div>
+    )}
+    </div>
+  );
+};
+
+// ===  CLASS MANAGEMENT ===
+const sortClasses = (classes) => {
+  if (!Array.isArray(classes)) return [];
+
+  const now = new Date();
+  return classes.sort((a, b) => {
+    const classAStart = new Date(a.scheduled_date);
+    const classAEnd = a.end_date ? new Date(a.end_date) : new Date(classAStart.getTime() + (2 * 60 * 60 * 1000));
+    const classBStart = new Date(b.scheduled_date);
+    const classBEnd = b.end_date ? new Date(b.end_date) : new Date(classBStart.getTime() + (2 * 60 * 60 * 1000));
+
+    // AI Priority: Active video sessions first
+    const hasActiveVideoSessionA = a.video_session?.status === 'active' && !a.video_session.ended_at;
+    const hasActiveVideoSessionB = b.video_session?.status === 'active' && !b.video_session.ended_at;
+
+    if (hasActiveVideoSessionA && !hasActiveVideoSessionB) return -1;
+    if (hasActiveVideoSessionB && !hasActiveVideoSessionA) return 1;
+
+    if (hasActiveVideoSessionA && hasActiveVideoSessionB) {
+      return new Date(b.video_session.started_at) - new Date(a.video_session.started_at);
+    }
+
+    // Schedule-based sorting
+    const isALiveBySchedule = now >= classAStart && now <= classAEnd;
+    const isBLiveBySchedule = now >= classBStart && now <= classBEnd;
+    const isAUpcoming = classAStart > now;
+    const isBUpcoming = classBStart > now;
+
+    if (isALiveBySchedule && !isBLiveBySchedule) return -1;
+    if (isBLiveBySchedule && !isALiveBySchedule) return 1;
+    if (isAUpcoming && !isBUpcoming) return -1;
+    if (isBUpcoming && !isAUpcoming) return 1;
+
+    return classAStart - classBStart;
+  });
+};
+
+const getTimeUntilClass = (classItem) => {
+  const now = new Date();
+  const classTime = new Date(classItem.scheduled_date);
+  const classEnd = classItem.end_date ? new Date(classItem.end_date) : new Date(classTime.getTime() + (2 * 60 * 60 * 1000));
+
+  const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
+
+  if (hasActiveVideoSession) {
+    const timeLeft = classEnd - now;
+    const minsLeft = Math.floor(timeLeft / (1000 * 60));
+    return { status: 'live', text: `Madina Live - ${minsLeft}m remaining` };
+  }
+
+  const isLiveBySchedule = now >= classTime && now <= classEnd;
+  const isCompleted = classEnd < now;
+  const isUpcoming = classTime > now;
+
+  if (isLiveBySchedule) {
+    const timeLeft = classEnd - now;
+    const minsLeft = Math.floor(timeLeft / (1000 * 60));
+    return { status: 'live', text: `Live Session - ${minsLeft}m left` };
+  } else if (isCompleted) {
+    return { status: 'completed', text: 'AI Review Available' };
+  } else {
+    const diffMs = classTime - now;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 60) return { status: 'upcoming', text: `Starts in ${diffMins}m` };
+    if (diffHours < 24) return { status: 'upcoming', text: `Starts in ${diffHours}h` };
+    return { status: 'upcoming', text: `Starts in ${diffDays}d` };
+  }
+};
+
+// === Madina COMPONENTS ===
+const AudioPlayer = ({ audioUrl, onDelete }) => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateTime = () => setCurrentTime(audio.currentTime);
+    const updateDuration = () => setDuration(audio.duration);
+    const handleEnd = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', updateTime);
+    audio.addEventListener('loadedmetadata', updateDuration);
+    audio.addEventListener('ended', handleEnd);
+
+    return () => {
+      audio.removeEventListener('timeupdate', updateTime);
+      audio.removeEventListener('loadedmetadata', updateDuration);
+      audio.removeEventListener('ended', handleEnd);
+    };
+  }, []);
+
+  const formatTime = (time) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/30 to-blue-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+    <audio ref={audioRef} src={audioUrl} preload="metadata" />
+
+    <button
+    onClick={togglePlay}
+    className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-full transition-all duration-200 shadow-lg"
+    >
+    {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+    </button>
+
+    <div className="flex-1">
+    <div className="text-sm text-cyan-300 font-medium">AI Recording</div>
+    <div className="flex items-center space-x-3 mt-2">
+    <span className="text-xs text-cyan-400 font-mono">{formatTime(currentTime)}</span>
+    <div className="flex-1 bg-cyan-800/30 rounded-full h-2">
+    <div
+    className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-200"
+    style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
+    />
+    </div>
+    <span className="text-xs text-cyan-400 font-mono">{formatTime(duration)}</span>
+    </div>
+    </div>
+
+    <button
+    onClick={onDelete}
+    className="p-2 text-red-300 hover:text-red-200 transition-all duration-200 hover:scale-110"
+    >
+    <Trash2 size={18} />
+    </button>
+    </div>
+  );
+};
+
+const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) => {
+  const [submitting, setSubmitting] = useState(false);
+  const [submissionText, setSubmissionText] = useState('');
+  const {
+    isRecording,
+    audioBlob,
+    audioUrl,
+    recordingTime,
+    startRecording,
+    stopRecording,
+    clearRecording,
+    hasRecording
+  } = useAudioRecorder();
+
+  const handleSubmit = async () => {
+    if (!hasRecording && !submissionText.trim()) {
+      toast.error('Audio recording or text comments required');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      let audioUrl = null;
+      if (audioBlob) {
+        const fileName = `assignment-${assignment.id}-${Date.now()}.webm`;
+        const uploadResult = await uploadAudioToSupabase(audioBlob, fileName);
+        audioUrl = uploadResult.publicUrl;
+      }
+
+      await onSubmit({
+        assignment_id: assignment.id,
+        submission_text: submissionText,
+        audio_url: audioUrl
+      });
+
+      onClose();
+    } catch (error) {
+      toast.error(`Submission failed: ${error.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl">
+    <motion.div
+    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+    animate={{ opacity: 1, scale: 1, y: 0 }}
+    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+    className="bg-gradient-to-br from-gray-900 to-gray-800 border border-cyan-500/30 rounded-3xl p-8 w-full max-w-2xl mx-4 shadow-2xl"
+    >
+    <div className="flex justify-between items-center mb-8">
+    <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    Madina Submission
+    </h3>
+    <button onClick={onClose} className="text-cyan-300 hover:text-white transition-all duration-200 p-2 hover:bg-cyan-500/20 rounded-lg">
+    <X size={24} />
+    </button>
+    </div>
+
+    <div className="space-y-6">
+    <div className="bg-gradient-to-r from-cyan-900/30 to-blue-900/30 p-6 rounded-2xl border border-cyan-500/20">
+    <h4 className="font-bold text-cyan-300 mb-3">Mission Details</h4>
+    <p className="text-cyan-100 text-sm">{assignment.description}</p>
+    <div className="mt-3 text-xs text-cyan-400 flex items-center space-x-4">
+    <span>Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
+    <span>•</span>
+    <span>{assignment.max_score} Madina Points</span>
+    </div>
+    </div>
+
+    <div>
+    <h4 className="font-bold text-cyan-300 mb-4 flex items-center">
+    <Mic className="mr-2" size={20} />
+    Neural Recording
+    </h4>
+
+    <div className="space-y-4">
+    {!hasRecording ? (
+      <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-2xl border border-cyan-500/20">
+      <button
+      onClick={isRecording ? stopRecording : startRecording}
+      className={`p-4 rounded-full transition-all duration-200 shadow-lg ${
+        isRecording
+        ? 'bg-gradient-to-r from-red-600 to-pink-600 animate-pulse'
+        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
+      }`}
+      >
+      {isRecording ? <Square size={24} /> : <Mic size={24} />}
+      </button>
+
+      <div className="flex-1">
+      <div className="text-cyan-300 font-medium">
+      {isRecording ? `Recording... ${recordingTime}` : 'Initiate Recording'}
+      </div>
+      <div className="text-cyan-400 text-sm">
+      {isRecording ? 'AI processing audio quality...' : 'Click to start neural capture'}
+      </div>
+      </div>
+      </div>
+    ) : (
+      <AudioPlayer audioUrl={audioUrl} onDelete={clearRecording} />
+    )}
+    </div>
+    </div>
+
+    <div>
+    <h4 className="font-bold text-cyan-300 mb-4">Madina Notes</h4>
+    <textarea
+    value={submissionText}
+    onChange={(e) => setSubmissionText(e.target.value)}
+    placeholder="Add AI-enhanced notes or observations..."
+    rows="4"
+    className="w-full p-4 rounded-2xl bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border border-cyan-500/30 text-white placeholder-cyan-400 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-200 backdrop-blur-lg"
+    />
+    </div>
+
+    <div className="bg-gradient-to-r from-blue-900/30 to-green-900/30 p-4 rounded-2xl border border-blue-500/20">
+    <div className="flex items-start space-x-3">
+    <Sparkles size={20} className="text-blue-300 mt-1 flex-shrink-0" />
+    <div className="text-sm text-blue-200">
+    <strong>AI Insight:</strong> Your submission will be analyzed by our Madina learning AI
+    for personalized feedback and improvement suggestions.
+      </div>
+      </div>
+      </div>
+
+      <div className="flex justify-end space-x-4 pt-6">
+      <button
+      onClick={onClose}
+      className="px-8 py-3 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-600 hover:from-gray-600 hover:to-gray-500 border border-gray-600 transition-all duration-200 shadow-lg"
+      >
+      Cancel
+      </button>
+      <button
+      onClick={handleSubmit}
+      disabled={submitting || (!hasRecording && !submissionText.trim())}
+      className="px-8 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transition-all duration-200 shadow-lg"
+      >
+      {submitting ? (
+        <>
+        <Loader2 className="animate-spin mr-3" size={20} />
+        Madina Upload...
+        </>
+      ) : (
+        <>
+        <Rocket className="mr-3" size={20} />
+        Launch Submission
+        </>
+      )}
+      </button>
+      </div>
+      </div>
+      </motion.div>
+      </div>
+  );
+};
+
+const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+
+  const isSubmitted = assignment.submissions?.[0]?.status === "submitted" ||
+  assignment.submissions?.[0]?.status === "graded";
+  const isGraded = assignment.submissions?.[0]?.status === "graded";
+  const dueDate = new Date(assignment.due_date);
+  const isOverdue = dueDate < new Date() && !isSubmitted;
+  const daysUntilDue = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+
+  return (
+    <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.3 }}
+    className="group"
+    >
+    <div className="p-6 rounded-2xl bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-cyan-500/20 hover:border-cyan-500/40 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg">
+    <div className="flex justify-between items-start">
+    <div className="flex-1">
+    <div className="flex items-center justify-between">
+    <h4 className="font-bold text-xl flex items-center">
+    <FileText className="mr-3" size={24} />
+    <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    {assignment.title}
+    </span>
+    </h4>
+    <div className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
+      isGraded
+      ? "bg-gradient-to-r from-green-600 to-emerald-600 text-white"
+      : isSubmitted
+      ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white"
+      : isOverdue
+      ? "bg-gradient-to-r from-red-600 to-pink-600 text-white"
+      : "bg-gradient-to-r from-yellow-600 to-orange-600 text-white"
+    }`}>
+    {isGraded
+      ? `AI Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
+      : isSubmitted
+      ? "Madina Review"
+      : isOverdue
+      ? "Priority Mission"
+      : daysUntilDue <= 3 ? `${daysUntilDue}d remaining` : "Active Mission"
+    }
+    </div>
+    </div>
+
+    <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
+    <span className="flex items-center mr-6 mb-3">
+    <BookOpen size={16} className="mr-2" />
+    {assignment.subject || assignment.class?.title}
+    </span>
+    <span className="flex items-center mr-6 mb-3">
+    <Calendar size={16} className="mr-2" />
+    Due: {formatDate(assignment.due_date)}
+    </span>
+    <span className="flex items-center mr-6 mb-3">
+    <Award size={16} className="mr-2" />
+    {assignment.max_score} Madina Points
+    </span>
+    </div>
+
+    {assignment.description && (
+      <p className="text-cyan-300 text-sm mt-3">{assignment.description}</p>
+    )}
+
+    {isOverdue && (
+      <div className="mt-3 flex items-center text-red-300 text-sm">
+      <AlertCircle size={16} className="mr-2" />
+      AI Priority: {Math.abs(daysUntilDue)} days overdue
+      </div>
+    )}
+    </div>
+    </div>
+
+    <div className="mt-6 flex flex-wrap gap-3">
+    <button className="text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+    <Download className="mr-2" size={16} />
+    Madina Materials
+    </button>
+
+    {!isGraded && (
+      <button
+      onClick={() => setShowSubmissionModal(true)}
+      className={`text-sm py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg ${
+        isOverdue
+        ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500'
+        : 'bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-500 hover:to-green-500'
+      }`}
+      >
+      <Mic className="mr-2" size={16} />
+      {isSubmitted ? 'Neural Resubmit' : 'Madina Submit'}
+      </button>
+    )}
+
+    {isGraded && assignment.submissions?.[0]?.feedback && (
+      <button className="text-sm bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-500 hover:to-pink-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+      <MessageCircle className="mr-2" size={16} />
+      AI Feedback
+      </button>
+    )}
+    </div>
+    </div>
+
+    <AssignmentSubmissionModal
+    assignment={assignment}
+    isOpen={showSubmissionModal}
+    onClose={() => setShowSubmissionModal(false)}
+    onSubmit={onSubmitAssignment}
+    />
+    </motion.div>
+  );
+};
+
+const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoinClass }) => {
+  const timeInfo = getTimeUntilClass(classItem);
+  const isClassLive = timeInfo.status === 'live';
+  const isClassCompleted = timeInfo.status === 'completed';
+  const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
+
+  const handleJoinClass = async () => {
+    if (isClassLive) await onJoinClass(classItem);
+  };
+
+    return (
+      <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="group"
+      >
+      <div className={`p-6 rounded-2xl border-2 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg ${
+        isClassCompleted
+        ? 'bg-gradient-to-br from-gray-800/30 to-gray-900/30 border-green-500/20'
+        : isClassLive
+        ? 'bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border-cyan-500/50 animate-pulse'
+        : 'bg-gradient-to-br from-gray-800/50 to-gray-900/50 border-cyan-500/20'
+      }`}>
+      <div className="flex justify-between items-start">
+      <div className="flex-1">
+      <div className="flex items-center justify-between">
+      <h4 className="font-bold text-xl flex items-center">
+      <Video className="mr-3" size={24} />
+      <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+      {classItem.title}
+      </span>
+      {isClassCompleted && (
+        <CheckCircle size={20} className="text-green-400 ml-3" />
+      )}
+      {isClassLive && (
+        <div className="flex items-center ml-3">
+        <div className="w-3 h-3 bg-red-500 rounded-full animate-ping mr-2"></div>
+        <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+        {hasActiveVideoSession && (
+          <span className="text-xs text-red-300 ml-2 font-mono">Madina_ACTIVE</span>
+        )}
+        </div>
+      )}
+      </h4>
+      <span className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
+        isClassCompleted
+        ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white'
+        : isClassLive
+        ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white animate-pulse'
+        : 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white'
+      }`}>
+      {isClassCompleted ? 'AI Reviewed' :
+        isClassLive ? 'Madina Live' :
+        'Scheduled'}
+        </span>
+        </div>
+
+        <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
+        <span className="flex items-center mr-6 mb-3">
+        <Clock size={16} className="mr-2" />
+        {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
+        </span>
+        <span className="flex items-center mr-6 mb-3">
+        <User size={16} className="mr-2" />
+        {classItem.teacher_name || 'AI Instructor'}
+        {isClassLive && (
+          <div className="w-2 h-2 bg-green-500 rounded-full ml-2 animate-pulse"></div>
+        )}
+        </span>
+        <span className="flex items-center mr-6 mb-3">
+        <Calendar size={16} className="mr-2" />
+        {formatDate(classItem.scheduled_date)}
+        </span>
+        </div>
+
+        <div className={`mt-3 text-sm font-medium ${
+          isClassLive ? 'text-red-300' : 'text-cyan-300'
+        }`}>
+        {timeInfo.text}
+        {hasActiveVideoSession && (
+          <span className="ml-2 text-green-300 font-mono">• TEACHER_ACTIVE</span>
+        )}
+        </div>
+
+        {classItem.video_session && (
+          <div className="mt-3 text-xs text-cyan-400 flex items-center">
+          <ShieldCheck size={14} className="mr-2" />
+          <span className="font-mono">ID: {classItem.video_session.meeting_id}</span>
+          {classItem.video_session.status === 'active' && (
+            <span className="ml-3 text-red-400 font-mono">• Madina_ACTIVE</span>
+          )}
+          </div>
+        )}
+        </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+        {isClassLive && (
+          <button
+          className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg"
+          onClick={handleJoinClass}
+          >
+          <Rocket size={18} className="mr-2"/>
+          Join Madina Session
+          </button>
+        )}
+
+        {!isClassLive && !isClassCompleted && (
+          <button className="bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-500 hover:to-green-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+          <Calendar size={18} className="mr-2"/>
+          Schedule Reminder
+          </button>
+        )}
+
+        {isClassCompleted && classItem.video_session && (
+          <button className="bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-500 hover:to-pink-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+          <Download size={18} className="mr-2"/>
+          AI Recording
+          </button>
+        )}
+
+        <button className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+        <MessageCircle size={18} className="mr-2"/>
+        Madina Details
+        </button>
+        </div>
+        </div>
+        </motion.div>
+    );
+};
+
+// === AI NOTIFICATIONS SYSTEM ===
+const NotificationsDropdown = ({
+  isOpen,
+  onClose,
+  notifications,
+  onNotificationClick,
+  onMarkAllAsRead,
+  onClearAll,
+  onDeleteNotification
+}) => {
+  const formatNotificationTime = (timestamp) => {
+    const now = new Date();
+    const notificationTime = new Date(timestamp);
+    const diffMs = now - notificationTime;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return notificationTime.toLocaleDateString();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="absolute right-0 mt-3 w-96 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
+    <div className="p-6 border-b border-cyan-500/20">
+    <div className="flex items-center justify-between">
+    <h3 className="font-bold text-xl bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    AI Notifications
+    </h3>
+    <div className="flex space-x-3">
+    <button
+    onClick={onMarkAllAsRead}
+    className="text-sm text-cyan-300 hover:text-cyan-200 transition-all duration-200"
+    >
+    Mark all
+    </button>
+    <button
+    onClick={onClearAll}
+    className="text-sm text-red-300 hover:text-red-200 transition-all duration-200"
+    >
+    Clear all
+    </button>
+    </div>
+    </div>
+    </div>
+
+    <div className="max-h-96 overflow-y-auto">
+    {notifications.length === 0 ? (
+      <div className="p-8 text-center text-cyan-300">
+      <Bell size={48} className="mx-auto mb-4 opacity-50" />
+      <p className="text-lg font-semibold">No notifications</p>
+      <p className="text-cyan-400 text-sm mt-2">AI will notify you of important updates</p>
+      </div>
+    ) : (
+      notifications.map((notification) => (
+        <div
+        key={notification.id}
+        onClick={() => onNotificationClick(notification)}
+        className={`p-5 border-b border-cyan-500/10 cursor-pointer transition-all duration-200 hover:bg-cyan-500/10 ${
+          !notification.read ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10' : ''
+        }`}
+        >
+        <div className="flex justify-between items-start">
+        <div className="flex-1">
+        <p className="text-white font-semibold text-sm">
+        {notification.title || 'AI Notification'}
+        </p>
+        <p className="text-cyan-300 text-sm mt-2">
+        {notification.message || 'Madina update available'}
+        </p>
+        <p className="text-cyan-400 text-xs mt-3 font-mono">
+        {formatNotificationTime(notification.created_at)}
+        </p>
+        </div>
+        <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDeleteNotification(notification.id);
+        }}
+        className="text-red-300 hover:text-red-200 transition-all duration-200 p-2 hover:bg-red-500/20 rounded-lg"
+        >
+        <Trash2 size={16} />
+        </button>
+        </div>
+        </div>
+      ))
+    )}
     </div>
     </div>
   );
+};
 
-  // Error display
-  if (error) {
+const handleLogout = async () => {
+  try {
+    console.log('🎓 Student logout initiated...');
+
+    // 1. Emergency video call cleanup
+    if (showVideoCall) {
+      try {
+        // Force leave any active call
+        if (agoraClient) {
+          await agoraClient.leave().catch(console.warn);
+        }
+      } catch (e) {
+        console.warn('Video cleanup warning:', e);
+      }
+    }
+
+    // 2. Clear all application data
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // 3. Sign out from Supabase
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+
+    // 4. Navigate to login
+    toast.success('🎓 Successfully logged out');
+    navigate('/login');
+
+  } catch (error) {
+    console.error('Logout error:', error);
+    // Force navigation even if error
+    localStorage.clear();
+    navigate('/login');
+  }
+};
+// === Madina DASHBOARD COMPONENT ===
+export default function Dashboard() {
+  // Madina State Management
+  const [classes, setClasses] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [stats, setStats] = useState([
+    { label: "Madina Sessions", value: "0", icon: Video, change: "+0", color: "from-cyan-500 to-blue-500" },
+    { label: "Learning Hours", value: "0", icon: Clock, change: "+0", color: "from-green-500 to-pink-500" },
+    { label: "Active Missions", value: "0", icon: FileText, change: "+0", color: "from-green-500 to-emerald-500" },
+    { label: "Madina Score", value: "0%", icon: BarChart3, change: "+0%", color: "from-yellow-500 to-orange-500" },
+  ]);
+  const [studentName, setStudentName] = useState("Madina Learner");
+  const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState("classes");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [selectedClassForCall, setSelectedClassForCall] = useState(null);
+  const [showVideoCall, setShowVideoCall] = useState(false);
+  const [progressStats, setProgressStats] = useState({
+    completionRate: 0,
+    streak: 0,
+    level: 1,
+    points: 0,
+    nextLevel: 100
+  });
+
+  // Madina Data Fetching
+  const fetchStudentData = async () => {
+    setLoading(true);
+    try {
+      const dashboardData = await studentApi.getDashboardData();
+
+      setStudentName(dashboardData.student.name);
+      setClasses(sortClasses(dashboardData.classes));
+      setAssignments(dashboardData.assignments);
+      setNotifications(dashboardData.notifications);
+
+      const statsArray = [
+        {
+          label: "Madina Sessions",
+          value: dashboardData.stats.total_classes?.toString() || "0",
+          icon: Video,
+          change: "+0",
+          color: "from-cyan-500 to-blue-500"
+        },
+        {
+          label: "Learning Hours",
+          value: dashboardData.stats.hours_learned?.toString() || "0",
+          icon: Clock,
+          change: "+0",
+          color: "from-green-500 to-pink-500"
+        },
+        {
+          label: "Assignements",
+          value: dashboardData.stats.assignments?.toString() || "0",
+          icon: FileText,
+          change: "+0",
+          color: "from-green-500 to-emerald-500"
+        },
+        {
+          label: "Madina Score",
+          value: `${dashboardData.stats.avg_score || "0"}%`,
+          icon: BarChart3,
+          change: "+0%",
+          color: "from-yellow-500 to-orange-500"
+        },
+      ];
+
+      setStats(statsArray);
+      setProgressStats({
+        completionRate: dashboardData.stats.completion_rate || 0,
+        streak: dashboardData.stats.streak || 0,
+        level: dashboardData.stats.level || 1,
+        points: dashboardData.stats.points || 0,
+        nextLevel: dashboardData.stats.next_level || 100
+      });
+
+    } catch (error) {
+      console.error('Madina data fetch failed:', error);
+      toast.error('AI system temporarily offline');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleJoinClass = async (classItem) => {
+    const hasActiveVideoSession = classItem.video_session?.status === 'active' && !classItem.video_session.ended_at;
+
+    if (!hasActiveVideoSession) {
+      toast.error('Madina session not active');
+      return;
+    }
+
+    if (!classItem.video_session?.meeting_id) {
+      toast.error('Session ID missing');
+      return;
+    }
+
+    setSelectedClassForCall(classItem);
+    setShowVideoCall(true);
+    toast.success('Initiating Madina connection...');
+  };
+
+  const handleSubmitAssignment = async (submissionData) => {
+    try {
+      await studentApi.submitAssignment(submissionData);
+      toast.success('Mission accomplished! AI reviewing submission...');
+      const assignmentsData = await studentApi.getMyAssignments();
+      setAssignments(assignmentsData.assignments || []);
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  // Madina Effects
+  useEffect(() => {
+    fetchStudentData();
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setIsSidebarOpen(false);
+    };
+
+      handleResize();
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl p-4">
-      <div className="bg-gradient-to-br from-red-900/50 to-pink-900/50 backdrop-blur-lg border border-red-500/20 rounded-2xl p-8 shadow-2xl max-w-md w-full">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-green-900 to-violet-900 flex items-center justify-center">
       <div className="text-center">
-      <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-      <PhoneOff className="text-red-400" size={40} />
+      <div className="relative">
+      <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
+      <Sparkles className="absolute inset-0 text-green-400 animate-pulse" size={64} />
       </div>
-      <h2 className="text-2xl font-bold text-white mb-4">Teacher Session Error</h2>
-      <div className="text-red-200 mb-6">
-      <p className="mb-4 text-lg">{error}</p>
-      <div className="text-left bg-red-900/30 p-4 rounded-xl">
-      <h4 className="font-semibold text-red-300 mb-2">Teacher Solutions:</h4>
-      <ul className="text-sm space-y-2 text-red-200">
-      <li>• Check camera and microphone permissions</li>
-      <li>• Verify your internet connection</li>
-      <li>• Try using a different browser</li>
-      <li>• Contact technical support</li>
-      </ul>
-      </div>
-      </div>
-      <button
-      onClick={leaveCall}
-      className="px-8 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-semibold transition-colors"
-      >
-      Close Session
-      </button>
-      </div>
+      <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Madina Dashboard</p>
+      <p className="text-green-300 mt-2">Optimizing your learning matrix</p>
       </div>
       </div>
     );
   }
 
   return (
-    <div
-    ref={containerRef}
-    className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col"
-    >
-    {/* Debug Panel */}
-    <DebugPanel />
-
-    {/* Enhanced Header */}
-    <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-gray-900/90 to-green-900/90 backdrop-blur-lg border-b border-cyan-500/20 p-4">
-    <div className="flex items-center justify-between">
-    {/* Left: Session Info */}
-    <div className="flex items-center space-x-4">
-    <div className="flex items-center space-x-2">
-    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-    <Crown className="text-yellow-400" size={20} />
-    <h2 className="text-xl font-bold text-white">
-    {classData?.title || 'Madina Teacher Session'}
-    </h2>
-    </div>
-
-    <div className="hidden md:flex items-center space-x-4 text-sm">
-    <span className="text-cyan-300">
-    {Array.from(remoteUsers.values()).length} students
-    </span>
-    <span className="text-green-300">
-    🕒 {formatConnectionTime(connectionTime)}
-    </span>
-    {connectionStats.uplink && (
-      <span className="text-blue-300">
-      📊 {Math.round(connectionStats.uplink / 1024)}kbps
-      </span>
-    )}
-    </div>
-    </div>
-
-    {/* Right: Header Controls */}
-    <div className="flex items-center space-x-2">
-    {/* Refresh Streams Button */}
-    <button
-    onClick={checkRemoteStreams}
-    className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
-    title="Refresh Streams"
-    >
-    <RefreshCw size={20} />
-    </button>
-
-    {/* Layout Controls */}
-    <div className="hidden lg:flex items-center space-x-1 bg-black/50 rounded-xl p-1">
-    {['auto', 'grid', 'spotlight'].map(mode => (
-      <button
-      key={mode}
-      onClick={() => setLayoutMode(mode)}
-      className={`px-3 py-1 rounded-lg text-xs capitalize transition-colors ${
-        layoutMode === mode
-        ? 'bg-cyan-600 text-white'
-        : 'text-cyan-300 hover:bg-cyan-500/20'
-      }`}
-      >
-      {mode}
-      </button>
-    ))}
-    </div>
-
-    {/* Utility Buttons */}
-    <button
-    onClick={copySessionLink}
-    className="p-2 text-cyan-300 hover:text-white transition-colors rounded-lg hover:bg-cyan-500/20"
-    title="Copy Session Link"
-    >
-    <Share2 size={20} />
-    </button>
-
-    <button
-    onClick={() => setShowParticipants(!showParticipants)}
-    className="p-2 text-cyan-300 hover:text-white transition-colors rounded-lg hover:bg-cyan-500/20 relative"
-    title="Participants"
-    >
-    <Users size={20} />
-    {remoteUsers.size > 0 && (
-      <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white text-xs rounded-full flex items-center justify-center">
-      {remoteUsers.size}
-      </span>
-    )}
-    </button>
-
-    <button
-    onClick={toggleFullscreen}
-    className="p-2 text-cyan-300 hover:text-white transition-colors rounded-lg hover:bg-cyan-500/20"
-    title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-    >
-    {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-    </button>
-
-    <button
-    onClick={leaveCall}
-    className="p-2 bg-red-600 hover:bg-red-500 text-white transition-colors rounded-lg"
-    title="End Session"
-    >
-    <PhoneOff size={20} />
-    </button>
-    </div>
-    </div>
-
-    {/* Mobile Header Info */}
-    <div className="flex items-center justify-between mt-2 md:hidden text-sm">
-    <div className="flex items-center space-x-3 text-cyan-300">
-    <span>{remoteUsers.size} students</span>
-    <span>•</span>
-    <span>{formatConnectionTime(connectionTime)}</span>
-    </div>
-    {pinnedUser && (
-      <span className="text-yellow-400 text-xs">📌 Pinned</span>
-    )}
-    </div>
-    </div>
-
-    {/* Main Content Area */}
-    <div className="flex-1 flex pt-20 pb-28">
-    {/* Video Grid */}
-    <div className="flex-1 min-h-0 p-4">
-    {isLoading ? (
-      <div className="flex items-center justify-center h-full">
-      <div className="text-center">
-      <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-500 mx-auto mb-4"></div>
-      <p className="text-cyan-300 text-lg">Starting Teacher Session...</p>
-      <p className="text-cyan-400 text-sm">Initializing classroom</p>
-      </div>
-      </div>
-    ) : (
-      <VideoGrid />
-    )}
-    </div>
-
-    {/* Side Panels */}
-    <AnimatePresence>
-    {showParticipants && (
-      <motion.div
-      initial={{ x: 300, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 300, opacity: 0 }}
-      className="w-80 bg-gray-900/90 backdrop-blur-lg border-l border-cyan-500/20 p-4 overflow-y-auto"
-      >
-      <h3 className="text-lg font-bold text-white mb-4 flex items-center">
-      <Users className="mr-2" size={20} />
-      Participants ({remoteUsers.size})
-      </h3>
-      <div className="space-y-2">
-      {Array.from(remoteUsers.values()).map(user => (
-        <div
-        key={user.uid}
-        className={`p-3 rounded-lg border transition-colors ${
-          user.uid === activeSpeaker
-          ? 'bg-cyan-500/20 border-cyan-500/50'
-          : 'bg-gray-800/50 border-gray-600/30'
-        }`}
-        >
-        <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-        <User size={16} className="text-white" />
-        </div>
-        <div>
-        <p className="text-white text-sm font-medium">
-        Student {user.uid}
-        </p>
-        <p className="text-cyan-300 text-xs">
-        Joined {user.joinedAt.toLocaleTimeString()}
-        </p>
-        </div>
-        </div>
-        <div className="flex items-center space-x-2">
-        {user.hasVideo && <Video size={14} className="text-green-400" />}
-        {user.hasAudio ? (
-          <Mic size={14} className="text-green-400" />
-        ) : (
-          <MicOff size={14} className="text-red-400" />
-        )}
-        {user.isSpeaking && (
-          <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
-        )}
-        </div>
-        </div>
-        </div>
-      ))}
-      </div>
-      </motion.div>
-    )}
-    </AnimatePresence>
-    </div>
-
-    {/* Enhanced Control Bar */}
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/95 to-transparent p-6">
-    <div className="flex flex-col items-center space-y-4">
-    {/* Connection Info Bar */}
-    <div className="flex items-center space-x-4 text-sm text-cyan-300">
-    <div className="flex items-center space-x-1">
-    <Zap size={14} />
-    <span>Uplink: {connectionStats.uplink ? Math.round(connectionStats.uplink / 1024) + 'kbps' : '--'}</span>
-    </div>
-    <div className="flex items-center space-x-1">
-    <BarChart3 size={14} />
-    <span>Students: {remoteUsers.size}</span>
-    </div>
-    <div className="flex items-center space-x-1">
-    <Clock size={14} />
-    <span>{formatConnectionTime(connectionTime)}</span>
-    </div>
-    </div>
-
-    {/* Main Controls */}
-    <div className="flex items-center space-x-3">
-    {/* Audio Control */}
-    <button
-    onClick={toggleAudio}
-    className={`
-      p-4 rounded-2xl transition-all duration-300 transform hover:scale-110
-      ${isAudioEnabled
-        ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg'
-        : 'bg-red-600 hover:bg-red-500 text-white shadow-lg'
-      }
-      `}
-      title={isAudioEnabled ? 'Mute Microphone' : 'Unmute Microphone'}
-      >
-      {isAudioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-      </button>
-
-      {/* Video Control */}
-      <button
-      onClick={toggleVideo}
-      disabled={!localTracks.cameraTrack}
-      className={`
-        p-4 rounded-2xl transition-all duration-300 transform hover:scale-110
-        ${isVideoEnabled
-          ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg'
-          : 'bg-red-600 hover:bg-red-500 text-white shadow-lg'
-        }
-        ${!localTracks.cameraTrack ? 'opacity-50 cursor-not-allowed' : ''}
-        `}
-        title={localTracks.cameraTrack ?
-          (isVideoEnabled ? 'Turn Off Camera' : 'Turn On Camera') :
-          'Camera not available'
-        }
-        >
-        {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
-        </button>
-
-        {/* Screen Share */}
-        <button
-        onClick={toggleScreenShare}
-        className={`
-          p-4 rounded-2xl transition-all duration-300 transform hover:scale-110
-          ${isScreenSharing
-            ? 'bg-orange-600 hover:bg-orange-500 text-white shadow-lg'
-            : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg'
-          }
-          `}
-          title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
-          >
-          <Monitor size={24} />
-          </button>
-
-          {/* More Options */}
-          <div className="relative">
-          <button
-          onClick={() => setShowSettings(!showSettings)}
-          className="p-4 bg-gray-600 hover:bg-gray-500 text-white rounded-2xl transition-all duration-300 transform hover:scale-110"
-          title="More Options"
-          >
-          <MoreVertical size={24} />
-          </button>
-
-          {showSettings && (
-            <div className="absolute bottom-16 left-0 bg-gray-800 border border-gray-600 rounded-xl p-2 min-w-48 shadow-2xl">
-            <button
-            onClick={copySessionLink}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 rounded-lg flex items-center"
-            >
-            <Share2 size={16} className="mr-2" />
-            Copy Session Link
-            </button>
-            <button
-            onClick={() => setPinnedUser(null)}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 rounded-lg flex items-center"
-            >
-            <Pin size={16} className="mr-2" />
-            Unpin All
-            </button>
-            <button
-            onClick={toggleFullscreen}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 rounded-lg flex items-center"
-            >
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            <span className="ml-2">{isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}</span>
-            </button>
-            </div>
-          )}
-          </div>
-
-          {/* End Call */}
-          <button
-          onClick={leaveCall}
-          className="p-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-lg"
-          title="End Session for All"
-          >
-          <PhoneOff size={24} />
-          </button>
-          </div>
-          </div>
-          </div>
-          </div>
-  );
-};
-
-
-// Classes Tab Component
-const ClassesTab = ({
-  classes,
-  formatDateTime,
-    onStartVideoSession,
-    onJoinExistingSession,
-    onEndVideoSession,
-    onDeleteClass,
-    onRejoinSession,
-    startingSession,
-    endingSession,
-    videoCallError,
-    setVideoCallError,
-    recentSessions
-}) => {
-  const [localDeletingClass, setLocalDeletingClass] = useState(null);
-  const [liveSessions, setLiveSessions] = useState([]);
-  const [joiningSession, setJoiningSession] = useState(null);
-  const [showVideoLoader, setShowVideoLoader] = useState(false);
-
-  // Define helper functions BEFORE useMemo to avoid hoisting issues
-  const hasActiveSession = (classItem) => {
-    return classItem.video_sessions?.some(s => s.status === 'active') ||
-    classItem.video_session?.status === 'active';
-  };
-
-  const isClassLive = (classItem) => {
-    const classTime = new Date(classItem.scheduled_date);
-    const now = new Date();
-    const timeDiff = now - classTime;
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-
-    return hoursDiff >= -0.5 && hoursDiff <= 2 && classItem.status === 'scheduled';
-  };
-
-  const canStartVideo = (classItem) => {
-    const classTime = new Date(classItem.scheduled_date);
-    const now = new Date();
-    const timeDiff = classTime - now;
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-    return classItem.status === 'scheduled' && hoursDiff > -2 && !hasActiveSession(classItem);
-  };
-
-  const getActiveSession = (classItem) => {
-    return classItem.video_sessions?.find(s => s.status === 'active') ||
-    classItem.video_session;
-  };
-
-  // Enhanced session joining with animation
-  const handleStartSessionWithAnimation = async (classItem) => {
-    setJoiningSession(classItem.id);
-    setShowVideoLoader(true);
-
-    try {
-      await onStartVideoSession(classItem);
-    } catch (error) {
-      console.error('Failed to start session:', error);
-    } finally {
-      // Keep loader visible for minimum time for better UX
-      setTimeout(() => {
-        setJoiningSession(null);
-        setShowVideoLoader(false);
-      }, 2000);
-    }
-  };
-
-  const handleRejoinSessionWithAnimation = async (classItem) => {
-    setJoiningSession(classItem.id);
-    setShowVideoLoader(true);
-
-    try {
-      await handleEnhancedRejoin(classItem);
-    } catch (error) {
-      console.error('Failed to rejoin session:', error);
-    } finally {
-      setTimeout(() => {
-        setJoiningSession(null);
-        setShowVideoLoader(false);
-      }, 2000);
-    }
-  };
-
-  // Now useMemo can safely use these functions
-  const { upcomingClasses, completedClasses, activeClasses } = useMemo(() => {
-    const now = new Date();
-    const sortedClasses = [...classes].sort((a, b) => {
-      return new Date(a.scheduled_date) - new Date(b.scheduled_date);
-    });
-
-    // Active classes (currently live)
-    const active = sortedClasses.filter(cls => {
-      return hasActiveSession(cls) || isClassLive(cls);
-    });
-
-    // Upcoming classes
-    const upcoming = sortedClasses.filter(cls => {
-      const classTime = new Date(cls.scheduled_date);
-      const timeDiff = classTime - now;
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      return hoursDiff > -2 && cls.status === 'scheduled' && !hasActiveSession(cls);
-    });
-
-    // Completed classes
-    const completed = sortedClasses.filter(cls => {
-      const classTime = new Date(cls.scheduled_date);
-      const timeDiff = classTime - now;
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      return (hoursDiff <= -2 || cls.status === 'completed') && !hasActiveSession(cls);
-    });
-
-    return {
-      activeClasses: active,
-      upcomingClasses: upcoming,
-      completedClasses: completed
-    };
-  }, [classes]);
-
-  const copyClassLink = (meetingId) => {
-    const link = `${window.location.origin}/join-class/${meetingId}`;
-    navigator.clipboard.writeText(link);
-    toast.success('🔗 Madina link copied to neural clipboard!');
-  };
-
-  const handleDeleteClass = async (classItem) => {
-    try {
-      setLocalDeletingClass(classItem.id);
-      await onDeleteClass(classItem.id);
-    } catch (error) {
-      setLocalDeletingClass(null);
-    }
-  };
-
-  // Enhanced rejoin function for background sessions
-  const handleEnhancedRejoin = async (classItem) => {
-    try {
-      const activeSession = getActiveSession(classItem);
-
-      if (activeSession) {
-        await onRejoinSession(classItem);
-      } else {
-        if (isClassLive(classItem)) {
-          await onStartVideoSession(classItem);
-        } else {
-          toast.error('No active session found to rejoin');
-        }
-      }
-    } catch (error) {
-      console.error('Rejoin failed:', error);
-      toast.error('Failed to rejoin session');
-    }
-  };
-
-  // Check for background sessions on component mount
-  useEffect(() => {
-    const detectBackgroundSessions = () => {
-      const backgroundSessions = classes.filter(cls =>
-      hasActiveSession(cls) || isClassLive(cls)
-      );
-      setLiveSessions(backgroundSessions);
-
-      if (backgroundSessions.length > 0) {
-        console.log('🔄 Detected background sessions:', backgroundSessions.length);
-      }
-    };
-
-    detectBackgroundSessions();
-
-    const interval = setInterval(detectBackgroundSessions, 30000);
-
-    return () => clearInterval(interval);
-  }, [classes]);
-
-  // Beautiful Video Loading Animation Component
-  const VideoLoadingOverlay = ({ classItem, type = "starting" }) => (
-    <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl"
-    >
-    <div className="text-center max-w-2xl mx-4">
-    {/* Animated Logo/Icon */}
-    <motion.div
-    animate={{
-      scale: [1, 1.1, 1],
-      rotate: [0, 5, -5, 0],
-    }}
-    transition={{
-      duration: 2,
-      repeat: Infinity,
-      ease: "easeInOut"
-    }}
-    className="w-32 h-32 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-2xl"
-    >
-    <Video className="text-white" size={48} />
-    </motion.div>
-
-    {/* Pulsing Rings */}
-    <div className="relative mb-8">
-    <motion.div
-    animate={{
-      scale: [1, 1.5, 2],
-      opacity: [0.7, 0.4, 0],
-    }}
-    transition={{
-      duration: 2,
-      repeat: Infinity,
-      ease: "easeOut"
-    }}
-    className="absolute inset-0 border-4 border-cyan-400 rounded-full"
-    />
-    <motion.div
-    animate={{
-      scale: [1, 1.8, 2.2],
-      opacity: [0.5, 0.2, 0],
-    }}
-    transition={{
-      duration: 2.5,
-      repeat: Infinity,
-      ease: "easeOut",
-      delay: 0.5
-    }}
-    className="absolute inset-0 border-4 border-blue-400 rounded-full"
-    />
-    </div>
-
-    {/* Loading Text */}
-    <motion.h3
-    initial={{ y: 20, opacity: 0 }}
-    animate={{ y: 0, opacity: 1 }}
-    transition={{ delay: 0.2 }}
-    className="text-3xl font-bold text-white mb-4"
-    >
-    {type === "starting" ? "🚀 Launching Madina Session" : "🔄 Rejoining Neural Network"}
-    </motion.h3>
-
-    <motion.p
-    initial={{ y: 20, opacity: 0 }}
-    animate={{ y: 0, opacity: 1 }}
-    transition={{ delay: 0.4 }}
-    className="text-cyan-300 text-lg mb-6"
-    >
-    {classItem?.title || "Madina Learning Session"}
-    </motion.p>
-
-    {/* Animated Progress */}
-    <div className="bg-gray-800/50 rounded-full h-3 mx-auto max-w-md mb-6 overflow-hidden">
-    <motion.div
-    initial={{ width: "0%" }}
-    animate={{ width: "100%" }}
-    transition={{
-      duration: 3,
-      repeat: Infinity,
-      ease: "easeInOut"
-    }}
-    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
-    />
-    </div>
-
-    {/* Loading Steps */}
-    <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    transition={{ delay: 0.6 }}
-    className="grid grid-cols-3 gap-4 text-sm text-cyan-400"
-    >
-    {[
-      "Initializing Neural Link...",
-      "Connecting to Students...",
-      "Activating AI Channels..."
-    ].map((step, index) => (
-      <motion.div
-      key={step}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.8 + index * 0.3 }}
-      className="flex items-center justify-center space-x-2"
-      >
-      <motion.div
-      animate={{
-        scale: [1, 1.2, 1],
-        opacity: [0.5, 1, 0.5],
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-green-900 to-violet-900 flex">
+    {/* Madina Video Call */}
+    {showVideoCall && selectedClassForCall && (
+      <StudentVideoCall
+      classItem={selectedClassForCall}
+      isOpen={showVideoCall}
+      onClose={() => {
+        setShowVideoCall(false);
+        setSelectedClassForCall(null);
       }}
-      transition={{
-        duration: 1.5,
-        repeat: Infinity,
-        delay: index * 0.5
-      }}
-      className="w-2 h-2 bg-cyan-400 rounded-full"
-      />
-      <span>{step}</span>
-      </motion.div>
-    ))}
-    </motion.div>
-
-    {/* Cancel Button */}
-    <motion.button
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    transition={{ delay: 1 }}
-    onClick={() => {
-      setShowVideoLoader(false);
-      setJoiningSession(null);
-    }}
-    className="mt-8 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-2xl transition-colors duration-200"
-    >
-    Cancel Connection
-    </motion.button>
-    </div>
-    </motion.div>
-  );
-
-  // Mini loading indicator for buttons
-  const LoadingButtonContent = ({ text, loadingText }) => (
-    <motion.div
-    initial={{ opacity: 0.6 }}
-    animate={{ opacity: 1 }}
-    className="flex items-center justify-center"
-    >
-    <motion.div
-    animate={{ rotate: 360 }}
-    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-    className="mr-3"
-    >
-    <Loader2 size={20} />
-    </motion.div>
-    <span>{loadingText}</span>
-    </motion.div>
-  );
-
-  // Render function to avoid complex inline JSX
-  const renderLiveSessionCard = (classItem) => {
-    const activeSession = getActiveSession(classItem);
-    const studentCount = classItem.students_classes?.length || 0;
-    const isStarting = startingSession === classItem.id;
-    const isEnding = endingSession === classItem.id;
-    const isJoining = joiningSession === classItem.id;
-    const sessionDuration = activeSession ?
-    Math.floor((new Date() - new Date(activeSession.start_time || classItem.scheduled_date)) / 60000) : 0;
-
-    return (
-      <MadinaCard key={classItem.id} gradient="from-red-900/50 to-pink-900/50" className="border-l-4 border-red-500 relative">
-      {/* Loading Overlay for this specific card */}
-      {isJoining && (
-        <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="absolute inset-0 bg-black/70 rounded-2xl flex items-center justify-center z-10 backdrop-blur-sm"
-        >
-        <div className="text-center">
-        <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-        className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full mx-auto mb-4"
-        />
-        <p className="text-cyan-300 font-semibold">Connecting to Session...</p>
-        </div>
-        </motion.div>
-      )}
-
-      <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
-      <div className="flex-1">
-      <div className="flex items-start justify-between mb-4">
-      <div>
-      <h4 className="font-bold text-2xl text-white mb-2 flex items-center">
-      {classItem.title}
-      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse ml-3"></div>
-      </h4>
-      <div className="flex items-center space-x-4 mt-3">
-      <MadinaBadge variant="live">
-      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
-      🔴 LIVE NOW
-      </MadinaBadge>
-      {sessionDuration > 0 && (
-        <span className="text-cyan-300 text-sm flex items-center">
-        <Clock size={16} className="mr-1" />
-        {sessionDuration}min elapsed
-        </span>
-      )}
-      {activeSession && (
-        <span className="text-green-300 text-sm flex items-center">
-        <CheckCircle size={16} className="mr-1" />
-        Session Active
-        </span>
-      )}
-      </div>
-      </div>
-      <MadinaBadge variant="live">
-      🔴 LIVE
-      </MadinaBadge>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-      <div className="flex items-center text-cyan-200">
-      <Calendar size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
-      <p className="text-xs text-cyan-300">Started</p>
-      </div>
-      </div>
-
-      {classItem.duration && (
-        <div className="flex items-center text-cyan-200">
-        <Clock size={18} className="mr-3 text-cyan-400" />
-        <div>
-        <p className="text-sm font-medium">{classItem.duration} minutes</p>
-        <p className="text-xs text-cyan-300">Scheduled Duration</p>
-        </div>
-        </div>
-      )}
-
-      <div className="flex items-center text-cyan-200">
-      <Users size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">{studentCount} learners</p>
-      <p className="text-xs text-cyan-300">Connected</p>
-      </div>
-      </div>
-      </div>
-
-      {classItem.description && (
-        <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
-      )}
-
-      {activeSession && (
-        <div className="bg-red-800/20 p-4 rounded-xl border border-red-500/30 mb-4">
-        <div className="flex items-center justify-between">
-        <div>
-        <p className="text-red-300 text-sm font-medium">Active Video Session</p>
-        <p className="text-red-400 text-xs">
-        Started: {activeSession.start_time ? formatDateTime(activeSession.start_time) : 'Recently'}
-        </p>
-        </div>
-        <div className="text-red-300 text-sm">
-        Meeting ID: {activeSession.meeting_id?.substring(0, 8)}...
-        </div>
-        </div>
-        </div>
-      )}
-
-      {classItem.course?.name && (
-        <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
-        <BookOpen size={16} className="mr-2 text-cyan-400" />
-        <span className="text-cyan-300 text-sm">{classItem.course.name}</span>
-        </div>
-      )}
-      </div>
-
-      <div className="flex flex-col space-y-3 w-full lg:w-auto">
-      <MadinaButton
-      onClick={() => handleRejoinSessionWithAnimation(classItem)}
-      disabled={isJoining || isStarting}
-      variant="warning"
-      className="min-w-[200px] relative overflow-hidden"
-      >
-      {isJoining ? (
-        <LoadingButtonContent
-        text="Rejoin Live Session"
-        loadingText="Rejoining Session..."
-        />
-      ) : (
-        <>
-        <RefreshCw size={20} className="mr-3" />
-        Rejoin Live Session
-        </>
-      )}
-      </MadinaButton>
-
-      {activeSession && (
-        <>
-        <MadinaButton
-        onClick={() => copyClassLink(activeSession.meeting_id)}
-        variant="ghost"
-        >
-        <Share2 size={20} className="mr-3" />
-        Copy Invite Link
-        </MadinaButton>
-
-        <MadinaButton
-        onClick={() => onEndVideoSession(classItem, activeSession)}
-        disabled={isEnding}
-        variant="danger"
-        >
-        {isEnding ? (
-          <LoadingButtonContent
-          text="End Session"
-          loadingText="Ending Session..."
-          />
-        ) : (
-          <>
-          <X size={20} className="mr-3" />
-          End Session
-          </>
-        )}
-        </MadinaButton>
-        </>
-      )}
-
-      {!activeSession && isClassLive(classItem) && (
-        <MadinaButton
-        onClick={() => handleStartSessionWithAnimation(classItem)}
-        disabled={isJoining || isStarting}
-        variant="success"
-        >
-        {isJoining ? (
-          <LoadingButtonContent
-          text="Start Session"
-          loadingText="Starting Session..."
-          />
-        ) : (
-          <>
-          <Rocket size={20} className="mr-3" />
-          Start Session
-          </>
-        )}
-        </MadinaButton>
-      )}
-
-      <MadinaButton
-      onClick={() => handleDeleteClass(classItem)}
-      disabled={localDeletingClass === classItem.id}
-      variant="danger"
-      className="text-sm"
-      >
-      {localDeletingClass === classItem.id ? (
-        <LoadingButtonContent
-        text="Delete Session"
-        loadingText="Deleting..."
-        />
-      ) : (
-        <>
-        <Trash2 size={16} className="mr-2" />
-        Delete Session
-        </>
-      )}
-      </MadinaButton>
-      </div>
-      </div>
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
-      <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
-      <MadinaBadge variant="live">
-      LIVE SESSION
-      </MadinaBadge>
-
-      <span className="flex items-center text-green-400 text-sm">
-      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
-      Madina channel active
-      </span>
-
-      {activeSession && (
-        <span className="text-cyan-400 text-sm">
-        Last active: {formatDateTime(activeSession.updated_at || activeSession.start_time)}
-        </span>
-      )}
-      </div>
-
-      <div className="flex items-center space-x-2 text-cyan-300 text-sm">
-      <User size={14} />
-      <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} connected</span>
-      </div>
-      </div>
-      </MadinaCard>
-    );
-  };
-
-  const renderUpcomingSessionCard = (classItem) => {
-    const studentCount = classItem.students_classes?.length || 0;
-    const canStart = canStartVideo(classItem);
-    const isStarting = startingSession === classItem.id;
-    const isDeleting = localDeletingClass === classItem.id;
-    const isJoining = joiningSession === classItem.id;
-
-    return (
-      <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
-      {/* Loading Overlay for this specific card */}
-      {isJoining && (
-        <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="absolute inset-0 bg-black/70 rounded-2xl flex items-center justify-center z-10 backdrop-blur-sm"
-        >
-        <div className="text-center">
-        <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-        className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full mx-auto mb-3"
-        />
-        <p className="text-cyan-300 text-sm">Launching Session...</p>
-        </div>
-        </motion.div>
-      )}
-
-      <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
-      <div className="flex-1">
-      <div className="flex items-start justify-between mb-4">
-      <div>
-      <h4 className="font-bold text-2xl text-white mb-2">{classItem.title}</h4>
-      </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-      <div className="flex items-center text-cyan-200">
-      <Calendar size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">{formatDateTime(classItem.scheduled_date)}</p>
-      <p className="text-xs text-cyan-300">Temporal Coordinates</p>
-      </div>
-      </div>
-
-      {classItem.duration && (
-        <div className="flex items-center text-cyan-200">
-        <Clock size={18} className="mr-3 text-cyan-400" />
-        <div>
-        <p className="text-sm font-medium">{classItem.duration} minutes</p>
-        <p className="text-xs text-cyan-300">Madina Duration</p>
-        </div>
-        </div>
-      )}
-
-      <div className="flex items-center text-cyan-200">
-      <Users size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">{studentCount} learners</p>
-      <p className="text-xs text-cyan-300">Connected</p>
-      </div>
-      </div>
-      </div>
-
-      {classItem.description && (
-        <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
-      )}
-
-      {classItem.course?.name && (
-        <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
-        <BookOpen size={16} className="mr-2 text-cyan-400" />
-        <span className="text-cyan-300 text-sm">{classItem.course.name}</span>
-        </div>
-      )}
-      </div>
-
-      <div className="flex flex-col space-y-3 w-full lg:w-auto">
-      {canStart && (
-        <MadinaButton
-        onClick={() => handleStartSessionWithAnimation(classItem)}
-        disabled={isJoining || isStarting}
-        variant="success"
-        >
-        {isJoining ? (
-          <LoadingButtonContent
-          text="Launch Session"
-          loadingText="Madina Initiation..."
-          />
-        ) : (
-          <>
-          <Rocket size={20} className="mr-3" />
-          Launch Session
-          </>
-        )}
-        </MadinaButton>
-      )}
-
-      <MadinaButton
-      onClick={() => handleDeleteClass(classItem)}
-      disabled={isDeleting}
-      variant="danger"
-      className="text-sm"
-      >
-      {isDeleting ? (
-        <LoadingButtonContent
-        text="Delete Session"
-        loadingText="Deleting..."
-        />
-      ) : (
-        <>
-        <Trash2 size={16} className="mr-2" />
-        Delete Session
-        </>
-      )}
-      </MadinaButton>
-      </div>
-      </div>
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
-      <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
-      <MadinaBadge variant="warning">
-      SCHEDULED
-      </MadinaBadge>
-      </div>
-
-      <div className="flex items-center space-x-2 text-cyan-300 text-sm">
-      <User size={14} />
-      <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} enrolled</span>
-      </div>
-      </div>
-      </MadinaCard>
-    );
-  };
-
-  return (
-    <div>
-    {/* Full-screen Video Loading Overlay */}
-    <AnimatePresence>
-    {showVideoLoader && joiningSession && (
-      <VideoLoadingOverlay
-      classItem={classes.find(c => c.id === joiningSession)}
-      type={startingSession === joiningSession ? "starting" : "rejoining"}
       />
     )}
-    </AnimatePresence>
 
-    <QuickRejoinSection
-    recentSessions={recentSessions}
-    onRejoin={onRejoinSession}
-    />
-
-    {/* Live Sessions Section */}
-    {activeClasses.length > 0 && (
-      <div className="mb-8">
-      <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
-      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse mr-2"></div>
-      🔴 Live Madina Sessions
-      <MadinaBadge variant="live" className="ml-3">
-      {activeClasses.length} ACTIVE
-      </MadinaBadge>
-      </h4>
-      <div className="grid gap-6">
-      {activeClasses.map(renderLiveSessionCard)}
-      </div>
-      </div>
-    )}
-
-    {videoCallError && (
-      <MadinaCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
-      <div className="flex items-center justify-between">
-      <div className="flex items-center">
-      <XCircle size={20} className="text-red-400 mr-3" />
+    {/* Neural Sidebar */}
+    <div className={`
+      fixed inset-y-0 left-0 z-40 w-80 bg-gradient-to-b from-gray-900/95 to-green-900/95 backdrop-blur-xl transform transition-transform duration-300 ease-in-out border-r border-cyan-500/20
+      ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      md:translate-x-0 md:relative
+      `}>
+      <div className="flex flex-col h-full">
+      {/* Madina Header */}
+      <div className="p-8 border-b border-cyan-500/20">
+      <div className="flex items-center space-x-3 mb-4">
+      <Gem className="text-cyan-400" size={32} />
       <div>
-      <p className="text-red-300 font-medium">Madina Link Error</p>
-      <p className="text-red-400 text-sm">{videoCallError}</p>
-      </div>
-      </div>
-      <button onClick={() => setVideoCallError(null)} className="text-red-400 hover:text-red-300 text-sm">
-      Dismiss
-      </button>
-      </div>
-      </MadinaCard>
-    )}
+      <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+      Madina Quran Classes
+      </h1>
 
-    <div className="flex justify-between items-center mb-6">
-    <div>
-    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    Madina Sessions
-    </h3>
-    <p className="text-cyan-300 text-sm">Manage your neural learning sessions</p>
-    </div>
-    <div className="text-cyan-300 text-sm">
-    {activeClasses.length > 0 && `${activeClasses.length} live • `}
-    {upcomingClasses.length} upcoming • {completedClasses.length} completed
-    </div>
-    </div>
-
-    {upcomingClasses.length > 0 && (
-      <div className="mb-8">
-      <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
-      <Rocket className="mr-2" size={24} />
-      Scheduled Madina Sessions
-      </h4>
-      <div className="grid gap-6">
-      {upcomingClasses.map(renderUpcomingSessionCard)}
-      </div>
-      </div>
-    )}
-
-    {completedClasses.length > 0 && (
-      <div>
-      <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
-      <CheckCircle className="mr-2" size={24} />
-      Madina Archive
-      </h4>
-      <div className="grid gap-4">
-      {completedClasses.map((classItem) => (
-        <MadinaCard key={classItem.id} gradient="from-gray-800/30 to-gray-900/30">
-        <h4 className="font-bold text-white text-lg">{classItem.title}</h4>
-        <p className="text-cyan-300 text-sm">{formatDateTime(classItem.scheduled_date)}</p>
-        <p className="text-cyan-200 text-sm"> Learners: {classItem.students_classes?.length || 0}</p>
-        <div className="mt-3">
-        <MadinaBadge variant="info">Madina ARCHIVE</MadinaBadge>
-        </div>
-        </MadinaCard>
-      ))}
-      </div>
-      </div>
-    )}
-
-    {classes.length === 0 && (
-      <MadinaCard className="text-center py-16">
-      <Video size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-      <h3 className="text-2xl font-bold text-white mb-2">No Madina Sessions</h3>
-      <p className="text-cyan-300 text-lg">Your neural learning sessions will appear here</p>
-      </MadinaCard>
-    )}
-    </div>
-  );
-};
-
-// Students Tab Component
-const StudentsTab = ({ students }) => {
-  return (
-    <div className="space-y-6">
-    <div className="flex justify-between items-center">
-    <div>
-    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    Learners
-    </h3>
-    <p className="text-cyan-300 text-sm">Manage your Madina learners</p>
-    </div>
-    <div className="text-cyan-300 text-sm">
-    {students.length} learners
-    </div>
-    </div>
-
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    {students.map((student) => (
-      <MadinaCard key={student.id} gradient="from-blue-900/30 to-purple-900/30">
-      <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center">
-      <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center mr-3 shadow-lg">
-      <User size={20} className="text-white" />
-      </div>
-      <div>
-      <h4 className="font-bold text-white text-lg">{student.name}</h4>
-      <p className="text-cyan-300 text-sm">{student.email}</p>
-      </div>
-      </div>
-      <div className="flex space-x-2">
-      <button
-      onClick={() => toast.success(`📧 Neural message sent to ${student.name}`)}
-      className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors"
-      title="Send Neural Message"
-      >
-      <MessageCircle size={16} />
-      </button>
-      <button
-      className="p-2 bg-green-600 hover:bg-green-500 rounded-lg text-white transition-colors"
-      title="View Madina Progress"
-      >
-      <BarChart3 size={16} />
-      </button>
-      </div>
-      </div>
-
-      <div className="space-y-3 text-sm mb-4">
-      <div className="flex justify-between items-center">
-      <span className="text-cyan-300">Madina Sessions:</span>
-      <span className="text-white font-semibold">{student.classes_count || 0}</span>
-      </div>
-      <div className="flex justify-between items-center">
-      <span className="text-cyan-300">Missions Completed:</span>
-      <span className="text-white font-semibold">{student.assignments_count || 0}</span>
-      </div>
-      <div className="flex justify-between items-center">
-      <span className="text-cyan-300">Neural Score:</span>
-      <span className="text-white font-semibold">{student.average_grade || 'N/A'}</span>
-      </div>
-      </div>
-
-      <div className="flex space-x-2 pt-4 border-t border-cyan-700/30">
-      <MadinaButton variant="ghost" className="flex-1 text-sm py-2">
-      <Eye size={16} className="mr-2" />
-      Profile
-      </MadinaButton>
-      <MadinaButton variant="primary" className="flex-1 text-sm py-2">
-      <TrendingUp size={16} className="mr-2" />
-      Progress
-      </MadinaButton>
-      </div>
-      </MadinaCard>
-    ))}
-    </div>
-
-    {students.length === 0 && (
-      <MadinaCard className="text-center py-16">
-      <Users size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-      <h3 className="text-2xl font-bold text-white mb-2">No Learners</h3>
-      <p className="text-cyan-300 text-lg">Madina learners will appear here when they join your sessions</p>
-      </MadinaCard>
-    )}
-    </div>
-  );
-};
-
-// Assignments Tab Component
-const AssignmentsTab = ({
-  assignments,
-  formatDateTime,
-    onShowCreateAssignment,
-    onDeleteAssignment,
-    onReloadData,
-    filters,
-    onFilterChange
-}) => {
-  return (
-    <div className="space-y-6">
-    <div className="flex justify-between items-center">
-    <div>
-    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    AI Missions
-    </h3>
-    <p className="text-cyan-300 text-sm">Create and manage Madina learning missions</p>
-    </div>
-    <MadinaButton
-    onClick={onShowCreateAssignment}
-    variant="success"
-    >
-    <Plus size={20} className="mr-2" />
-    Create Mission
-    </MadinaButton>
-    </div>
-
-    <div className="relative">
-    <Search size={20} className="absolute left-4 top-1/2 transform -translate-y-1/2 text-cyan-400" />
-    <input
-    type="text"
-    placeholder="Search Madina missions..."
-    className="w-full pl-12 pr-4 py-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    onChange={(e) => onFilterChange('search', e.target.value)}
-    />
-    </div>
-
-    <div className="grid gap-6">
-    {assignments.map((assignment) => (
-      <MadinaCard key={assignment.id} gradient="from-green-900/30 to-emerald-900/30">
-      <div className="flex justify-between items-start mb-4">
-      <div className="flex-1">
-      <h4 className="font-bold text-white text-2xl mb-3">{assignment.title}</h4>
-      {assignment.description && (
-        <p className="text-cyan-300 text-lg mb-4 leading-relaxed">{assignment.description}</p>
-      )}
-      </div>
-      <div className="flex space-x-2 ml-4">
-      <button
-      onClick={async () => {
-        if (window.confirm('Delete this Madina mission?')) {
-          try {
-            await onDeleteAssignment(assignment.id);
-            toast.success('✅ Mission deleted');
-            onReloadData();
-          } catch (error) {
-            toast.error('❌ Deletion failed');
-          }
-        }
-      }}
-      className="p-3 bg-red-600 hover:bg-red-500 rounded-xl text-white transition-colors"
-      title="Delete Mission"
-      >
-      <Trash2 size={18} />
-      </button>
-      <button
-      className="p-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white transition-colors"
-      title="View Submissions"
-      >
-      <Eye size={18} />
-      </button>
-      </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <div className="flex items-center text-cyan-200">
-      <Calendar size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">Due: {formatDateTime(assignment.due_date)}</p>
-      <p className="text-xs text-cyan-300">Temporal Deadline</p>
-      </div>
-      </div>
-
-      <div className="flex items-center text-cyan-200">
-      <Award size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">{assignment.max_score} Madina Points</p>
-      <p className="text-xs text-cyan-300">Mission Value</p>
-      </div>
-      </div>
-
-      <div className="flex items-center text-cyan-200">
-      <Users size={18} className="mr-3 text-cyan-400" />
-      <div>
-      <p className="text-sm font-medium">{assignment.submissions_count || 0} submissions</p>
-      <p className="text-xs text-cyan-300">Neural Responses</p>
       </div>
       </div>
       </div>
 
-      <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
-      <MadinaBadge variant={assignment.status === 'active' ? 'success' : 'info'}>
-      {assignment.status?.toUpperCase() || 'ACTIVE'}
-      </MadinaBadge>
-
-      <div className="flex space-x-3">
-      <MadinaButton variant="ghost" className="text-sm py-2 px-4">
-      <Eye size={16} className="mr-2" />
-      Details
-      </MadinaButton>
-      <MadinaButton variant="primary" className="text-sm py-2 px-4">
-      <FileCheck size={16} className="mr-2" />
-      Review
-      </MadinaButton>
-      </div>
-      </div>
-      </MadinaCard>
-    ))}
-    </div>
-
-    {assignments.length === 0 && (
-      <MadinaCard className="text-center py-16">
-      <FileText size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-      <h3 className="text-2xl font-bold text-white mb-2">No Madina Missions</h3>
-      <p className="text-cyan-300 text-lg">Create your first Assignment to challenge your learners</p>
-      <MadinaButton
-      onClick={onShowCreateAssignment}
-      variant="success"
-      className="mt-6"
-      >
-      <Rocket size={20} className="mr-2" />
-      Launch First Mission
-      </MadinaButton>
-      </MadinaCard>
-    )}
-    </div>
-  );
-};
-
-// Grading Tab Component
-const GradingTab = ({
-  submissions,
-  pendingSubmissions,
-  formatDateTime,
-    onStartGrading,
-    filters,
-    onFilterChange
-}) => {
-  const displaySubmissions = filters.status === 'pending' ? pendingSubmissions : submissions;
-
-  return (
-    <div className="space-y-6">
-    <div className="flex justify-between items-center">
-    <div>
-    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    Madina Review
-    </h3>
-    <p className="text-cyan-300 text-sm">Assess and enhance neural learning</p>
-    </div>
-    <div className="text-cyan-300 text-sm">
-    {pendingSubmissions.length} pending • {submissions.length} total
-    </div>
-    </div>
-
-    <div className="flex space-x-4 mb-6">
-    <MadinaButton
-    onClick={() => onFilterChange('status', 'pending')}
-    variant={filters.status === 'pending' ? 'warning' : 'ghost'}
-    className="flex-1"
-    >
-    <Clock size={18} className="mr-2" />
-    Pending Review ({pendingSubmissions.length})
-    </MadinaButton>
-    <MadinaButton
-    onClick={() => onFilterChange('status', '')}
-    variant={!filters.status ? 'primary' : 'ghost'}
-    className="flex-1"
-    >
-    <FileCheck size={18} className="mr-2" />
-    All Submissions ({submissions.length})
-    </MadinaButton>
-    </div>
-
-    <div className="grid gap-6">
-    {displaySubmissions.map((submission) => (
-      <MadinaCard key={submission.id} gradient="from-orange-900/30 to-yellow-900/30">
-      <div className="flex justify-between items-start mb-4">
-      <div className="flex-1">
-      <h4 className="font-bold text-white text-xl mb-2">
-      {submission.assignment?.title || 'Madina Mission'}
-      </h4>
-      <p className="text-cyan-300 text-lg mb-1">
-      Neural Learner: {submission.student?.name || 'Unknown'}
-      </p>
-      {submission.submitted_at && (
-        <p className="text-cyan-400 text-sm">
-        Submitted: {formatDateTime(submission.submitted_at)}
-        </p>
-      )}
-      </div>
-
-      <div className="flex items-center space-x-3">
-      {submission.grade ? (
-        <div className="flex items-center space-x-3">
-        <MadinaBadge variant="success">
-        {submission.grade}/{submission.assignment?.max_score || 100}
-        </MadinaBadge>
-        <CheckCircle size={24} className="text-green-400" />
-        </div>
-      ) : (
-        <MadinaBadge variant="warning">
-        AWAITING ASSESSMENT
-        </MadinaBadge>
-      )}
-      </div>
-      </div>
-
-      {submission.submission_text && (
-        <div className="mb-4">
-        <p className="text-cyan-200 text-sm font-medium mb-3">Neural Response:</p>
-        <div className="bg-cyan-800/30 p-4 rounded-xl border border-cyan-700/30 max-h-32 overflow-y-auto">
-        <p className="text-white text-sm leading-relaxed">{submission.submission_text}</p>
-        </div>
-        </div>
-      )}
-
-      <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
-      <div className="flex space-x-3">
-      <MadinaButton
-      onClick={() => onStartGrading(submission)}
-      variant="primary"
-      className="text-sm py-2 px-4"
-      >
-      {submission.grade ? (
-        <>
-        <Edit size={16} className="mr-2" />
-        Re-assess
-        </>
-      ) : (
-        <>
-        <FileCheck size={16} className="mr-2" />
-        Madina Assess
-        </>
-      )}
-      </MadinaButton>
-
-      <MadinaButton variant="ghost" className="text-sm py-2 px-4">
-      <Eye size={16} className="mr-2" />
-      Details
-      </MadinaButton>
-      </div>
-
-      {submission.graded_at && (
-        <span className="text-cyan-400 text-sm">
-        Assessed: {formatDateTime(submission.graded_at)}
-        </span>
-      )}
-      </div>
-      </MadinaCard>
-    ))}
-    </div>
-
-    {displaySubmissions.length === 0 && (
-      <MadinaCard className="text-center py-16">
-      <FileCheck size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-      <h3 className="text-2xl font-bold text-white mb-2">
-      {filters.status === 'pending' ? 'All Caught Up! 🎉' : 'No Submissions Yet'}
-      </h3>
-      <p className="text-cyan-300 text-lg">
-      {filters.status === 'pending'
-        ? 'All Madina assessments are complete! Your learners are progressing excellently.'
-        : 'Mission submissions will appear here as your learners complete their Madina challenges.'
-      }
-      </p>
-      </MadinaCard>
-    )}
-    </div>
-  );
-};
-
-// Assignment Creation Modal Component
-const AssignmentCreationModal = ({
-  isOpen,
-  onClose,
-  newAssignment,
-  onAssignmentChange,
-  onCreateAssignment
-}) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
-    <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-    <div className="flex justify-between items-center mb-6">
-    <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    🚀 Create Madina Assignment
-    </h3>
-    <button
-    onClick={onClose}
-    className="p-2 text-cyan-300 hover:text-white transition-colors"
-    >
-    <X size={24} />
-    </button>
-    </div>
-
-    <div className="space-y-6">
-    <div>
-    <label className="block text-sm font-medium text-cyan-200 mb-2">Mission Title *</label>
-    <input
-    type="text"
-    value={newAssignment.title}
-    onChange={(e) => onAssignmentChange('title', e.target.value)}
-    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    placeholder="Enter Madina mission title"
-    required
-    />
-    </div>
-
-    <div>
-    <label className="block text-sm font-medium text-cyan-200 mb-2">Mission Briefing</label>
-    <textarea
-    value={newAssignment.description}
-    onChange={(e) => onAssignmentChange('description', e.target.value)}
-    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    rows="3"
-    placeholder="Describe the mission objectives..."
-    />
-    </div>
-
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <div>
-    <label className="block text-sm font-medium text-cyan-200 mb-2">Due Date *</label>
-    <input
-    type="datetime-local"
-    value={newAssignment.due_date}
-    onChange={(e) => onAssignmentChange('due_date', e.target.value)}
-    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    required
-    />
-    </div>
-
-    <div>
-    <label className="block text-sm font-medium text-cyan-200 mb-2">Madina Points</label>
-    <input
-    type="number"
-    value={newAssignment.max_score}
-    onChange={(e) => onAssignmentChange('max_score', parseInt(e.target.value) || 100)}
-    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    min="1"
-    max="100"
-    />
-    </div>
-    </div>
-
-    <div className="flex items-center">
-    <input
-    type="checkbox"
-    checked={newAssignment.for_all_students}
-    onChange={(e) => onAssignmentChange('for_all_students', e.target.checked)}
-    className="mr-3 w-4 h-4 text-cyan-600 bg-cyan-800/30 border-cyan-700/30 rounded focus:ring-cyan-500"
-    />
-    <span className="text-cyan-200 text-sm">Assign to all learners</span>
-    </div>
-    </div>
-
-    <div className="flex justify-end space-x-3 mt-8">
-    <MadinaButton
-    onClick={onClose}
-    variant="ghost"
-    >
-    Cancel
-    </MadinaButton>
-    <MadinaButton
-    onClick={onCreateAssignment}
-    disabled={!newAssignment.title || !newAssignment.due_date}
-    variant="primary"
-    >
-    <Rocket className="mr-2" size={18} />
-    Launch Mission
-    </MadinaButton>
-    </div>
-    </MadinaCard>
-    </div>
-  );
-};
-
-// Grading Modal Component
-const GradingModal = ({
-  gradingSubmission,
-  onClose,
-  gradeData,
-  onGradeDataChange,
-  onGradeAssignment,
-  isGrading,
-  audioRecorder
-}) => {
-  if (!gradingSubmission) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
-    <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-    <div className="flex justify-between items-center mb-6">
-    <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    🧠 Madina Assessment
-    </h3>
-    <button
-    onClick={onClose}
-    className="p-2 text-cyan-300 hover:text-white transition-colors"
-    >
-    <X size={24} />
-    </button>
-    </div>
-
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-cyan-800/30 rounded-xl border border-cyan-700/30">
-    <div>
-    <p className="text-cyan-200 text-sm font-medium">Neural Learner</p>
-    <p className="text-white font-semibold text-lg">{gradingSubmission.student?.name || 'Unknown Learner'}</p>
-    <p className="text-cyan-300 text-xs">{gradingSubmission.student?.email}</p>
-    </div>
-    <div>
-    <p className="text-cyan-200 text-sm font-medium">Madina Mission</p>
-    <p className="text-white font-semibold text-lg">{gradingSubmission.assignment?.title}</p>
-    <p className="text-cyan-300 text-xs">
-    Max Madina Points: {gradingSubmission.assignment?.max_score}
-    </p>
-    </div>
-    </div>
-
-    {gradingSubmission.submission_text && (
-      <div className="mb-6">
-      <p className="text-cyan-200 text-sm font-medium mb-3 flex items-center">
-      <FileText size={16} className="mr-2" />
-      Neural Submission:
-      </p>
-      <div className="bg-cyan-800/30 p-4 rounded-xl border border-cyan-700/30 max-h-48 overflow-y-auto">
-      <p className="text-white text-sm leading-relaxed">{gradingSubmission.submission_text}</p>
-      </div>
-      </div>
-    )}
-
-    <div className="space-y-6">
-    <div>
-    <label className="block text-sm font-medium text-cyan-200 mb-3">
-    Madina Score * (Max: {gradingSubmission.assignment?.max_score || 100})
-    </label>
-    <input
-    type="number"
-    value={gradeData.score}
-    onChange={(e) => onGradeDataChange('score', e.target.value)}
-    className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white text-lg font-semibold focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    min="0"
-    max={gradingSubmission.assignment?.max_score || 100}
-    placeholder="Enter Madina score"
-    required
-    />
-    </div>
-
-    <div>
-    <label className="block text-sm font-medium text-cyan-200 mb-3 flex items-center">
-    <MessageCircle size={16} className="mr-2" />
-    Neural Feedback
-    </label>
-    <textarea
-    value={gradeData.feedback}
-    onChange={(e) => onGradeDataChange('feedback', e.target.value)}
-    className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-    rows="5"
-    placeholder="Provide constructive neural feedback to enhance learning..."
-    />
-    </div>
-
-    <div className="border-t border-cyan-700/30 pt-6">
-    <label className="block text-sm font-medium text-cyan-200 mb-4 flex items-center">
-    <Mic size={16} className="mr-2" />
-    Madina Audio Feedback (Optional)
-    </label>
-
-    <MadinaCard gradient="from-purple-900/30 to-pink-900/30" className="p-4">
-    {!gradeData.audioFeedbackData && !audioRecorder.audioData ? (
-      <div className="space-y-4">
-      <div className="flex items-center space-x-4">
-      <MadinaButton
-      onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
-      variant={audioRecorder.isRecording ? "danger" : "success"}
-      className="p-4 rounded-full"
-      >
-      {audioRecorder.isRecording ? (
-        <div className="animate-pulse">
-        <Square size={24} />
-        </div>
-      ) : (
-        <Mic size={24} />
-      )}
-      </MadinaButton>
-
-      <div className="flex-1">
-      <div className="text-cyan-300 font-medium">
-      {audioRecorder.isRecording ? `Recording Neural Feedback... ${audioRecorder.recordingTime}` : 'Initiate Neural Recording'}
-      </div>
-      <div className="text-cyan-400 text-sm">
-      {audioRecorder.isRecording ? 'Click to complete recording' : 'Record personalized audio feedback'}
-      </div>
-      </div>
-      </div>
-
-      {audioRecorder.isRecording && (
-        <div className="flex items-center space-x-2 text-cyan-400 text-sm">
-        <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-        <span>Neural processing active...</span>
-        </div>
-      )}
-      </div>
-    ) : (
-      <div className="space-y-4">
-      <div className="flex items-center justify-between">
-      <div className="flex items-center space-x-3">
-      <CheckCircle size={20} className="text-green-400" />
-      <span className="text-green-400 font-medium">✅ Madina Audio Recorded</span>
-      </div>
-      <button
-      onClick={() => {
-        audioRecorder.clearRecording();
-        onGradeDataChange('audioFeedbackData', '');
-      }}
-      className="text-red-400 hover:text-red-300 text-sm font-medium"
-      >
-      Re-record Neural Feedback
-      </button>
-      </div>
-
-      <div className="bg-cyan-900/20 p-3 rounded-lg border border-cyan-700/30">
-      <div className="flex items-center space-x-3">
-      <button
-      onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
-      className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors"
-      >
-      {audioRecorder.isRecording ? <Square size={16} /> : <Play size={16} />}
-      </button>
-      <span className="text-cyan-300 text-sm">
-      {audioRecorder.isRecording ? 'Recording...' : 'Preview neural recording'}
-      </span>
-      </div>
-      </div>
-      </div>
-    )}
-    </MadinaCard>
-    </div>
-    </div>
-
-    <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-cyan-700/30">
-    <MadinaButton
-    onClick={onClose}
-    variant="ghost"
-    >
-    Cancel Assessment
-    </MadinaButton>
-    <MadinaButton
-    onClick={() => onGradeAssignment(
-      gradingSubmission.id,
-      parseInt(gradeData.score),
-                                     gradeData.feedback,
-                                     gradeData.audioFeedbackData || audioRecorder.audioData
-    )}
-    disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
-    variant="primary"
-    className="min-w-[200px]"
-    >
-    {isGrading ? (
-      <>
-      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-      Madina Processing...
-      </>
-    ) : (
-      <>
-      <Zap size={20} className="mr-3" />
-      Submit Madina Assessment
-      </>
-    )}
-    </MadinaButton>
-    </div>
-    </MadinaCard>
-    </div>
-  );
-};
-
-// Main Dashboard Component
-export default function TeacherDashboard() {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-
-  // State Management
-  const [activeTab, setActiveTab] = useState('classes');
-  const [classes, setClasses] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [submissions, setSubmissions] = useState([]);
-  const [pendingSubmissions, setPendingSubmissions] = useState([]);
-  const [loading, setLoading] = useState({
-    classes: true,
-    students: true,
-    assignments: true
-  });
-  const [filters, setFilters] = useState({ status: '', search: '' });
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [stats, setStats] = useState({
-    totalClasses: 0,
-    upcomingClasses: 0,
-    completedClasses: 0,
-    totalStudents: 0,
-    totalAssignments: 0,
-    pendingSubmissions: 0
-  });
-
-  // Video Call State
-  const [activeVideoCall, setActiveVideoCall] = useState(null);
-  const [videoCallError, setVideoCallError] = useState(null);
-  const [startingSession, setStartingSession] = useState(null);
-  const [endingSession, setEndingSession] = useState(null);
-  const [showVideoCallModal, setShowVideoCallModal] = useState(false);
-  const [recentSessions, setRecentSessions] = useState([]);
-
-  // Assignment Creation State
-  const [showCreateAssignment, setShowCreateAssignment] = useState(false);
-  const [newAssignment, setNewAssignment] = useState({
-    title: '',
-    description: '',
-    due_date: '',
-    max_score: 100,
-    class_id: '',
-    for_all_students: true,
-      selected_students: []
-  });
-
-  // Grading System State
-  const [gradingSubmission, setGradingSubmission] = useState(null);
-  const [gradeData, setGradeData] = useState({
-    score: '',
-    feedback: '',
-    audioFeedbackData: ''
-  });
-  const [isGrading, setIsGrading] = useState(false);
-
-  // Audio Recorder
-  const audioRecorder = useAudioRecorder();
-
-  // Authentication Guard
-  useEffect(() => {
-    if (!user) {
-      navigate('/teacher-login');
-    }
-  }, [user, navigate]);
-
-  // Session Recovery System
-  useEffect(() => {
-    if (user) {
-      const savedSessions = localStorage.getItem('teacherRecentSessions');
-      if (savedSessions) {
-        try {
-          const sessions = JSON.parse(savedSessions);
-          setRecentSessions(sessions);
-
-          const sessionBackup = localStorage.getItem('teacherSessionBackup');
-          if (sessionBackup) {
-            const backup = JSON.parse(sessionBackup);
-            const logoutTime = new Date(backup.logoutTime);
-            const now = new Date();
-            const timeDiff = (now - logoutTime) / (1000 * 60);
-
-            if (timeDiff < 10 && backup.activeVideoCall) {
-              console.log('🔄 Madina session recovery initiated...');
-              setActiveVideoCall(backup.activeVideoCall);
-              setShowVideoCallModal(true);
-              toast.info('🧠 Neural session recovery complete!');
-            }
-
-            localStorage.removeItem('teacherSessionBackup');
-          }
-        } catch (error) {
-          console.error('❌ Madina recovery failed:', error);
-        }
-      }
-    }
-  }, [user]);
-
-  // Data Loading System
-  const loadTeacherData = async () => {
-    try {
-      setLoading({ classes: true, students: true, assignments: true });
-
-      const [classesData, studentsData, assignmentsData] = await Promise.all([
-        teacherApi.getMyClasses(),
-                                                                             teacherApi.getMyStudents(),
-                                                                             teacherApi.getMyAssignments()
-      ]);
-
-      setClasses(classesData);
-      setStudents(studentsData);
-      setAssignments(assignmentsData);
-
-      await loadSubmissions();
-
-      const now = new Date();
-      const upcoming = classesData.filter(cls =>
-      new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
-      );
-      const completed = classesData.filter(cls =>
-      cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
-      );
-
-      setStats({
-        totalClasses: classesData.length,
-        upcomingClasses: upcoming.length,
-        completedClasses: completed.length,
-        totalStudents: studentsData.length,
-        totalAssignments: assignmentsData.length,
-        pendingSubmissions: pendingSubmissions.length
-      });
-
-    } catch (error) {
-      toast.error('❌ Madina data stream interrupted');
-    } finally {
-      setLoading({ classes: false, students: false, assignments: false });
-    }
-  };
-
-  const loadSubmissions = async () => {
-    try {
-      const submissionsData = await teacherApi.getSubmissions();
-      setSubmissions(submissionsData);
-
-      const pending = submissionsData.filter(sub =>
-      !sub.grade && sub.status === 'submitted'
-      );
-      setPendingSubmissions(pending);
-    } catch (error) {
-      console.error('❌ Submission processing failed:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (user) {
-      loadTeacherData();
-    }
-  }, [user]);
-
-  // Filtering System
-  const filteredClasses = useMemo(() => {
-    if (!classes || classes.length === 0) return [];
-
-    let result = [...classes];
-
-    if (filters.status) {
-      result = result.filter(cls => cls.status === filters.status);
-    }
-
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      result = result.filter(cls =>
-      cls.title?.toLowerCase().includes(searchLower) ||
-      (cls.course?.name?.toLowerCase().includes(searchLower)) ||
-      cls.status?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    return result;
-  }, [classes, filters]);
-
-  // Video Call System
-  const handleStartVideoSession = async (classItem) => {
-    try {
-      setStartingSession(classItem.id);
-
-      // ✅ USE VIDEOAPI INSTEAD OF VIDEOSERVICE
-      const result = await videoApi.startVideoSession(classItem.id, user.id);
-
-      console.log('🔍 Backend response:', result); // Debug log
-
-      if (result.success) {
-        // ✅ ENSURE ALL REQUIRED PROPERTIES ARE SET
-        const videoCallData = {
-          meetingId: result.meetingId,
-          channel: result.channel,
-          token: result.token,
-          appId: result.appId,
-          uid: result.uid,
-          classId: classItem.id,
-          className: classItem.title,
-          isTeacher: true,
-          startTime: new Date().toISOString()
-        };
-
-        console.log('🎯 Video call data:', videoCallData); // Debug log
-
-        setActiveVideoCall(videoCallData);
-        setShowVideoCallModal(true);
-        toast.success('🎥 Video session started!');
-
-        // Add to recent sessions
-        setRecentSessions(prev => {
-          const filtered = prev.filter(s => s.classId !== classItem.id);
-          const newSession = {
-            classId: classItem.id,
-            className: classItem.title,
-            meetingId: result.meetingId,
-            channel: result.channel, // ✅ Store channel for rejoin
-            startTime: new Date().toISOString()
-          };
-          return [newSession, ...filtered].slice(0, 5);
-        });
-      } else {
-        throw new Error(result.error || 'Failed to start video session');
-      }
-
-    } catch (error) {
-      console.error('❌ Failed to start video session:', error);
-      setVideoCallError(error.message);
-      toast.error(error.message);
-    } finally {
-      setStartingSession(null);
-    }
-  };
-
-  const handleRejoinSession = async (classItem) => {
-    try {
-      console.log('🔄 Enhanced rejoin for class:', {
-        className: classItem.title,
-        classId: classItem.id,
-        availableSessions: classItem.video_sessions?.length || 0
-      });
-
-      // Step 1: Try to find a valid session using multiple methods
-      let validSession = null;
-
-      // Method A: Check backend for active sessions for this class
-      console.log('🔍 Checking backend for active sessions...');
-      const sessionSearch = await videoApi.findValidSession(classItem.id, user.id);
-
-      if (sessionSearch.success) {
-        validSession = sessionSearch;
-        console.log('✅ Found valid session via backend:', {
-          meetingId: validSession.meetingId,
-          source: validSession.source
-        });
-      } else {
-        // Method B: Start a completely new session
-        console.log('🚀 Starting completely new session...');
-        const newSession = await videoApi.startVideoSession(classItem.id, user.id);
-
-        if (newSession.success) {
-          validSession = {
-            success: true,
-            meetingId: newSession.meetingId,
-            session: newSession.session,
-            source: 'brand_new_session'
-          };
-          console.log('✅ Created new session:', validSession.meetingId);
-        } else {
-          throw new Error('Failed to create new session: ' + (newSession.error || 'Unknown error'));
-        }
-      }
-
-      // Step 2: Join the valid session
-      console.log('🎯 Joining session with meetingId:', validSession.meetingId);
-      const joinResult = await videoApi.joinVideoSession(validSession.meetingId, user.id);
-
-      if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to join session');
-      }
-
-      // Step 3: Setup video call data
-      const videoCallData = {
-        meetingId: joinResult.meetingId,
-        channel: joinResult.channel,
-        token: joinResult.token,
-        appId: joinResult.appId,
-        uid: joinResult.uid,
-        classId: classItem.id,
-        className: classItem.title,
-        isTeacher: true,
-        startTime: new Date().toISOString()
-      };
-
-      console.log('✅ Rejoin successful! Video call data:', videoCallData);
-
-      // Step 4: Update state and show modal
-      setActiveVideoCall(videoCallData);
-      setShowVideoCallModal(true);
-
-      // Update recent sessions
-      setRecentSessions(prev => {
-        const filtered = prev.filter(s => s.classId !== classItem.id);
-        const newSession = {
-          classId: classItem.id,
-          className: classItem.title,
-          meetingId: joinResult.meetingId,
-          channel: joinResult.channel,
-          startTime: new Date().toISOString(),
-                        source: validSession.source
-        };
-        return [newSession, ...filtered].slice(0, 5);
-      });
-
-      // Show appropriate success message
-      if (validSession.source === 'new_session' || validSession.source === 'brand_new_session') {
-        toast.success('🚀 Started new video session!');
-      } else {
-        toast.success('🔄 Successfully rejoined video session!');
-      }
-
-    } catch (error) {
-      console.error('❌ Enhanced rejoin failed:', {
-        error: error.message,
-        class: classItem.title,
-        classId: classItem.id,
-        stack: error.stack
-      });
-
-      // More specific error messages
-      if (error.message.includes('Active session not found') ||
-        error.message.includes('Session not found') ||
-        error.message.includes('404')) {
-        toast.error('Session expired. Please start a new session.');
-        } else if (error.message.includes('network') || error.message.includes('fetch')) {
-          toast.error('Network error. Please check your connection.');
-        } else {
-          toast.error(`Video session error: ${error.message}`);
-        }
-    }
-  };
-
-  const handleJoinExistingSession = async (classItem, session) => {
-    try {
-      const meetingId = session?.meeting_id;
-
-      if (!meetingId) {
-        throw new Error('No meeting ID found for this session');
-      }
-
-      // ✅ USE VIDEOAPI TO GET JOIN CREDENTIALS
-      const result = await videoApi.joinVideoSession(meetingId, user.id);
-
-      if (result.success) {
-        setActiveVideoCall({
-          meetingId: result.meetingId,
-          channel: result.channel,
-          token: result.token,
-          appId: result.appId,
-          uid: result.uid,
-          classId: classItem.id,
-          className: classItem.title,
-          isTeacher: true,
-          startTime: new Date().toISOString()
-        });
-
-        setRecentSessions(prev => {
-          const filtered = prev.filter(s => s.classId !== classItem.id);
-          const newSession = {
-            classId: classItem.id,
-            className: classItem.title,
-            meetingId: result.meetingId,
-            startTime: new Date().toISOString()
-          };
-          return [newSession, ...filtered].slice(0, 5);
-        });
-
-        localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions));
-
-        setShowVideoCallModal(true);
-        toast.success('🔄 Joining existing session...');
-
-      } else {
-        throw new Error(result.error || 'Failed to join session');
-      }
-
-    } catch (error) {
-      console.error('❌ Madina join failed:', error);
-      toast.error(error.message);
-    }
-  };
-
-  const handleRejoinRecentSession = async (session) => {
-    try {
-      setActiveVideoCall(session);
-      setShowVideoCallModal(true);
-      toast.success(`🚀 Rejoining ${session.className}...`);
-    } catch (error) {
-      console.error('❌ Madina rejoin failed:', error);
-      toast.error(error.message);
-    }
-  };
-
-  const handleEndVideoSession = async (classItem, session) => {
-    try {
-      setEndingSession(classItem.id);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast.success('✅ Madina session terminated');
-    } catch (error) {
-      toast.error('❌ Session termination failed');
-    } finally {
-      setEndingSession(null);
-    }
-  };
-
-  const handleDeleteClass = async (classId) => {
-    try {
-      await teacherApi.deleteClass(classId);
-      toast.success('✅ Madina session deleted');
-      loadTeacherData();
-    } catch (error) {
-      toast.error('❌ Deletion failed');
-      throw error;
-    }
-  };
-
-  const handleLeaveVideoCall = async (shouldEndSession = false) => {
-    try {
-      if (shouldEndSession && activeVideoCall) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        toast.success('✅ Madina session completed');
-
-        setRecentSessions(prev => prev.filter(s => s.meetingId !== activeVideoCall.meetingId));
-        localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions.filter(s => s.meetingId !== activeVideoCall.meetingId)));
-      } else {
-        toast.info('🔄 Madina session paused - Rejoin available');
-      }
-
-      setActiveVideoCall(null);
-      setVideoCallError(null);
-      setShowVideoCallModal(false);
-      await loadTeacherData();
-
-    } catch (error) {
-      console.error('Madina exit error:', error);
-      toast.error('❌ Exit sequence failed');
-    }
-  };
-
-  const cleanupInvalidSessions = async () => {
-    try {
-      console.log('🧹 Cleaning up invalid recent sessions...');
-
-      const validSessions = [];
-
-      for (const session of recentSessions) {
-        try {
-          // Try to get session info for each recent session
-          const sessionInfo = await videoApi.getSessionInfo(session.meetingId);
-          if (sessionInfo.exists && sessionInfo.session?.status === 'active') {
-            validSessions.push(session);
-          } else {
-            console.log('🗑️ Removing invalid session:', session.meetingId);
-          }
-        } catch (error) {
-          console.log('🗑️ Removing errored session:', session.meetingId);
-        }
-      }
-
-      if (validSessions.length !== recentSessions.length) {
-        setRecentSessions(validSessions);
-        console.log('✅ Session cleanup completed. Kept:', validSessions.length);
-      }
-    } catch (error) {
-      console.warn('⚠️ Session cleanup failed:', error);
-    }
-  };
-
-  // Call this on component mount
-  useEffect(() => {
-    cleanupInvalidSessions();
-  }, []);
-  // Assignment System
-  const handleAssignmentChange = (field, value) => {
-    setNewAssignment(prev => {
-      if (field === 'for_all_students') {
-        return {
-          ...prev,
-          for_all_students: value,
-            selected_students: value ? [] : prev.selected_students
-        };
-      }
-      return { ...prev, [field]: value };
-    });
-  };
-
-  const createAssignment = async () => {
-    try {
-      if (!newAssignment.title.trim()) {
-        toast.error('🚫 Madina assignment requires title');
-        return;
-      }
-
-      if (!newAssignment.due_date) {
-        toast.error('🚫 Temporal coordinates required');
-        return;
-      }
-
-      const assignmentData = {
-        title: newAssignment.title,
-        description: newAssignment.description,
-        due_date: newAssignment.due_date,
-        max_score: newAssignment.max_score,
-        class_id: newAssignment.class_id || null,
-        for_all_students: newAssignment.for_all_students,
-          student_ids: newAssignment.for_all_students ? 'all' : newAssignment.selected_students
-      };
-
-      await teacherApi.createAssignment(assignmentData);
-
-      toast.success('🚀 Madina assignment deployed!');
-      setShowCreateAssignment(false);
-      setNewAssignment({
-        title: '',
-        description: '',
-        due_date: '',
-        max_score: 100,
-        class_id: '',
-        for_all_students: true,
-          selected_students: []
-      });
-
-      await loadTeacherData();
-
-    } catch (error) {
-      toast.error(`❌ Assignment deployment failed: ${error.message}`);
-    }
-  };
-
-  const handleDeleteAssignment = async (assignmentId) => {
-    try {
-      await teacherApi.deleteAssignment(assignmentId);
-      toast.success('✅ Mission deleted');
-    } catch (error) {
-      toast.error('❌ Deletion failed');
-      throw error;
-    }
-  };
-
-  // Grading System
-  const handleGradeDataChange = (field, value) => {
-    setGradeData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleStartGrading = (submission) => {
-    setGradingSubmission(submission);
-    setGradeData({
-      score: submission.grade || '',
-      feedback: submission.feedback || '',
-      audioFeedbackData: submission.audio_feedback_url || ''
-    });
-  };
-
-  const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
-    setIsGrading(true);
-    try {
-      if (!score || isNaN(score) || score < 0) {
-        toast.error('🚫 Invalid Madina score');
-        setIsGrading(false);
-        return;
-      }
-
-      const numericScore = parseInt(score);
-
-      const updatedSubmissions = submissions.map(sub =>
-      sub.id === submissionId
-      ? {
-        ...sub,
-        grade: numericScore,
-        feedback,
-        graded_at: new Date().toISOString()
-      }
-      : sub
-      );
-
-      const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
-      setSubmissions(updatedSubmissions);
-      setPendingSubmissions(updatedPending);
-
-      setStats(prev => ({
-        ...prev,
-        pendingSubmissions: updatedPending.length
-      }));
-
-      await teacherApi.gradeAssignment(submissionId, numericScore, feedback, audioFeedbackData);
-
-      toast.success('✅ Madina grading complete!');
-      setGradingSubmission(null);
-      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
-      audioRecorder.clearRecording();
-
-    } catch (error) {
-      toast.error(`❌ Grading failed: ${error.message}`);
-    } finally {
-      setIsGrading(false);
-    }
-  };
-
-  // Utility Functions
-  const formatDateTime = (dateString) => {
-    if (!dateString) return "Temporal coordinates pending";
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const updateFilter = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleLogout = async () => {
-    try {
-      const currentSessionData = {
-        activeVideoCall,
-        recentSessions,
-        logoutTime: new Date().toISOString()
-      };
-
-      localStorage.setItem('teacherSessionBackup', JSON.stringify(currentSessionData));
-
-      await signOut();
-      toast.success('🚀 Madina logout complete!');
-      navigate('/teacher-login');
-    } catch (error) {
-      toast.error('❌ Logout sequence failed');
-    }
-  };
-
-  // Stats Grid
-  const statsGrid = [
-    { icon: BookOpen, value: stats.totalClasses, label: 'Madina Sessions', gradient: 'from-cyan-500 to-blue-500' },
-    { icon: Calendar, value: stats.upcomingClasses, label: 'Scheduled', gradient: 'from-green-500 to-emerald-500' },
-    { icon: BarChart3, value: stats.completedClasses, label: 'Completed', gradient: 'from-purple-500 to-pink-500' },
-    { icon: Users, value: stats.totalStudents, label: 'Learners', gradient: 'from-yellow-500 to-orange-500' },
-    { icon: FileText, value: stats.totalAssignments, label: 'Missions', gradient: 'from-indigo-500 to-purple-500' },
-    { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Review', gradient: 'from-orange-500 to-red-500' }
-  ];
-
-  // Navigation Tabs
-  const tabs = [
-    { id: 'classes', label: 'Madina Sessions', icon: Video, description: 'Manage your classes' },
-    { id: 'students', label: 'Learners', icon: Users, description: 'Student management' },
-    { id: 'assignments', label: 'Assignments', icon: FileText, description: 'Create assignments' },
-    { id: 'grading', label: 'Madina Review', icon: FileCheck, badge: pendingSubmissions.length, description: 'Grade submissions' },
-  ];
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
-    {/* Header */}
-    <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 relative z-50">
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div className="flex justify-between items-center h-16">
-    <div className="flex items-center">
-    <button
-    className="md:hidden text-white mr-2 p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
-    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-    >
-    {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-    </button>
-    <div className="flex items-center">
-    <Brain className="h-8 w-8 text-cyan-400 mr-3" />
-    <div>
-    <h1 className="text-xl md:text-2xl font-bold text-white">Madina Educator</h1>
-    </div>
-    </div>
-    </div>
-
-    <div className="flex items-center space-x-4">
-    <button className="p-2 text-cyan-200 hover:text-white rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors">
-    <Bell size={20} />
-    </button>
-
-    <div className="relative group">
-    <div className="flex items-center cursor-pointer p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors">
-    <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full flex items-center justify-center mr-2 shadow-lg">
-    <User size={16} className="text-white" />
-    </div>
-    <span className="text-white hidden md:inline font-medium">{user?.name}</span>
-    <ChevronDown size={16} className="ml-1 text-cyan-200" />
-    </div>
-
-    <div className="absolute right-0 mt-2 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-    <div className="px-4 py-2 border-b border-cyan-500/20">
-    <p className="text-sm font-medium text-white">{user?.name}</p>
-    <p className="text-xs text-cyan-400">{user?.email}</p>
-    </div>
-
-    <button
-    onClick={handleLogout}
-    className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-    >
-    <LogOut size={16} className="mr-2" />
-    Madina Logout
-    </button>
-    </div>
-    </div>
-    </div>
-    </div>
-    </div>
-    </header>
-
-    {/* Main Content */}
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    {/* Stats Grid */}
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-    {statsGrid.map((stat, index) => (
-      <MadinaCard key={index} className="p-4 hover:scale-105 transition-transform duration-300">
-      <div className="flex items-center">
-      <div className={`p-3 rounded-2xl bg-gradient-to-r ${stat.gradient} shadow-lg mr-3`}>
-      <stat.icon className="h-6 w-6 text-white" />
-      </div>
-      <div>
-      <p className="text-2xl font-bold text-white">{stat.value}</p>
-      <p className="text-cyan-200 text-sm">{stat.label}</p>
-      </div>
-      </div>
-      </MadinaCard>
-    ))}
-    </div>
-
-    {/* Quick Rejoin Section */}
-    <QuickRejoinSection
-    recentSessions={recentSessions}
-    onRejoin={handleRejoinRecentSession}
-    />
-
-    {/* Mobile Navigation */}
-    {mobileMenuOpen && (
-      <MadinaCard className="md:hidden mb-6">
-      <nav className="flex flex-col space-y-2">
-      {tabs.map((tab) => (
+      {/* Neural Navigation */}
+      <nav className="flex-1 p-6 space-y-2">
+      {[
+        { id: "classes", label: "Madina Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
+        { id: "assignments", label: "Assignments", icon: FileText, color: "from-green-500 to-emerald-500" },
+        { id: "exams", label: "Exams", icon: ClipboardList, color: "from-green-500 to-pink-500" },
+        { id: "payments", label: "Madina Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
+        { id: "progress", label: "Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
+      ].map((item) => (
         <button
-        key={tab.id}
+        key={item.id}
         onClick={() => {
-          setActiveTab(tab.id);
-          setMobileMenuOpen(false);
+          setActiveSection(item.id);
+          if (isMobile) setIsSidebarOpen(false);
         }}
-        className={`flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
-          activeTab === tab.id
-          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
-          : 'text-cyan-200 hover:text-white hover:bg-cyan-500/10'
-        }`}
+        className={`w-full flex items-center px-6 py-4 rounded-2xl transition-all duration-200 group ${
+          activeSection === item.id
+          ? "bg-gradient-to-r shadow-lg shadow-cyan-500/25"
+          : "hover:bg-cyan-500/10 text-cyan-200"
+        } ${activeSection === item.id ? item.color : ''}`}
         >
-        <tab.icon size={18} className="mr-3" />
-        <div className="text-left">
-        <div>{tab.label}</div>
-        <div className="text-xs text-cyan-400">{tab.description}</div>
-        </div>
-        {tab.badge && tab.badge > 0 && (
-          <span className="ml-auto bg-orange-500 text-white text-xs rounded-full px-2 py-1">
-          {tab.badge}
-          </span>
-        )}
+        <item.icon className="mr-4" size={24} />
+        <span className={`font-semibold ${
+          activeSection === item.id ? 'text-white' : 'group-hover:text-white'
+        }`}>
+        {item.label}
+        </span>
         </button>
       ))}
       </nav>
-      </MadinaCard>
-    )}
 
-    {/* Desktop Navigation */}
-    <div className="hidden md:block mb-6">
-    <MadinaCard>
-    <nav className="flex space-x-4 overflow-x-auto">
-    {tabs.map((tab) => (
+      {/* Madina Profile */}
+      <div className="p-6 border-t border-cyan-500/20">
+      <div className="flex items-center space-x-4 p-4 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+      <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+      <User size={24} className="text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+      <p className="text-white font-bold text-sm truncate">{studentName}</p>
+      <p className="text-cyan-300 text-xs truncate">Madina Learner</p>
+      </div>
+      </div>
+      </div>
+      </div>
+      </div>
+
+      {/* Main Madina Interface */}
+      <div className="flex-1 flex flex-col min-h-screen md:ml-0">
+      {/* Neural Header */}
+      <header className="bg-gradient-to-r from-gray-900/50 to-green-900/50 backdrop-blur-xl border-b border-cyan-500/20 sticky top-0 z-30">
+      <div className="px-8 py-6">
+      <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-6">
       <button
-      key={tab.id}
-      onClick={() => setActiveTab(tab.id)}
-      className={`flex items-center px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap ${
-        activeTab === tab.id
-        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
-        : 'text-cyan-200 hover:text-white hover:bg-cyan-500/10'
-      }`}
+      onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+      className="md:hidden p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
       >
-      <tab.icon size={18} className="mr-2" />
-      {tab.label}
-      {tab.badge && tab.badge > 0 && (
-        <span className="ml-2 bg-orange-500 text-white text-xs rounded-full px-2 py-1">
-        {tab.badge}
+      {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+      </button>
+      <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent capitalize">
+      {activeSection === 'classes' && 'Madina Sessions'}
+      {activeSection === 'assignments' && 'AI Missions'}
+      {activeSection === 'exams' && 'Neural Assessments'}
+      {activeSection === 'payments' && 'Madina Transactions'}
+      {activeSection === 'progress' && 'AI Analytics'}
+      </h2>
+      </div>
+
+      <div className="flex items-center space-x-4">
+      {/* AI Notifications */}
+      <div className="relative">
+      <button
+      onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+      className="relative p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
+      >
+      <Bell size={20} />
+      {notifications.filter(n => !n.read).length > 0 && (
+        <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-xs rounded-full flex items-center justify-center shadow-lg">
+        {notifications.filter(n => !n.read).length}
         </span>
       )}
       </button>
-    ))}
-    </nav>
-    </MadinaCard>
-    </div>
-
-    {/* Main Content Area */}
-    <MadinaCard>
-    {activeTab === 'classes' && (
-      <ClassesTab
-      classes={filteredClasses}
-      formatDateTime={formatDateTime}
-      onStartVideoSession={handleStartVideoSession}
-      onJoinExistingSession={handleJoinExistingSession}
-      onEndVideoSession={handleEndVideoSession}
-      onDeleteClass={handleDeleteClass}
-      onRejoinSession={handleRejoinSession}
-      startingSession={startingSession}
-      endingSession={endingSession}
-      videoCallError={videoCallError}
-      setVideoCallError={setVideoCallError}
-      recentSessions={recentSessions}
+      <NotificationsDropdown
+      isOpen={isNotificationsOpen}
+      onClose={() => setIsNotificationsOpen(false)}
+      notifications={notifications}
+      onNotificationClick={() => {}}
+      onMarkAllAsRead={() => {}}
+      onClearAll={() => {}}
+      onDeleteNotification={() => {}}
       />
-    )}
+      </div>
 
-    {activeTab === 'students' && (
-      <StudentsTab students={students} />
-    )}
+      {/* Madina User Menu */}
+      <div className="relative">
+      <button
+      onClick={() => setUserMenuOpen(!userMenuOpen)}
+      className="flex items-center space-x-3 p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
+      >
+      <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+      <User size={20} className="text-white" />
+      </div>
+      <ChevronDown size={16} className="text-cyan-300" />
+      </button>
 
-    {activeTab === 'assignments' && (
-      <AssignmentsTab
-      assignments={assignments}
-      formatDateTime={formatDateTime}
-      onShowCreateAssignment={() => setShowCreateAssignment(true)}
-      onDeleteAssignment={handleDeleteAssignment}
-      onReloadData={loadTeacherData}
-      filters={filters}
-      onFilterChange={updateFilter}
-      />
-    )}
+      {userMenuOpen && (
+        <div className="absolute right-0 mt-3 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
+        <div className="p-2">
+        <button className="w-full flex items-center px-4 py-3 text-sm text-cyan-200 hover:bg-cyan-500/10 rounded-xl transition-all duration-200">
+        <Settings className="mr-3" size={18} />
+        Madina Settings
+        </button>
+        <button
+        onClick={handleLogout}
+        className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+        >
+        <LogOut size={16} className="mr-2" />
+        Madina Logout
+        </button>
+        </div>
+        </div>
+      )}
+      </div>
+      </div>
+      </div>
+      </div>
+      </header>
 
-    {activeTab === 'grading' && (
-      <GradingTab
-      submissions={submissions}
-      pendingSubmissions={pendingSubmissions}
-      formatDateTime={formatDateTime}
-      onStartGrading={handleStartGrading}
-      filters={filters}
-      onFilterChange={updateFilter}
-      />
-    )}
-    </MadinaCard>
-    </div>
+      {/* Madina Main Content */}
+      <main className="flex-1 p-8 overflow-auto">
+      {/* AI Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {stats.map((stat, index) => (
+        <motion.div
+        key={stat.label}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: index * 0.1 }}
+        className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 hover:scale-105 transition-all duration-300 hover:shadow-2xl"
+        >
+        <div className="flex items-center justify-between">
+        <div>
+        <p className="text-cyan-300 text-sm font-semibold mb-2">{stat.label}</p>
+        <p className="text-white text-2xl font-bold mb-1">{stat.value}</p>
+        <p className="text-cyan-400 text-xs">{stat.change} this week</p>
+        </div>
+        <div className={`p-4 rounded-2xl bg-gradient-to-r ${stat.color} shadow-lg`}>
+        <stat.icon className="text-white" size={24} />
+        </div>
+        </div>
+        </motion.div>
+      ))}
+      </div>
 
-    {/* Modals */}
-    <AssignmentCreationModal
-    isOpen={showCreateAssignment}
-    onClose={() => setShowCreateAssignment(false)}
-    newAssignment={newAssignment}
-    onAssignmentChange={handleAssignmentChange}
-    onCreateAssignment={createAssignment}
-    />
+      {/* Madina Progress Matrix */}
+      <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.4 }}
+      className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-8 mb-8"
+      >
+      <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
+      <TrendingUp className="mr-3" size={28} />
+      <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+      Madina Progress Matrix
+      </span>
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      {[
+        { label: "Completion", value: `${progressStats.completionRate}%`, icon: Target },
+        { label: "Madina Streak", value: `${progressStats.streak} days`, icon: Zap },
+        { label: "Neural Level", value: `Level ${progressStats.level}`, icon: Star },
+        { label: "Experience", value: `${progressStats.points} XP`, icon: Gem },
+      ].map((item, index) => (
+        <div key={index} className="text-center p-6 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-2xl border border-cyan-500/20">
+        <item.icon className="mx-auto text-cyan-400 mb-3" size={32} />
+        <div className="text-2xl font-bold text-white mb-2">{item.value}</div>
+        <div className="text-cyan-300 text-sm">{item.label}</div>
+        </div>
+      ))}
+      </div>
+      </motion.div>
 
-    <GradingModal
-    gradingSubmission={gradingSubmission}
-    onClose={() => {
-      setGradingSubmission(null);
-      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
-      audioRecorder.clearRecording();
-    }}
-    gradeData={gradeData}
-    onGradeDataChange={handleGradeDataChange}
-    onGradeAssignment={gradeAssignment}
-    isGrading={isGrading}
-    audioRecorder={audioRecorder}
-    />
+      {/* Madina Content Sections */}
+      <AnimatePresence mode="wait">
+      {activeSection === 'classes' && (
+        <motion.section
+        key="classes"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="space-y-8"
+        >
+        {/* Madina Sessions Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+        <div className="flex items-center space-x-4">
+        <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+        Madina Sessions
+        </h3>
+        {(() => {
+          const liveClasses = classes.filter(classItem =>
+          getTimeUntilClass(classItem).status === 'live'
+          );
+          if (liveClasses.length > 0) {
+            return (
+              <div className="flex items-center space-x-3 bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl shadow-lg animate-pulse">
+              <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
+              <span className="text-white font-bold text-sm">
+              {liveClasses.length} LIVE SESSION{liveClasses.length > 1 ? 'S' : ''}
+              </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
+        </div>
 
-    {showVideoCallModal && activeVideoCall && (
-      <VideoCallModal
-      class={activeVideoCall}
-      // ✅ PASS BACKEND CREDENTIALS WITH FALLBACKS
-      channel={activeVideoCall.channel || activeVideoCall.meetingId}
-      token={activeVideoCall.token}
-      appId={activeVideoCall.appId}
-      uid={activeVideoCall.uid || user.id}
-      onClose={() => {
-        setShowVideoCallModal(false);
-        setActiveVideoCall(null);
-        setVideoCallError(null);
-      }}
-      onError={(error) => {
-        setVideoCallError(error);
-        toast.error(`Video call error: ${error}`);
-      }}
-      />
-    )}
-    </div>
+        <button
+        onClick={fetchStudentData}
+        className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
+        >
+        <RefreshCw className="mr-3" size={20} />
+        Madina Refresh
+        </button>
+        </div>
+
+        {/* Madina Sessions Content */}
+        {classes.length === 0 ? (
+          <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+          <Video className="mx-auto text-cyan-400 mb-6" size={80} />
+          <h4 className="text-white text-2xl font-bold mb-4">No Madina Sessions</h4>
+          <p className="text-cyan-300 text-lg">Your AI-optimized learning sessions will appear here</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+          {/* Live Sessions */}
+          {(() => {
+            const liveClasses = classes.filter(classItem =>
+            getTimeUntilClass(classItem).status === 'live'
+            );
+            if (liveClasses.length > 0) {
+              return (
+                <div className="space-y-4">
+                <div className="flex items-center space-x-4">
+                <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
+                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl">
+                🔴 Madina LIVE ({liveClasses.length})
+                </h4>
+                </div>
+                <div className="grid gap-6">
+                {liveClasses.map((classItem) => (
+                  <ClassItem
+                  key={classItem.id}
+                  classItem={classItem}
+                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                    weekday: 'short', month: 'short', day: 'numeric'
+                  })}
+                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                    hour: 'numeric', minute: '2-digit', hour12: true
+                  })}
+                  getTimeUntilClass={getTimeUntilClass}
+                  onJoinClass={handleJoinClass}
+                  />
+                ))}
+                </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Upcoming Sessions */}
+          {(() => {
+            const upcomingClasses = classes.filter(classItem => {
+              const timeInfo = getTimeUntilClass(classItem);
+              return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
+            });
+            if (upcomingClasses.length > 0) {
+              return (
+                <div className="space-y-4">
+                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-2xl">
+                ⏰ Madina SCHEDULED ({upcomingClasses.length})
+                </h4>
+                <div className="grid gap-4">
+                {upcomingClasses.map((classItem) => (
+                  <ClassItem
+                  key={classItem.id}
+                  classItem={classItem}
+                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                    weekday: 'short', month: 'short', day: 'numeric'
+                  })}
+                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                    hour: 'numeric', minute: '2-digit', hour12: true
+                  })}
+                  getTimeUntilClass={getTimeUntilClass}
+                  onJoinClass={handleJoinClass}
+                  />
+                ))}
+                </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Completed Sessions */}
+          {(() => {
+            const completedClasses = classes.filter(classItem =>
+            getTimeUntilClass(classItem).status === 'completed'
+            );
+            if (completedClasses.length > 0) {
+              return (
+                <div className="space-y-4">
+                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-2xl">
+                ✅ Madina ARCHIVE ({completedClasses.length})
+                </h4>
+                <div className="grid gap-4">
+                {completedClasses.map((classItem) => (
+                  <ClassItem
+                  key={classItem.id}
+                  classItem={classItem}
+                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                    weekday: 'short', month: 'short', day: 'numeric'
+                  })}
+                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                    hour: 'numeric', minute: '2-digit', hour12: true
+                  })}
+                  getTimeUntilClass={getTimeUntilClass}
+                  onJoinClass={handleJoinClass}
+                  />
+                ))}
+                </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+          </div>
+        )}
+        </motion.section>
+      )}
+
+      {activeSection === 'assignments' && (
+        <motion.section
+        key="assignments"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="space-y-8"
+        >
+        <div className="flex justify-between items-center">
+        <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+        AI Missions
+        </h3>
+        <div className="flex space-x-4">
+        <select className="bg-gradient-to-r from-gray-800 to-gray-700 border border-cyan-500/30 rounded-2xl px-4 py-3 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent backdrop-blur-lg">
+        <option>All Missions</option>
+        <option>Active</option>
+        <option>Completed</option>
+        <option>Graded</option>
+        </select>
+        <button
+        onClick={fetchStudentData}
+        className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
+        >
+        <RefreshCw className="mr-3" size={20} />
+        Refresh
+        </button>
+        </div>
+        </div>
+
+        {assignments.length === 0 ? (
+          <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+          <FileText className="mx-auto text-cyan-400 mb-6" size={80} />
+          <h4 className="text-white text-2xl font-bold mb-4">No Active Assignments</h4>
+          <p className="text-cyan-300 text-lg">Your Assignments will appear here</p>
+          </div>
+        ) : (
+          <div className="grid gap-6">
+          {assignments.map((assignment) => (
+            <AssignmentItem
+            key={assignment.id}
+            assignment={assignment}
+            onSubmitAssignment={handleSubmitAssignment}
+            formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+              weekday: 'short', month: 'short', day: 'numeric'
+            })}
+            />
+          ))}
+          </div>
+        )}
+        </motion.section>
+      )}
+
+      {/* Add other sections similarly with Madina styling */}
+      </AnimatePresence>
+      </main>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isSidebarOpen && isMobile && (
+        <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
+        onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+      </div>
   );
 }
