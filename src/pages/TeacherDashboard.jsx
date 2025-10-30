@@ -40,10 +40,10 @@ import { motion, AnimatePresence } from "framer-motion";
 // Madina Design System Components
 const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
   <div 
-    className={`bg-gradient-to-br ${gradient} backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 shadow-2xl ${className}`}
-    {...props}
+  className={`bg-gradient-to-br ${gradient} backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 shadow-2xl ${className}`}
+  {...props}
   >
-    {children}
+  {children}
   </div>
 );
 
@@ -57,10 +57,10 @@ const MadinaButton = ({ children, variant = "primary", className = "", ...props 
     warning: "bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white shadow-lg",
     ghost: "bg-white/10 hover:bg-white/20 text-white border border-white/20"
   };
-
+  
   return (
     <button className={`${baseClasses} ${variants[variant]} ${className}`} {...props}>
-      {children}
+    {children}
     </button>
   );
 };
@@ -75,10 +75,10 @@ const MadinaBadge = ({ children, variant = "info", className = "" }) => {
     danger: "bg-red-500/20 text-red-300 border-red-500/30",
     live: "bg-red-500/20 text-red-300 border-red-500/30 animate-pulse"
   };
-
+  
   return (
     <span className={`${baseClasses} ${variants[variant]} ${className}`}>
-      {children}
+    {children}
     </span>
   );
 };
@@ -88,7 +88,7 @@ const useAudioRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioData, setAudioData] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
-
+  
   const startRecording = async () => {
     try {
       setIsRecording(true);
@@ -108,22 +108,22 @@ const useAudioRecorder = () => {
       toast.error('🚫 Failed to start neural recording');
     }
   };
-
+  
   const stopRecording = () => {
     setIsRecording(false);
   };
-
+  
   const clearRecording = () => {
     setAudioData(null);
     setRecordingTime(0);
   };
-
+  
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
+  
   return {
     isRecording,
     audioData,
@@ -138,8 +138,8 @@ const useAudioRecorder = () => {
 // Quick Rejoin Section Component
 const QuickRejoinSection = ({ recentSessions, onRejoin }) => {
   if (!recentSessions || recentSessions.length === 0) return null;
-
-
+  
+  
 };
 
 /**
@@ -154,74 +154,74 @@ const initializeAgora = async (options = {}) => {
     token = null,
     uid = null
   } = options;
-
+  
   try {
     console.group('🎥 Agora RTC Initialization');
-
+    
     // 1. Validate Agora SDK
     if (typeof AgoraRTC === 'undefined') {
       throw new Error('Agora SDK not loaded. Check network and script tags.');
     }
-
+    
     // 2. Validate App ID
     const appId = import.meta.env.VITE_AGORA_APP_ID?.trim();
-
+    
     if (!appId) {
       throw new Error('Agora App ID not found in environment variables.');
     }
-
+    
     if (appId.includes('your_agora_app_id') || appId.length < 10) {
       throw new Error('Invalid Agora App ID. Please check your VITE_AGORA_APP_ID environment variable.');
     }
-
+    
     console.log('📋 Agora Configuration:', {
       appId: `${appId.substring(0, 8)}...`,
                 channelName,
                 hasToken: !!token
     });
-
+    
     // 3. Network connectivity check
     if (!navigator.onLine) {
       throw new Error('No internet connection. Please check your network.');
     }
-
+    
     // 4. Initialize client with better error handling
     const client = AgoraRTC.createClient({
       mode: 'rtc',
       codec: 'vp8'
     });
-
+    
     // 5. Set up connection state monitoring
     client.on('connection-state-change', (curState, prevState) => {
       console.log('🔗 Connection State:', { from: prevState, to: curState });
     });
-
+    
     // 6. Join channel with timeout
     console.log('🚀 Joining channel...');
-
+    
     const joinPromise = client.join(appId, channelName, token, uid);
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Connection timeout - check firewall/network')), 15000);
     });
-
+    
     await Promise.race([joinPromise, timeoutPromise]);
-
+    
     console.log('✅ Agora initialized successfully');
     console.groupEnd();
-
+    
     return {
       client,
       appId: `${appId.substring(0, 8)}...`,
       channelName,
       localUid: client.uid
     };
-
+    
   } catch (error) {
     console.groupEnd();
-
+    
     // Enhanced error analysis
     let userMessage = 'Video service unavailable. ';
-
+    
     if (error.message.includes('CAN_NOT_GET_GATEWAY_SERVER')) {
       userMessage += 'Network blocked. Check firewall or try different network.';
     } else if (error.message.includes('timeout')) {
@@ -233,19 +233,19 @@ const initializeAgora = async (options = {}) => {
     } else {
       userMessage += 'Please try again or contact support.';
     }
-
+    
     console.error('❌ Agora Initialization Failed:', {
       error: error.message,
       code: error.code,
       suggestion: userMessage
     });
-
+    
     throw new Error(userMessage);
   }
 };
 
 // Video Call Modal Component
-const TeacherVideoCall = ({
+const VideoCallModal = ({
   class: classData,
   onClose,
   onError,
@@ -1496,22 +1496,22 @@ const ClassesTab = ({
   const [liveSessions, setLiveSessions] = useState([]);
   const [joiningSession, setJoiningSession] = useState(null);
   const [showVideoLoader, setShowVideoLoader] = useState(false);
-
+  
   // Define helper functions BEFORE useMemo to avoid hoisting issues
   const hasActiveSession = (classItem) => {
     return classItem.video_sessions?.some(s => s.status === 'active') ||
     classItem.video_session?.status === 'active';
   };
-
+  
   const isClassLive = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
     const now = new Date();
     const timeDiff = now - classTime;
     const hoursDiff = timeDiff / (1000 * 60 * 60);
-
+    
     return hoursDiff >= -0.5 && hoursDiff <= 2 && classItem.status === 'scheduled';
   };
-
+  
   const canStartVideo = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
     const now = new Date();
@@ -1519,17 +1519,17 @@ const ClassesTab = ({
     const hoursDiff = timeDiff / (1000 * 60 * 60);
     return classItem.status === 'scheduled' && hoursDiff > -2 && !hasActiveSession(classItem);
   };
-
+  
   const getActiveSession = (classItem) => {
     return classItem.video_sessions?.find(s => s.status === 'active') ||
     classItem.video_session;
   };
-
+  
   // Enhanced session joining with animation
   const handleStartSessionWithAnimation = async (classItem) => {
     setJoiningSession(classItem.id);
     setShowVideoLoader(true);
-
+    
     try {
       await onStartVideoSession(classItem);
     } catch (error) {
@@ -1542,11 +1542,11 @@ const ClassesTab = ({
       }, 2000);
     }
   };
-
+  
   const handleRejoinSessionWithAnimation = async (classItem) => {
     setJoiningSession(classItem.id);
     setShowVideoLoader(true);
-
+    
     try {
       await handleEnhancedRejoin(classItem);
     } catch (error) {
@@ -1558,19 +1558,19 @@ const ClassesTab = ({
       }, 2000);
     }
   };
-
+  
   // Now useMemo can safely use these functions
   const { upcomingClasses, completedClasses, activeClasses } = useMemo(() => {
     const now = new Date();
     const sortedClasses = [...classes].sort((a, b) => {
       return new Date(a.scheduled_date) - new Date(b.scheduled_date);
     });
-
+    
     // Active classes (currently live)
     const active = sortedClasses.filter(cls => {
       return hasActiveSession(cls) || isClassLive(cls);
     });
-
+    
     // Upcoming classes
     const upcoming = sortedClasses.filter(cls => {
       const classTime = new Date(cls.scheduled_date);
@@ -1578,7 +1578,7 @@ const ClassesTab = ({
       const hoursDiff = timeDiff / (1000 * 60 * 60);
       return hoursDiff > -2 && cls.status === 'scheduled' && !hasActiveSession(cls);
     });
-
+    
     // Completed classes
     const completed = sortedClasses.filter(cls => {
       const classTime = new Date(cls.scheduled_date);
@@ -1586,20 +1586,20 @@ const ClassesTab = ({
       const hoursDiff = timeDiff / (1000 * 60 * 60);
       return (hoursDiff <= -2 || cls.status === 'completed') && !hasActiveSession(cls);
     });
-
+    
     return {
       activeClasses: active,
       upcomingClasses: upcoming,
       completedClasses: completed
     };
   }, [classes]);
-
+  
   const copyClassLink = (meetingId) => {
     const link = `${window.location.origin}/join-class/${meetingId}`;
     navigator.clipboard.writeText(link);
     toast.success('🔗 Madina link copied to neural clipboard!');
   };
-
+  
   const handleDeleteClass = async (classItem) => {
     try {
       setLocalDeletingClass(classItem.id);
@@ -1608,12 +1608,12 @@ const ClassesTab = ({
       setLocalDeletingClass(null);
     }
   };
-
+  
   // Enhanced rejoin function for background sessions
   const handleEnhancedRejoin = async (classItem) => {
     try {
       const activeSession = getActiveSession(classItem);
-
+      
       if (activeSession) {
         await onRejoinSession(classItem);
       } else {
@@ -1628,7 +1628,7 @@ const ClassesTab = ({
       toast.error('Failed to rejoin session');
     }
   };
-
+  
   // Check for background sessions on component mount
   useEffect(() => {
     const detectBackgroundSessions = () => {
@@ -1636,19 +1636,19 @@ const ClassesTab = ({
       hasActiveSession(cls) || isClassLive(cls)
       );
       setLiveSessions(backgroundSessions);
-
+      
       if (backgroundSessions.length > 0) {
         console.log('🔄 Detected background sessions:', backgroundSessions.length);
       }
     };
-
+    
     detectBackgroundSessions();
-
+    
     const interval = setInterval(detectBackgroundSessions, 30000);
-
+    
     return () => clearInterval(interval);
   }, [classes]);
-
+  
   // Beautiful Video Loading Animation Component
   const VideoLoadingOverlay = ({ classItem, type = "starting" }) => (
     <motion.div
@@ -1673,7 +1673,7 @@ const ClassesTab = ({
     >
     <Video className="text-white" size={48} />
     </motion.div>
-
+    
     {/* Pulsing Rings */}
     <div className="relative mb-8">
     <motion.div
@@ -1702,7 +1702,7 @@ const ClassesTab = ({
     className="absolute inset-0 border-4 border-blue-400 rounded-full"
     />
     </div>
-
+    
     {/* Loading Text */}
     <motion.h3
     initial={{ y: 20, opacity: 0 }}
@@ -1712,7 +1712,7 @@ const ClassesTab = ({
     >
     {type === "starting" ? "🚀 Launching Madina Session" : "🔄 Rejoining Neural Network"}
     </motion.h3>
-
+    
     <motion.p
     initial={{ y: 20, opacity: 0 }}
     animate={{ y: 0, opacity: 1 }}
@@ -1721,7 +1721,7 @@ const ClassesTab = ({
     >
     {classItem?.title || "Madina Learning Session"}
     </motion.p>
-
+    
     {/* Animated Progress */}
     <div className="bg-gray-800/50 rounded-full h-3 mx-auto max-w-md mb-6 overflow-hidden">
     <motion.div
@@ -1735,7 +1735,7 @@ const ClassesTab = ({
     className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
     />
     </div>
-
+    
     {/* Loading Steps */}
     <motion.div
     initial={{ opacity: 0 }}
@@ -1771,7 +1771,7 @@ const ClassesTab = ({
       </motion.div>
     ))}
     </motion.div>
-
+    
     {/* Cancel Button */}
     <motion.button
     initial={{ opacity: 0 }}
@@ -1788,7 +1788,7 @@ const ClassesTab = ({
     </div>
     </motion.div>
   );
-
+  
   // Mini loading indicator for buttons
   const LoadingButtonContent = ({ text, loadingText }) => (
     <motion.div
@@ -1806,7 +1806,7 @@ const ClassesTab = ({
     <span>{loadingText}</span>
     </motion.div>
   );
-
+  
   // Render function to avoid complex inline JSX
   const renderLiveSessionCard = (classItem) => {
     const activeSession = getActiveSession(classItem);
@@ -1816,7 +1816,7 @@ const ClassesTab = ({
     const isJoining = joiningSession === classItem.id;
     const sessionDuration = activeSession ?
     Math.floor((new Date() - new Date(activeSession.start_time || classItem.scheduled_date)) / 60000) : 0;
-
+    
     return (
       <MadinaCard key={classItem.id} gradient="from-red-900/50 to-pink-900/50" className="border-l-4 border-red-500 relative">
       {/* Loading Overlay for this specific card */}
@@ -1836,7 +1836,7 @@ const ClassesTab = ({
         </div>
         </motion.div>
       )}
-
+      
       <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
       <div className="flex-1">
       <div className="flex items-start justify-between mb-4">
@@ -1868,7 +1868,7 @@ const ClassesTab = ({
       🔴 LIVE
       </MadinaBadge>
       </div>
-
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
       <div className="flex items-center text-cyan-200">
       <Calendar size={18} className="mr-3 text-cyan-400" />
@@ -1877,7 +1877,7 @@ const ClassesTab = ({
       <p className="text-xs text-cyan-300">Started</p>
       </div>
       </div>
-
+      
       {classItem.duration && (
         <div className="flex items-center text-cyan-200">
         <Clock size={18} className="mr-3 text-cyan-400" />
@@ -1887,7 +1887,7 @@ const ClassesTab = ({
         </div>
         </div>
       )}
-
+      
       <div className="flex items-center text-cyan-200">
       <Users size={18} className="mr-3 text-cyan-400" />
       <div>
@@ -1896,11 +1896,11 @@ const ClassesTab = ({
       </div>
       </div>
       </div>
-
+      
       {classItem.description && (
         <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
       )}
-
+      
       {activeSession && (
         <div className="bg-red-800/20 p-4 rounded-xl border border-red-500/30 mb-4">
         <div className="flex items-center justify-between">
@@ -1916,7 +1916,7 @@ const ClassesTab = ({
         </div>
         </div>
       )}
-
+      
       {classItem.course?.name && (
         <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
         <BookOpen size={16} className="mr-2 text-cyan-400" />
@@ -1924,7 +1924,7 @@ const ClassesTab = ({
         </div>
       )}
       </div>
-
+      
       <div className="flex flex-col space-y-3 w-full lg:w-auto">
       <MadinaButton
       onClick={() => handleRejoinSessionWithAnimation(classItem)}
@@ -1944,7 +1944,7 @@ const ClassesTab = ({
         </>
       )}
       </MadinaButton>
-
+      
       {activeSession && (
         <>
         <MadinaButton
@@ -1954,7 +1954,7 @@ const ClassesTab = ({
         <Share2 size={20} className="mr-3" />
         Copy Invite Link
         </MadinaButton>
-
+        
         <MadinaButton
         onClick={() => onEndVideoSession(classItem, activeSession)}
         disabled={isEnding}
@@ -1974,7 +1974,7 @@ const ClassesTab = ({
         </MadinaButton>
         </>
       )}
-
+      
       {!activeSession && isClassLive(classItem) && (
         <MadinaButton
         onClick={() => handleStartSessionWithAnimation(classItem)}
@@ -1994,7 +1994,7 @@ const ClassesTab = ({
         )}
         </MadinaButton>
       )}
-
+      
       <MadinaButton
       onClick={() => handleDeleteClass(classItem)}
       disabled={localDeletingClass === classItem.id}
@@ -2015,25 +2015,25 @@ const ClassesTab = ({
       </MadinaButton>
       </div>
       </div>
-
+      
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
       <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
       <MadinaBadge variant="live">
       LIVE SESSION
       </MadinaBadge>
-
+      
       <span className="flex items-center text-green-400 text-sm">
       <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
       Madina channel active
       </span>
-
+      
       {activeSession && (
         <span className="text-cyan-400 text-sm">
         Last active: {formatDateTime(activeSession.updated_at || activeSession.start_time)}
         </span>
       )}
       </div>
-
+      
       <div className="flex items-center space-x-2 text-cyan-300 text-sm">
       <User size={14} />
       <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} connected</span>
@@ -2042,14 +2042,14 @@ const ClassesTab = ({
       </MadinaCard>
     );
   };
-
+  
   const renderUpcomingSessionCard = (classItem) => {
     const studentCount = classItem.students_classes?.length || 0;
     const canStart = canStartVideo(classItem);
     const isStarting = startingSession === classItem.id;
     const isDeleting = localDeletingClass === classItem.id;
     const isJoining = joiningSession === classItem.id;
-
+    
     return (
       <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
       {/* Loading Overlay for this specific card */}
@@ -2069,7 +2069,7 @@ const ClassesTab = ({
         </div>
         </motion.div>
       )}
-
+      
       <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
       <div className="flex-1">
       <div className="flex items-start justify-between mb-4">
@@ -2077,7 +2077,7 @@ const ClassesTab = ({
       <h4 className="font-bold text-2xl text-white mb-2">{classItem.title}</h4>
       </div>
       </div>
-
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
       <div className="flex items-center text-cyan-200">
       <Calendar size={18} className="mr-3 text-cyan-400" />
@@ -2086,7 +2086,7 @@ const ClassesTab = ({
       <p className="text-xs text-cyan-300">Temporal Coordinates</p>
       </div>
       </div>
-
+      
       {classItem.duration && (
         <div className="flex items-center text-cyan-200">
         <Clock size={18} className="mr-3 text-cyan-400" />
@@ -2096,7 +2096,7 @@ const ClassesTab = ({
         </div>
         </div>
       )}
-
+      
       <div className="flex items-center text-cyan-200">
       <Users size={18} className="mr-3 text-cyan-400" />
       <div>
@@ -2105,11 +2105,11 @@ const ClassesTab = ({
       </div>
       </div>
       </div>
-
+      
       {classItem.description && (
         <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
       )}
-
+      
       {classItem.course?.name && (
         <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
         <BookOpen size={16} className="mr-2 text-cyan-400" />
@@ -2117,7 +2117,7 @@ const ClassesTab = ({
         </div>
       )}
       </div>
-
+      
       <div className="flex flex-col space-y-3 w-full lg:w-auto">
       {canStart && (
         <MadinaButton
@@ -2138,7 +2138,7 @@ const ClassesTab = ({
         )}
         </MadinaButton>
       )}
-
+      
       <MadinaButton
       onClick={() => handleDeleteClass(classItem)}
       disabled={isDeleting}
@@ -2159,14 +2159,14 @@ const ClassesTab = ({
       </MadinaButton>
       </div>
       </div>
-
+      
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
       <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
       <MadinaBadge variant="warning">
       SCHEDULED
       </MadinaBadge>
       </div>
-
+      
       <div className="flex items-center space-x-2 text-cyan-300 text-sm">
       <User size={14} />
       <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} enrolled</span>
@@ -2175,7 +2175,7 @@ const ClassesTab = ({
       </MadinaCard>
     );
   };
-
+  
   return (
     <div>
     {/* Full-screen Video Loading Overlay */}
@@ -2187,12 +2187,12 @@ const ClassesTab = ({
       />
     )}
     </AnimatePresence>
-
+    
     <QuickRejoinSection
     recentSessions={recentSessions}
     onRejoin={onRejoinSession}
     />
-
+    
     {/* Live Sessions Section */}
     {activeClasses.length > 0 && (
       <div className="mb-8">
@@ -2208,7 +2208,7 @@ const ClassesTab = ({
       </div>
       </div>
     )}
-
+    
     {videoCallError && (
       <MadinaCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
       <div className="flex items-center justify-between">
@@ -2225,7 +2225,7 @@ const ClassesTab = ({
       </div>
       </MadinaCard>
     )}
-
+    
     <div className="flex justify-between items-center mb-6">
     <div>
     <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
@@ -2238,7 +2238,7 @@ const ClassesTab = ({
     {upcomingClasses.length} upcoming • {completedClasses.length} completed
     </div>
     </div>
-
+    
     {upcomingClasses.length > 0 && (
       <div className="mb-8">
       <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
@@ -2250,7 +2250,7 @@ const ClassesTab = ({
       </div>
       </div>
     )}
-
+    
     {completedClasses.length > 0 && (
       <div>
       <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
@@ -2271,7 +2271,7 @@ const ClassesTab = ({
       </div>
       </div>
     )}
-
+    
     {classes.length === 0 && (
       <MadinaCard className="text-center py-16">
       <Video size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
@@ -2287,84 +2287,84 @@ const ClassesTab = ({
 const StudentsTab = ({ students }) => {
   return (
     <div className="space-y-6">
+    <div className="flex justify-between items-center">
+    <div>
+    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    Learners
+    </h3>
+    <p className="text-cyan-300 text-sm">Manage your Madina learners</p>
+    </div>
+    <div className="text-cyan-300 text-sm">
+    {students.length} learners
+    </div>
+    </div>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {students.map((student) => (
+      <MadinaCard key={student.id} gradient="from-blue-900/30 to-purple-900/30">
+      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center">
+      <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center mr-3 shadow-lg">
+      <User size={20} className="text-white" />
+      </div>
+      <div>
+      <h4 className="font-bold text-white text-lg">{student.name}</h4>
+      <p className="text-cyan-300 text-sm">{student.email}</p>
+      </div>
+      </div>
+      <div className="flex space-x-2">
+      <button
+      onClick={() => toast.success(`📧 Neural message sent to ${student.name}`)}
+      className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors"
+      title="Send Neural Message"
+      >
+      <MessageCircle size={16} />
+      </button>
+      <button
+      className="p-2 bg-green-600 hover:bg-green-500 rounded-lg text-white transition-colors"
+      title="View Madina Progress"
+      >
+      <BarChart3 size={16} />
+      </button>
+      </div>
+      </div>
+      
+      <div className="space-y-3 text-sm mb-4">
       <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            Learners
-          </h3>
-          <p className="text-cyan-300 text-sm">Manage your Madina learners</p>
-        </div>
-        <div className="text-cyan-300 text-sm">
-          {students.length} learners
-        </div>
+      <span className="text-cyan-300">Madina Sessions:</span>
+      <span className="text-white font-semibold">{student.classes_count || 0}</span>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {students.map((student) => (
-          <MadinaCard key={student.id} gradient="from-blue-900/30 to-purple-900/30">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center mr-3 shadow-lg">
-                  <User size={20} className="text-white" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-white text-lg">{student.name}</h4>
-                  <p className="text-cyan-300 text-sm">{student.email}</p>
-                </div>
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => toast.success(`📧 Neural message sent to ${student.name}`)}
-                  className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors"
-                  title="Send Neural Message"
-                >
-                  <MessageCircle size={16} />
-                </button>
-                <button
-                  className="p-2 bg-green-600 hover:bg-green-500 rounded-lg text-white transition-colors"
-                  title="View Madina Progress"
-                >
-                  <BarChart3 size={16} />
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3 text-sm mb-4">
-              <div className="flex justify-between items-center">
-                <span className="text-cyan-300">Madina Sessions:</span>
-                <span className="text-white font-semibold">{student.classes_count || 0}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-cyan-300">Missions Completed:</span>
-                <span className="text-white font-semibold">{student.assignments_count || 0}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-cyan-300">Neural Score:</span>
-                <span className="text-white font-semibold">{student.average_grade || 'N/A'}</span>
-              </div>
-            </div>
-
-            <div className="flex space-x-2 pt-4 border-t border-cyan-700/30">
-              <MadinaButton variant="ghost" className="flex-1 text-sm py-2">
-                <Eye size={16} className="mr-2" />
-                Profile
-              </MadinaButton>
-              <MadinaButton variant="primary" className="flex-1 text-sm py-2">
-                <TrendingUp size={16} className="mr-2" />
-                Progress
-              </MadinaButton>
-            </div>
-          </MadinaCard>
-        ))}
+      <div className="flex justify-between items-center">
+      <span className="text-cyan-300">Missions Completed:</span>
+      <span className="text-white font-semibold">{student.assignments_count || 0}</span>
       </div>
-
-      {students.length === 0 && (
-        <MadinaCard className="text-center py-16">
-          <Users size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-          <h3 className="text-2xl font-bold text-white mb-2">No Learners</h3>
-          <p className="text-cyan-300 text-lg">Madina learners will appear here when they join your sessions</p>
-        </MadinaCard>
-      )}
+      <div className="flex justify-between items-center">
+      <span className="text-cyan-300">Neural Score:</span>
+      <span className="text-white font-semibold">{student.average_grade || 'N/A'}</span>
+      </div>
+      </div>
+      
+      <div className="flex space-x-2 pt-4 border-t border-cyan-700/30">
+      <MadinaButton variant="ghost" className="flex-1 text-sm py-2">
+      <Eye size={16} className="mr-2" />
+      Profile
+      </MadinaButton>
+      <MadinaButton variant="primary" className="flex-1 text-sm py-2">
+      <TrendingUp size={16} className="mr-2" />
+      Progress
+      </MadinaButton>
+      </div>
+      </MadinaCard>
+    ))}
+    </div>
+    
+    {students.length === 0 && (
+      <MadinaCard className="text-center py-16">
+      <Users size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
+      <h3 className="text-2xl font-bold text-white mb-2">No Learners</h3>
+      <p className="text-cyan-300 text-lg">Madina learners will appear here when they join your sessions</p>
+      </MadinaCard>
+    )}
     </div>
   );
 };
@@ -2373,138 +2373,138 @@ const StudentsTab = ({ students }) => {
 const AssignmentsTab = ({ 
   assignments, 
   formatDateTime, 
-  onShowCreateAssignment, 
-  onDeleteAssignment,
-  onReloadData,
-  filters,
-  onFilterChange 
+    onShowCreateAssignment, 
+    onDeleteAssignment,
+    onReloadData,
+    filters,
+    onFilterChange 
 }) => {
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            AI Missions
-          </h3>
-          <p className="text-cyan-300 text-sm">Create and manage Madina learning missions</p>
-        </div>
-        <MadinaButton
-          onClick={onShowCreateAssignment}
-          variant="success"
-        >
-          <Plus size={20} className="mr-2" />
-          Create Mission
-        </MadinaButton>
-      </div>
-
-      <div className="relative">
-        <Search size={20} className="absolute left-4 top-1/2 transform -translate-y-1/2 text-cyan-400" />
-        <input
-          type="text"
-          placeholder="Search Madina missions..."
-          className="w-full pl-12 pr-4 py-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-          onChange={(e) => onFilterChange('search', e.target.value)}
-        />
-      </div>
-
-      <div className="grid gap-6">
-        {assignments.map((assignment) => (
-          <MadinaCard key={assignment.id} gradient="from-green-900/30 to-emerald-900/30">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex-1">
-                <h4 className="font-bold text-white text-2xl mb-3">{assignment.title}</h4>
-                {assignment.description && (
-                  <p className="text-cyan-300 text-lg mb-4 leading-relaxed">{assignment.description}</p>
-                )}
-              </div>
-              <div className="flex space-x-2 ml-4">
-                <button
-                  onClick={async () => {
-                    if (window.confirm('Delete this Madina mission?')) {
-                      try {
-                        await onDeleteAssignment(assignment.id);
-                        toast.success('✅ Mission deleted');
-                        onReloadData();
-                      } catch (error) {
-                        toast.error('❌ Deletion failed');
-                      }
-                    }
-                  }}
-                  className="p-3 bg-red-600 hover:bg-red-500 rounded-xl text-white transition-colors"
-                  title="Delete Mission"
-                >
-                  <Trash2 size={18} />
-                </button>
-                <button
-                  className="p-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white transition-colors"
-                  title="View Submissions"
-                >
-                  <Eye size={18} />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div className="flex items-center text-cyan-200">
-                <Calendar size={18} className="mr-3 text-cyan-400" />
-                <div>
-                  <p className="text-sm font-medium">Due: {formatDateTime(assignment.due_date)}</p>
-                  <p className="text-xs text-cyan-300">Temporal Deadline</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center text-cyan-200">
-                <Award size={18} className="mr-3 text-cyan-400" />
-                <div>
-                  <p className="text-sm font-medium">{assignment.max_score} Madina Points</p>
-                  <p className="text-xs text-cyan-300">Mission Value</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center text-cyan-200">
-                <Users size={18} className="mr-3 text-cyan-400" />
-                <div>
-                  <p className="text-sm font-medium">{assignment.submissions_count || 0} submissions</p>
-                  <p className="text-xs text-cyan-300">Neural Responses</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
-              <MadinaBadge variant={assignment.status === 'active' ? 'success' : 'info'}>
-                {assignment.status?.toUpperCase() || 'ACTIVE'}
-              </MadinaBadge>
-              
-              <div className="flex space-x-3">
-                <MadinaButton variant="ghost" className="text-sm py-2 px-4">
-                  <Eye size={16} className="mr-2" />
-                  Details
-                </MadinaButton>
-                <MadinaButton variant="primary" className="text-sm py-2 px-4">
-                  <FileCheck size={16} className="mr-2" />
-                  Review
-                </MadinaButton>
-              </div>
-            </div>
-          </MadinaCard>
-        ))}
-      </div>
-
-      {assignments.length === 0 && (
-        <MadinaCard className="text-center py-16">
-          <FileText size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-          <h3 className="text-2xl font-bold text-white mb-2">No Madina Missions</h3>
-          <p className="text-cyan-300 text-lg">Create your first Assignment to challenge your learners</p>
-          <MadinaButton
-            onClick={onShowCreateAssignment}
-            variant="success"
-            className="mt-6"
-          >
-            <Rocket size={20} className="mr-2" />
-            Launch First Mission
-          </MadinaButton>
-        </MadinaCard>
+    <div className="flex justify-between items-center">
+    <div>
+    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    AI Missions
+    </h3>
+    <p className="text-cyan-300 text-sm">Create and manage Madina learning missions</p>
+    </div>
+    <MadinaButton
+    onClick={onShowCreateAssignment}
+    variant="success"
+    >
+    <Plus size={20} className="mr-2" />
+    Create Mission
+    </MadinaButton>
+    </div>
+    
+    <div className="relative">
+    <Search size={20} className="absolute left-4 top-1/2 transform -translate-y-1/2 text-cyan-400" />
+    <input
+    type="text"
+    placeholder="Search Madina missions..."
+    className="w-full pl-12 pr-4 py-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    onChange={(e) => onFilterChange('search', e.target.value)}
+    />
+    </div>
+    
+    <div className="grid gap-6">
+    {assignments.map((assignment) => (
+      <MadinaCard key={assignment.id} gradient="from-green-900/30 to-emerald-900/30">
+      <div className="flex justify-between items-start mb-4">
+      <div className="flex-1">
+      <h4 className="font-bold text-white text-2xl mb-3">{assignment.title}</h4>
+      {assignment.description && (
+        <p className="text-cyan-300 text-lg mb-4 leading-relaxed">{assignment.description}</p>
       )}
+      </div>
+      <div className="flex space-x-2 ml-4">
+      <button
+      onClick={async () => {
+        if (window.confirm('Delete this Madina mission?')) {
+          try {
+            await onDeleteAssignment(assignment.id);
+            toast.success('✅ Mission deleted');
+            onReloadData();
+          } catch (error) {
+            toast.error('❌ Deletion failed');
+          }
+        }
+      }}
+      className="p-3 bg-red-600 hover:bg-red-500 rounded-xl text-white transition-colors"
+      title="Delete Mission"
+      >
+      <Trash2 size={18} />
+      </button>
+      <button
+      className="p-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white transition-colors"
+      title="View Submissions"
+      >
+      <Eye size={18} />
+      </button>
+      </div>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div className="flex items-center text-cyan-200">
+      <Calendar size={18} className="mr-3 text-cyan-400" />
+      <div>
+      <p className="text-sm font-medium">Due: {formatDateTime(assignment.due_date)}</p>
+      <p className="text-xs text-cyan-300">Temporal Deadline</p>
+      </div>
+      </div>
+      
+      <div className="flex items-center text-cyan-200">
+      <Award size={18} className="mr-3 text-cyan-400" />
+      <div>
+      <p className="text-sm font-medium">{assignment.max_score} Madina Points</p>
+      <p className="text-xs text-cyan-300">Mission Value</p>
+      </div>
+      </div>
+      
+      <div className="flex items-center text-cyan-200">
+      <Users size={18} className="mr-3 text-cyan-400" />
+      <div>
+      <p className="text-sm font-medium">{assignment.submissions_count || 0} submissions</p>
+      <p className="text-xs text-cyan-300">Neural Responses</p>
+      </div>
+      </div>
+      </div>
+      
+      <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
+      <MadinaBadge variant={assignment.status === 'active' ? 'success' : 'info'}>
+      {assignment.status?.toUpperCase() || 'ACTIVE'}
+      </MadinaBadge>
+      
+      <div className="flex space-x-3">
+      <MadinaButton variant="ghost" className="text-sm py-2 px-4">
+      <Eye size={16} className="mr-2" />
+      Details
+      </MadinaButton>
+      <MadinaButton variant="primary" className="text-sm py-2 px-4">
+      <FileCheck size={16} className="mr-2" />
+      Review
+      </MadinaButton>
+      </div>
+      </div>
+      </MadinaCard>
+    ))}
+    </div>
+    
+    {assignments.length === 0 && (
+      <MadinaCard className="text-center py-16">
+      <FileText size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
+      <h3 className="text-2xl font-bold text-white mb-2">No Madina Missions</h3>
+      <p className="text-cyan-300 text-lg">Create your first Assignment to challenge your learners</p>
+      <MadinaButton
+      onClick={onShowCreateAssignment}
+      variant="success"
+      className="mt-6"
+      >
+      <Rocket size={20} className="mr-2" />
+      Launch First Mission
+      </MadinaButton>
+      </MadinaCard>
+    )}
     </div>
   );
 };
@@ -2514,138 +2514,138 @@ const GradingTab = ({
   submissions, 
   pendingSubmissions, 
   formatDateTime, 
-  onStartGrading,
-  filters,
-  onFilterChange 
+    onStartGrading,
+    filters,
+    onFilterChange 
 }) => {
   const displaySubmissions = filters.status === 'pending' ? pendingSubmissions : submissions;
-
+  
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            Madina Review
-          </h3>
-          <p className="text-cyan-300 text-sm">Assess and enhance neural learning</p>
-        </div>
-        <div className="text-cyan-300 text-sm">
-          {pendingSubmissions.length} pending • {submissions.length} total
-        </div>
-      </div>
-
-      <div className="flex space-x-4 mb-6">
-        <MadinaButton
-          onClick={() => onFilterChange('status', 'pending')}
-          variant={filters.status === 'pending' ? 'warning' : 'ghost'}
-          className="flex-1"
-        >
-          <Clock size={18} className="mr-2" />
-          Pending Review ({pendingSubmissions.length})
-        </MadinaButton>
-        <MadinaButton
-          onClick={() => onFilterChange('status', '')}
-          variant={!filters.status ? 'primary' : 'ghost'}
-          className="flex-1"
-        >
-          <FileCheck size={18} className="mr-2" />
-          All Submissions ({submissions.length})
-        </MadinaButton>
-      </div>
-
-      <div className="grid gap-6">
-        {displaySubmissions.map((submission) => (
-          <MadinaCard key={submission.id} gradient="from-orange-900/30 to-yellow-900/30">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex-1">
-                <h4 className="font-bold text-white text-xl mb-2">
-                  {submission.assignment?.title || 'Madina Mission'}
-                </h4>
-                <p className="text-cyan-300 text-lg mb-1">
-                  Neural Learner: {submission.student?.name || 'Unknown'}
-                </p>
-                {submission.submitted_at && (
-                  <p className="text-cyan-400 text-sm">
-                    Submitted: {formatDateTime(submission.submitted_at)}
-                  </p>
-                )}
-              </div>
-              
-              <div className="flex items-center space-x-3">
-                {submission.grade ? (
-                  <div className="flex items-center space-x-3">
-                    <MadinaBadge variant="success">
-                      {submission.grade}/{submission.assignment?.max_score || 100}
-                    </MadinaBadge>
-                    <CheckCircle size={24} className="text-green-400" />
-                  </div>
-                ) : (
-                  <MadinaBadge variant="warning">
-                    AWAITING ASSESSMENT
-                  </MadinaBadge>
-                )}
-              </div>
-            </div>
-
-            {submission.submission_text && (
-              <div className="mb-4">
-                <p className="text-cyan-200 text-sm font-medium mb-3">Neural Response:</p>
-                <div className="bg-cyan-800/30 p-4 rounded-xl border border-cyan-700/30 max-h-32 overflow-y-auto">
-                  <p className="text-white text-sm leading-relaxed">{submission.submission_text}</p>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
-              <div className="flex space-x-3">
-                <MadinaButton
-                  onClick={() => onStartGrading(submission)}
-                  variant="primary"
-                  className="text-sm py-2 px-4"
-                >
-                  {submission.grade ? (
-                    <>
-                      <Edit size={16} className="mr-2" />
-                      Re-assess
-                    </>
-                  ) : (
-                    <>
-                      <FileCheck size={16} className="mr-2" />
-                      Madina Assess
-                    </>
-                  )}
-                </MadinaButton>
-                
-                <MadinaButton variant="ghost" className="text-sm py-2 px-4">
-                  <Eye size={16} className="mr-2" />
-                  Details
-                </MadinaButton>
-              </div>
-
-              {submission.graded_at && (
-                <span className="text-cyan-400 text-sm">
-                  Assessed: {formatDateTime(submission.graded_at)}
-                </span>
-              )}
-            </div>
-          </MadinaCard>
-        ))}
-      </div>
-
-      {displaySubmissions.length === 0 && (
-        <MadinaCard className="text-center py-16">
-          <FileCheck size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
-          <h3 className="text-2xl font-bold text-white mb-2">
-            {filters.status === 'pending' ? 'All Caught Up! 🎉' : 'No Submissions Yet'}
-          </h3>
-          <p className="text-cyan-300 text-lg">
-            {filters.status === 'pending' 
-              ? 'All Madina assessments are complete! Your learners are progressing excellently.' 
-              : 'Mission submissions will appear here as your learners complete their Madina challenges.'
-            }
-          </p>
-        </MadinaCard>
+    <div className="flex justify-between items-center">
+    <div>
+    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    Madina Review
+    </h3>
+    <p className="text-cyan-300 text-sm">Assess and enhance neural learning</p>
+    </div>
+    <div className="text-cyan-300 text-sm">
+    {pendingSubmissions.length} pending • {submissions.length} total
+    </div>
+    </div>
+    
+    <div className="flex space-x-4 mb-6">
+    <MadinaButton
+    onClick={() => onFilterChange('status', 'pending')}
+    variant={filters.status === 'pending' ? 'warning' : 'ghost'}
+    className="flex-1"
+    >
+    <Clock size={18} className="mr-2" />
+    Pending Review ({pendingSubmissions.length})
+    </MadinaButton>
+    <MadinaButton
+    onClick={() => onFilterChange('status', '')}
+    variant={!filters.status ? 'primary' : 'ghost'}
+    className="flex-1"
+    >
+    <FileCheck size={18} className="mr-2" />
+    All Submissions ({submissions.length})
+    </MadinaButton>
+    </div>
+    
+    <div className="grid gap-6">
+    {displaySubmissions.map((submission) => (
+      <MadinaCard key={submission.id} gradient="from-orange-900/30 to-yellow-900/30">
+      <div className="flex justify-between items-start mb-4">
+      <div className="flex-1">
+      <h4 className="font-bold text-white text-xl mb-2">
+      {submission.assignment?.title || 'Madina Mission'}
+      </h4>
+      <p className="text-cyan-300 text-lg mb-1">
+      Neural Learner: {submission.student?.name || 'Unknown'}
+      </p>
+      {submission.submitted_at && (
+        <p className="text-cyan-400 text-sm">
+        Submitted: {formatDateTime(submission.submitted_at)}
+        </p>
       )}
+      </div>
+      
+      <div className="flex items-center space-x-3">
+      {submission.grade ? (
+        <div className="flex items-center space-x-3">
+        <MadinaBadge variant="success">
+        {submission.grade}/{submission.assignment?.max_score || 100}
+        </MadinaBadge>
+        <CheckCircle size={24} className="text-green-400" />
+        </div>
+      ) : (
+        <MadinaBadge variant="warning">
+        AWAITING ASSESSMENT
+        </MadinaBadge>
+      )}
+      </div>
+      </div>
+      
+      {submission.submission_text && (
+        <div className="mb-4">
+        <p className="text-cyan-200 text-sm font-medium mb-3">Neural Response:</p>
+        <div className="bg-cyan-800/30 p-4 rounded-xl border border-cyan-700/30 max-h-32 overflow-y-auto">
+        <p className="text-white text-sm leading-relaxed">{submission.submission_text}</p>
+        </div>
+        </div>
+      )}
+      
+      <div className="flex justify-between items-center pt-4 border-t border-cyan-700/30">
+      <div className="flex space-x-3">
+      <MadinaButton
+      onClick={() => onStartGrading(submission)}
+      variant="primary"
+      className="text-sm py-2 px-4"
+      >
+      {submission.grade ? (
+        <>
+        <Edit size={16} className="mr-2" />
+        Re-assess
+        </>
+      ) : (
+        <>
+        <FileCheck size={16} className="mr-2" />
+        Madina Assess
+        </>
+      )}
+      </MadinaButton>
+      
+      <MadinaButton variant="ghost" className="text-sm py-2 px-4">
+      <Eye size={16} className="mr-2" />
+      Details
+      </MadinaButton>
+      </div>
+      
+      {submission.graded_at && (
+        <span className="text-cyan-400 text-sm">
+        Assessed: {formatDateTime(submission.graded_at)}
+        </span>
+      )}
+      </div>
+      </MadinaCard>
+    ))}
+    </div>
+    
+    {displaySubmissions.length === 0 && (
+      <MadinaCard className="text-center py-16">
+      <FileCheck size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
+      <h3 className="text-2xl font-bold text-white mb-2">
+      {filters.status === 'pending' ? 'All Caught Up! 🎉' : 'No Submissions Yet'}
+      </h3>
+      <p className="text-cyan-300 text-lg">
+      {filters.status === 'pending' 
+        ? 'All Madina assessments are complete! Your learners are progressing excellently.' 
+        : 'Mission submissions will appear here as your learners complete their Madina challenges.'
+      }
+      </p>
+      </MadinaCard>
+    )}
     </div>
   );
 };
@@ -2659,99 +2659,99 @@ const AssignmentCreationModal = ({
   onCreateAssignment 
 }) => {
   if (!isOpen) return null;
-
+  
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
-      <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            🚀 Create Madina Assignment
-          </h3>
-          <button 
-            onClick={onClose}
-            className="p-2 text-cyan-300 hover:text-white transition-colors"
-          >
-            <X size={24} />
-          </button>
-        </div>
-        
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-cyan-200 mb-2">Mission Title *</label>
-            <input
-              type="text"
-              value={newAssignment.title}
-              onChange={(e) => onAssignmentChange('title', e.target.value)}
-              className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              placeholder="Enter Madina mission title"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-cyan-200 mb-2">Mission Briefing</label>
-            <textarea
-              value={newAssignment.description}
-              onChange={(e) => onAssignmentChange('description', e.target.value)}
-              className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              rows="3"
-              placeholder="Describe the mission objectives..."
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-cyan-200 mb-2">Due Date *</label>
-              <input
-                type="datetime-local"
-                value={newAssignment.due_date}
-                onChange={(e) => onAssignmentChange('due_date', e.target.value)}
-                className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-cyan-200 mb-2">Madina Points</label>
-              <input
-                type="number"
-                value={newAssignment.max_score}
-                onChange={(e) => onAssignmentChange('max_score', parseInt(e.target.value) || 100)}
-                className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                min="1"
-                max="100"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              checked={newAssignment.for_all_students}
-              onChange={(e) => onAssignmentChange('for_all_students', e.target.checked)}
-              className="mr-3 w-4 h-4 text-cyan-600 bg-cyan-800/30 border-cyan-700/30 rounded focus:ring-cyan-500"
-            />
-            <span className="text-cyan-200 text-sm">Assign to all learners</span>
-          </div>
-        </div>
-
-        <div className="flex justify-end space-x-3 mt-8">
-          <MadinaButton
-            onClick={onClose}
-            variant="ghost"
-          >
-            Cancel
-          </MadinaButton>
-          <MadinaButton
-            onClick={onCreateAssignment}
-            disabled={!newAssignment.title || !newAssignment.due_date}
-            variant="primary"
-          >
-            <Rocket className="mr-2" size={18} />
-            Launch Mission
-          </MadinaButton>
-        </div>
-      </MadinaCard>
+    <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="flex justify-between items-center mb-6">
+    <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    🚀 Create Madina Assignment
+    </h3>
+    <button 
+    onClick={onClose}
+    className="p-2 text-cyan-300 hover:text-white transition-colors"
+    >
+    <X size={24} />
+    </button>
+    </div>
+    
+    <div className="space-y-6">
+    <div>
+    <label className="block text-sm font-medium text-cyan-200 mb-2">Mission Title *</label>
+    <input
+    type="text"
+    value={newAssignment.title}
+    onChange={(e) => onAssignmentChange('title', e.target.value)}
+    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    placeholder="Enter Madina mission title"
+    required
+    />
+    </div>
+    
+    <div>
+    <label className="block text-sm font-medium text-cyan-200 mb-2">Mission Briefing</label>
+    <textarea
+    value={newAssignment.description}
+    onChange={(e) => onAssignmentChange('description', e.target.value)}
+    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    rows="3"
+    placeholder="Describe the mission objectives..."
+    />
+    </div>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+    <label className="block text-sm font-medium text-cyan-200 mb-2">Due Date *</label>
+    <input
+    type="datetime-local"
+    value={newAssignment.due_date}
+    onChange={(e) => onAssignmentChange('due_date', e.target.value)}
+    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    required
+    />
+    </div>
+    
+    <div>
+    <label className="block text-sm font-medium text-cyan-200 mb-2">Madina Points</label>
+    <input
+    type="number"
+    value={newAssignment.max_score}
+    onChange={(e) => onAssignmentChange('max_score', parseInt(e.target.value) || 100)}
+    className="w-full p-3 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    min="1"
+    max="100"
+    />
+    </div>
+    </div>
+    
+    <div className="flex items-center">
+    <input
+    type="checkbox"
+    checked={newAssignment.for_all_students}
+    onChange={(e) => onAssignmentChange('for_all_students', e.target.checked)}
+    className="mr-3 w-4 h-4 text-cyan-600 bg-cyan-800/30 border-cyan-700/30 rounded focus:ring-cyan-500"
+    />
+    <span className="text-cyan-200 text-sm">Assign to all learners</span>
+    </div>
+    </div>
+    
+    <div className="flex justify-end space-x-3 mt-8">
+    <MadinaButton
+    onClick={onClose}
+    variant="ghost"
+    >
+    Cancel
+    </MadinaButton>
+    <MadinaButton
+    onClick={onCreateAssignment}
+    disabled={!newAssignment.title || !newAssignment.due_date}
+    variant="primary"
+    >
+    <Rocket className="mr-2" size={18} />
+    Launch Mission
+    </MadinaButton>
+    </div>
+    </MadinaCard>
     </div>
   );
 };
@@ -2767,190 +2767,190 @@ const GradingModal = ({
   audioRecorder 
 }) => {
   if (!gradingSubmission) return null;
-
+  
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4">
-      <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            🧠 Madina Assessment
-          </h3>
-          <button 
-            onClick={onClose}
-            className="p-2 text-cyan-300 hover:text-white transition-colors"
-          >
-            <X size={24} />
-          </button>
+    <MadinaCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="flex justify-between items-center mb-6">
+    <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+    🧠 Madina Assessment
+    </h3>
+    <button 
+    onClick={onClose}
+    className="p-2 text-cyan-300 hover:text-white transition-colors"
+    >
+    <X size={24} />
+    </button>
+    </div>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-cyan-800/30 rounded-xl border border-cyan-700/30">
+    <div>
+    <p className="text-cyan-200 text-sm font-medium">Neural Learner</p>
+    <p className="text-white font-semibold text-lg">{gradingSubmission.student?.name || 'Unknown Learner'}</p>
+    <p className="text-cyan-300 text-xs">{gradingSubmission.student?.email}</p>
+    </div>
+    <div>
+    <p className="text-cyan-200 text-sm font-medium">Madina Mission</p>
+    <p className="text-white font-semibold text-lg">{gradingSubmission.assignment?.title}</p>
+    <p className="text-cyan-300 text-xs">
+    Max Madina Points: {gradingSubmission.assignment?.max_score}
+    </p>
+    </div>
+    </div>
+    
+    {gradingSubmission.submission_text && (
+      <div className="mb-6">
+      <p className="text-cyan-200 text-sm font-medium mb-3 flex items-center">
+      <FileText size={16} className="mr-2" />
+      Neural Submission:
+      </p>
+      <div className="bg-cyan-800/30 p-4 rounded-xl border border-cyan-700/30 max-h-48 overflow-y-auto">
+      <p className="text-white text-sm leading-relaxed">{gradingSubmission.submission_text}</p>
+      </div>
+      </div>
+    )}
+    
+    <div className="space-y-6">
+    <div>
+    <label className="block text-sm font-medium text-cyan-200 mb-3">
+    Madina Score * (Max: {gradingSubmission.assignment?.max_score || 100})
+    </label>
+    <input
+    type="number"
+    value={gradeData.score}
+    onChange={(e) => onGradeDataChange('score', e.target.value)}
+    className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white text-lg font-semibold focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    min="0"
+    max={gradingSubmission.assignment?.max_score || 100}
+    placeholder="Enter Madina score"
+    required
+    />
+    </div>
+    
+    <div>
+    <label className="block text-sm font-medium text-cyan-200 mb-3 flex items-center">
+    <MessageCircle size={16} className="mr-2" />
+    Neural Feedback
+    </label>
+    <textarea
+    value={gradeData.feedback}
+    onChange={(e) => onGradeDataChange('feedback', e.target.value)}
+    className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+    rows="5"
+    placeholder="Provide constructive neural feedback to enhance learning..."
+    />
+    </div>
+    
+    <div className="border-t border-cyan-700/30 pt-6">
+    <label className="block text-sm font-medium text-cyan-200 mb-4 flex items-center">
+    <Mic size={16} className="mr-2" />
+    Madina Audio Feedback (Optional)
+    </label>
+    
+    <MadinaCard gradient="from-purple-900/30 to-pink-900/30" className="p-4">
+    {!gradeData.audioFeedbackData && !audioRecorder.audioData ? (
+      <div className="space-y-4">
+      <div className="flex items-center space-x-4">
+      <MadinaButton
+      onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
+      variant={audioRecorder.isRecording ? "danger" : "success"}
+      className="p-4 rounded-full"
+      >
+      {audioRecorder.isRecording ? (
+        <div className="animate-pulse">
+        <Square size={24} />
         </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-cyan-800/30 rounded-xl border border-cyan-700/30">
-          <div>
-            <p className="text-cyan-200 text-sm font-medium">Neural Learner</p>
-            <p className="text-white font-semibold text-lg">{gradingSubmission.student?.name || 'Unknown Learner'}</p>
-            <p className="text-cyan-300 text-xs">{gradingSubmission.student?.email}</p>
-          </div>
-          <div>
-            <p className="text-cyan-200 text-sm font-medium">Madina Mission</p>
-            <p className="text-white font-semibold text-lg">{gradingSubmission.assignment?.title}</p>
-            <p className="text-cyan-300 text-xs">
-              Max Madina Points: {gradingSubmission.assignment?.max_score}
-            </p>
-          </div>
+      ) : (
+        <Mic size={24} />
+      )}
+      </MadinaButton>
+      
+      <div className="flex-1">
+      <div className="text-cyan-300 font-medium">
+      {audioRecorder.isRecording ? `Recording Neural Feedback... ${audioRecorder.recordingTime}` : 'Initiate Neural Recording'}
+      </div>
+      <div className="text-cyan-400 text-sm">
+      {audioRecorder.isRecording ? 'Click to complete recording' : 'Record personalized audio feedback'}
+      </div>
+      </div>
+      </div>
+      
+      {audioRecorder.isRecording && (
+        <div className="flex items-center space-x-2 text-cyan-400 text-sm">
+        <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+        <span>Neural processing active...</span>
         </div>
-
-        {gradingSubmission.submission_text && (
-          <div className="mb-6">
-            <p className="text-cyan-200 text-sm font-medium mb-3 flex items-center">
-              <FileText size={16} className="mr-2" />
-              Neural Submission:
-            </p>
-            <div className="bg-cyan-800/30 p-4 rounded-xl border border-cyan-700/30 max-h-48 overflow-y-auto">
-              <p className="text-white text-sm leading-relaxed">{gradingSubmission.submission_text}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-cyan-200 mb-3">
-              Madina Score * (Max: {gradingSubmission.assignment?.max_score || 100})
-            </label>
-            <input
-              type="number"
-              value={gradeData.score}
-              onChange={(e) => onGradeDataChange('score', e.target.value)}
-              className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white text-lg font-semibold focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              min="0"
-              max={gradingSubmission.assignment?.max_score || 100}
-              placeholder="Enter Madina score"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-cyan-200 mb-3 flex items-center">
-              <MessageCircle size={16} className="mr-2" />
-              Neural Feedback
-            </label>
-            <textarea
-              value={gradeData.feedback}
-              onChange={(e) => onGradeDataChange('feedback', e.target.value)}
-              className="w-full p-4 rounded-xl bg-cyan-800/30 border border-cyan-700/30 text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              rows="5"
-              placeholder="Provide constructive neural feedback to enhance learning..."
-            />
-          </div>
-
-          <div className="border-t border-cyan-700/30 pt-6">
-            <label className="block text-sm font-medium text-cyan-200 mb-4 flex items-center">
-              <Mic size={16} className="mr-2" />
-              Madina Audio Feedback (Optional)
-            </label>
-            
-            <MadinaCard gradient="from-purple-900/30 to-pink-900/30" className="p-4">
-              {!gradeData.audioFeedbackData && !audioRecorder.audioData ? (
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-4">
-                    <MadinaButton
-                      onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
-                      variant={audioRecorder.isRecording ? "danger" : "success"}
-                      className="p-4 rounded-full"
-                    >
-                      {audioRecorder.isRecording ? (
-                        <div className="animate-pulse">
-                          <Square size={24} />
-                        </div>
-                      ) : (
-                        <Mic size={24} />
-                      )}
-                    </MadinaButton>
-                    
-                    <div className="flex-1">
-                      <div className="text-cyan-300 font-medium">
-                        {audioRecorder.isRecording ? `Recording Neural Feedback... ${audioRecorder.recordingTime}` : 'Initiate Neural Recording'}
-                      </div>
-                      <div className="text-cyan-400 text-sm">
-                        {audioRecorder.isRecording ? 'Click to complete recording' : 'Record personalized audio feedback'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {audioRecorder.isRecording && (
-                    <div className="flex items-center space-x-2 text-cyan-400 text-sm">
-                      <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-                      <span>Neural processing active...</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle size={20} className="text-green-400" />
-                      <span className="text-green-400 font-medium">✅ Madina Audio Recorded</span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        audioRecorder.clearRecording();
-                        onGradeDataChange('audioFeedbackData', '');
-                      }}
-                      className="text-red-400 hover:text-red-300 text-sm font-medium"
-                    >
-                      Re-record Neural Feedback
-                    </button>
-                  </div>
-                  
-                  <div className="bg-cyan-900/20 p-3 rounded-lg border border-cyan-700/30">
-                    <div className="flex items-center space-x-3">
-                      <button
-                        onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
-                        className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors"
-                      >
-                        {audioRecorder.isRecording ? <Square size={16} /> : <Play size={16} />}
-                      </button>
-                      <span className="text-cyan-300 text-sm">
-                        {audioRecorder.isRecording ? 'Recording...' : 'Preview neural recording'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </MadinaCard>
-          </div>
-        </div>
-
-        <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-cyan-700/30">
-          <MadinaButton
-            onClick={onClose}
-            variant="ghost"
-          >
-            Cancel Assessment
-          </MadinaButton>
-          <MadinaButton
-            onClick={() => onGradeAssignment(
-              gradingSubmission.id, 
-              parseInt(gradeData.score), 
-              gradeData.feedback,
-              gradeData.audioFeedbackData || audioRecorder.audioData
-            )}
-            disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
-            variant="primary"
-            className="min-w-[200px]"
-          >
-            {isGrading ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                Madina Processing...
-              </>
-            ) : (
-              <>
-                <Zap size={20} className="mr-3" />
-                Submit Madina Assessment
-              </>
-            )}
-          </MadinaButton>
-        </div>
-      </MadinaCard>
+      )}
+      </div>
+    ) : (
+      <div className="space-y-4">
+      <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-3">
+      <CheckCircle size={20} className="text-green-400" />
+      <span className="text-green-400 font-medium">✅ Madina Audio Recorded</span>
+      </div>
+      <button
+      onClick={() => {
+        audioRecorder.clearRecording();
+        onGradeDataChange('audioFeedbackData', '');
+      }}
+      className="text-red-400 hover:text-red-300 text-sm font-medium"
+      >
+      Re-record Neural Feedback
+      </button>
+      </div>
+      
+      <div className="bg-cyan-900/20 p-3 rounded-lg border border-cyan-700/30">
+      <div className="flex items-center space-x-3">
+      <button
+      onClick={audioRecorder.isRecording ? audioRecorder.stopRecording : audioRecorder.startRecording}
+      className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors"
+      >
+      {audioRecorder.isRecording ? <Square size={16} /> : <Play size={16} />}
+      </button>
+      <span className="text-cyan-300 text-sm">
+      {audioRecorder.isRecording ? 'Recording...' : 'Preview neural recording'}
+      </span>
+      </div>
+      </div>
+      </div>
+    )}
+    </MadinaCard>
+    </div>
+    </div>
+    
+    <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-cyan-700/30">
+    <MadinaButton
+    onClick={onClose}
+    variant="ghost"
+    >
+    Cancel Assessment
+    </MadinaButton>
+    <MadinaButton
+    onClick={() => onGradeAssignment(
+      gradingSubmission.id, 
+      parseInt(gradeData.score), 
+                                     gradeData.feedback,
+                                     gradeData.audioFeedbackData || audioRecorder.audioData
+    )}
+    disabled={!gradeData.score || isNaN(parseInt(gradeData.score)) || isGrading}
+    variant="primary"
+    className="min-w-[200px]"
+    >
+    {isGrading ? (
+      <>
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
+      Madina Processing...
+      </>
+    ) : (
+      <>
+      <Zap size={20} className="mr-3" />
+      Submit Madina Assessment
+      </>
+    )}
+    </MadinaButton>
+    </div>
+    </MadinaCard>
     </div>
   );
 };
@@ -2982,7 +2982,7 @@ export default function TeacherDashboard() {
     totalAssignments: 0,
     pendingSubmissions: 0
   });
-
+  
   // Video Call State
   const [activeVideoCall, setActiveVideoCall] = useState(null);
   const [videoCallError, setVideoCallError] = useState(null);
@@ -2990,7 +2990,7 @@ export default function TeacherDashboard() {
   const [endingSession, setEndingSession] = useState(null);
   const [showVideoCallModal, setShowVideoCallModal] = useState(false);
   const [recentSessions, setRecentSessions] = useState([]);
-
+  
   // Assignment Creation State
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [newAssignment, setNewAssignment] = useState({
@@ -3000,9 +3000,9 @@ export default function TeacherDashboard() {
     max_score: 100,
     class_id: '',
     for_all_students: true,
-    selected_students: []
+      selected_students: []
   });
-
+  
   // Grading System State
   const [gradingSubmission, setGradingSubmission] = useState(null);
   const [gradeData, setGradeData] = useState({ 
@@ -3011,10 +3011,10 @@ export default function TeacherDashboard() {
     audioFeedbackData: ''
   });
   const [isGrading, setIsGrading] = useState(false);
-
+  
   // Audio Recorder
   const audioRecorder = useAudioRecorder();
-
+  
   // Authentication Guard
   useEffect(() => {
     if (!user) {
@@ -3053,7 +3053,7 @@ export default function TeacherDashboard() {
       }
     }
   }, [user]);
-
+  
   // Data Loading System
   const loadTeacherData = async () => {
     try {
@@ -3061,22 +3061,22 @@ export default function TeacherDashboard() {
       
       const [classesData, studentsData, assignmentsData] = await Promise.all([
         teacherApi.getMyClasses(),
-        teacherApi.getMyStudents(),
-        teacherApi.getMyAssignments()
+                                                                             teacherApi.getMyStudents(),
+                                                                             teacherApi.getMyAssignments()
       ]);
-
+      
       setClasses(classesData);
       setStudents(studentsData);
       setAssignments(assignmentsData);
-
+      
       await loadSubmissions();
       
       const now = new Date();
       const upcoming = classesData.filter(cls => 
-        new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
+      new Date(cls.scheduled_date) > now && cls.status === 'scheduled'
       );
       const completed = classesData.filter(cls => 
-        cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
+      cls.status === 'completed' || (new Date(cls.scheduled_date) < now && cls.status !== 'cancelled')
       );
       
       setStats({
@@ -3094,59 +3094,59 @@ export default function TeacherDashboard() {
       setLoading({ classes: false, students: false, assignments: false });
     }
   };
-
+  
   const loadSubmissions = async () => {
     try {
       const submissionsData = await teacherApi.getSubmissions();
       setSubmissions(submissionsData);
       
       const pending = submissionsData.filter(sub => 
-        !sub.grade && sub.status === 'submitted'
+      !sub.grade && sub.status === 'submitted'
       );
       setPendingSubmissions(pending);
     } catch (error) {
       console.error('❌ Submission processing failed:', error);
     }
   };
-
+  
   useEffect(() => {
     if (user) {
       loadTeacherData();
     }
   }, [user]);
-
+  
   // Filtering System
   const filteredClasses = useMemo(() => {
     if (!classes || classes.length === 0) return [];
     
     let result = [...classes];
-
+    
     if (filters.status) {
       result = result.filter(cls => cls.status === filters.status);
     }
-
+    
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       result = result.filter(cls => 
-        cls.title?.toLowerCase().includes(searchLower) ||
-        (cls.course?.name?.toLowerCase().includes(searchLower)) ||
-        cls.status?.toLowerCase().includes(searchLower)
+      cls.title?.toLowerCase().includes(searchLower) ||
+      (cls.course?.name?.toLowerCase().includes(searchLower)) ||
+      cls.status?.toLowerCase().includes(searchLower)
       );
     }
-
+    
     return result;
   }, [classes, filters]);
-
+  
   // Video Call System
   const handleStartVideoSession = async (classItem) => {
     try {
       setStartingSession(classItem.id);
-
+      
       // ✅ USE VIDEOAPI INSTEAD OF VIDEOSERVICE
       const result = await videoApi.startVideoSession(classItem.id, user.id);
-
+      
       console.log('🔍 Backend response:', result); // Debug log
-
+      
       if (result.success) {
         // ✅ ENSURE ALL REQUIRED PROPERTIES ARE SET
         const videoCallData = {
@@ -3160,13 +3160,13 @@ export default function TeacherDashboard() {
           isTeacher: true,
           startTime: new Date().toISOString()
         };
-
+        
         console.log('🎯 Video call data:', videoCallData); // Debug log
-
+        
         setActiveVideoCall(videoCallData);
         setShowVideoCallModal(true);
         toast.success('🎥 Video session started!');
-
+        
         // Add to recent sessions
         setRecentSessions(prev => {
           const filtered = prev.filter(s => s.classId !== classItem.id);
@@ -3182,7 +3182,7 @@ export default function TeacherDashboard() {
       } else {
         throw new Error(result.error || 'Failed to start video session');
       }
-
+      
     } catch (error) {
       console.error('❌ Failed to start video session:', error);
       setVideoCallError(error.message);
@@ -3191,7 +3191,7 @@ export default function TeacherDashboard() {
       setStartingSession(null);
     }
   };
-
+  
   const handleRejoinSession = async (classItem) => {
     try {
       console.log('🔄 Enhanced rejoin for class:', {
@@ -3199,14 +3199,14 @@ export default function TeacherDashboard() {
         classId: classItem.id,
         availableSessions: classItem.video_sessions?.length || 0
       });
-
+      
       // Step 1: Try to find a valid session using multiple methods
       let validSession = null;
-
+      
       // Method A: Check backend for active sessions for this class
       console.log('🔍 Checking backend for active sessions...');
       const sessionSearch = await videoApi.findValidSession(classItem.id, user.id);
-
+      
       if (sessionSearch.success) {
         validSession = sessionSearch;
         console.log('✅ Found valid session via backend:', {
@@ -3217,7 +3217,7 @@ export default function TeacherDashboard() {
         // Method B: Start a completely new session
         console.log('🚀 Starting completely new session...');
         const newSession = await videoApi.startVideoSession(classItem.id, user.id);
-
+        
         if (newSession.success) {
           validSession = {
             success: true,
@@ -3230,15 +3230,15 @@ export default function TeacherDashboard() {
           throw new Error('Failed to create new session: ' + (newSession.error || 'Unknown error'));
         }
       }
-
+      
       // Step 2: Join the valid session
       console.log('🎯 Joining session with meetingId:', validSession.meetingId);
       const joinResult = await videoApi.joinVideoSession(validSession.meetingId, user.id);
-
+      
       if (!joinResult.success) {
         throw new Error(joinResult.error || 'Failed to join session');
       }
-
+      
       // Step 3: Setup video call data
       const videoCallData = {
         meetingId: joinResult.meetingId,
@@ -3251,13 +3251,13 @@ export default function TeacherDashboard() {
         isTeacher: true,
         startTime: new Date().toISOString()
       };
-
+      
       console.log('✅ Rejoin successful! Video call data:', videoCallData);
-
+      
       // Step 4: Update state and show modal
       setActiveVideoCall(videoCallData);
       setShowVideoCallModal(true);
-
+      
       // Update recent sessions
       setRecentSessions(prev => {
         const filtered = prev.filter(s => s.classId !== classItem.id);
@@ -3271,14 +3271,14 @@ export default function TeacherDashboard() {
         };
         return [newSession, ...filtered].slice(0, 5);
       });
-
+      
       // Show appropriate success message
       if (validSession.source === 'new_session' || validSession.source === 'brand_new_session') {
         toast.success('🚀 Started new video session!');
       } else {
         toast.success('🔄 Successfully rejoined video session!');
       }
-
+      
     } catch (error) {
       console.error('❌ Enhanced rejoin failed:', {
         error: error.message,
@@ -3286,7 +3286,7 @@ export default function TeacherDashboard() {
         classId: classItem.id,
         stack: error.stack
       });
-
+      
       // More specific error messages
       if (error.message.includes('Active session not found') ||
         error.message.includes('Session not found') ||
@@ -3299,18 +3299,18 @@ export default function TeacherDashboard() {
         }
     }
   };
-
+  
   const handleJoinExistingSession = async (classItem, session) => {
     try {
       const meetingId = session?.meeting_id;
-
+      
       if (!meetingId) {
         throw new Error('No meeting ID found for this session');
       }
-
+      
       // ✅ USE VIDEOAPI TO GET JOIN CREDENTIALS
       const result = await videoApi.joinVideoSession(meetingId, user.id);
-
+      
       if (result.success) {
         setActiveVideoCall({
           meetingId: result.meetingId,
@@ -3323,7 +3323,7 @@ export default function TeacherDashboard() {
           isTeacher: true,
           startTime: new Date().toISOString()
         });
-
+        
         setRecentSessions(prev => {
           const filtered = prev.filter(s => s.classId !== classItem.id);
           const newSession = {
@@ -3334,22 +3334,22 @@ export default function TeacherDashboard() {
           };
           return [newSession, ...filtered].slice(0, 5);
         });
-
+        
         localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions));
-
+        
         setShowVideoCallModal(true);
         toast.success('🔄 Joining existing session...');
-
+        
       } else {
         throw new Error(result.error || 'Failed to join session');
       }
-
+      
     } catch (error) {
       console.error('❌ Madina join failed:', error);
       toast.error(error.message);
     }
   };
-
+  
   const handleRejoinRecentSession = async (session) => {
     try {
       setActiveVideoCall(session);
@@ -3360,7 +3360,7 @@ export default function TeacherDashboard() {
       toast.error(error.message);
     }
   };
-
+  
   const handleEndVideoSession = async (classItem, session) => {
     try {
       setEndingSession(classItem.id);
@@ -3372,7 +3372,7 @@ export default function TeacherDashboard() {
       setEndingSession(null);
     }
   };
-
+  
   const handleDeleteClass = async (classId) => {
     try {
       await teacherApi.deleteClass(classId);
@@ -3383,7 +3383,7 @@ export default function TeacherDashboard() {
       throw error;
     }
   };
-
+  
   const handleLeaveVideoCall = async (shouldEndSession = false) => {
     try {
       if (shouldEndSession && activeVideoCall) {
@@ -3406,13 +3406,13 @@ export default function TeacherDashboard() {
       toast.error('❌ Exit sequence failed');
     }
   };
-
+  
   const cleanupInvalidSessions = async () => {
     try {
       console.log('🧹 Cleaning up invalid recent sessions...');
-
+      
       const validSessions = [];
-
+      
       for (const session of recentSessions) {
         try {
           // Try to get session info for each recent session
@@ -3426,7 +3426,7 @@ export default function TeacherDashboard() {
           console.log('🗑️ Removing errored session:', session.meetingId);
         }
       }
-
+      
       if (validSessions.length !== recentSessions.length) {
         setRecentSessions(validSessions);
         console.log('✅ Session cleanup completed. Kept:', validSessions.length);
@@ -3435,7 +3435,7 @@ export default function TeacherDashboard() {
       console.warn('⚠️ Session cleanup failed:', error);
     }
   };
-
+  
   // Call this on component mount
   useEffect(() => {
     cleanupInvalidSessions();
@@ -3447,13 +3447,13 @@ export default function TeacherDashboard() {
         return {
           ...prev,
           for_all_students: value,
-          selected_students: value ? [] : prev.selected_students
+            selected_students: value ? [] : prev.selected_students
         };
       }
       return { ...prev, [field]: value };
     });
   };
-
+  
   const createAssignment = async () => {
     try {
       if (!newAssignment.title.trim()) {
@@ -3465,7 +3465,7 @@ export default function TeacherDashboard() {
         toast.error('🚫 Temporal coordinates required');
         return;
       }
-
+      
       const assignmentData = {
         title: newAssignment.title,
         description: newAssignment.description,
@@ -3473,9 +3473,9 @@ export default function TeacherDashboard() {
         max_score: newAssignment.max_score,
         class_id: newAssignment.class_id || null,
         for_all_students: newAssignment.for_all_students,
-        student_ids: newAssignment.for_all_students ? 'all' : newAssignment.selected_students
+          student_ids: newAssignment.for_all_students ? 'all' : newAssignment.selected_students
       };
-
+      
       await teacherApi.createAssignment(assignmentData);
       
       toast.success('🚀 Madina assignment deployed!');
@@ -3487,7 +3487,7 @@ export default function TeacherDashboard() {
         max_score: 100,
         class_id: '',
         for_all_students: true,
-        selected_students: []
+          selected_students: []
       });
       
       await loadTeacherData();
@@ -3496,7 +3496,7 @@ export default function TeacherDashboard() {
       toast.error(`❌ Assignment deployment failed: ${error.message}`);
     }
   };
-
+  
   const handleDeleteAssignment = async (assignmentId) => {
     try {
       await teacherApi.deleteAssignment(assignmentId);
@@ -3506,12 +3506,12 @@ export default function TeacherDashboard() {
       throw error;
     }
   };
-
+  
   // Grading System
   const handleGradeDataChange = (field, value) => {
     setGradeData(prev => ({ ...prev, [field]: value }));
   };
-
+  
   const handleStartGrading = (submission) => {
     setGradingSubmission(submission);
     setGradeData({ 
@@ -3520,7 +3520,7 @@ export default function TeacherDashboard() {
       audioFeedbackData: submission.audio_feedback_url || ''
     });
   };
-
+  
   const gradeAssignment = async (submissionId, score, feedback, audioFeedbackData = '') => {
     setIsGrading(true);
     try {
@@ -3533,18 +3533,18 @@ export default function TeacherDashboard() {
       const numericScore = parseInt(score);
       
       const updatedSubmissions = submissions.map(sub => 
-        sub.id === submissionId 
-          ? { 
-              ...sub, 
-              grade: numericScore, 
-              feedback,
-              graded_at: new Date().toISOString()
-            }
-          : sub
+      sub.id === submissionId 
+      ? { 
+        ...sub, 
+        grade: numericScore, 
+        feedback,
+        graded_at: new Date().toISOString()
+      }
+      : sub
       );
-
+      
       const updatedPending = pendingSubmissions.filter(sub => sub.id !== submissionId);
-
+      
       setSubmissions(updatedSubmissions);
       setPendingSubmissions(updatedPending);
       
@@ -3566,7 +3566,7 @@ export default function TeacherDashboard() {
       setIsGrading(false);
     }
   };
-
+  
   // Utility Functions
   const formatDateTime = (dateString) => {
     if (!dateString) return "Temporal coordinates pending";
@@ -3579,11 +3579,11 @@ export default function TeacherDashboard() {
       minute: '2-digit'
     });
   };
-
+  
   const updateFilter = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
-
+  
   const handleLogout = async () => {
     try {
       const currentSessionData = {
@@ -3601,7 +3601,7 @@ export default function TeacherDashboard() {
       toast.error('❌ Logout sequence failed');
     }
   };
-
+  
   // Stats Grid
   const statsGrid = [
     { icon: BookOpen, value: stats.totalClasses, label: 'Madina Sessions', gradient: 'from-cyan-500 to-blue-500' },
@@ -3611,7 +3611,7 @@ export default function TeacherDashboard() {
     { icon: FileText, value: stats.totalAssignments, label: 'Missions', gradient: 'from-indigo-500 to-purple-500' },
     { icon: FileCheck, value: stats.pendingSubmissions, label: 'Pending Review', gradient: 'from-orange-500 to-red-500' }
   ];
-
+  
   // Navigation Tabs
   const tabs = [
     { id: 'classes', label: 'Madina Sessions', icon: Video, description: 'Manage your classes' },
@@ -3619,233 +3619,233 @@ export default function TeacherDashboard() {
     { id: 'assignments', label: 'Assignments', icon: FileText, description: 'Create assignments' },
     { id: 'grading', label: 'Madina Review', icon: FileCheck, badge: pendingSubmissions.length, description: 'Grade submissions' },
   ];
-
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 relative z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <button 
-                className="md:hidden text-white mr-2 p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              >
-                {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-              </button>
-              <div className="flex items-center">
-                <Brain className="h-8 w-8 text-cyan-400 mr-3" />
-                <div>
-                  <h1 className="text-xl md:text-2xl font-bold text-white">Madina Educator</h1>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <button className="p-2 text-cyan-200 hover:text-white rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors">
-                <Bell size={20} />
-              </button>
-              
-              <div className="relative group">
-                <div className="flex items-center cursor-pointer p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors">
-                  <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full flex items-center justify-center mr-2 shadow-lg">
-                    <User size={16} className="text-white" />
-                  </div>
-                  <span className="text-white hidden md:inline font-medium">{user?.name}</span>
-                  <ChevronDown size={16} className="ml-1 text-cyan-200" />
-                </div>
-                
-                <div className="absolute right-0 mt-2 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                  <div className="px-4 py-2 border-b border-cyan-500/20">
-                    <p className="text-sm font-medium text-white">{user?.name}</p>
-                    <p className="text-xs text-cyan-400">{user?.email}</p>
-                  </div>
-                  
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-                  >
-                    <LogOut size={16} className="mr-2" />
-                    Madina Logout
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          {statsGrid.map((stat, index) => (
-            <MadinaCard key={index} className="p-4 hover:scale-105 transition-transform duration-300">
-              <div className="flex items-center">
-                <div className={`p-3 rounded-2xl bg-gradient-to-r ${stat.gradient} shadow-lg mr-3`}>
-                  <stat.icon className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-white">{stat.value}</p>
-                  <p className="text-cyan-200 text-sm">{stat.label}</p>
-                </div>
-              </div>
-            </MadinaCard>
-          ))}
-        </div>
-
-        {/* Quick Rejoin Section */}
-        <QuickRejoinSection 
-          recentSessions={recentSessions} 
-          onRejoin={handleRejoinRecentSession}
-        />
-
-        {/* Mobile Navigation */}
-        {mobileMenuOpen && (
-          <MadinaCard className="md:hidden mb-6">
-            <nav className="flex flex-col space-y-2">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
-                    activeTab === tab.id
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
-                      : 'text-cyan-200 hover:text-white hover:bg-cyan-500/10'
-                  }`}
-                >
-                  <tab.icon size={18} className="mr-3" />
-                  <div className="text-left">
-                    <div>{tab.label}</div>
-                    <div className="text-xs text-cyan-400">{tab.description}</div>
-                  </div>
-                  {tab.badge && tab.badge > 0 && (
-                    <span className="ml-auto bg-orange-500 text-white text-xs rounded-full px-2 py-1">
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </MadinaCard>
-        )}
-
-        {/* Desktop Navigation */}
-        <div className="hidden md:block mb-6">
-          <MadinaCard>
-            <nav className="flex space-x-4 overflow-x-auto">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
-                      : 'text-cyan-200 hover:text-white hover:bg-cyan-500/10'
-                  }`}
-                >
-                  <tab.icon size={18} className="mr-2" />
-                  {tab.label}
-                  {tab.badge && tab.badge > 0 && (
-                    <span className="ml-2 bg-orange-500 text-white text-xs rounded-full px-2 py-1">
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </MadinaCard>
-        </div>
-
-        {/* Main Content Area */}
-        <MadinaCard>
-          {activeTab === 'classes' && (
-            <ClassesTab 
-              classes={filteredClasses} 
-              formatDateTime={formatDateTime}
-              onStartVideoSession={handleStartVideoSession}
-              onJoinExistingSession={handleJoinExistingSession}
-              onEndVideoSession={handleEndVideoSession}
-              onDeleteClass={handleDeleteClass}
-              onRejoinSession={handleRejoinSession}
-              startingSession={startingSession}
-              endingSession={endingSession}
-              videoCallError={videoCallError}
-              setVideoCallError={setVideoCallError}
-              recentSessions={recentSessions}
-            />
-          )}
-
-          {activeTab === 'students' && (
-            <StudentsTab students={students} />
-          )}
-
-          {activeTab === 'assignments' && (
-            <AssignmentsTab 
-              assignments={assignments}
-              formatDateTime={formatDateTime}
-              onShowCreateAssignment={() => setShowCreateAssignment(true)}
-              onDeleteAssignment={handleDeleteAssignment}
-              onReloadData={loadTeacherData}
-              filters={filters}
-              onFilterChange={updateFilter}
-            />
-          )}
-
-          {activeTab === 'grading' && (
-            <GradingTab 
-              submissions={submissions}
-              pendingSubmissions={pendingSubmissions}
-              formatDateTime={formatDateTime}
-              onStartGrading={handleStartGrading}
-              filters={filters}
-              onFilterChange={updateFilter}
-            />
-          )}
-        </MadinaCard>
+    {/* Header */}
+    <header className="bg-gradient-to-r from-gray-900/50 to-purple-900/50 backdrop-blur-xl border-b border-cyan-500/20 relative z-50">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="flex justify-between items-center h-16">
+    <div className="flex items-center">
+    <button 
+    className="md:hidden text-white mr-2 p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
+    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+    >
+    {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+    </button>
+    <div className="flex items-center">
+    <Brain className="h-8 w-8 text-cyan-400 mr-3" />
+    <div>
+    <h1 className="text-xl md:text-2xl font-bold text-white">Madina Educator</h1>
+    </div>
+    </div>
+    </div>
+    
+    <div className="flex items-center space-x-4">
+    <button className="p-2 text-cyan-200 hover:text-white rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors">
+    <Bell size={20} />
+    </button>
+    
+    <div className="relative group">
+    <div className="flex items-center cursor-pointer p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors">
+    <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full flex items-center justify-center mr-2 shadow-lg">
+    <User size={16} className="text-white" />
+    </div>
+    <span className="text-white hidden md:inline font-medium">{user?.name}</span>
+    <ChevronDown size={16} className="ml-1 text-cyan-200" />
+    </div>
+    
+    <div className="absolute right-0 mt-2 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+    <div className="px-4 py-2 border-b border-cyan-500/20">
+    <p className="text-sm font-medium text-white">{user?.name}</p>
+    <p className="text-xs text-cyan-400">{user?.email}</p>
+    </div>
+    
+    <button
+    onClick={handleLogout}
+    className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+    >
+    <LogOut size={16} className="mr-2" />
+    Madina Logout
+    </button>
+    </div>
+    </div>
+    </div>
+    </div>
+    </div>
+    </header>
+    
+    {/* Main Content */}
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    {/* Stats Grid */}
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+    {statsGrid.map((stat, index) => (
+      <MadinaCard key={index} className="p-4 hover:scale-105 transition-transform duration-300">
+      <div className="flex items-center">
+      <div className={`p-3 rounded-2xl bg-gradient-to-r ${stat.gradient} shadow-lg mr-3`}>
+      <stat.icon className="h-6 w-6 text-white" />
       </div>
-
-      {/* Modals */}
-      <AssignmentCreationModal
-        isOpen={showCreateAssignment}
-        onClose={() => setShowCreateAssignment(false)}
-        newAssignment={newAssignment}
-        onAssignmentChange={handleAssignmentChange}
-        onCreateAssignment={createAssignment}
-      />
-
-      <GradingModal
-        gradingSubmission={gradingSubmission}
-        onClose={() => {
-          setGradingSubmission(null);
-          setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
-          audioRecorder.clearRecording();
+      <div>
+      <p className="text-2xl font-bold text-white">{stat.value}</p>
+      <p className="text-cyan-200 text-sm">{stat.label}</p>
+      </div>
+      </div>
+      </MadinaCard>
+    ))}
+    </div>
+    
+    {/* Quick Rejoin Section */}
+    <QuickRejoinSection 
+    recentSessions={recentSessions} 
+    onRejoin={handleRejoinRecentSession}
+    />
+    
+    {/* Mobile Navigation */}
+    {mobileMenuOpen && (
+      <MadinaCard className="md:hidden mb-6">
+      <nav className="flex flex-col space-y-2">
+      {tabs.map((tab) => (
+        <button
+        key={tab.id}
+        onClick={() => {
+          setActiveTab(tab.id);
+          setMobileMenuOpen(false);
         }}
-        gradeData={gradeData}
-        onGradeDataChange={handleGradeDataChange}
-        onGradeAssignment={gradeAssignment}
-        isGrading={isGrading}
-        audioRecorder={audioRecorder}
+        className={`flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
+          activeTab === tab.id
+          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
+          : 'text-cyan-200 hover:text-white hover:bg-cyan-500/10'
+        }`}
+        >
+        <tab.icon size={18} className="mr-3" />
+        <div className="text-left">
+        <div>{tab.label}</div>
+        <div className="text-xs text-cyan-400">{tab.description}</div>
+        </div>
+        {tab.badge && tab.badge > 0 && (
+          <span className="ml-auto bg-orange-500 text-white text-xs rounded-full px-2 py-1">
+          {tab.badge}
+          </span>
+        )}
+        </button>
+      ))}
+      </nav>
+      </MadinaCard>
+    )}
+    
+    {/* Desktop Navigation */}
+    <div className="hidden md:block mb-6">
+    <MadinaCard>
+    <nav className="flex space-x-4 overflow-x-auto">
+    {tabs.map((tab) => (
+      <button
+      key={tab.id}
+      onClick={() => setActiveTab(tab.id)}
+      className={`flex items-center px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap ${
+        activeTab === tab.id
+        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
+        : 'text-cyan-200 hover:text-white hover:bg-cyan-500/10'
+      }`}
+      >
+      <tab.icon size={18} className="mr-2" />
+      {tab.label}
+      {tab.badge && tab.badge > 0 && (
+        <span className="ml-2 bg-orange-500 text-white text-xs rounded-full px-2 py-1">
+        {tab.badge}
+        </span>
+      )}
+      </button>
+    ))}
+    </nav>
+    </MadinaCard>
+    </div>
+    
+    {/* Main Content Area */}
+    <MadinaCard>
+    {activeTab === 'classes' && (
+      <ClassesTab 
+      classes={filteredClasses} 
+      formatDateTime={formatDateTime}
+      onStartVideoSession={handleStartVideoSession}
+      onJoinExistingSession={handleJoinExistingSession}
+      onEndVideoSession={handleEndVideoSession}
+      onDeleteClass={handleDeleteClass}
+      onRejoinSession={handleRejoinSession}
+      startingSession={startingSession}
+      endingSession={endingSession}
+      videoCallError={videoCallError}
+      setVideoCallError={setVideoCallError}
+      recentSessions={recentSessions}
       />
-
-      {showVideoCallModal && activeVideoCall && (
-  <TeacherVideoCall
-    class={activeVideoCall}
-    channel={activeVideoCall.channel || activeVideoCall.meetingId}
-    token={activeVideoCall.token}
-    appId={activeVideoCall.appId}
-    uid={activeVideoCall.uid || user.id}
+    )}
+    
+    {activeTab === 'students' && (
+      <StudentsTab students={students} />
+    )}
+    
+    {activeTab === 'assignments' && (
+      <AssignmentsTab 
+      assignments={assignments}
+      formatDateTime={formatDateTime}
+      onShowCreateAssignment={() => setShowCreateAssignment(true)}
+      onDeleteAssignment={handleDeleteAssignment}
+      onReloadData={loadTeacherData}
+      filters={filters}
+      onFilterChange={updateFilter}
+      />
+    )}
+    
+    {activeTab === 'grading' && (
+      <GradingTab 
+      submissions={submissions}
+      pendingSubmissions={pendingSubmissions}
+      formatDateTime={formatDateTime}
+      onStartGrading={handleStartGrading}
+      filters={filters}
+      onFilterChange={updateFilter}
+      />
+    )}
+    </MadinaCard>
+    </div>
+    
+    {/* Modals */}
+    <AssignmentCreationModal
+    isOpen={showCreateAssignment}
+    onClose={() => setShowCreateAssignment(false)}
+    newAssignment={newAssignment}
+    onAssignmentChange={handleAssignmentChange}
+    onCreateAssignment={createAssignment}
+    />
+    
+    <GradingModal
+    gradingSubmission={gradingSubmission}
     onClose={() => {
-      setShowVideoCallModal(false);
-      setActiveVideoCall(null);
-      setVideoCallError(null);
+      setGradingSubmission(null);
+      setGradeData({ score: '', feedback: '', audioFeedbackData: '' });
+      audioRecorder.clearRecording();
     }}
-    onError={(error) => {
-      setVideoCallError(error);
-      toast.error(`Video call error: ${error}`);
-    }}
-  />
-)}
+    gradeData={gradeData}
+    onGradeDataChange={handleGradeDataChange}
+    onGradeAssignment={gradeAssignment}
+    isGrading={isGrading}
+    audioRecorder={audioRecorder}
+    />
+    
+    {showVideoCallModal && activeVideoCall && (
+      <VideoCallModal
+      class={activeVideoCall}
+      channel={activeVideoCall.channel || activeVideoCall.meetingId}
+      token={activeVideoCall.token}
+      appId={activeVideoCall.appId}
+      uid={activeVideoCall.uid || user.id}
+      onClose={() => {
+        setShowVideoCallModal(false);
+        setActiveVideoCall(null);
+        setVideoCallError(null);
+      }}
+      onError={(error) => {
+        setVideoCallError(error);
+        toast.error(`Video call error: ${error}`);
+      }}
+      />
+    )}
