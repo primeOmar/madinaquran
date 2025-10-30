@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import videoApi from '../lib/agora/videoApi';
 import {
@@ -3832,24 +3832,20 @@ export default function TeacherDashboard() {
       />
 
       {showVideoCallModal && activeVideoCall && (
-        <VideoCallModal
-        class={activeVideoCall}
-        // ✅ PASS BACKEND CREDENTIALS WITH FALLBACKS
-        channel={activeVideoCall.channel || activeVideoCall.meetingId}
-        token={activeVideoCall.token}
-        appId={activeVideoCall.appId}
-        uid={activeVideoCall.uid || user.id}
-        onClose={() => {
-          setShowVideoCallModal(false);
-          setActiveVideoCall(null);
-          setVideoCallError(null);
-        }}
-        onError={(error) => {
-          setVideoCallError(error);
-          toast.error(`Video call error: ${error}`);
-        }}
-        />
-      )}
-    </div>
-  );
-}
+  <TeacherVideoCall
+    class={activeVideoCall}
+    channel={activeVideoCall.channel || activeVideoCall.meetingId}
+    token={activeVideoCall.token}
+    appId={activeVideoCall.appId}
+    uid={activeVideoCall.uid || user.id}
+    onClose={() => {
+      setShowVideoCallModal(false);
+      setActiveVideoCall(null);
+      setVideoCallError(null);
+    }}
+    onError={(error) => {
+      setVideoCallError(error);
+      toast.error(`Video call error: ${error}`);
+    }}
+  />
+)}
