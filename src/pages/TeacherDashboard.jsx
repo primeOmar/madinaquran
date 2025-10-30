@@ -5,7 +5,7 @@ import {
   Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Users, Clock,Settings,Share2,
   MessageCircle,User,Maximize2,Minimize2,Grid3X3,Pin,MoreVertical,Crown,Shield,Zap,
   BarChart3,Download,MessageSquare,BookOpen, 
-  Calendar, 
+  Calendar, Bell,
   Play, 
   Search, 
   Plus, 
