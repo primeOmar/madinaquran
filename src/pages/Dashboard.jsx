@@ -6,7 +6,7 @@ import studentApi  from '../lib/studentApi';
 import {
   FileText,
   CreditCard,
-  ClipboardList,
+  ClipboardList,VideoOff,
   BookOpen,
   Signal,
   Clock,
