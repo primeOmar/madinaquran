@@ -216,6 +216,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const videoElementsRef = useRef(new Map());
   const isMountedRef = useRef(true);
   const isInitializingRef = useRef(false);
+  const hasJoinedRef = useRef(false); // Track if we've already joined
+  const currentUidRef = useRef(null); // Store current UID
 
   // ============================================================================
   // LIFECYCLE MANAGEMENT
@@ -581,8 +583,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
    * This is the main entry point when joining
    */
   const initializeRealCall = useCallback(async () => {
-    if (isInitializingRef.current) {
-      console.log('⏳ Already initializing...');
+    // Prevent multiple simultaneous joins
+    if (isInitializingRef.current || hasJoinedRef.current) {
+      console.log('⏳ Already initializing or joined, skipping...');
       return;
     }
 
@@ -594,6 +597,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     if (!AgoraRTC) {
       setError('Agora SDK not loaded. Please refresh the page.');
       return;
+    }
+
+    // Cleanup any previous session first
+    if (agoraClient) {
+      console.log('🧹 Cleaning up previous session...');
+      await performCompleteCleanup();
+      // Wait a bit for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     isInitializingRef.current = true;
@@ -621,12 +632,23 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         if (!joinResult.channel || !joinResult.appId) {
           throw new Error('Invalid join credentials received');
         }
+
+        console.log('📋 Join credentials received:', {
+          channel: joinResult.channel,
+          appId: joinResult.appId,
+          uid: joinResult.uid
+        });
+
+        // Store UID
+        currentUidRef.current = joinResult.uid;
+
       } catch (apiError) {
         console.error('❌ API error:', apiError);
         throw new Error('Failed to connect to session. Please try again.');
       }
 
-      // Create Agora client
+      // Create NEW Agora client
+      console.log('🔧 Creating new Agora client...');
       const client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8'
@@ -636,20 +658,34 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       // Setup event listeners
       const cleanupListeners = setupAgoraEventListeners(client);
 
-      // Join the channel
+      // Join the channel with proper error handling
       console.log('🔐 Joining channel:', joinResult.channel);
-      await client.join(
-        joinResult.appId,
-        joinResult.channel,
-        joinResult.token || null,
-        joinResult.uid || null
-      );
+      try {
+        await client.join(
+          joinResult.appId,
+          joinResult.channel,
+          joinResult.token || null,
+          joinResult.uid || null
+        );
 
-      console.log('✅ Successfully joined channel');
+        hasJoinedRef.current = true;
+        console.log('✅ Successfully joined channel with UID:', joinResult.uid);
+
+      } catch (joinError) {
+        console.error('❌ Join error:', joinError);
+
+        if (joinError.code === 'UID_CONFLICT') {
+          throw new Error('You are already in this session. Please close other tabs or refresh the page.');
+        } else if (joinError.code === 'INVALID_PARAMS') {
+          throw new Error('Invalid session credentials. Please try again.');
+        } else {
+          throw new Error(`Failed to join: ${joinError.message}`);
+        }
+      }
 
       if (!isMountedRef.current) return;
 
-      // Create local tracks (audio muted, video disabled)
+      // Create local tracks (audio muted, video disabled initially)
       const { audioTrack, videoTrack } = await createLocalTracks();
 
       // Publish tracks to make them available to others
@@ -666,7 +702,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       }, 1000);
 
       console.log('🎉 Video call initialized successfully');
-      console.log('💡 Student can now enable audio/video when ready');
+      console.log('💡 Audio and video are off by default - student can enable when ready');
 
       // Cleanup function for event listeners
       return () => {
@@ -676,26 +712,31 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     } catch (error) {
       console.error(`❌ Join attempt ${joinAttemptRef.current} failed:`, error);
 
+      // Cleanup on error
+      await performCompleteCleanup();
+
       if (isMountedRef.current) {
         setError(error.message || 'Failed to initialize video call');
         setIsConnecting(false);
         setIsConnected(false);
       }
 
-      // Auto-retry for network errors
-      if (error.message.includes('timeout') || error.message.includes('network')) {
+      // Auto-retry for network errors (but not UID_CONFLICT)
+      if (!error.message.includes('already in this session') &&
+        (error.message.includes('timeout') || error.message.includes('network'))) {
         if (joinAttemptRef.current < 3) {
+          console.log('🔄 Scheduling retry...');
           setTimeout(() => {
-            if (isMountedRef.current && isOpen) {
+            if (isMountedRef.current && isOpen && !hasJoinedRef.current) {
               initializeRealCall();
             }
           }, 2000);
         }
-      }
+        }
     } finally {
       isInitializingRef.current = false;
     }
-  }, [classItem, isOpen, createLocalTracks, publishLocalTracks, setupAgoraEventListeners]);
+  }, [classItem, isOpen, agoraClient, createLocalTracks, publishLocalTracks, setupAgoraEventListeners, performCompleteCleanup]);
 
   // ============================================================================
   // VIDEO PLAYER COMPONENTS
@@ -1031,12 +1072,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [isHandRaised, classItem]);
 
   /**
-   * Leave call and cleanup
+   * Complete cleanup of all resources
    */
-  const leaveCall = useCallback(async () => {
-    try {
-      console.log('🚪 Leaving call...');
+  const performCompleteCleanup = useCallback(async () => {
+    console.log('🧹 Performing complete cleanup...');
 
+    try {
       // Stop timer
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -1045,14 +1086,22 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       // Stop and close local tracks
       if (localTracksRef.current.audio) {
-        localTracksRef.current.audio.stop();
-        localTracksRef.current.audio.close();
+        try {
+          localTracksRef.current.audio.stop();
+          localTracksRef.current.audio.close();
+        } catch (e) {
+          console.warn('Audio cleanup warning:', e);
+        }
         localTracksRef.current.audio = null;
       }
 
       if (localTracksRef.current.video) {
-        localTracksRef.current.video.stop();
-        localTracksRef.current.video.close();
+        try {
+          localTracksRef.current.video.stop();
+          localTracksRef.current.video.close();
+        } catch (e) {
+          console.warn('Video cleanup warning:', e);
+        }
         localTracksRef.current.video = null;
       }
 
@@ -1061,20 +1110,27 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         try {
           element.remove();
         } catch (e) {
-          console.warn('Error removing video element:', e);
+          console.warn('Element removal warning:', e);
         }
       });
       videoElementsRef.current.clear();
 
       // Leave Agora channel
       if (agoraClient) {
-        await agoraClient.leave();
-        console.log('✅ Left Agora channel');
+        try {
+          await agoraClient.leave();
+          console.log('✅ Left Agora channel');
+        } catch (e) {
+          console.warn('Leave channel warning:', e);
+        }
       }
 
-    } catch (error) {
-      console.error('❌ Cleanup error:', error);
-    } finally {
+      // Reset refs
+      hasJoinedRef.current = false;
+      currentUidRef.current = null;
+      isInitializingRef.current = false;
+
+      // Reset state
       if (isMountedRef.current) {
         setIsConnected(false);
         setIsConnecting(false);
@@ -1087,12 +1143,22 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         setLocalVideoReady(false);
         setIsPinned(null);
         setError('');
-        joinAttemptRef.current = 0;
       }
 
-      onClose();
+      console.log('✅ Cleanup complete');
+    } catch (error) {
+      console.error('❌ Cleanup error:', error);
     }
-  }, [agoraClient, onClose]);
+  }, [agoraClient]);
+
+  /**
+   * Leave call and cleanup
+   */
+  const leaveCall = useCallback(async () => {
+    console.log('🚪 Leaving call...');
+    await performCompleteCleanup();
+    onClose();
+  }, [performCompleteCleanup, onClose]);
 
   // ============================================================================
   // UTILITY FUNCTIONS
@@ -1144,6 +1210,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // Initialize call when modal opens
   useEffect(() => {
     if (isOpen && classItem?.video_session?.meeting_id) {
+      // Reset attempt counter on new open
+      joinAttemptRef.current = 0;
       initializeRealCall();
     }
 
@@ -1163,11 +1231,36 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (isMountedRef.current) {
-        leaveCall();
+      console.log('🔚 Component unmounting...');
+      // Mark as not mounted first
+      isMountedRef.current = false;
+
+      // Perform cleanup
+      if (hasJoinedRef.current || agoraClient) {
+        performCompleteCleanup();
       }
     };
-  }, [leaveCall]);
+  }, [agoraClient, performCompleteCleanup]);
+
+  // Cleanup on tab close/refresh
+  useEffect(() => {
+    const handleBeforeUnload = async () => {
+      console.log('🔚 Tab closing, cleaning up...');
+      if (hasJoinedRef.current && agoraClient) {
+        try {
+          await agoraClient.leave();
+        } catch (e) {
+          console.warn('Cleanup on unload failed:', e);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [agoraClient]);
 
   // ============================================================================
   // RENDER
@@ -1362,6 +1455,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
   );
 };
+
 
 
 // Helper function
