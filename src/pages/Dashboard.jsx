@@ -579,6 +579,85 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
 
   /**
+   * Complete cleanup of all resources
+   */
+  const performCompleteCleanup = useCallback(async () => {
+    console.log('🧹 Performing complete cleanup...');
+
+    try {
+      // Stop timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      // Stop and close local tracks
+      if (localTracksRef.current.audio) {
+        try {
+          localTracksRef.current.audio.stop();
+          localTracksRef.current.audio.close();
+        } catch (e) {
+          console.warn('Audio cleanup warning:', e);
+        }
+        localTracksRef.current.audio = null;
+      }
+
+      if (localTracksRef.current.video) {
+        try {
+          localTracksRef.current.video.stop();
+          localTracksRef.current.video.close();
+        } catch (e) {
+          console.warn('Video cleanup warning:', e);
+        }
+        localTracksRef.current.video = null;
+      }
+
+      // Clean up video elements
+      videoElementsRef.current.forEach(element => {
+        try {
+          element.remove();
+        } catch (e) {
+          console.warn('Element removal warning:', e);
+        }
+      });
+      videoElementsRef.current.clear();
+
+      // Leave Agora channel
+      if (agoraClient) {
+        try {
+          await agoraClient.leave();
+          console.log('✅ Left Agora channel');
+        } catch (e) {
+          console.warn('Leave channel warning:', e);
+        }
+      }
+
+      // Reset refs
+      hasJoinedRef.current = false;
+      currentUidRef.current = null;
+      isInitializingRef.current = false;
+
+      // Reset state
+      if (isMountedRef.current) {
+        setIsConnected(false);
+        setIsConnecting(false);
+        setCallDuration(0);
+        setRemoteUsers(new Map());
+        setAgoraClient(null);
+        setTeacherUid(null);
+        setIsScreenSharing(false);
+        setIsHandRaised(false);
+        setLocalVideoReady(false);
+        setIsPinned(null);
+        setError('');
+      }
+
+      console.log('✅ Cleanup complete');
+    } catch (error) {
+      console.error('❌ Cleanup error:', error);
+    }
+  }, [agoraClient]);
+  /**
    * Initialize the video call
    * This is the main entry point when joining
    */
@@ -1071,85 +1150,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   }, [isHandRaised, classItem]);
 
-  /**
-   * Complete cleanup of all resources
-   */
-  const performCompleteCleanup = useCallback(async () => {
-    console.log('🧹 Performing complete cleanup...');
-
-    try {
-      // Stop timer
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-
-      // Stop and close local tracks
-      if (localTracksRef.current.audio) {
-        try {
-          localTracksRef.current.audio.stop();
-          localTracksRef.current.audio.close();
-        } catch (e) {
-          console.warn('Audio cleanup warning:', e);
-        }
-        localTracksRef.current.audio = null;
-      }
-
-      if (localTracksRef.current.video) {
-        try {
-          localTracksRef.current.video.stop();
-          localTracksRef.current.video.close();
-        } catch (e) {
-          console.warn('Video cleanup warning:', e);
-        }
-        localTracksRef.current.video = null;
-      }
-
-      // Clean up video elements
-      videoElementsRef.current.forEach(element => {
-        try {
-          element.remove();
-        } catch (e) {
-          console.warn('Element removal warning:', e);
-        }
-      });
-      videoElementsRef.current.clear();
-
-      // Leave Agora channel
-      if (agoraClient) {
-        try {
-          await agoraClient.leave();
-          console.log('✅ Left Agora channel');
-        } catch (e) {
-          console.warn('Leave channel warning:', e);
-        }
-      }
-
-      // Reset refs
-      hasJoinedRef.current = false;
-      currentUidRef.current = null;
-      isInitializingRef.current = false;
-
-      // Reset state
-      if (isMountedRef.current) {
-        setIsConnected(false);
-        setIsConnecting(false);
-        setCallDuration(0);
-        setRemoteUsers(new Map());
-        setAgoraClient(null);
-        setTeacherUid(null);
-        setIsScreenSharing(false);
-        setIsHandRaised(false);
-        setLocalVideoReady(false);
-        setIsPinned(null);
-        setError('');
-      }
-
-      console.log('✅ Cleanup complete');
-    } catch (error) {
-      console.error('❌ Cleanup error:', error);
-    }
-  }, [agoraClient]);
 
   /**
    * Leave call and cleanup
