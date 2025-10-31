@@ -188,7 +188,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // State declarations
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   const [isAudioMuted, setIsAudioMuted] = useState(true);
-  const [isVideoOff, setIsVideoOff] = useState(false); // Start with video ON to see camera
+  const [isVideoOff, setIsVideoOff] = useState(false); // Start with video ON
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
@@ -211,95 +211,169 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const teacherUidRef = useRef(null);
   const videoElementsRef = useRef(new Map());
 
-  // 🎯 FIXED: Enhanced video play method
+  // 🎯 FIXED: Check browser media support
+  const checkMediaSupport = () => {
+    const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const hasAudioSupport = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const hasVideoSupport = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+    console.log('🎯 Media Support Check:', {
+      hasGetUserMedia,
+      hasAudioSupport,
+      hasVideoSupport,
+      userAgent: navigator.userAgent
+    });
+
+    if (!hasGetUserMedia) {
+      throw new Error('Browser does not support camera/microphone access');
+    }
+
+    return true;
+  };
+
+  // 🎯 FIXED: Enhanced video play method with better error handling
   const playVideoTrack = useCallback(async (track, videoElement) => {
     try {
-      console.log('🎬 Playing video track...');
+      console.log('🎬 Playing video track...', { track, videoElement });
 
-      if (!track || !videoElement) {
-        throw new Error('Track or video element not available');
+      if (!track) {
+        throw new Error('Video track is null or undefined');
+      }
+
+      if (!videoElement) {
+        throw new Error('Video element is null or undefined');
       }
 
       // Clear any existing content
-      if (videoElement.srcObject) {
-        videoElement.srcObject = null;
-      }
+      videoElement.srcObject = null;
+      videoElement.innerHTML = '';
 
-      // 🎯 CRITICAL: Use direct video element setup instead of Agora's play()
+      // Configure video element
+  videoElement.style.cssText = `
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  transform: scaleX(-1);
+  `;
+  videoElement.autoplay = true;
+  videoElement.muted = true;
+  videoElement.playsInline = true;
+  videoElement.setAttribute('playsinline', 'true');
+  videoElement.setAttribute('webkit-playsinline', 'true');
+
+  console.log('🎯 Attempting to play track with method:', track.play ? 'Agora play' : 'MediaStream');
+
+  // Try Agora's play method first
+  if (track.play && typeof track.play === 'function') {
+    try {
+      await track.play(videoElement);
+      console.log('✅ Video playing via Agora play()');
+    } catch (agoraError) {
+      console.warn('Agora play failed, trying MediaStream:', agoraError);
+      // Fallback to MediaStream
       if (track.getMediaStreamTrack) {
         const mediaStream = new MediaStream([track.getMediaStreamTrack()]);
         videoElement.srcObject = mediaStream;
+        console.log('✅ Video playing via MediaStream fallback');
       } else {
-        // Fallback to Agora's play method
-        await track.play(videoElement);
+        throw new Error('Track does not support any play method');
       }
+    }
+  } else if (track.getMediaStreamTrack) {
+    // Use MediaStream directly
+    const mediaStream = new MediaStream([track.getMediaStreamTrack()]);
+    videoElement.srcObject = mediaStream;
+    console.log('✅ Video playing via MediaStream');
+  } else {
+    throw new Error('Track does not support play or getMediaStreamTrack');
+  }
 
-      videoElement.autoplay = true;
-      videoElement.muted = true;
-      videoElement.playsInline = true;
-      videoElement.setAttribute('playsinline', 'true');
-      videoElement.setAttribute('webkit-playsinline', 'true');
+  // Wait for video to load
+  await new Promise((resolve, reject) => {
+    const onLoaded = () => {
+      console.log('✅ Video metadata loaded');
+      videoElement.removeEventListener('loadedmetadata', onLoaded);
+      videoElement.removeEventListener('error', onError);
+      resolve();
+    };
 
-      // Wait for video to load
-      await new Promise((resolve, reject) => {
-        const onLoaded = () => {
-          videoElement.removeEventListener('loadedmetadata', onLoaded);
-          resolve();
-        };
+    const onError = (error) => {
+      console.error('❌ Video load error:', error);
+      videoElement.removeEventListener('loadedmetadata', onLoaded);
+      videoElement.removeEventListener('error', onError);
+      reject(new Error('Video failed to load'));
+    };
 
-        const onError = () => {
-          videoElement.removeEventListener('error', onError);
-          reject(new Error('Video failed to load'));
-        };
+    videoElement.addEventListener('loadedmetadata', onLoaded);
+    videoElement.addEventListener('error', onError);
 
-        videoElement.addEventListener('loadedmetadata', onLoaded);
-        videoElement.addEventListener('error', onError);
+    // Timeout fallback - if video is already ready
+    if (videoElement.readyState >= 1) {
+      console.log('✅ Video already ready, resolving immediately');
+      resolve();
+    }
 
-        // Timeout fallback
-        setTimeout(() => {
-          if (videoElement.readyState >= 1) {
-            resolve();
-          }
-        }, 2000);
-      });
+    // Safety timeout
+    setTimeout(() => {
+      if (videoElement.readyState >= 1) {
+        console.log('✅ Video ready after timeout');
+        resolve();
+      } else {
+        console.warn('⚠️ Video not ready after timeout');
+        reject(new Error('Video load timeout'));
+      }
+    }, 3000);
+  });
 
-      console.log('✅ Video track playing successfully');
-      return true;
+  console.log('🎉 Video track playing successfully');
+  return true;
+
     } catch (error) {
       console.error('❌ Video play failed:', error);
-      throw error;
+      throw new Error(`Video playback failed: ${error.message}`);
     }
   }, []);
 
-  // 🎯 FIXED: Local video setup with proper error handling
+  // 🎯 FIXED: Local video setup with comprehensive error handling
   const setupLocalVideo = useCallback(async (track) => {
     try {
       console.log('🎬 Setting up local video...');
       setLocalVideoReady(false);
 
       if (!track) {
-        throw new Error('No camera track available');
+        throw new Error('No camera track available - track is null');
       }
 
-      const videoElement = localVideoRef.current;
-      if (!videoElement) {
-        throw new Error('Video element not found');
-      }
+      // Wait for video element to be available
+      const waitForVideoElement = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds
 
-      // 🎯 CRITICAL: Configure video element properly
-      videoElement.style.cssText = `
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      background: #000;
-      transform: scaleX(-1);
-      `;
+          const checkElement = () => {
+            attempts++;
+            const element = localVideoRef.current;
 
-      // Clear any existing content
-      videoElement.innerHTML = '';
+            if (element && element.tagName === 'VIDEO') {
+              console.log('✅ Video element found after', attempts, 'attempts');
+              resolve(element);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error('Video element not found after timeout'));
+            } else {
+              setTimeout(checkElement, 100);
+            }
+          };
+
+          checkElement();
+        });
+      };
+
+      const videoElement = await waitForVideoElement();
+      console.log('🎯 Video element ready:', videoElement);
 
       // Play the track using our enhanced method
       await playVideoTrack(track, videoElement);
@@ -311,66 +385,102 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       console.error('❌ Failed to setup local video:', error);
       setError(`Video setup failed: ${error.message}`);
       setLocalVideoReady(false);
+      throw error; // Re-throw to handle in caller
     }
   }, [playVideoTrack]);
 
-  // 🎯 FIXED: Create and publish local tracks
+  // 🎯 FIXED: Create and publish local tracks with proper error handling
   const createAndPublishLocalTracks = async (client) => {
     try {
       console.log('🎤 Creating local tracks...');
 
+      // Check media support first
+      checkMediaSupport();
+
+      let microphoneTrack = null;
+      let cameraTrack = null;
+
       // Create audio track
-      let microphoneTrack;
       try {
+        console.log('🎤 Attempting to create microphone track...');
         microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
-          AEC: true,
-          ANS: true,
+          AEC: true,  // Acoustic Echo Cancellation
+          ANS: true,  // Automatic Noise Suppression
+          AGC: true,  // Automatic Gain Control
         });
+        await microphoneTrack.setEnabled(false); // Start muted
         localTracksRef.current.audio = microphoneTrack;
-        console.log('✅ Microphone track created');
+        console.log('✅ Microphone track created successfully');
       } catch (audioError) {
         console.warn('⚠️ Could not create microphone track:', audioError);
         setError('Microphone access required for full participation');
+        // Continue without audio
       }
 
-      // 🎯 CRITICAL: Create video track with proper error handling
-      let cameraTrack;
+      // 🎯 CRITICAL: Create video track with comprehensive error handling
       try {
+        console.log('📹 Attempting to create camera track...');
+
+        // First check if we can access camera
+        try {
+          const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          testStream.getTracks().forEach(track => track.stop());
+          console.log('✅ Camera access test passed');
+        } catch (testError) {
+          console.error('❌ Camera access test failed:', testError);
+          throw new Error('Camera access denied or no camera available');
+        }
+
+        // Create camera track with simpler configuration
         cameraTrack = await AgoraRTC.createCameraVideoTrack({
           optimizationMode: 'motion',
-          encoderConfig: '480p', // Lower resolution for better compatibility
+          encoderConfig: '480p_1', // Lower resolution for better compatibility
         });
+
+        console.log('✅ Camera track created successfully:', cameraTrack);
+
+        // Store track immediately
         localTracksRef.current.video = cameraTrack;
-        console.log('✅ Camera track created');
 
         // 🎯 CRITICAL: Setup local video immediately
+        console.log('🎬 Setting up local video display...');
         await setupLocalVideo(cameraTrack);
 
       } catch (videoError) {
         console.error('❌ Could not create camera track:', videoError);
 
-        if (videoError.message.includes('NotAllowedError')) {
-          setError('Camera access denied. Please allow camera permissions.');
-        } else if (videoError.message.includes('NotFoundError')) {
-          setError('No camera found. Please check your device.');
+        let errorMessage = 'Camera access failed';
+        if (videoError.name === 'NotAllowedError') {
+          errorMessage = 'Camera access denied. Please allow camera permissions in your browser settings.';
+        } else if (videoError.name === 'NotFoundError') {
+          errorMessage = 'No camera found. Please check if your device has a camera.';
+        } else if (videoError.name === 'NotReadableError') {
+          errorMessage = 'Camera is already in use by another application.';
         } else {
-          setError(`Camera error: ${videoError.message}`);
+          errorMessage = `Camera error: ${videoError.message}`;
         }
-        return;
+
+        setError(errorMessage);
+        throw videoError; // Re-throw to stop the process
       }
 
-      // Publish tracks
+      // Publish tracks if we have any
       const tracksToPublish = [];
       if (microphoneTrack) tracksToPublish.push(microphoneTrack);
       if (cameraTrack) tracksToPublish.push(cameraTrack);
 
       if (tracksToPublish.length > 0) {
+        console.log('📤 Publishing tracks:', tracksToPublish.length);
         await client.publish(tracksToPublish);
-        console.log('✅ Local tracks published');
+        console.log('✅ Local tracks published successfully');
+      } else {
+        console.warn('⚠️ No tracks to publish');
       }
+
     } catch (error) {
       console.error('❌ Failed to create local tracks:', error);
-      setError(`Media access failed: ${error.message}`);
+      // Don't set error here - it's already set in the specific catch blocks
+      throw error;
     }
   };
 
@@ -416,21 +526,30 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       startTimer();
 
       // 🎯 CRITICAL: Create and publish tracks immediately after joining
+      console.log('🎬 Starting local media setup...');
       await createAndPublishLocalTracks(client);
 
       console.log('🎉 Video connection established');
+
     } catch (error) {
       console.error(`❌ Join attempt ${joinAttemptRef.current} failed:`, error);
 
       // 🎯 Better error messages
       if (error.message.includes('CAN_NOT_GET_GATEWAY_SERVER')) {
+        console.log('⚠️ Gateway error - continuing in test mode');
         setError('Using test mode - video will work locally');
         // Continue anyway for local testing
         setIsConnected(true);
         setIsConnecting(false);
-        await createAndPublishLocalTracks(agoraClient);
+        if (agoraClient) {
+          await createAndPublishLocalTracks(agoraClient);
+        }
+      } else if (error.message.includes('Media access failed')) {
+        // Already handled in createAndPublishLocalTracks
+        setIsConnecting(false);
+        setIsConnected(false);
       } else {
-        setError(error.message);
+        setError(error.message || 'Connection failed');
         setIsConnecting(false);
         setIsConnected(false);
       }
@@ -539,11 +658,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     return uid === 1; // Simple detection for testing
   };
 
-  // 🎯 FIXED: LocalVideoPlayer with proper video element
+  // 🎯 FIXED: LocalVideoPlayer with proper video element and error states
   const LocalVideoPlayer = React.memo(() => {
+    const [videoError, setVideoError] = useState(null);
+
+    // Reset error when track changes
+    useEffect(() => {
+      setVideoError(null);
+    }, [localTracksRef.current.video]);
+
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
-      {/* 🎯 CRITICAL: Use actual video element with proper attributes */}
+      {/* 🎯 CRITICAL: Use actual video element with error handling */}
       <video
       ref={localVideoRef}
       autoPlay
@@ -554,7 +680,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         transform: 'scaleX(-1)',
             display: localVideoReady && !isVideoOff ? 'block' : 'none'
       }}
+      onError={(e) => {
+        console.error('❌ Video element error:', e);
+        setVideoError('Video playback error');
+      }}
       />
+
+      {/* Error Display */}
+      {videoError && (
+        <div className="absolute top-10 left-2 right-2 bg-red-500 text-white px-2 py-1 rounded text-xs z-50">
+        ⚠️ {videoError}
+        </div>
+      )}
 
       {/* User label */}
       <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm z-20">
@@ -578,10 +715,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
 
       {/* Loading state */}
-      {!localVideoReady && !isVideoOff && (
+      {!localVideoReady && !isVideoOff && localTracksRef.current.video && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black z-10">
         <Loader2 className="text-purple-500 w-8 h-8 animate-spin" />
         <span className="text-purple-300 text-sm mt-2">Starting camera...</span>
+        </div>
+      )}
+
+      {/* No track state */}
+      {!localTracksRef.current.video && !isVideoOff && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black z-10">
+        <VideoOff className="text-purple-500 w-12 h-12" />
+        <span className="text-purple-300 text-sm mt-2">No camera available</span>
         </div>
       )}
 
@@ -789,13 +934,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   };
 
+  // Initialize call when component opens
   useEffect(() => {
     if (isOpen && !isConnected && !isConnecting) {
+      console.log('🚀 Initializing video call...');
       initializeRealCall();
     }
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [isOpen]);
 
