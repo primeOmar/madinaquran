@@ -1504,7 +1504,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 };
 
 // Demo wrapper
-export default function App() {
+export  function App() {
   const [isCallOpen, setIsCallOpen] = useState(false);
 
   const mockClassItem = {
