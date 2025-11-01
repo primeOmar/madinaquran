@@ -184,7 +184,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 };
 
 // components/StudentVideoCall
-
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
   // STATE MANAGEMENT
@@ -1504,6 +1503,64 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   );
 };
 
+// Demo wrapper
+export default function App() {
+  const [isCallOpen, setIsCallOpen] = useState(false);
+
+  const mockClassItem = {
+    title: 'Advanced Mathematics Class',
+    teacher_name: 'Dr. Smith',
+    video_session: {
+      meeting_id: 'demo-meeting-123',
+      teacher_uid: 1
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
+    <div className="text-center">
+    <h1 className="text-4xl font-bold text-white mb-4">
+    Student Video Call Component
+    </h1>
+    <p className="text-gray-300 mb-8 max-w-2xl">
+    Production-ready video conferencing with adaptive quality, screen sharing support,
+    and privacy-first design (audio/video off by default)
+    </p>
+
+    <button
+    onClick={() => setIsCallOpen(true)}
+    className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all transform hover:scale-105"
+    >
+    Join Video Session
+    </button>
+
+    <div className="mt-8 text-left max-w-2xl mx-auto bg-gray-800/50 p-6 rounded-lg text-sm text-gray-300">
+    <h3 className="font-bold text-white mb-3">✨ Features:</h3>
+    <ul className="space-y-2">
+    <li>✅ Privacy-first: Audio/video off by default</li>
+    <li>✅ Local preview always visible</li>
+    <li>✅ Adaptive quality based on network</li>
+    <li>✅ Screen sharing with PIP layout</li>
+    <li>✅ Automatic reconnection</li>
+    <li>✅ Real-time quality indicators</li>
+    <li>✅ Hand raise feature</li>
+    <li>✅ Pin participants</li>
+    </ul>
+
+    <p className="mt-4 text-yellow-300">
+    ⚠️ Note: This is a demo. Replace the mock API with your actual Agora credentials.
+    </p>
+    </div>
+    </div>
+
+    <StudentVideoCall
+    classItem={mockClassItem}
+    isOpen={isCallOpen}
+    onClose={() => setIsCallOpen(false)}
+    />
+    </div>
+  );
+}
 
 
 // ===  CLASS MANAGEMENT ===
