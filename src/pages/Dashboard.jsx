@@ -184,15 +184,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 };
 
 // components/StudentVideoCall
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import AgoraRTC from 'agora-rtc-sdk-ng';
-import studentApi from '../lib/studentApi';
-import {
-  Mic, MicOff, Video, VideoOff, PhoneOff,
-  Users, AlertCircle, Loader2, Hand,
-  Maximize2, Minimize2
-} from 'lucide-react';
-
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
   // LAYOUT SYSTEM
@@ -2773,4 +2764,3 @@ export default function Dashboard() {
       </div>
   );
 }
-
