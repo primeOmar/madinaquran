@@ -191,7 +191,6 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
 // ============================================================================
 // STUDENT VIDEO CALL COMPONENT
 // ============================================================================
-
 const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
   // STATE MANAGEMENT (MUST BE FIRST)
@@ -763,8 +762,14 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // CALL INITIALIZATION
   // ============================================================================
   const initializeRealCall = useCallback(async () => {
-    if (isInitializingRef.current || hasJoinedRef.current) {
-      debugLog('⏳ Already initializing or joined, skipping...');
+    // CRITICAL: Check if already initializing or joined
+    if (isInitializingRef.current) {
+      debugLog('⏳ Already initializing, skipping...');
+      return;
+    }
+
+    if (hasJoinedRef.current) {
+      debugLog('⏳ Already joined, skipping...');
       return;
     }
 
@@ -779,18 +784,34 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       return;
     }
 
+    // CRITICAL: Set initializing flag BEFORE any async operations
+    isInitializingRef.current = true;
+
+    // Clean up previous session if exists
     if (agoraClient) {
       debugLog('🧹 Cleaning up previous session...');
-      await performCompleteCleanup();
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        await performCompleteCleanup();
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (cleanupError) {
+        debugError('Cleanup error:', cleanupError);
+      }
     }
 
-    isInitializingRef.current = true;
+    // Check if still mounted after cleanup
+    if (!isMountedRef.current) {
+      debugLog('🚫 Component unmounted during cleanup');
+      isInitializingRef.current = false;
+      return;
+    }
+
     joinAttemptRef.current++;
     setIsConnecting(true);
     setError('');
 
     debugLog(`🚀 Join attempt ${joinAttemptRef.current} starting...`);
+
+    let client = null;
 
     try {
       const meetingId = classItem?.video_session?.meeting_id;
@@ -798,11 +819,22 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         throw new Error('No meeting ID found for this class');
       }
 
+      // Check mounted before API call
+      if (!isMountedRef.current) {
+        throw new Error('Component unmounted before API call');
+      }
+
       debugLog('📋 Getting join credentials for meeting:', meetingId);
 
       let joinResult;
       try {
         joinResult = await studentApi.joinVideoSession(meetingId);
+
+        // Check mounted after API call
+        if (!isMountedRef.current) {
+          throw new Error('Component unmounted after API call');
+        }
+
         debugLog('📋 Join API response:', joinResult);
 
         if (!joinResult.success || !joinResult.channel || !joinResult.appId) {
@@ -816,13 +848,18 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         throw new Error(`Failed to connect to session: ${apiError.message}`);
       }
 
+      // Check mounted before creating client
+      if (!isMountedRef.current) {
+        throw new Error('Component unmounted before client creation');
+      }
+
       debugLog('🔧 Creating new Agora client...');
-      const client = AgoraRTC.createClient({
+      client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8'
       });
-      setAgoraClient(client);
 
+      // IMPORTANT: Don't set agoraClient state yet
       const cleanupListeners = setupAgoraEventListeners(client);
 
       debugLog('🔐 Joining channel:', {
@@ -830,6 +867,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         channel: joinResult.channel,
         uid: joinResult.uid
       });
+
+      // Check mounted before join
+      if (!isMountedRef.current) {
+        throw new Error('Component unmounted before join');
+      }
 
       try {
         await client.join(
@@ -839,16 +881,35 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           joinResult.uid || null
         );
 
+        // CRITICAL: Check mounted immediately after join
+        if (!isMountedRef.current) {
+          debugLog('🚫 Component unmounted after join, leaving...');
+          await client.leave();
+          throw new Error('Component unmounted after join');
+        }
+
         hasJoinedRef.current = true;
+        setAgoraClient(client); // Only set after successful join
         debugLog(`✅ Successfully joined channel with UID:`, joinResult.uid);
 
       } catch (joinError) {
         debugError('Join error:', joinError);
 
+        // Cleanup client on join failure
+        if (client) {
+          try {
+            await client.leave();
+          } catch (leaveError) {
+            debugError('Leave on error failed:', leaveError);
+          }
+        }
+
         if (joinError.code === 'UID_CONFLICT') {
           throw new Error('You are already in this session. Please close other tabs.');
         } else if (joinError.code === 'INVALID_PARAMS') {
           throw new Error('Invalid session credentials. Please try again.');
+        } else if (joinError.code === 'OPERATION_ABORTED') {
+          throw new Error('Connection cancelled. Please try again.');
         } else {
           throw new Error(`Failed to join: ${joinError.message}`);
         }
@@ -856,27 +917,32 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       if (!isMountedRef.current) {
         debugLog('🚫 Component not mounted after join, aborting...');
-        await performCompleteCleanup();
-        return;
+        await client.leave();
+        throw new Error('Component unmounted');
       }
 
       debugLog('⏳ Waiting for DOM to be ready...');
       await new Promise(resolve => setTimeout(resolve, 300));
 
+      if (!isMountedRef.current) {
+        await client.leave();
+        throw new Error('Component unmounted');
+      }
+
       debugLog('🎬 Creating local tracks...');
       await createLocalTracks();
 
       if (!isMountedRef.current) {
-        await performCompleteCleanup();
-        return;
+        await client.leave();
+        throw new Error('Component unmounted');
       }
 
       debugLog('📡 Publishing local tracks...');
       await publishLocalTracks(client);
 
       if (!isMountedRef.current) {
-        await performCompleteCleanup();
-        return;
+        await client.leave();
+        throw new Error('Component unmounted');
       }
 
       setIsConnected(true);
@@ -895,6 +961,15 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     } catch (error) {
       debugError(`Join attempt ${joinAttemptRef.current} failed:`, error);
 
+      // Cleanup on error
+      if (client) {
+        try {
+          await client.leave();
+        } catch (e) {
+          debugError('Leave on error cleanup failed:', e);
+        }
+      }
+
       await performCompleteCleanup();
 
       if (isMountedRef.current) {
@@ -903,7 +978,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         setIsConnected(false);
       }
 
-      if (!error.message.includes('already in this session') &&
+      // Only retry on network/timeout errors, not cancellation
+      if (!error.message.includes('unmounted') &&
+        !error.message.includes('cancelled') &&
+        !error.message.includes('already in this session') &&
         (error.message.includes('timeout') || error.message.includes('network'))) {
         if (joinAttemptRef.current < 3) {
           const retryDelay = 2000 * joinAttemptRef.current;
@@ -1260,26 +1338,39 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         qualityCheckIntervalRef.current = null;
       }
 
-      performCompleteCleanup();
+      // Perform cleanup but don't wait for it
+      performCompleteCleanup().catch(err => console.error('Unmount cleanup error:', err));
     };
   }, [performCompleteCleanup, debugLog]);
 
   useEffect(() => {
-    if (isOpen && classItem?.video_session?.meeting_id) {
-      debugLog('🎯 Modal opened with meeting ID:', classItem.video_session.meeting_id);
+    if (!isOpen) {
+      debugLog('🚫 Modal closed, skipping initialization');
+      return;
+    }
 
-      joinAttemptRef.current = 0;
-
-      const initTimeout = setTimeout(() => {
-        initializeRealCall();
-      }, 100);
-
-      return () => clearTimeout(initTimeout);
-    } else if (isOpen && !classItem?.video_session?.meeting_id) {
+    if (!classItem?.video_session?.meeting_id) {
       debugError('No meeting ID found in classItem:', classItem);
       setError('No video session available for this class.');
+      return;
     }
-  }, [isOpen, classItem, initializeRealCall, debugLog, debugError]);
+
+    debugLog('🎯 Modal opened with meeting ID:', classItem.video_session.meeting_id);
+
+    // Reset attempt counter when modal opens
+    joinAttemptRef.current = 0;
+
+    // Delay initialization to avoid race conditions
+    const initTimeout = setTimeout(() => {
+      if (isMountedRef.current && isOpen) {
+        initializeRealCall();
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(initTimeout);
+    };
+  }, [isOpen, classItem?.video_session?.meeting_id, initializeRealCall, debugLog, debugError]);
 
   useEffect(() => {
     updateParticipantsList();
