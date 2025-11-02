@@ -188,11 +188,14 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
   }
 };
 
-// StudentVideoCall Component
-const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
-  const navigate = useNavigate();
+// ============================================================================
+// STUDENT VIDEO CALL COMPONENT
+// ============================================================================
 
-  // STATE MANAGEMENT
+const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
+  // ============================================================================
+  // STATE MANAGEMENT (MUST BE FIRST)
+  // ============================================================================
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   const [isAudioMuted, setIsAudioMuted] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
@@ -211,7 +214,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const [networkStats, setNetworkStats] = useState({ uplink: 0, downlink: 0 });
   const [currentQualityProfile, setCurrentQualityProfile] = useState('720p');
 
+  // ============================================================================
   // REFS
+  // ============================================================================
   const localVideoRef = useRef(null);
   const timerRef = useRef(null);
   const localTracksRef = useRef({ audio: null, video: null });
@@ -226,7 +231,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   const retryTimeoutRef = useRef(null);
   const qualityCheckIntervalRef = useRef(null);
 
-  // QUALITY PROFILES
+  // ============================================================================
+  // CONSTANTS
+  // ============================================================================
   const QUALITY_PROFILES = {
     '720p': { width: 1280, height: 720, frameRate: 30, bitrateMin: 600, bitrateMax: 1200 },
     '480p': { width: 640, height: 480, frameRate: 30, bitrateMin: 400, bitrateMax: 800 },
@@ -234,7 +241,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     '240p': { width: 320, height: 240, frameRate: 15, bitrateMin: 150, bitrateMax: 300 }
   };
 
-  // DEBUG LOGGING
+  // ============================================================================
+  // DEBUG LOGGING (DEFINE EARLY)
+  // ============================================================================
   const debugLog = useCallback((message, data = null) => {
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
     console.log(`[${timestamp}] ${message}`, data || '');
@@ -245,49 +254,69 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     console.error(`[${timestamp}] ❌ ${message}`, error);
   }, []);
 
-  // ADAPTIVE QUALITY MANAGEMENT
-  const adjustQualityBasedOnNetwork = useCallback(async (quality) => {
-    if (!localTracksRef.current.video || !isConnected) return;
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
+  const formatTime = useCallback((seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }, []);
 
-    let targetProfile = '720p';
-
-    if (quality === 0 || quality === 1) {
-      targetProfile = '720p';
-    } else if (quality === 2) {
-      targetProfile = '480p';
-    } else if (quality === 3) {
-      targetProfile = '360p';
-    } else {
-      targetProfile = '240p';
+  const getConnectionColor = useCallback(() => {
+    switch(connectionQuality) {
+      case 'excellent': return 'text-green-400';
+      case 'good': return 'text-blue-400';
+      case 'fair': return 'text-yellow-400';
+      case 'poor': return 'text-red-400';
+      default: return 'text-green-400';
     }
+  }, [connectionQuality]);
 
-    if (targetProfile === currentQualityProfile) return;
+  const getQualityBadge = useMemo(() => {
+    return (
+      <div className={`text-xs font-mono px-2 py-1 rounded-full ${getConnectionColor()} bg-black/30 flex items-center gap-1`}>
+      <div className="w-2 h-2 rounded-full bg-current animate-pulse" />
+      <span className="hidden sm:inline">{connectionQuality.toUpperCase()}</span>
+      <span className="hidden md:inline text-gray-400">• {currentQualityProfile}</span>
+      </div>
+    );
+  }, [connectionQuality, currentQualityProfile, getConnectionColor]);
+
+  const updateParticipantsList = useCallback(() => {
+    const remoteUsersArray = Array.from(remoteUsers.values());
+    const newParticipants = [
+      ...remoteUsersArray
+      .filter(u => u.isTeacher)
+      .map(u => ({
+        name: classItem?.teacher_name || 'Teacher',
+        role: 'teacher',
+        uid: u.uid
+      })),
+      { name: 'You', role: 'student', uid: 'local' },
+      ...remoteUsersArray
+      .filter(u => !u.isTeacher && !u.isScreenShare)
+      .map(u => ({
+        name: `Student ${u.uid}`,
+        role: 'student',
+        uid: u.uid
+      }))
+    ];
+
+    setParticipants(newParticipants);
+  }, [remoteUsers, classItem]);
+
+  // ============================================================================
+  // CLEANUP FUNCTION (DEFINE EARLY)
+  // ============================================================================
+  const performCompleteCleanup = useCallback(async () => {
+    debugLog('🧹 Performing complete cleanup...');
 
     try {
-      const profile = QUALITY_PROFILES[targetProfile];
-      await localTracksRef.current.video.setEncoderConfiguration({
-        width: profile.width,
-        height: profile.height,
-        frameRate: profile.frameRate,
-        bitrateMin: profile.bitrateMin,
-        bitrateMax: profile.bitrateMax
-      });
-
-      setCurrentQualityProfile(targetProfile);
-      debugLog(`📊 Quality adjusted to ${targetProfile}`);
-    } catch (error) {
-      debugError('Quality adjustment failed:', error);
-    }
-  }, [isConnected, currentQualityProfile, debugLog, debugError]);
-
-  // LIFECYCLE MANAGEMENT
-  useEffect(() => {
-    isMountedRef.current = true;
-    debugLog('🔄 Component mounted');
-
-    return () => {
-      debugLog('🧹 Component unmounting...');
-      isMountedRef.current = false;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
 
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
@@ -299,11 +328,71 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         qualityCheckIntervalRef.current = null;
       }
 
-      performCompleteCleanup();
-    };
-  }, []);
+      if (localTracksRef.current.audio) {
+        try {
+          localTracksRef.current.audio.stop();
+          localTracksRef.current.audio.close();
+        } catch (e) {
+          debugError('Audio cleanup warning:', e);
+        }
+        localTracksRef.current.audio = null;
+      }
 
-  // CORE VIDEO SETUP FUNCTIONS
+      if (localTracksRef.current.video) {
+        try {
+          localTracksRef.current.video.stop();
+          localTracksRef.current.video.close();
+        } catch (e) {
+          debugError('Video cleanup warning:', e);
+        }
+        localTracksRef.current.video = null;
+      }
+
+      videoElementsRef.current.forEach(element => {
+        try {
+          element.remove();
+        } catch (e) {
+          debugError('Element removal warning:', e);
+        }
+      });
+      videoElementsRef.current.clear();
+
+      if (agoraClient) {
+        try {
+          await agoraClient.leave();
+          debugLog('✅ Left Agora channel');
+        } catch (e) {
+          debugError('Leave channel warning:', e);
+        }
+      }
+
+      hasJoinedRef.current = false;
+      currentUidRef.current = null;
+      isInitializingRef.current = false;
+
+      if (isMountedRef.current) {
+        setIsConnected(false);
+        setIsConnecting(false);
+        setCallDuration(0);
+        setRemoteUsers(new Map());
+        setAgoraClient(null);
+        setTeacherUid(null);
+        setIsScreenSharing(false);
+        setIsHandRaised(false);
+        setLocalVideoReady(false);
+        setIsPinned(null);
+        setError('');
+      }
+
+      debugLog('✅ Cleanup complete');
+    } catch (error) {
+      debugError('Cleanup error:', error);
+    }
+  }, [agoraClient, debugLog, debugError]);
+
+  // ============================================================================
+  // VIDEO SETUP FUNCTIONS
+  // ============================================================================
   const setupLocalVideo = useCallback(async (videoTrack) => {
     if (!isMountedRef.current) {
       debugLog('🚫 Component not mounted, skipping local video setup');
@@ -318,11 +407,22 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         throw new Error('No video track available');
       }
 
-      const container = localVideoRef.current;
-      if (!container) {
-        throw new Error('Video container not found');
+      let container = localVideoRef.current;
+      let retries = 0;
+      const maxRetries = 10;
+
+      while (!container && retries < maxRetries && isMountedRef.current) {
+        debugLog(`⏳ Waiting for video container... (attempt ${retries + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        container = localVideoRef.current;
+        retries++;
       }
 
+      if (!container) {
+        throw new Error('Video container not found after waiting');
+      }
+
+      debugLog('✅ Video container found, setting up video element...');
       container.innerHTML = '';
 
       const videoElement = document.createElement('video');
@@ -338,7 +438,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       videoElement.muted = true;
 
       container.appendChild(videoElement);
-
       await videoTrack.play(videoElement);
       debugLog('✅ Local video playing successfully');
 
@@ -381,7 +480,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         });
         localTracksRef.current.video = videoTrack;
         debugLog('✅ Video track created');
-
         await setupLocalVideo(videoTrack);
       } catch (videoError) {
         debugError('Could not create video track:', videoError);
@@ -442,7 +540,46 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   }, [debugLog, debugError]);
 
+  // ============================================================================
+  // ADAPTIVE QUALITY MANAGEMENT
+  // ============================================================================
+  const adjustQualityBasedOnNetwork = useCallback(async (quality) => {
+    if (!localTracksRef.current.video || !isConnected) return;
+
+    let targetProfile = '720p';
+
+    if (quality === 0 || quality === 1) {
+      targetProfile = '720p';
+    } else if (quality === 2) {
+      targetProfile = '480p';
+    } else if (quality === 3) {
+      targetProfile = '360p';
+    } else {
+      targetProfile = '240p';
+    }
+
+    if (targetProfile === currentQualityProfile) return;
+
+    try {
+      const profile = QUALITY_PROFILES[targetProfile];
+      await localTracksRef.current.video.setEncoderConfiguration({
+        width: profile.width,
+        height: profile.height,
+        frameRate: profile.frameRate,
+        bitrateMin: profile.bitrateMin,
+        bitrateMax: profile.bitrateMax
+      });
+
+      setCurrentQualityProfile(targetProfile);
+      debugLog(`📊 Quality adjusted to ${targetProfile}`);
+    } catch (error) {
+      debugError('Quality adjustment failed:', error);
+    }
+  }, [isConnected, currentQualityProfile, debugLog, debugError]);
+
+  // ============================================================================
   // REMOTE USER HANDLING
+  // ============================================================================
   const detectTeacher = useCallback((uid) => {
     if (classItem?.video_session?.teacher_uid === uid) return true;
     if (uid === teacherUidRef.current) return true;
@@ -622,88 +759,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     };
   }, [detectTeacher, debugLog, debugError, adjustQualityBasedOnNetwork]);
 
+  // ============================================================================
   // CALL INITIALIZATION
-  const performCompleteCleanup = useCallback(async () => {
-    debugLog('🧹 Performing complete cleanup...');
-
-    try {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = null;
-      }
-
-      if (qualityCheckIntervalRef.current) {
-        clearInterval(qualityCheckIntervalRef.current);
-        qualityCheckIntervalRef.current = null;
-      }
-
-      if (localTracksRef.current.audio) {
-        try {
-          localTracksRef.current.audio.stop();
-          localTracksRef.current.audio.close();
-        } catch (e) {
-          debugError('Audio cleanup warning:', e);
-        }
-        localTracksRef.current.audio = null;
-      }
-
-      if (localTracksRef.current.video) {
-        try {
-          localTracksRef.current.video.stop();
-          localTracksRef.current.video.close();
-        } catch (e) {
-          debugError('Video cleanup warning:', e);
-        }
-        localTracksRef.current.video = null;
-      }
-
-      videoElementsRef.current.forEach(element => {
-        try {
-          element.remove();
-        } catch (e) {
-          debugError('Element removal warning:', e);
-        }
-      });
-      videoElementsRef.current.clear();
-
-      if (agoraClient) {
-        try {
-          await agoraClient.leave();
-          debugLog('✅ Left Agora channel');
-        } catch (e) {
-          debugError('Leave channel warning:', e);
-        }
-      }
-
-      hasJoinedRef.current = false;
-      currentUidRef.current = null;
-      isInitializingRef.current = false;
-
-      if (isMountedRef.current) {
-        setIsConnected(false);
-        setIsConnecting(false);
-        setCallDuration(0);
-        setRemoteUsers(new Map());
-        setAgoraClient(null);
-        setTeacherUid(null);
-        setIsScreenSharing(false);
-        setIsHandRaised(false);
-        setLocalVideoReady(false);
-        setIsPinned(null);
-        setError('');
-      }
-
-      debugLog('✅ Cleanup complete');
-    } catch (error) {
-      debugError('Cleanup error:', error);
-    }
-  }, [agoraClient, debugLog, debugError]);
-
+  // ============================================================================
   const initializeRealCall = useCallback(async () => {
     if (isInitializingRef.current || hasJoinedRef.current) {
       debugLog('⏳ Already initializing or joined, skipping...');
@@ -802,6 +860,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         return;
       }
 
+      debugLog('⏳ Waiting for DOM to be ready...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       debugLog('🎬 Creating local tracks...');
       await createLocalTracks();
 
@@ -860,7 +921,113 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   }, [classItem, isOpen, agoraClient, createLocalTracks, publishLocalTracks, setupAgoraEventListeners, performCompleteCleanup, debugLog, debugError]);
 
+  // ============================================================================
+  // CONTROL ACTIONS
+  // ============================================================================
+  const toggleAudio = useCallback(async () => {
+    if (!localTracksRef.current.audio) {
+      setError('Microphone not available');
+      return;
+    }
+
+    try {
+      const newState = !isAudioMuted;
+      await localTracksRef.current.audio.setEnabled(newState);
+      setIsAudioMuted(!newState);
+      debugLog(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
+    } catch (error) {
+      debugError('Toggle audio error:', error);
+      setError('Failed to toggle microphone');
+    }
+  }, [isAudioMuted, debugLog, debugError]);
+
+  const toggleVideo = useCallback(async () => {
+    if (!localTracksRef.current.video) {
+      setError('Camera not available');
+      return;
+    }
+
+    try {
+      const newVideoState = !isVideoOff;
+      await localTracksRef.current.video.setEnabled(!newVideoState);
+      setIsVideoOff(newVideoState);
+      debugLog(`📹 Video ${newVideoState ? 'disabled' : 'enabled'}`);
+
+      if (!newVideoState && !localVideoReady) {
+        await setupLocalVideo(localTracksRef.current.video);
+      }
+
+    } catch (error) {
+      debugError('Toggle video error:', error);
+      setError('Failed to toggle camera');
+    }
+  }, [isVideoOff, localVideoReady, setupLocalVideo, debugLog, debugError]);
+
+  const raiseHand = useCallback(async () => {
+    try {
+      const newState = !isHandRaised;
+      setIsHandRaised(newState);
+      debugLog(`✋ Hand ${newState ? 'raised' : 'lowered'}`);
+
+      if (classItem?.video_session?.meeting_id) {
+        await studentApi.raiseHand(classItem.video_session.meeting_id, newState);
+      }
+    } catch (error) {
+      debugError('Raise hand error:', error);
+    }
+  }, [isHandRaised, classItem, debugLog, debugError]);
+
+  const leaveCall = useCallback(async () => {
+    debugLog('🚪 Leaving call...');
+    await performCompleteCleanup();
+    onClose();
+  }, [performCompleteCleanup, onClose, debugLog]);
+
+  // ============================================================================
+  // LAYOUT SYSTEM
+  // ============================================================================
+  const getOptimalLayout = useCallback(() => {
+    const remoteUsersArray = Array.from(remoteUsers.values());
+    const teacher = remoteUsersArray.find(u => u.isTeacher);
+    const screenShare = remoteUsersArray.find(u => u.isScreenShare);
+    const students = remoteUsersArray.filter(u => !u.isTeacher && !u.isScreenShare);
+
+    if (screenShare) {
+      return {
+        type: 'screenshare',
+        mainVideo: screenShare,
+        sidebarVideos: [teacher, ...students].filter(Boolean)
+      };
+    }
+
+    if (isPinned) {
+      const pinnedUser = remoteUsersArray.find(u => u.uid === isPinned);
+      if (pinnedUser) {
+        return {
+          type: 'pinned',
+          mainVideo: pinnedUser,
+          sidebarVideos: remoteUsersArray.filter(u => u.uid !== isPinned)
+        };
+      }
+    }
+
+    if (teacher) {
+      return {
+        type: 'spotlight',
+        mainVideo: teacher,
+        sidebarVideos: students
+      };
+    }
+
+    return {
+      type: 'grid',
+      allVideos: remoteUsersArray
+    };
+  }, [remoteUsers, isPinned]);
+
+  // ============================================================================
   // VIDEO PLAYER COMPONENTS
+  // ============================================================================
   const LocalVideoPlayer = React.memo(() => {
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
@@ -1001,46 +1168,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     );
   });
 
-  // LAYOUT SYSTEM
-  const getOptimalLayout = useCallback(() => {
-    const remoteUsersArray = Array.from(remoteUsers.values());
-    const teacher = remoteUsersArray.find(u => u.isTeacher);
-    const screenShare = remoteUsersArray.find(u => u.isScreenShare);
-    const students = remoteUsersArray.filter(u => !u.isTeacher && !u.isScreenShare);
-
-    if (screenShare) {
-      return {
-        type: 'screenshare',
-        mainVideo: screenShare,
-        sidebarVideos: [teacher, ...students].filter(Boolean)
-      };
-    }
-
-    if (isPinned) {
-      const pinnedUser = remoteUsersArray.find(u => u.uid === isPinned);
-      if (pinnedUser) {
-        return {
-          type: 'pinned',
-          mainVideo: pinnedUser,
-          sidebarVideos: remoteUsersArray.filter(u => u.uid !== isPinned)
-        };
-      }
-    }
-
-    if (teacher) {
-      return {
-        type: 'spotlight',
-        mainVideo: teacher,
-        sidebarVideos: students
-      };
-    }
-
-    return {
-      type: 'grid',
-      allVideos: remoteUsersArray
-    };
-  }, [remoteUsers, isPinned]);
-
   const renderVideoLayout = useCallback(() => {
     const layout = getOptimalLayout();
 
@@ -1112,119 +1239,31 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     );
   }, [getOptimalLayout, isPinned]);
 
-  // CONTROL ACTIONS
-  const toggleAudio = useCallback(async () => {
-    if (!localTracksRef.current.audio) {
-      setError('Microphone not available');
-      return;
-    }
-
-    try {
-      const newState = !isAudioMuted;
-      await localTracksRef.current.audio.setEnabled(newState);
-      setIsAudioMuted(!newState);
-      debugLog(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
-    } catch (error) {
-      debugError('Toggle audio error:', error);
-      setError('Failed to toggle microphone');
-    }
-  }, [isAudioMuted, debugLog, debugError]);
-
-  const toggleVideo = useCallback(async () => {
-    if (!localTracksRef.current.video) {
-      setError('Camera not available');
-      return;
-    }
-
-    try {
-      const newVideoState = !isVideoOff;
-
-      await localTracksRef.current.video.setEnabled(!newVideoState);
-      setIsVideoOff(newVideoState);
-
-      debugLog(`📹 Video ${newVideoState ? 'disabled' : 'enabled'}`);
-
-      if (!newVideoState && !localVideoReady) {
-        await setupLocalVideo(localTracksRef.current.video);
-      }
-
-    } catch (error) {
-      debugError('Toggle video error:', error);
-      setError('Failed to toggle camera');
-    }
-  }, [isVideoOff, localVideoReady, setupLocalVideo, debugLog, debugError]);
-
-  const raiseHand = useCallback(async () => {
-    try {
-      const newState = !isHandRaised;
-      setIsHandRaised(newState);
-      debugLog(`✋ Hand ${newState ? 'raised' : 'lowered'}`);
-
-      if (classItem?.video_session?.meeting_id) {
-        await studentApi.raiseHand(classItem.video_session.meeting_id, newState);
-      }
-    } catch (error) {
-      debugError('Raise hand error:', error);
-    }
-  }, [isHandRaised, classItem, debugLog, debugError]);
-
-  const leaveCall = useCallback(async () => {
-    debugLog('🚪 Leaving call...');
-    await performCompleteCleanup();
-    onClose();
-  }, [performCompleteCleanup, onClose, debugLog]);
-
-  // UTILITY FUNCTIONS
-  const updateParticipantsList = useCallback(() => {
-    const remoteUsersArray = Array.from(remoteUsers.values());
-    const newParticipants = [
-      ...remoteUsersArray
-      .filter(u => u.isTeacher)
-      .map(u => ({
-        name: classItem?.teacher_name || 'Teacher',
-        role: 'teacher',
-        uid: u.uid
-      })),
-      { name: 'You', role: 'student', uid: 'local' },
-      ...remoteUsersArray
-      .filter(u => !u.isTeacher && !u.isScreenShare)
-      .map(u => ({
-        name: `Student ${u.uid}`,
-        role: 'student',
-        uid: u.uid
-      }))
-    ];
-
-    setParticipants(newParticipants);
-  }, [remoteUsers, classItem]);
-
-  const formatTime = useCallback((seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }, []);
-
-  const getConnectionColor = useCallback(() => {
-    switch (connectionQuality) {
-      case 'excellent': return 'text-green-400';
-      case 'good': return 'text-blue-400';
-      case 'fair': return 'text-yellow-400';
-      case 'poor': return 'text-red-400';
-      default: return 'text-green-400';
-    }
-  }, [connectionQuality]);
-
-  const getQualityBadge = useMemo(() => {
-    return (
-      <div className={`text-xs font-mono px-2 py-1 rounded-full ${getConnectionColor()} bg-black/30 flex items-center gap-1`}>
-      <div className="w-2 h-2 rounded-full bg-current animate-pulse" />
-      <span className="hidden sm:inline">{connectionQuality.toUpperCase()}</span>
-      <span className="hidden md:inline text-gray-400">• {currentQualityProfile}</span>
-      </div>
-    );
-  }, [connectionQuality, currentQualityProfile, getConnectionColor]);
-
+  // ============================================================================
   // EFFECTS
+  // ============================================================================
+  useEffect(() => {
+    isMountedRef.current = true;
+    debugLog('🔄 Component mounted');
+
+    return () => {
+      debugLog('🧹 Component unmounting...');
+      isMountedRef.current = false;
+
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+
+      if (qualityCheckIntervalRef.current) {
+        clearInterval(qualityCheckIntervalRef.current);
+        qualityCheckIntervalRef.current = null;
+      }
+
+      performCompleteCleanup();
+    };
+  }, [performCompleteCleanup, debugLog]);
+
   useEffect(() => {
     if (isOpen && classItem?.video_session?.meeting_id) {
       debugLog('🎯 Modal opened with meeting ID:', classItem.video_session.meeting_id);
@@ -1265,7 +1304,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     };
   }, [agoraClient, debugLog, debugError]);
 
+  // ============================================================================
   // RENDER
+  // ============================================================================
   if (!isOpen) return null;
 
   if (!AgoraRTC || typeof AgoraRTC.createClient !== 'function') {
@@ -1451,6 +1492,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     </div>
   );
 };
+
+// ============================================================================
+// END OF STUDENTVIDEOCALL COMPONENT
+// ============================================================================
 
 // === CLASS MANAGEMENT ===
 const sortClasses = (classes) => {
