@@ -399,7 +399,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [agoraClient, debugLog, debugError]);
 
   // ============================================================================
-  // VIDEO SETUP FUNCTIONS
+  // VIDEO SETUP FUNCTIONS (FIXED VERSION)
   // ============================================================================
   const setupLocalVideo = useCallback(async (videoTrack) => {
     if (!isMountedRef.current) {
@@ -415,13 +415,29 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         throw new Error('No video track available');
       }
 
-      const container = localVideoRef.current;
-      if (!container) {
-        throw new Error('Video container not found');
+      // Wait a bit for DOM to be ready and container to be available
+      let container = localVideoRef.current;
+      let retries = 0;
+      const maxRetries = 10;
+      const retryDelay = 100;
+
+      while ((!container || !container.isConnected) && retries < maxRetries && isMountedRef.current) {
+        debugLog(`⏳ Waiting for video container... (attempt ${retries + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        container = localVideoRef.current;
+        retries++;
       }
 
-      // Clear container
-      container.innerHTML = '';
+      if (!container || !container.isConnected) {
+        throw new Error(`Video container not found or not connected to DOM after ${maxRetries} attempts`);
+      }
+
+      debugLog('✅ Video container found, setting up video element...');
+
+      // Clear container safely
+      if (container && container.innerHTML) {
+        container.innerHTML = '';
+      }
 
       // Create video element
       const videoElement = document.createElement('video');
@@ -435,12 +451,36 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       videoElement.autoplay = true;
       videoElement.playsInline = true;
       videoElement.muted = true;
+      videoElement.setAttribute('data-local-video', 'true');
 
-      container.appendChild(videoElement);
+      // Add to container
+      if (container) {
+        container.appendChild(videoElement);
+      } else {
+        throw new Error('Container disappeared during setup');
+      }
 
-      // Play video track
-      await videoTrack.play(videoElement);
-      debugLog('✅ Local video playing successfully');
+      // Wait a frame for DOM to update
+      await new Promise(resolve => requestAnimationFrame(resolve));
+
+      // Play video track with retry logic
+      let playRetries = 0;
+      const maxPlayRetries = 3;
+
+      while (playRetries < maxPlayRetries && isMountedRef.current) {
+        try {
+          await videoTrack.play(videoElement);
+          debugLog('✅ Local video playing successfully');
+          break;
+        } catch (playError) {
+          playRetries++;
+          if (playRetries >= maxPlayRetries) {
+            throw playError;
+          }
+          debugLog(`🔄 Video play retry ${playRetries}/${maxPlayRetries}`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
 
       if (isMountedRef.current) {
         setLocalVideoReady(true);
@@ -482,7 +522,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         localTracksRef.current.video = videoTrack;
         debugLog('✅ Video track created');
 
-        await setupLocalVideo(videoTrack);
+        // Setup video but don't wait for it - let the LocalVideoPlayer handle it
+        // This prevents blocking the entire call setup
+        setupLocalVideo(videoTrack).catch(videoError => {
+          debugError('Video setup completed with error:', videoError);
+        });
+
       } catch (videoError) {
         debugError('Could not create video track:', videoError);
         const errorMsg = videoError.message.includes('NotAllowedError') ||
@@ -499,6 +544,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       throw error;
     }
   }, [setupLocalVideo, debugLog, debugError]);
+
+
 
   const publishLocalTracks = useCallback(async (client) => {
     try {
@@ -820,12 +867,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         }
 
         currentUidRef.current = joinResult.uid;
-        debugLog('✅ Join credentials received:', {
-          appId: joinResult.appId ? 'present' : 'missing',
-          channel: joinResult.channel ? 'present' : 'missing',
-          token: joinResult.token ? 'present' : 'missing',
-          uid: joinResult.uid ? 'present' : 'missing'
-        });
+        debugLog('✅ Join credentials received');
 
       } catch (apiError) {
         debugError('API error:', apiError);
@@ -876,6 +918,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         timerRef.current = setInterval(() => {
           setCallDuration(prev => prev + 1);
         }, 1000);
+
+        // Wait for DOM to be ready before setting up video
+        debugLog('⏳ Waiting for DOM to be ready...');
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         // Create and publish local tracks
         debugLog('🎬 Setting up local media...');
@@ -954,6 +1000,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     debugLog,
     debugError
   ]);
+
+
 
   // ============================================================================
   // CONTROL ACTIONS
@@ -1062,10 +1110,38 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
   // VIDEO PLAYER COMPONENTS
   // ============================================================================
+  // ============================================================================
+  // VIDEO PLAYER COMPONENTS (FIXED VERSION)
+  // ============================================================================
   const LocalVideoPlayer = React.memo(() => {
+    const [containerReady, setContainerReady] = useState(false);
+
+    // Use a callback ref to ensure we have the DOM element
+    const setVideoContainerRef = useCallback((node) => {
+      if (node) {
+        localVideoRef.current = node;
+        setContainerReady(true);
+        debugLog('✅ Local video container ready');
+      }
+    }, []);
+
+    useEffect(() => {
+      // If we have a video track and container is ready, setup the video
+      if (containerReady && localTracksRef.current.video && !localVideoReady) {
+        setupLocalVideo(localTracksRef.current.video).catch(error => {
+          debugError('Auto-setup video failed:', error);
+        });
+      }
+    }, [containerReady, localVideoReady]);
+
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden bg-black border-2 border-purple-500">
-      <div ref={localVideoRef} className="w-full h-full bg-black" />
+      {/* Video Container with proper ref handling */}
+      <div
+      ref={setVideoContainerRef}
+      className="w-full h-full bg-black"
+      data-video-container="local"
+      />
 
       <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded-lg text-xs backdrop-blur-sm z-10">
       💜 You {isVideoOff && '(Camera Off)'}
@@ -1106,6 +1182,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       </div>
     );
   });
+
 
   const RemoteVideoPlayer = React.memo(({ user }) => {
     const containerRef = useRef(null);
