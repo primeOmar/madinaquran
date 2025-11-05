@@ -199,7 +199,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // STATE MANAGEMENT
   // ============================================================================
   const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false); // FIXED: Start with video ON
+  const [isVideoOff, setIsVideoOff] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
@@ -380,20 +380,15 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [debugLog]);
 
   // ============================================================================
-  // TRACK MANAGEMENT - PRODUCTION READY WITH LOCAL VIDEO FIX
+  // TRACK MANAGEMENT - PRODUCTION READY
   // ============================================================================
   const createLocalTracks = useCallback(async () => {
     debugLog('🎤 Creating local tracks...');
 
     try {
-      // Check if Agora is available
-      if (!window.AgoraRTC) {
-        throw new Error('Agora SDK not loaded. Please refresh the page.');
-      }
-
       // Create audio track
       debugLog('Creating audio track...');
-      const audioTrack = await window.AgoraRTC.createMicrophoneAudioTrack({
+      const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
         AEC: true,
         ANS: true,
         encoderConfig: {
@@ -414,7 +409,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       try {
         // Try HD first
-        videoTrack = await window.AgoraRTC.createCameraVideoTrack({
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
           encoderConfig: {
             width: 1280,
             height: 720,
@@ -430,7 +425,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
         try {
           // Fallback to standard quality
-          videoTrack = await window.AgoraRTC.createCameraVideoTrack({
+          videoTrack = await AgoraRTC.createCameraVideoTrack({
             encoderConfig: {
               width: 640,
               height: 480,
@@ -447,7 +442,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       localTracksRef.current.video = videoTrack;
       debugLog('✅ Video track created', { trackId: videoTrack.getTrackId() });
 
-      // CRITICAL FIX: Play local video with proper error handling
+      // Play local video with proper error handling
       if (localVideoRef.current && videoTrack) {
         debugLog('🎥 Playing local video...');
 
@@ -488,7 +483,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     }
   } catch (playError) {
     debugError('Error playing local video:', playError);
-    setLocalVideoReady(true); // Remove loading state
+    setLocalVideoReady(true);
   }
       } else {
         debugError('Cannot play local video: missing ref or track', {
@@ -618,11 +613,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       const meetingId = classItem.video_session.meeting_id;
       debugLog(`📞 Meeting ID: ${meetingId}`);
 
-      // Check if AgoraRTC is available
-      if (!window.AgoraRTC) {
-        throw new Error('Agora SDK not loaded. Please refresh the page.');
-      }
-
       // Get join credentials from your API
       debugLog('🔑 Getting join credentials...');
       const joinResult = await studentApi.joinVideoSession(meetingId);
@@ -639,7 +629,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       // Create Agora client
       debugLog('🔧 Creating Agora client...');
-      const client = window.AgoraRTC.createClient({
+      const client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8',
       });
@@ -1157,8 +1147,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           </div>
   );
 };
-
-
 // ============================================================================
 // END OF STUDENTVIDEOCALL COMPONENT
 // ============================================================================
