@@ -1037,7 +1037,9 @@ const VideoCallModal = ({
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-
+  const DebugPanel = () => (
+   
+  );
 
   // ============================================================================
   // ERROR STATE
@@ -1089,6 +1091,266 @@ const VideoCallModal = ({
     );
   }
 
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
+  return (
+    <div
+    ref={containerRef}
+    className="fixed inset-0 z-50 bg-black/98 backdrop-blur-xl flex flex-col"
+    >
+    <DebugPanel />
+
+    {/* Header Bar */}
+    <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-gray-900/95 to-green-900/95 backdrop-blur-lg border-b border-cyan-500/20 p-4 shadow-lg">
+    <div className="flex items-center justify-between">
+    <div className="flex items-center space-x-4">
+    <div className="flex items-center space-x-2">
+    <div className={`w-3 h-3 rounded-full ${
+      isLoading ? 'bg-yellow-500 animate-pulse' :
+      agoraClient ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+    }`} />
+    <Crown className="text-yellow-400" size={20} />
+    <h2 className="text-xl font-bold text-white">
+    {classData?.title || 'Teacher Session'}
+    </h2>
+    </div>
+
+    <div className="hidden md:flex items-center space-x-4 text-sm">
+    <span className="text-cyan-300 flex items-center">
+    <Users size={16} className="mr-1" />
+    {remoteUsers.length} {remoteUsers.length === 1 ? 'student' : 'students'}
+    </span>
+    <span className="text-green-300">
+    🕒 {formatConnectionTime(connectionTime)}
+    </span>
+    </div>
+    </div>
+
+    <div className="flex items-center space-x-2">
+    <button
+    onClick={copySessionLink}
+    className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg"
+    title="Copy Session Link"
+    >
+    <Share2 size={20} />
+    </button>
+
+    <button
+    onClick={() => setShowParticipants(!showParticipants)}
+    className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg relative"
+    title="Participants"
+    >
+    <Users size={20} />
+    {remoteUsers.length > 0 && (
+      <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+      {remoteUsers.length}
+      </span>
+    )}
+    </button>
+
+    <button
+    onClick={toggleFullscreen}
+    className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg"
+    title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+    >
+    {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+    </button>
+
+    <button
+    onClick={leaveCall}
+    className="p-2 bg-red-600 hover:bg-red-500 text-white transition-all rounded-lg shadow-lg"
+    title="End Session"
+    >
+    <PhoneOff size={20} />
+    </button>
+    </div>
+    </div>
+    </div>
+
+    {/* Main Video Area */}
+    <div className="flex-1 flex pt-20 pb-32">
+    <div className="flex-1 min-h-0 relative">
+    {isLoading ? (
+      <div className="flex items-center justify-center h-full">
+      <div className="text-center">
+      <div className="animate-spin rounded-full h-20 w-20 border-4 border-cyan-500 border-t-transparent mx-auto mb-6"></div>
+      <p className="text-cyan-300 text-xl font-semibold mb-2">Starting Teacher Session...</p>
+      <p className="text-cyan-400 text-sm">Connecting to classroom</p>
+      </div>
+      </div>
+    ) : (
+      <VideoGrid />
+    )}
+    </div>
+
+    {/* Participants Sidebar */}
+    {showParticipants && (
+      <div className="w-80 bg-gray-900/95 backdrop-blur-lg border-l border-cyan-500/20 p-4 overflow-y-auto shadow-xl">
+      <h3 className="text-lg font-bold text-white mb-4 flex items-center">
+      <Users className="mr-2 text-cyan-400" size={20} />
+      Participants ({remoteUsers.length + 1})
+      </h3>
+
+      {/* Local user (teacher) */}
+      <div className="mb-4 p-3 rounded-lg bg-cyan-500/20 border border-cyan-500/30">
+      <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-3">
+      <div className="w-10 h-10 bg-cyan-600 rounded-full flex items-center justify-center">
+      <Crown size={20} className="text-white" />
+      </div>
+      <div>
+      <p className="text-white font-semibold">You (Teacher)</p>
+      <p className="text-cyan-300 text-xs">Host</p>
+      </div>
+      </div>
+      <div className="flex items-center space-x-2">
+      {isVideoEnabled ? (
+        <Video size={16} className="text-green-400" />
+      ) : (
+        <VideoOff size={16} className="text-red-400" />
+      )}
+      {isAudioEnabled ? (
+        <Mic size={16} className="text-green-400" />
+      ) : (
+        <MicOff size={16} className="text-red-400" />
+      )}
+      </div>
+      </div>
+      </div>
+
+      {/* Remote users (students) */}
+      <div className="space-y-2">
+      {remoteUsers.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
+        <Users size={48} className="mx-auto mb-3 opacity-50" />
+        <p className="text-sm">Waiting for students to join...</p>
+        </div>
+      ) : (
+        remoteUsers.map(user => (
+          <div
+          key={user.uid}
+          className={`p-3 rounded-lg border transition-all ${
+            user.uid === activeSpeaker
+            ? 'bg-yellow-500/20 border-yellow-500/50 shadow-lg'
+            : 'bg-gray-800/50 border-gray-600/30'
+          }`}
+          >
+          <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
+          <User size={20} className="text-white" />
+          </div>
+          <div>
+          <p className="text-white font-medium">Student {user.uid}</p>
+          <p className="text-cyan-300 text-xs">
+          {user.joinedAt.toLocaleTimeString()}
+          </p>
+          </div>
+          </div>
+          <div className="flex items-center space-x-2">
+          {user.hasVideo ? (
+            <Video size={16} className="text-green-400" />
+          ) : (
+            <VideoOff size={16} className="text-gray-400" />
+          )}
+          {user.hasAudio ? (
+            <Mic size={16} className="text-green-400" />
+          ) : (
+            <MicOff size={16} className="text-red-400" />
+          )}
+          {user.isSpeaking && (
+            <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+          )}
+          </div>
+          </div>
+          </div>
+        ))
+      )}
+      </div>
+      </div>
+    )}
+    </div>
+
+    {/* Control Bar */}
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/98 via-gray-900/95 to-transparent p-6 shadow-2xl">
+    <div className="flex flex-col items-center space-y-4">
+    {/* Stats Bar */}
+    <div className="flex items-center space-x-6 text-sm text-cyan-300">
+    <span className="flex items-center">
+    <Users size={16} className="mr-2" />
+    {remoteUsers.length} {remoteUsers.length === 1 ? 'Student' : 'Students'}
+    </span>
+    <span>•</span>
+    <span className="flex items-center">
+    <div className={`w-2 h-2 rounded-full mr-2 ${
+      agoraClient ? 'bg-green-500' : 'bg-red-500'
+    }`} />
+    {agoraClient ? 'Connected' : 'Disconnected'}
+    </span>
+    <span>•</span>
+    <span>{formatConnectionTime(connectionTime)}</span>
+    </div>
+
+    {/* Control Buttons */}
+    <div className="flex items-center space-x-4">
+    <button
+    onClick={toggleAudio}
+    className={`p-5 rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl ${
+      isAudioEnabled
+      ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
+      : 'bg-red-600 hover:bg-red-500 text-white'
+    }`}
+    title={isAudioEnabled ? 'Mute Microphone' : 'Unmute Microphone'}
+    >
+    {isAudioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
+    </button>
+
+    <button
+    onClick={toggleVideo}
+    className={`p-5 rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl ${
+      isVideoEnabled
+      ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
+      : 'bg-red-600 hover:bg-red-500 text-white'
+    }`}
+    title={isVideoEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
+    >
+    {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
+    </button>
+
+    <button
+    onClick={toggleScreenShare}
+    className={`p-5 rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl ${
+      isScreenSharing
+      ? 'bg-orange-600 hover:bg-orange-500 text-white'
+      : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+    }`}
+    title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+    >
+    <Monitor size={24} />
+    </button>
+
+    <div className="w-px h-12 bg-gray-600" />
+
+    <button
+    onClick={leaveCall}
+    className="p-5 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl"
+    title="End Session"
+    >
+    <PhoneOff size={24} />
+    </button>
+    </div>
+
+    {/* Status Indicators */}
+    {isScreenSharing && (
+      <div className="bg-orange-500/20 border border-orange-500/30 text-orange-300 px-4 py-2 rounded-lg text-sm">
+      🖥️ You are sharing your screen
+      </div>
+    )}
+    </div>
+    </div>
+    </div>
+  );
 };
 
 
@@ -3469,4 +3731,3 @@ export default function TeacherDashboard() {
     </div>
   );
 }
-
