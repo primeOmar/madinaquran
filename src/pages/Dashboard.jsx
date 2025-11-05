@@ -198,8 +198,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(true);
+  const [isVideoOff, setIsVideoOff] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
