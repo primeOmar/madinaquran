@@ -1037,36 +1037,7 @@ const VideoCallModal = ({
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const DebugPanel = () => (
-    <div className="fixed top-20 right-4 w-96 bg-black/95 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 max-h-[500px] overflow-y-auto z-50 shadow-2xl">
-    <div className="flex items-center justify-between mb-3">
-    <h4 className="text-cyan-300 font-bold flex items-center">
-    <Settings className="mr-2" size={16} />
-    Debug Console
-    </h4>
-    <button
-    onClick={() => setDebugLogs([])}
-    className="text-xs px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded"
-    >
-    Clear
-    </button>
-    </div>
-    <div className="space-y-1 text-xs font-mono">
-    {debugLogs.length === 0 ? (
-      <p className="text-cyan-400/50 italic">No logs yet...</p>
-    ) : (
-      debugLogs.map((log, index) => (
-        <div
-        key={index}
-        className="text-cyan-200 border-b border-cyan-500/10 pb-1 break-words"
-        >
-        {log}
-        </div>
-      ))
-    )}
-    </div>
-    </div>
-  );
+
 
   // ============================================================================
   // ERROR STATE
