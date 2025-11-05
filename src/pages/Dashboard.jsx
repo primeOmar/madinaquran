@@ -240,6 +240,13 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, []);
 
   // ============================================================================
+  // TRACK READINESS CHECKER
+  // ============================================================================
+  const isTrackReady = useCallback((track) => {
+    return track && typeof track.setEnabled === 'function';
+  }, []);
+
+  // ============================================================================
   // CLEANUP
   // ============================================================================
   const performCompleteCleanup = useCallback(async () => {
@@ -301,6 +308,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         setParticipants([]);
         setActiveSpeaker(null);
         setLocalVideoReady(false);
+        // Reset to initial muted state
+        setIsAudioMuted(true);
+        setIsVideoOff(true);
       }
 
       debugLog('✅ Cleanup complete');
@@ -380,7 +390,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [debugLog]);
 
   // ============================================================================
-  // TRACK MANAGEMENT - PRODUCTION READY
+  // TRACK MANAGEMENT - PRODUCTION READY WITH FIXES
   // ============================================================================
   const createLocalTracks = useCallback(async () => {
     debugLog('🎤 Creating local tracks...');
@@ -400,8 +410,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         throw new Error('MICROPHONE_PERMISSION_DENIED');
       });
 
+      // 🚀 CRITICAL FIX: Set initial audio state immediately
+      await audioTrack.setEnabled(!isAudioMuted);
       localTracksRef.current.audio = audioTrack;
-      debugLog('✅ Audio track created');
+      debugLog(`✅ Audio track created - initially ${isAudioMuted ? 'MUTED' : 'UNMUTED'}`);
 
       // Create video track with fallback strategy
       debugLog('Creating video track...');
@@ -439,8 +451,10 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         }
       }
 
+      // 🚀 CRITICAL FIX: Set initial video state immediately
+      await videoTrack.setEnabled(!isVideoOff);
       localTracksRef.current.video = videoTrack;
-      debugLog('✅ Video track created', { trackId: videoTrack.getTrackId() });
+      debugLog(`✅ Video track created - initially ${isVideoOff ? 'OFF' : 'ON'}`);
 
       // Play local video with proper error handling
       if (localVideoRef.current && videoTrack) {
@@ -508,7 +522,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       throw error;
     }
-  }, [debugLog, debugError, localVideoReady]);
+  }, [debugLog, debugError, localVideoReady, isAudioMuted, isVideoOff]);
 
   // ============================================================================
   // PARTICIPANT MANAGEMENT
@@ -592,7 +606,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [debugLog, debugError, setupRemoteVideo, removeRemoteVideo, updateParticipants]);
 
   // ============================================================================
-  // JOIN CHANNEL - PRODUCTION READY
+  // JOIN CHANNEL - PRODUCTION READY WITH FIXES
   // ============================================================================
   const joinChannel = useCallback(async () => {
     if (!isOpen || !classItem?.video_session?.meeting_id) {
@@ -681,15 +695,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         debugLog('✅ Tracks published');
       }
 
-      // Set track states based on initial mute settings
-      if (localTracksRef.current.audio) {
-        await localTracksRef.current.audio.setEnabled(!isAudioMuted);
-        debugLog(`🎤 Audio enabled: ${!isAudioMuted}`);
-      }
-      if (localTracksRef.current.video) {
-        await localTracksRef.current.video.setEnabled(!isVideoOff);
-        debugLog(`📹 Video enabled: ${!isVideoOff}`);
-      }
+      // 🚀 CRITICAL FIX: Tracks already set in createLocalTracks - removed redundant setting
 
       // Setup remote user handling
       setupRemoteUserHandling(client);
@@ -724,8 +730,6 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     classItem,
     isConnecting,
     isConnected,
-    isAudioMuted,
-    isVideoOff,
     createLocalTracks,
     setupRemoteUserHandling,
     performCompleteCleanup,
@@ -734,41 +738,57 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   ]);
 
   // ============================================================================
-  // CONTROLS
+  // CONTROLS - PRODUCTION READY WITH FIXES
   // ============================================================================
   const toggleAudio = useCallback(async () => {
-    if (!localTracksRef.current.audio) {
-      debugError('Toggle audio failed: No audio track available');
+    if (!isTrackReady(localTracksRef.current.audio)) {
+      debugError('Toggle audio failed: Audio track not ready');
+      setError('Audio system not ready. Please wait...');
       return;
     }
 
     try {
       const newMutedState = !isAudioMuted;
-      await localTracksRef.current.audio.setEnabled(!newMutedState);
+
+      // 🚀 CRITICAL FIX: Update state FIRST for immediate UI response
       setIsAudioMuted(newMutedState);
+
+      // Then update track (non-blocking)
+      await localTracksRef.current.audio.setEnabled(!newMutedState);
+
       debugLog(`🎤 Audio ${newMutedState ? 'MUTED' : 'UNMUTED'}`);
     } catch (error) {
+      // 🚀 ROLLBACK on failure
+      setIsAudioMuted(!isAudioMuted);
       debugError('Toggle audio failed:', error);
       setError('Failed to toggle microphone');
     }
-  }, [isAudioMuted, debugLog, debugError]);
+  }, [isAudioMuted, debugLog, debugError, isTrackReady]);
 
   const toggleVideo = useCallback(async () => {
-    if (!localTracksRef.current.video) {
-      debugError('Toggle video failed: No video track available');
+    if (!isTrackReady(localTracksRef.current.video)) {
+      debugError('Toggle video failed: Video track not ready');
+      setError('Video system not ready. Please wait...');
       return;
     }
 
     try {
       const newVideoOffState = !isVideoOff;
-      await localTracksRef.current.video.setEnabled(!newVideoOffState);
+
+      // 🚀 CRITICAL FIX: Update state FIRST for immediate UI response
       setIsVideoOff(newVideoOffState);
+
+      // Then update track (non-blocking)
+      await localTracksRef.current.video.setEnabled(!newVideoOffState);
+
       debugLog(`📹 Video ${newVideoOffState ? 'OFF' : 'ON'}`);
     } catch (error) {
+      // 🚀 ROLLBACK on failure
+      setIsVideoOff(!isVideoOff);
       debugError('Toggle video failed:', error);
       setError('Failed to toggle camera');
     }
-  }, [isVideoOff, debugLog, debugError]);
+  }, [isVideoOff, debugLog, debugError, isTrackReady]);
 
   const leaveCall = useCallback(async () => {
     debugLog('📞 Leaving call...');
