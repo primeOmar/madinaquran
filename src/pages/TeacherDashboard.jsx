@@ -245,563 +245,644 @@ const initializeAgora = async (options = {}) => {
 };
 
 
-// Production-ready VideoCallModal Component
-const VideoCallModal = ({
-  classData,
-  onClose,
-  onError,
-  channel,
-  token,
-  appId,
-  uid
-}) => {
+// Production-ready Teacher Video Call Component
+const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, uid }) => {
   // ============================================================================
-  // STATE MANAGEMENT
+  // STATE MANAGEMENT (Matches Student Implementation)
   // ============================================================================
-  const [agoraClient, setAgoraClient] = useState(null);
-  const [localTracks, setLocalTracks] = useState({
-    audioTrack: null,
-    videoTrack: null,
-    screenTrack: null
-  });
-  const [remoteUsers, setRemoteUsers] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [connectionTime, setConnectionTime] = useState(0);
-  const [pinnedUser, setPinnedUser] = useState(null);
-  const [showParticipants, setShowParticipants] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const [error, setError] = useState('');
+  const [networkQuality, setNetworkQuality] = useState({ upload: 0, download: 0 });
+  const [participants, setParticipants] = useState([]);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [localVideoReady, setLocalVideoReady] = useState(false);
+  const [showParticipants, setShowParticipants] = useState(false);
+  const [pinnedUser, setPinnedUser] = useState(null);
+
+  // Draggable video state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
 
   // ============================================================================
-  // REFS
+  // REFS (Matches Student Implementation)
   // ============================================================================
   const localVideoRef = useRef(null);
-  const remoteVideoRefs = useRef(new Map());
-  const timerIntervalRef = useRef(null);
-  const containerRef = useRef(null);
-  const isInitializedRef = useRef(false);
+  const remoteVideosContainerRef = useRef(null);
+  const timerRef = useRef(null);
+  const localTracksRef = useRef({ audio: null, video: null, screen: null });
+  const agoraClientRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const joinAttemptRef = useRef(null);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+  const videoContainerRef = useRef(null);
+  const remoteVideoElementsRef = useRef(new Map());
 
   // ============================================================================
-  // UTILITY FUNCTIONS
+  // LOGGING (Matches Student Implementation)
   // ============================================================================
-  const formatConnectionTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return hours > 0
-    ? `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-    : `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+  const debugLog = useCallback((message, data = null) => {
+    const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+    console.log(`[${timestamp}] 👨‍🏫 TeacherVideoCall: ${message}`, data || '');
+  }, []);
+
+  const debugError = useCallback((message, error) => {
+    const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+    console.error(`[${timestamp}] ❌ TeacherVideoCall Error: ${message}`, error);
+  }, []);
 
   // ============================================================================
-  // VALIDATION & ERROR HANDLING
+  // TRACK READINESS CHECKER
   // ============================================================================
-  const validateCredentials = useCallback(() => {
-    console.log('🔐 Validating Agora credentials...');
-
-    const missingFields = [];
-    if (!appId) missingFields.push('appId');
-    if (!channel) missingFields.push('channel');
-    if (!token) missingFields.push('token');
-    if (uid === undefined || uid === null) missingFields.push('uid');
-
-    if (missingFields.length > 0) {
-      return `Missing required fields: ${missingFields.join(', ')}`;
-    }
-
-    console.log('✅ Credentials validated successfully');
-    return null;
-  }, [appId, channel, token, uid]);
+  const isTrackReady = useCallback((track) => {
+    return track && typeof track.setEnabled === 'function';
+  }, []);
 
   // ============================================================================
-  // TRACK MANAGEMENT - FIXED
+  // CLEANUP - ENHANCED WITH FIXES
   // ============================================================================
-  const createLocalTracks = async () => {
+  const performCompleteCleanup = useCallback(async () => {
+    debugLog('🧹 Starting teacher cleanup...');
+
     try {
-      console.log('🎤 Creating local tracks...');
-
-      // Request camera and microphone permissions first
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      } catch (permissionError) {
-        throw new Error('Camera and microphone permissions are required for video calls');
+      if (joinAttemptRef.current) {
+        clearTimeout(joinAttemptRef.current);
+        joinAttemptRef.current = null;
       }
 
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      // Add delay before cleanup
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const cleanupTrack = async (track, type) => {
+        if (track) {
+          try {
+            if (track.stop) track.stop();
+            if (track.close) track.close();
+            debugLog(`✅ ${type} track cleaned up`);
+          } catch (e) {
+            debugError(`Error cleaning up ${type} track:`, e);
+          }
+        }
+      };
+
+      await Promise.all([
+        cleanupTrack(localTracksRef.current.audio, 'audio'),
+                        cleanupTrack(localTracksRef.current.video, 'video'),
+                        cleanupTrack(localTracksRef.current.screen, 'screen')
+      ]);
+
+      localTracksRef.current = { audio: null, video: null, screen: null };
+
+      if (agoraClientRef.current) {
+        try {
+          await agoraClientRef.current.leave();
+          debugLog('✅ Left Agora channel');
+        } catch (e) {
+          debugError('Error leaving channel:', e);
+        }
+        agoraClientRef.current = null;
+      }
+
+      // Safe DOM cleanup
+      if (localVideoRef.current) {
+        try {
+          localVideoRef.current.innerHTML = '';
+        } catch (e) {
+          debugError('Error cleaning local video:', e);
+        }
+      }
+
+      if (remoteVideosContainerRef.current) {
+        try {
+          remoteVideosContainerRef.current.innerHTML = '';
+        } catch (e) {
+          debugError('Error cleaning remote videos:', e);
+        }
+      }
+
+      remoteVideoElementsRef.current.clear();
+
+      if (isMountedRef.current) {
+        setIsConnected(false);
+        setIsConnecting(false);
+        setCallDuration(0);
+        setError('');
+        setParticipants([]);
+        setActiveSpeaker(null);
+        setLocalVideoReady(false);
+        setPinnedUser(null);
+      }
+
+      debugLog('✅ Teacher cleanup complete');
+    } catch (error) {
+      debugError('Teacher cleanup error:', error);
+    }
+  }, [debugLog, debugError]);
+
+  // ============================================================================
+  // REMOTE VIDEO MANAGEMENT - ENHANCED
+  // ============================================================================
+  const setupRemoteVideo = useCallback(async (user) => {
+    debugLog(`📺 Setting up remote video for student ${user.uid}`);
+    const container = remoteVideosContainerRef.current;
+    if (!container) {
+      debugError('Remote video container not found');
+      return;
+    }
+
+    const existingElement = document.getElementById(`remote-video-${user.uid}`);
+    if (existingElement) {
+      existingElement.remove();
+    }
+
+    const videoElement = document.createElement('div');
+    videoElement.id = `remote-video-${user.uid}`;
+    videoElement.className = 'remote-video-item relative bg-gray-800 rounded-xl overflow-hidden min-h-[200px] cursor-pointer';
+  videoElement.innerHTML = `
+  <div class="absolute inset-0 bg-gray-800 flex items-center justify-center">
+  <div class="text-center text-gray-400">
+  <div class="w-12 h-12 mx-auto mb-2 flex items-center justify-center">
+  <svg class="w-12 h-12" fill="currentColor" viewBox="0 0 24 24">
+  <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11z"/>
+  </svg>
+  </div>
+  <p class="text-sm">Student ${user.uid}</p>
+  <p class="text-xs mt-1">Loading video...</p>
+  </div>
+  </div>
+  `;
+
+  // Add pin functionality
+  videoElement.addEventListener('click', () => {
+    setPinnedUser(pinnedUser === user.uid ? null : user.uid);
+  });
+
+  container.appendChild(videoElement);
+  remoteVideoElementsRef.current.set(user.uid, videoElement);
+
+  try {
+    if (user.videoTrack) {
+      videoElement.innerHTML = '';
+      await user.videoTrack.play(videoElement);
+      debugLog(`✅ Remote video playing for student ${user.uid}`);
+
+      const overlay = document.createElement('div');
+      overlay.className = 'absolute bottom-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs';
+      overlay.textContent = `Student ${user.uid}`;
+      videoElement.appendChild(overlay);
+
+      // Add pin indicator
+      if (pinnedUser === user.uid) {
+        const pinIndicator = document.createElement('div');
+        pinIndicator.className = 'absolute top-2 right-2 bg-yellow-500 text-white p-1 rounded';
+        pinIndicator.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>';
+        videoElement.appendChild(pinIndicator);
+      }
+    }
+  } catch (error) {
+    debugError(`Remote video play error for student ${user.uid}:`, error);
+    videoElement.innerHTML = `
+    <div class="absolute inset-0 bg-gray-800 flex items-center justify-center">
+    <div class="text-center text-gray-400">
+    <div class="w-12 h-12 mx-auto mb-2">
+    <svg class="w-12 h-12" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11z"/>
+    </svg>
+    </div>
+    <p class="text-sm">Student ${user.uid}</p>
+    <p class="text-xs mt-1">Video unavailable</p>
+    </div>
+    </div>
+    `;
+  }
+  }, [debugLog, debugError, pinnedUser]);
+
+  const removeRemoteVideo = useCallback((uid) => {
+    debugLog(`🗑️ Removing remote video for student ${uid}`);
+    try {
+      const videoElement = document.getElementById(`remote-video-${uid}`);
+      if (videoElement && videoElement.parentNode) {
+        videoElement.remove();
+      }
+      remoteVideoElementsRef.current.delete(uid);
+    } catch (error) {
+      debugError(`Error removing remote video for ${uid}:`, error);
+    }
+  }, [debugLog, debugError]);
+
+  // ============================================================================
+  // TRACK MANAGEMENT - FIXED FOR TRACK_IS_DISABLED ERROR
+  // ============================================================================
+  const createLocalTracks = useCallback(async () => {
+    debugLog('🎤 Creating teacher local tracks...');
+
+    try {
       // Create audio track
+      debugLog('Creating teacher audio track...');
       const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
         AEC: true,
         ANS: true,
-        AGC: true
+        encoderConfig: {
+          sampleRate: 48000,
+          stereo: true,
+        }
+      }).catch(error => {
+        debugError('Teacher audio track creation failed:', error);
+        throw new Error('MICROPHONE_PERMISSION_DENIED');
       });
+
+      localTracksRef.current.audio = audioTrack;
+      debugLog(`✅ Teacher audio track created`);
 
       // Create video track
-      const videoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: {
-          width: 640,
-          height: 480,
-          frameRate: 15,
-          bitrateMin: 400,
-          bitrateMax: 800
-        },
-        optimizationMode: 'motion'
-      });
-
-      console.log('✅ Local tracks created successfully');
-      return { audioTrack, videoTrack };
-
-    } catch (error) {
-      console.error('❌ Track creation failed:', error);
-
-      if (error.message.includes('Permission denied') || error.name === 'NotAllowedError') {
-        throw new Error('Please allow camera and microphone access in your browser settings');
-      }
-      if (error.message.includes('NotFoundError') || error.name === 'NotFoundError') {
-        throw new Error('No camera or microphone found. Please check your devices');
-      }
-
-      throw new Error(`Device access failed: ${error.message}`);
-    }
-  };
-
-  // ============================================================================
-  // VIDEO PLAYBACK - CRITICAL FIXES
-  // ============================================================================
-  const playLocalVideo = useCallback(async (videoTrack) => {
-    if (!videoTrack || !localVideoRef.current) {
-      console.error('❌ Cannot play local video: missing track or ref');
-      return;
-    }
-
-    try {
-      // Clear any existing content
-      if (localVideoRef.current) {
-        localVideoRef.current.innerHTML = '';
-      }
-
-      // Play the video track
-      await videoTrack.play(localVideoRef.current, {
-        mirror: true
-      });
-
-      console.log('✅ Local video playing successfully');
-    } catch (error) {
-      console.error('❌ Failed to play local video:', error);
-      throw new Error('Failed to start camera preview');
-    }
-  }, []);
-
-  const playRemoteVideo = useCallback((uid, videoTrack) => {
-    if (!videoTrack) {
-      console.error(`❌ No video track for user ${uid}`);
-      return;
-    }
-
-    const attemptPlay = (attempt = 0) => {
-      const videoElement = remoteVideoRefs.current.get(uid);
-
-      if (!videoElement) {
-        if (attempt < 10) {
-          setTimeout(() => attemptPlay(attempt + 1), 200);
-          return;
-        }
-        console.error(`❌ Video element not found for ${uid} after 10 attempts`);
-        return;
-      }
+      debugLog('Creating teacher video track...');
+      let videoTrack;
 
       try {
-        // Clear existing content
-        videoElement.innerHTML = '';
-
-        // Play the video
-        videoTrack.play(videoElement);
-        console.log(`✅ Remote video playing for user ${uid}`);
-      } catch (error) {
-        console.error(`❌ Failed to play remote video ${uid}:`, error);
-
-        if (attempt < 3) {
-          setTimeout(() => attemptPlay(attempt + 1), 500);
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: 1280,
+            height: 720,
+            frameRate: 30,
+            bitrateMin: 1000,
+            bitrateMax: 2000,
+          },
+          optimizationMode: 'detail',
+        });
+        debugLog('✅ Teacher HD video track created');
+      } catch (hdError) {
+        debugError('Teacher HD camera failed, trying standard:', hdError);
+        try {
+          videoTrack = await AgoraRTC.createCameraVideoTrack({
+            encoderConfig: {
+              width: 640,
+              height: 480,
+              frameRate: 24,
+            }
+          });
+          debugLog('✅ Teacher standard video track created');
+        } catch (fallbackError) {
+          debugError('All teacher camera attempts failed:', fallbackError);
+          throw new Error('CAMERA_PERMISSION_DENIED');
         }
+      }
+
+      localTracksRef.current.video = videoTrack;
+      debugLog(`✅ Teacher video track created`);
+
+      // Play local video
+      if (localVideoRef.current && videoTrack) {
+        debugLog('🎥 Playing teacher local video...');
+        localVideoRef.current.innerHTML = '';
+
+  try {
+    await videoTrack.play(localVideoRef.current, {
+      mirror: true,
+      fit: 'cover'
+    });
+
+    debugLog('✅ Teacher local video play() called');
+
+    const handleVideoReady = () => {
+      if (isMountedRef.current) {
+        setLocalVideoReady(true);
+        debugLog('✅ Teacher local video ready and playing');
       }
     };
 
-    attemptPlay();
-  }, []);
+    if (videoTrack.isPlaying) {
+      handleVideoReady();
+    } else {
+      videoTrack.once('first-frame-decoded', handleVideoReady);
+      setTimeout(() => {
+        if (!localVideoReady && isMountedRef.current) {
+          debugLog('⚠️ Teacher video timeout - setting ready anyway');
+          setLocalVideoReady(true);
+        }
+      }, 3000);
+    }
+  } catch (playError) {
+    debugError('Error playing teacher local video:', playError);
+    setLocalVideoReady(true);
+  }
+      }
+
+      debugLog('✅ Teacher local tracks created successfully');
+      return { audio: audioTrack, video: videoTrack };
+
+    } catch (error) {
+      debugError('Teacher track creation failed:', error);
+
+      if (error.message === 'MICROPHONE_PERMISSION_DENIED') {
+        setError('Microphone permission required. Please allow microphone access.');
+      } else if (error.message === 'CAMERA_PERMISSION_DENIED') {
+        setError('Camera permission required. Please allow camera access.');
+      } else {
+        setError(error.message || 'Failed to access camera and microphone. Please check permissions.');
+      }
+
+      throw error;
+    }
+  }, [debugLog, debugError, localVideoReady]);
 
   // ============================================================================
-  // EVENT LISTENERS - FIXED
+  // PARTICIPANT MANAGEMENT
   // ============================================================================
-  const setupEventListeners = useCallback((client) => {
-    console.log('📡 Setting up event listeners...');
+  const updateParticipants = useCallback((users) => {
+    debugLog(`👥 Updating teacher participants: ${users.length} students`);
+    setParticipants(users.map(user => ({
+      uid: user.uid,
+      hasVideo: user.hasVideo || false,
+      hasAudio: user.hasAudio || false,
+      isLocal: false,
+      isSpeaking: user.isSpeaking || false
+    })));
+  }, [debugLog]);
 
-    // User published event
+  // ============================================================================
+  // REMOTE USER HANDLING
+  // ============================================================================
+  const setupRemoteUserHandling = useCallback((client) => {
+    debugLog('📡 Setting up teacher remote user handlers');
+    const remoteUsers = new Map();
+
     client.on('user-published', async (user, mediaType) => {
-      console.log(`📡 User ${user.uid} published ${mediaType}`);
+      debugLog(`🔔 Student ${user.uid} published ${mediaType}`);
 
       try {
-        // Subscribe to the remote user
         await client.subscribe(user, mediaType);
-        console.log(`✅ Subscribed to ${user.uid} ${mediaType}`);
+        debugLog(`✅ Teacher subscribed to student ${user.uid} ${mediaType}`);
 
-        if (mediaType === 'video') {
-          setRemoteUsers(prev => {
-            const existingUser = prev.find(u => u.uid === user.uid);
-            if (existingUser) {
-              return prev.map(u =>
-              u.uid === user.uid
-              ? { ...u, hasVideo: true, videoTrack: user.videoTrack }
-              : u
-              );
-            } else {
-              return [...prev, {
-                uid: user.uid,
-                hasVideo: true,
-                hasAudio: false,
-                videoTrack: user.videoTrack,
-                audioTrack: null,
-                isSpeaking: false
-              }];
-            }
-          });
-
-          // Play the remote video
-          setTimeout(() => {
-            if (user.videoTrack) {
-              playRemoteVideo(user.uid, user.videoTrack);
-            }
-          }, 100);
-        }
-
-        if (mediaType === 'audio') {
-          setRemoteUsers(prev => {
-            const existingUser = prev.find(u => u.uid === user.uid);
-            if (existingUser) {
-              return prev.map(u =>
-              u.uid === user.uid
-              ? { ...u, hasAudio: true, audioTrack: user.audioTrack }
-              : u
-              );
-            } else {
-              return [...prev, {
-                uid: user.uid,
-                hasVideo: false,
-                hasAudio: true,
-                videoTrack: null,
-                audioTrack: user.audioTrack,
-                isSpeaking: false
-              }];
-            }
-          });
-
-          // Play the remote audio
-          if (user.audioTrack) {
-            user.audioTrack.play().catch(console.error);
-
-            // Monitor audio levels for active speaker
-            user.audioTrack.on('volume-indicator', (volumes) => {
-              const volume = volumes[0]?.level;
-              if (volume > 0.1) {
-                setActiveSpeaker(user.uid);
-                setRemoteUsers(prev =>
-                prev.map(u => ({
-                  ...u,
-                  isSpeaking: u.uid === user.uid
-                }))
-                );
-              }
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`❌ Failed to handle user-published:`, error);
-      }
-    });
-
-    // User unpublished event
-    client.on('user-unpublished', (user, mediaType) => {
-      console.log(`📡 User ${user.uid} unpublished ${mediaType}`);
-
-      setRemoteUsers(prev =>
-      prev.map(u =>
-      u.uid === user.uid
-      ? {
-        ...u,
-        hasVideo: mediaType === 'video' ? false : u.hasVideo,
-        hasAudio: mediaType === 'audio' ? false : u.hasAudio
-      }
-      : u
-      )
-      );
-
-      if (mediaType === 'video') {
-        remoteVideoRefs.current.delete(user.uid);
-      }
-    });
-
-    // User joined event
-    client.on('user-joined', (user) => {
-      console.log(`🎉 User ${user.uid} joined the channel`);
-
-      setRemoteUsers(prev => {
-        if (!prev.find(u => u.uid === user.uid)) {
-          return [...prev, {
+        if (!remoteUsers.has(user.uid)) {
+          remoteUsers.set(user.uid, {
             uid: user.uid,
             hasVideo: false,
             hasAudio: false,
-            videoTrack: null,
-            audioTrack: null,
             isSpeaking: false
-          }];
+          });
         }
-        return prev;
-      });
+
+        if (mediaType === 'video') {
+          remoteUsers.get(user.uid).hasVideo = true;
+          await setupRemoteVideo(user);
+        } else if (mediaType === 'audio') {
+          remoteUsers.get(user.uid).hasAudio = true;
+          user.audioTrack.play();
+          debugLog(`🔊 Teacher playing audio from student ${user.uid}`);
+        }
+
+        updateParticipants(Array.from(remoteUsers.values()));
+
+      } catch (error) {
+        debugError(`Teacher subscribe error for student ${user.uid}:`, error);
+      }
     });
 
-    // User left event
-    client.on('user-left', (user, reason) => {
-      console.log(`👋 User ${user.uid} left the channel: ${reason}`);
+    client.on('user-unpublished', (user, mediaType) => {
+      debugLog(`🔕 Student ${user.uid} unpublished ${mediaType}`);
 
-      setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
-      remoteVideoRefs.current.delete(user.uid);
+      if (mediaType === 'video') {
+        removeRemoteVideo(user.uid);
+        if (remoteUsers.has(user.uid)) {
+          remoteUsers.get(user.uid).hasVideo = false;
+        }
+      } else if (mediaType === 'audio') {
+        if (remoteUsers.has(user.uid)) {
+          remoteUsers.get(user.uid).hasAudio = false;
+        }
+      }
+
+      updateParticipants(Array.from(remoteUsers.values()));
+    });
+
+    client.on('user-left', (user) => {
+      debugLog(`👋 Student ${user.uid} left`);
+      remoteUsers.delete(user.uid);
+      removeRemoteVideo(user.uid);
+      updateParticipants(Array.from(remoteUsers.values()));
 
       if (pinnedUser === user.uid) {
         setPinnedUser(null);
       }
     });
 
-    // Connection state changes
-    client.on('connection-state-change', (curState, prevState, reason) => {
-      console.log(`🔗 Connection state: ${prevState} → ${curState}`, reason);
+    client.on('volume-indicator', (indicators) => {
+      indicators.forEach(indicator => {
+        if (indicator.volume > 10) {
+          setActiveSpeaker(indicator.uid);
+          if (remoteUsers.has(indicator.uid)) {
+            remoteUsers.get(indicator.uid).isSpeaking = true;
+          }
+        } else {
+          if (remoteUsers.has(indicator.uid)) {
+            remoteUsers.get(indicator.uid).isSpeaking = false;
+          }
+        }
+      });
+      updateParticipants(Array.from(remoteUsers.values()));
     });
 
-    console.log('✅ Event listeners configured');
-  }, [playRemoteVideo, pinnedUser]);
+    debugLog('✅ Teacher remote user handlers configured');
+  }, [debugLog, debugError, setupRemoteVideo, removeRemoteVideo, updateParticipants, pinnedUser]);
 
   // ============================================================================
-  // AGORA CLIENT INITIALIZATION - FIXED
+  // JOIN CHANNEL - TEACHER SPECIFIC
   // ============================================================================
-  const initializeAgoraClient = async () => {
+  const joinChannel = useCallback(async () => {
+    if (!channel || !appId) {
+      debugLog('⚠️ Teacher cannot join: missing channel or appId');
+      return;
+    }
+
+    if (isConnecting || isConnected || agoraClientRef.current) {
+      debugLog('⚠️ Teacher already connecting, connected, or client exists');
+      return;
+    }
+
+    setIsConnecting(true);
+    setError('');
+    debugLog('🚀 Teacher starting to join channel...');
+
     try {
-      console.log('🚀 Initializing Agora client...');
-
-      // Validate Agora SDK
-      if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK not loaded. Please check your implementation.');
-      }
-
-      // Validate credentials
-      const validationError = validateCredentials();
-      if (validationError) {
-        throw new Error(validationError);
-      }
-
-      console.log(`📋 Initializing with - Channel: ${channel}, UID: ${uid}`);
-
-      // Create client
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8'
+      debugLog('🔑 Teacher using credentials:', {
+        appId: appId?.substring(0, 8) + '...',
+               channel: channel,
+               hasToken: !!token,
+               uid: uid
       });
 
-      // Set up event listeners
-      setupEventListeners(client);
+      // Validate credentials
+      if (!appId || !channel) {
+        throw new Error('Invalid teacher credentials: missing appId or channel');
+      }
 
-      // Join the channel
-      console.log(`🔗 Joining channel: ${channel}`);
-      await client.join(appId, channel, token, uid);
-      console.log('✅ Successfully joined channel');
+      // Create Agora client
+      debugLog('🔧 Creating teacher Agora client...');
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8',
+      });
+      agoraClientRef.current = client;
 
-      return client;
+      // Setup network monitoring
+      client.on('network-quality', (quality) => {
+        setNetworkQuality({
+          upload: quality.uplinkNetworkQuality,
+          download: quality.downlinkNetworkQuality
+        });
+      });
 
-    } catch (error) {
-      console.error('❌ Agora initialization failed:', error);
-      throw error;
-    }
-  };
+      // Setup error handling
+      client.on('exception', (event) => {
+        debugError('Teacher Agora exception:', event);
+      });
 
-  // ============================================================================
-  // PUBLISH LOCAL TRACKS - FIXED
-  // ============================================================================
-  const publishLocalTracks = async (client, tracks) => {
-    try {
-      console.log('📤 Publishing local tracks...');
+      // Create local tracks FIRST
+      debugLog('🎥 Teacher creating local tracks...');
+      await createLocalTracks();
 
+      // Small delay to ensure tracks are fully initialized
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Join channel
+      debugLog('🔗 Teacher joining Agora channel...');
+      const actualUid = await client.join(
+        appId,
+        channel,
+        token || null,
+        uid || null
+      );
+
+      debugLog(`✅ Teacher joined channel with UID: ${actualUid}`);
+
+      // Publish tracks FIRST (tracks are enabled by default)
       const tracksToPublish = [];
-      if (tracks.audioTrack) tracksToPublish.push(tracks.audioTrack);
-      if (tracks.videoTrack) tracksToPublish.push(tracks.videoTrack);
+      if (localTracksRef.current.audio) {
+        tracksToPublish.push(localTracksRef.current.audio);
+      }
+      if (localTracksRef.current.video) {
+        tracksToPublish.push(localTracksRef.current.video);
+      }
 
       if (tracksToPublish.length > 0) {
+        debugLog(`📤 Teacher publishing ${tracksToPublish.length} tracks...`);
         await client.publish(tracksToPublish);
-        console.log(`✅ Published ${tracksToPublish.length} local tracks`);
+        debugLog('✅ Teacher tracks published');
       }
 
-      // Play local video
-      if (tracks.videoTrack) {
-        await playLocalVideo(tracks.videoTrack);
+      // Set track states AFTER successful publishing
+      if (localTracksRef.current.audio) {
+        await localTracksRef.current.audio.setEnabled(!isAudioMuted);
+        debugLog(`🎤 Teacher audio ${isAudioMuted ? 'MUTED' : 'UNMUTED'} after publishing`);
       }
+      if (localTracksRef.current.video) {
+        await localTracksRef.current.video.setEnabled(!isVideoOff);
+        debugLog(`📹 Teacher video ${isVideoOff ? 'OFF' : 'ON'} after publishing`);
+      }
+
+      // Setup remote user handling
+      setupRemoteUserHandling(client);
+
+      // Update connection state
+      setIsConnected(true);
+      setIsConnecting(false);
+
+      // Start call timer
+      timerRef.current = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+
+      debugLog('🎉 Teacher successfully joined and ready!');
 
     } catch (error) {
-      console.error('❌ Failed to publish tracks:', error);
-      throw error;
-    }
-  };
+      debugError('❌ Teacher join channel failed:', error);
 
-  // ============================================================================
-  // VIDEO COMPONENTS - FIXED
-  // ============================================================================
-  const VideoTile = ({ user, isLocal = false, onPin }) => {
-    const videoRef = useRef(null);
-
-    useEffect(() => {
-      if (isLocal) return;
-
-      if (user?.videoTrack && videoRef.current) {
-        remoteVideoRefs.current.set(user.uid, videoRef.current);
-        playRemoteVideo(user.uid, user.videoTrack);
+      // Enhanced error handling
+      if (error.message.includes('TRACK_IS_DISABLED')) {
+        setError('Media tracks failed to initialize. Please refresh and try again.');
+      } else if (error.message.includes('UID_CONFLICT')) {
+        setError('Already connected from another device/tab. Please close other sessions.');
+      } else if (error.message.includes('permission') || error.message.includes('PERMISSION')) {
+        setError('Camera/microphone permission denied. Please check browser settings.');
+      } else if (error.message.includes('timeout') || error.message.includes('TIMEOUT')) {
+        setError('Connection timeout. Please check your internet connection.');
+      } else {
+        setError(error.message || 'Failed to join video session as teacher');
       }
 
-      return () => {
-        if (!isLocal && user) {
-          remoteVideoRefs.current.delete(user.uid);
-        }
-      };
-    }, [user, isLocal]);
-
-    const hasVideo = isLocal ? isVideoEnabled : user?.hasVideo;
-    const displayName = isLocal ? 'You (Teacher)' : `Student ${user?.uid}`;
-
-    return (
-      <div className={`
-        relative rounded-xl overflow-hidden bg-gray-900 border-2 transition-all duration-300
-        ${isLocal ? 'border-cyan-500' : 'border-green-500'}
-        ${user?.isSpeaking ? 'ring-4 ring-yellow-400' : ''}
-        aspect-video
-        `}>
-        {hasVideo ? (
-          <div
-          ref={isLocal ? localVideoRef : videoRef}
-          className="w-full h-full bg-black"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
-          <div className="text-center">
-          <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-2">
-          <User className="text-gray-400" size={32} />
-          </div>
-          <p className="text-gray-300 text-sm">{displayName}</p>
-          </div>
-          </div>
-        )}
-
-        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-        <div className="bg-black/80 text-white px-2 py-1 rounded text-sm backdrop-blur-sm">
-        {displayName}
-        {!isLocal && !user?.hasAudio && ' 🔇'}
-        {!isLocal && user?.isSpeaking && ' 🎤'}
-        </div>
-
-        {!isLocal && onPin && (
-          <button
-          onClick={() => onPin(user.uid)}
-          className="bg-black/80 p-1 rounded hover:bg-black/90 transition-colors"
-          >
-          <Pin size={14} className="text-white" />
-          </button>
-        )}
-        </div>
-        </div>
-    );
-  };
-
-  const VideoGrid = () => {
-    const totalUsers = remoteUsers.length + 1; // +1 for local user
-
-    if (pinnedUser) {
-      const pinned = remoteUsers.find(u => u.uid === pinnedUser);
-      const otherUsers = remoteUsers.filter(u => u.uid !== pinnedUser);
-
-      return (
-        <div className="h-full flex flex-col lg:flex-row gap-3 p-3">
-        {/* Pinned user (main view) */}
-        <div className="flex-1 min-h-0">
-        {pinned ? (
-          <VideoTile user={pinned} onPin={setPinnedUser} />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gray-800 rounded-xl">
-          <p className="text-gray-400">User disconnected</p>
-          </div>
-        )}
-        </div>
-
-        {/* Sidebar with local video and other users */}
-        <div className="lg:w-80 flex flex-row lg:flex-col gap-3 overflow-auto">
-        <div className="w-48 lg:w-full aspect-video flex-shrink-0">
-        <VideoTile isLocal onPin={setPinnedUser} />
-        </div>
-        {otherUsers.map(user => (
-          <div key={user.uid} className="w-48 lg:w-full aspect-video flex-shrink-0">
-          <VideoTile user={user} onPin={setPinnedUser} />
-          </div>
-        ))}
-        </div>
-        </div>
-      );
+      setIsConnecting(false);
+      await performCompleteCleanup();
     }
-
-    // Grid layout
-    const getGridClass = () => {
-      if (totalUsers === 1) return 'grid-cols-1';
-      if (totalUsers === 2) return 'grid-cols-1 md:grid-cols-2';
-      if (totalUsers <= 4) return 'grid-cols-2';
-      if (totalUsers <= 9) return 'grid-cols-2 md:grid-cols-3';
-      return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
-    };
-
-    return (
-      <div className={`h-full grid ${getGridClass()} gap-3 p-3 auto-rows-fr`}>
-      <VideoTile isLocal onPin={setPinnedUser} />
-      {remoteUsers.map(user => (
-        <VideoTile key={user.uid} user={user} onPin={setPinnedUser} />
-      ))}
-      </div>
-    );
-  };
+  }, [
+    channel,
+    appId,
+    token,
+    uid,
+    isConnecting,
+    isConnected,
+    isAudioMuted,
+    isVideoOff,
+    createLocalTracks,
+    setupRemoteUserHandling,
+    performCompleteCleanup,
+    debugLog,
+    debugError
+  ]);
 
   // ============================================================================
-  // CONTROL FUNCTIONS - FIXED
+  // CONTROLS - TEACHER SPECIFIC
   // ============================================================================
-  const toggleAudio = async () => {
-    if (localTracks.audioTrack) {
-      try {
-        await localTracks.audioTrack.setEnabled(!isAudioEnabled);
-        setIsAudioEnabled(!isAudioEnabled);
-        console.log(`🎤 Audio ${!isAudioEnabled ? 'enabled' : 'disabled'}`);
-      } catch (error) {
-        console.error('❌ Error toggling audio:', error);
-      }
+  const toggleAudio = useCallback(async () => {
+    if (!isTrackReady(localTracksRef.current.audio)) {
+      debugError('Teacher toggle audio failed: Audio track not ready');
+      setError('Audio system not ready. Please wait...');
+      return;
     }
-  };
-
-  const toggleVideo = async () => {
-    if (localTracks.videoTrack) {
-      try {
-        await localTracks.videoTrack.setEnabled(!isVideoEnabled);
-        setIsVideoEnabled(!isVideoEnabled);
-        console.log(`📹 Video ${!isVideoEnabled ? 'enabled' : 'disabled'}`);
-      } catch (error) {
-        console.error('❌ Error toggling video:', error);
-      }
-    }
-  };
-
-  const toggleScreenShare = async () => {
-    if (!agoraClient) return;
 
     try {
-      if (!isScreenSharing) {
+      const newMutedState = !isAudioMuted;
+      setIsAudioMuted(newMutedState);
+      await localTracksRef.current.audio.setEnabled(!newMutedState);
+      debugLog(`🎤 Teacher audio ${newMutedState ? 'MUTED' : 'UNMUTED'}`);
+    } catch (error) {
+      setIsAudioMuted(!isAudioMuted);
+      debugError('Teacher toggle audio failed:', error);
+      setError('Failed to toggle microphone');
+    }
+  }, [isAudioMuted, debugLog, debugError, isTrackReady]);
+
+  const toggleVideo = useCallback(async () => {
+    if (!isTrackReady(localTracksRef.current.video)) {
+      debugError('Teacher toggle video failed: Video track not ready');
+      setError('Video system not ready. Please wait...');
+      return;
+    }
+
+    try {
+      const newVideoOffState = !isVideoOff;
+      setIsVideoOff(newVideoOffState);
+      await localTracksRef.current.video.setEnabled(!newVideoOffState);
+      debugLog(`📹 Teacher video ${newVideoOffState ? 'OFF' : 'ON'}`);
+    } catch (error) {
+      setIsVideoOff(!isVideoOff);
+      debugError('Teacher toggle video failed:', error);
+      setError('Failed to toggle camera');
+    }
+  }, [isVideoOff, debugLog, debugError, isTrackReady]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (!agoraClientRef.current) return;
+
+    try {
+      if (!localTracksRef.current.screen) {
         // Start screen sharing
         const screenTrack = await AgoraRTC.createScreenVideoTrack({
           encoderConfig: {
@@ -814,337 +895,389 @@ const VideoCallModal = ({
         }, 'auto');
 
         // Unpublish camera track
-        if (localTracks.videoTrack) {
-          await agoraClient.unpublish(localTracks.videoTrack);
+        if (localTracksRef.current.video) {
+          await agoraClientRef.current.unpublish(localTracksRef.current.video);
         }
 
         // Publish screen track
-        await agoraClient.publish(screenTrack);
+        await agoraClientRef.current.publish(screenTrack);
 
         // Handle screen track ended event
         screenTrack.on('track-ended', () => {
           toggleScreenShare();
         });
 
-        setLocalTracks(prev => ({ ...prev, screenTrack }));
-        setIsScreenSharing(true);
-        console.log('🖥️ Screen sharing started');
+        localTracksRef.current.screen = screenTrack;
+        debugLog('🖥️ Teacher screen sharing started');
 
       } else {
         // Stop screen sharing
-        if (localTracks.screenTrack) {
-          await agoraClient.unpublish(localTracks.screenTrack);
-          localTracks.screenTrack.close();
+        if (localTracksRef.current.screen) {
+          await agoraClientRef.current.unpublish(localTracksRef.current.screen);
+          localTracksRef.current.screen.close();
+          localTracksRef.current.screen = null;
         }
 
         // Publish camera track again
-        if (localTracks.videoTrack) {
-          await agoraClient.publish(localTracks.videoTrack);
+        if (localTracksRef.current.video) {
+          await agoraClientRef.current.publish(localTracksRef.current.video);
         }
 
-        setLocalTracks(prev => ({ ...prev, screenTrack: null }));
-        setIsScreenSharing(false);
-        console.log('🖥️ Screen sharing stopped');
+        debugLog('🖥️ Teacher screen sharing stopped');
       }
     } catch (error) {
-      console.error('❌ Screen share error:', error);
+      debugError('Teacher screen share error:', error);
       if (error.message?.includes('Permission denied')) {
         alert('Please grant screen sharing permissions to share your screen.');
       }
     }
-  };
+  }, [debugLog, debugError]);
 
-  const leaveCall = async () => {
-    if (!window.confirm('Are you sure you want to leave the call?')) {
+  const leaveCall = useCallback(async () => {
+    if (!window.confirm('Are you sure you want to end the class session for all students?')) {
       return;
     }
+    debugLog('📞 Teacher leaving call...');
+    await performCompleteCleanup();
+    onClose();
+  }, [performCompleteCleanup, onClose, debugLog]);
 
-    try {
-      console.log('📞 Leaving call...');
-
-      // Clear timer
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-
-      // Close all tracks
-      if (localTracks.audioTrack) {
-        localTracks.audioTrack.close();
-      }
-      if (localTracks.videoTrack) {
-        localTracks.videoTrack.close();
-      }
-      if (localTracks.screenTrack) {
-        localTracks.screenTrack.close();
-      }
-
-      // Leave channel
-      if (agoraClient) {
-        await agoraClient.leave();
-      }
-
-      console.log('✅ Call cleanup complete');
-    } catch (error) {
-      console.error('❌ Error during call cleanup:', error);
-    } finally {
-      setAgoraClient(null);
-      setLocalTracks({ audioTrack: null, videoTrack: null, screenTrack: null });
-      setRemoteUsers([]);
-      remoteVideoRefs.current.clear();
-      onClose();
-    }
-  };
-
-  const copySessionLink = () => {
+  const copySessionLink = useCallback(() => {
     const link = `${window.location.origin}/join/${channel}`;
     navigator.clipboard.writeText(link);
-    alert('Session link copied to clipboard!');
-  };
+    alert('Class session link copied to clipboard! Students can use this to join.');
+  }, [channel]);
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen();
-      setIsFullscreen(true);
+  // ============================================================================
+  // DRAG FUNCTIONALITY
+  // ============================================================================
+  const handleDragStart = useCallback((e) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+
+    dragStartPos.current = {
+      x: clientX - dragPosition.x,
+      y: clientY - dragPosition.y
+    };
+  }, [dragPosition]);
+
+  const handleDragMove = useCallback((e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+
+    const newX = clientX - dragStartPos.current.x;
+    const newY = clientY - dragStartPos.current.y;
+
+    setDragPosition({ x: newX, y: newY });
+  }, [isDragging]);
+
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    const container = videoContainerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const parentWidth = window.innerWidth;
+    const parentHeight = window.innerHeight;
+
+    let finalX = dragPosition.x;
+    let finalY = dragPosition.y;
+
+    // Snap to nearest edge
+    if (finalX < parentWidth / 2) {
+      finalX = 16;
     } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
-    }
-  };
-
-  // ============================================================================
-  // MAIN INITIALIZATION - FIXED
-  // ============================================================================
-  const initializeVideoCall = async () => {
-    if (isInitializedRef.current) {
-      console.log('⚠️ Already initialized, skipping...');
-      return;
+      finalX = parentWidth - rect.width - 16;
     }
 
-    try {
-      setIsLoading(true);
-      setError(null);
-      isInitializedRef.current = true;
+    // Keep within vertical bounds
+    finalY = Math.max(80, Math.min(finalY, parentHeight - rect.height - 100));
 
-      console.log('🎬 Starting video call initialization...');
-
-      // Step 1: Initialize Agora client
-      const client = await initializeAgoraClient();
-      setAgoraClient(client);
-
-      // Step 2: Create local tracks
-      const tracks = await createLocalTracks();
-      setLocalTracks(tracks);
-
-      // Step 3: Publish tracks
-      await publishLocalTracks(client, tracks);
-
-      setIsLoading(false);
-      console.log('✅ Video call initialized successfully!');
-
-    } catch (err) {
-      const errorMessage = err.message || 'Failed to initialize video call';
-      console.error('❌ Video call initialization failed:', errorMessage);
-      setError(errorMessage);
-      setIsLoading(false);
-      isInitializedRef.current = false;
-      onError?.(errorMessage);
-    }
-  };
+    setDragPosition({ x: finalX, y: finalY });
+  }, [isDragging, dragPosition]);
 
   // ============================================================================
-  // EFFECTS & CLEANUP
+  // EFFECTS
   // ============================================================================
   useEffect(() => {
-    // Start connection timer
-    const startTime = Date.now();
-    timerIntervalRef.current = setInterval(() => {
-      setConnectionTime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
+    isMountedRef.current = true;
+    debugLog('🎬 Teacher component mounted');
 
-    // Initialize video call
-    if (channel && token && appId && uid !== undefined) {
-      initializeVideoCall();
-    } else {
-      const missing = [];
-      if (!channel) missing.push('channel');
-      if (!token) missing.push('token');
-      if (!appId) missing.push('appId');
-      if (uid === undefined) missing.push('uid');
-
-      setError(`Missing required parameters: ${missing.join(', ')}`);
-      setIsLoading(false);
-    }
-
-    // Cleanup function
     return () => {
-      console.log('🧹 Cleaning up video call...');
-
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-
-      // Close tracks
-      Object.values(localTracks).forEach(track => {
-        if (track && typeof track.close === 'function') {
-          track.close();
-        }
-      });
-
-      // Leave channel
-      if (agoraClient) {
-        agoraClient.leave().catch(console.error);
-      }
+      debugLog('🎬 Teacher component unmounting');
+      isMountedRef.current = false;
+      performCompleteCleanup();
     };
-  }, []);
+  }, [performCompleteCleanup, debugLog]);
+
+  useEffect(() => {
+    if (channel && appId) {
+      debugLog('🔔 Teacher credentials available, scheduling join...');
+      joinAttemptRef.current = setTimeout(() => {
+        joinChannel();
+      }, 100);
+
+      return () => {
+        if (joinAttemptRef.current) {
+          clearTimeout(joinAttemptRef.current);
+        }
+      };
+    }
+  }, [channel, appId, joinChannel, debugLog]);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleDragMove, { passive: false });
+      window.addEventListener('touchend', handleDragEnd);
+
+      return () => {
+        window.removeEventListener('mousemove', handleDragMove);
+        window.removeEventListener('mouseup', handleDragEnd);
+        window.removeEventListener('touchmove', handleDragMove);
+        window.removeEventListener('touchend', handleDragEnd);
+      };
+    }
+  }, [isDragging, handleDragMove, handleDragEnd]);
 
   // ============================================================================
-  // RENDER
+  // RENDER - TEACHER SPECIFIC UI
   // ============================================================================
-  if (error) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-xl p-4">
-      <div className="bg-gradient-to-br from-red-900/50 to-pink-900/50 backdrop-blur-lg border border-red-500/30 rounded-2xl p-8 shadow-2xl max-w-md w-full">
-      <div className="text-center">
-      <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-      <Settings className="text-red-400" size={40} />
-      </div>
-      <h2 className="text-2xl font-bold text-white mb-4">Connection Error</h2>
-      <p className="text-red-200 mb-6 text-lg">{error}</p>
-      <div className="flex space-x-3">
-      <button
-      onClick={() => {
-        setError(null);
-        isInitializedRef.current = false;
-        initializeVideoCall();
-      }}
-      className="flex-1 px-4 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-semibold transition-colors"
-      >
-      Retry
-      </button>
-      <button
-      onClick={onClose}
-      className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-semibold transition-colors"
-      >
-      Close
-      </button>
-      </div>
-      </div>
-      </div>
-      </div>
-    );
-  }
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getNetworkQualityIcon = (quality) => {
+    if (quality >= 0 && quality <= 2) return <Wifi className="w-4 h-4 text-green-400" />;
+    if (quality <= 4) return <Wifi className="w-4 h-4 text-yellow-400" />;
+    return <WifiOff className="w-4 h-4 text-red-400" />;
+  };
+
+  const totalParticipants = participants.length + 1;
 
   return (
-    <div
-    ref={containerRef}
-    className="fixed inset-0 z-50 bg-black/98 backdrop-blur-xl flex flex-col"
-    >
-    {/* Header */}
-    <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-gray-900/95 to-green-900/95 backdrop-blur-lg border-b border-cyan-500/20 p-4 shadow-lg">
-    <div className="flex items-center justify-between">
-    <div className="flex items-center space-x-4">
-    <div className="flex items-center space-x-2">
+    <div className="fixed inset-0 z-50 bg-gray-900 flex flex-col">
+    {/* Header - Teacher Specific */}
+    <div className="bg-gradient-to-r from-cyan-900/90 to-blue-900/90 backdrop-blur-sm text-white p-4 border-b border-cyan-700 flex items-center justify-between">
+    <div className="flex items-center gap-3">
     <div className={`w-3 h-3 rounded-full ${
-      isLoading ? 'bg-yellow-500 animate-pulse' :
-      agoraClient ? 'bg-green-500' : 'bg-red-500'
+      isConnected ? 'bg-green-500 animate-pulse' :
+      isConnecting ? 'bg-yellow-500 animate-pulse' :
+      'bg-red-500'
     }`} />
+    <div className="flex items-center gap-2">
     <Crown className="text-yellow-400" size={20} />
-    <h2 className="text-xl font-bold text-white">
+    <div>
+    <h2 className="text-lg font-bold truncate max-w-[200px] lg:max-w-md">
     {classData?.title || 'Teacher Session'}
     </h2>
+    <div className="flex items-center gap-2 text-sm text-cyan-200">
+    <span>👨‍🏫 You (Teacher)</span>
+    <span>•</span>
+    <span>{formatTime(callDuration)}</span>
+    {isConnected && (
+      <>
+      <span>•</span>
+      <div className="flex items-center gap-1">
+      {getNetworkQualityIcon(networkQuality.upload)}
+      <span className="text-xs">
+      {networkQuality.upload <= 2 ? 'Good' : networkQuality.upload <= 4 ? 'Fair' : 'Poor'}
+      </span>
+      </div>
+      </>
+    )}
     </div>
-    <div className="hidden md:flex items-center space-x-4 text-sm">
-    <span className="text-cyan-300">
-    {remoteUsers.length} student{remoteUsers.length !== 1 ? 's' : ''}
-    </span>
-    <span className="text-green-300">
-    🕒 {formatConnectionTime(connectionTime)}
-    </span>
+    </div>
     </div>
     </div>
 
-    <div className="flex items-center space-x-2">
+    <div className="flex items-center gap-4">
     <button
     onClick={copySessionLink}
-    className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg"
+    className="p-2 text-cyan-200 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg"
     title="Copy Session Link"
     >
     <Share2 size={20} />
     </button>
+
     <button
     onClick={() => setShowParticipants(!showParticipants)}
-    className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg relative"
+    className="p-2 text-cyan-200 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg relative"
     title="Participants"
     >
     <Users size={20} />
-    {remoteUsers.length > 0 && (
+    {participants.length > 0 && (
       <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white text-xs rounded-full flex items-center justify-center">
-      {remoteUsers.length}
+      {participants.length}
       </span>
     )}
     </button>
-    <button
-    onClick={toggleFullscreen}
-    className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg"
-    title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-    >
-    {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-    </button>
+
+    <div className="flex items-center gap-2 text-sm text-cyan-200">
+    <Users size={16} />
+    <span>{totalParticipants}</span>
+    </div>
+
     <button
     onClick={leaveCall}
-    className="p-2 bg-red-600 hover:bg-red-500 text-white transition-all rounded-lg shadow-lg"
-    title="End Session"
+    className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 active:scale-95"
     >
-    <PhoneOff size={20} />
+    <PhoneOff size={18} />
+    <span className="hidden sm:inline">End Class</span>
     </button>
-    </div>
     </div>
     </div>
 
-    {/* Main Content */}
-    <div className="flex-1 flex pt-20 pb-32">
-    {/* Video Grid */}
-    <div className="flex-1 min-h-0">
-    {isLoading ? (
-      <div className="flex items-center justify-center h-full">
+    {/* Error Display */}
+    {error && (
+      <div className="bg-red-600/90 backdrop-blur-sm text-white p-4 mx-4 mt-4 rounded-xl flex items-center justify-between shadow-lg">
+      <div className="flex items-center gap-3">
+      <div className="bg-white/20 p-1 rounded-full">
+      <AlertCircle size={16} />
+      </div>
+      <span className="text-sm font-medium">{error}</span>
+      </div>
+      <button
+      onClick={() => setError('')}
+      className="text-white hover:text-red-200 text-xl font-bold ml-2 transition-colors"
+      >
+      ×
+      </button>
+      </div>
+    )}
+
+    {/* Main Content Area */}
+    <div className="flex-1 flex">
+    {/* Video Grid Area */}
+    <div className="flex-1 relative p-4">
+    {/* Remote Videos Grid */}
+    <div
+    ref={remoteVideosContainerRef}
+    className="w-full h-full grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4"
+    >
+    {participants.length === 0 && isConnected && (
+      <div className="col-span-full flex items-center justify-center text-gray-400">
       <div className="text-center">
-      <div className="animate-spin rounded-full h-20 w-20 border-4 border-cyan-500 border-t-transparent mx-auto mb-6"></div>
-      <p className="text-cyan-300 text-xl font-semibold mb-2">Starting Session...</p>
-      <p className="text-cyan-400 text-sm">Initializing video and audio</p>
+      <Users size={48} className="mx-auto mb-2 opacity-50" />
+      <p>Waiting for students to join...</p>
+      <p className="text-sm text-gray-500 mt-1">Students will appear here when they join</p>
       </div>
       </div>
-    ) : (
-      <VideoGrid />
+    )}
+    </div>
+
+    {/* Teacher Local Video - Draggable Picture in Picture */}
+    <div
+    ref={videoContainerRef}
+    className={`absolute w-64 h-48 lg:w-80 lg:h-60 bg-black rounded-xl overflow-hidden shadow-2xl border-2 ${
+      isDragging ? 'border-yellow-400' : 'border-yellow-500'
+    } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+    style={{
+      left: dragPosition.x || 'auto',
+      top: dragPosition.y || 'auto',
+      bottom: dragPosition.x === 0 && dragPosition.y === 0 ? '16px' : 'auto',
+      right: dragPosition.x === 0 && dragPosition.y === 0 ? '16px' : 'auto',
+      transition: isDragging ? 'none' : 'all 0.3s ease',
+      zIndex: 40,
+    }}
+    >
+    {/* Drag Handle */}
+    <div
+    className="absolute top-2 left-2 bg-black/70 p-2 rounded cursor-grab active:cursor-grabbing hover:bg-black/90 transition-colors z-10"
+    onMouseDown={handleDragStart}
+    onTouchStart={handleDragStart}
+    >
+    <Move size={16} className="text-white" />
+    </div>
+
+    <div ref={localVideoRef} className="w-full h-full bg-gray-800" />
+
+    {/* Loading State */}
+    {!localVideoReady && !isVideoOff && isConnecting && (
+      <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+      <div className="text-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
+      <p className="text-white text-xs">Starting camera...</p>
+      </div>
+      </div>
+    )}
+
+    {/* Video Off State */}
+    {isVideoOff && (
+      <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+      <VideoOff className="text-gray-500 w-12 h-12" />
+      </div>
+    )}
+
+    {/* Teacher Label */}
+    <div className="absolute bottom-2 left-2 bg-yellow-600 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+    <Crown size={12} />
+    <span>You (Teacher)</span>
+    </div>
+
+    {/* Status Indicators */}
+    <div className="absolute top-2 right-2 flex gap-1">
+    {isAudioMuted && (
+      <div className="bg-red-500 p-1 rounded">
+      <MicOff size={12} className="text-white" />
+      </div>
+    )}
+    {isVideoOff && (
+      <div className="bg-red-500 p-1 rounded">
+      <VideoOff size={12} className="text-white" />
+      </div>
+    )}
+    </div>
+    </div>
+
+    {/* Connection Status Overlay */}
+    {isConnecting && (
+      <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm z-50">
+      <div className="text-center text-white">
+      <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
+      <h3 className="text-lg font-semibold mb-2">Starting Class Session...</h3>
+      <p className="text-gray-300">Setting up your camera and microphone</p>
+      </div>
+      </div>
     )}
     </div>
 
     {/* Participants Sidebar */}
     {showParticipants && (
-      <div className="w-80 bg-gray-900/95 backdrop-blur-lg border-l border-cyan-500/20 p-4 overflow-y-auto">
+      <div className="w-80 bg-gray-800/90 backdrop-blur-sm border-l border-cyan-700 p-4 overflow-y-auto">
       <h3 className="text-lg font-bold text-white mb-4 flex items-center">
       <Users className="mr-2" size={20} />
-      Participants ({remoteUsers.length + 1})
+      Class Participants ({totalParticipants})
       </h3>
 
-      {/* Local User */}
-      <div className="mb-4 p-3 rounded-lg bg-cyan-500/20 border border-cyan-500/30">
+      {/* Teacher Card */}
+      <div className="mb-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/30">
       <div className="flex items-center justify-between">
       <div className="flex items-center space-x-3">
-      <div className="w-10 h-10 bg-cyan-600 rounded-full flex items-center justify-center">
+      <div className="w-10 h-10 bg-yellow-600 rounded-full flex items-center justify-center">
       <Crown size={20} className="text-white" />
       </div>
       <div>
       <p className="text-white font-semibold">You (Teacher)</p>
-      <p className="text-cyan-300 text-xs">Host</p>
+      <p className="text-yellow-300 text-xs">Host</p>
       </div>
       </div>
       <div className="flex items-center space-x-2">
-      {isVideoEnabled ? (
+      {!isVideoOff ? (
         <Video size={16} className="text-green-400" />
       ) : (
         <VideoOff size={16} className="text-red-400" />
       )}
-      {isAudioEnabled ? (
+      {!isAudioMuted ? (
         <Mic size={16} className="text-green-400" />
       ) : (
         <MicOff size={16} className="text-red-400" />
@@ -1153,42 +1286,53 @@ const VideoCallModal = ({
       </div>
       </div>
 
-      {/* Remote Users */}
+      {/* Students List */}
       <div className="space-y-2">
-      {remoteUsers.length === 0 ? (
+      <h4 className="text-sm font-semibold text-cyan-300 mb-2">Students ({participants.length})</h4>
+      {participants.length === 0 ? (
         <div className="text-center py-8 text-gray-400">
         <Users size={48} className="mx-auto mb-3 opacity-50" />
-        <p className="text-sm">Waiting for students to join...</p>
+        <p className="text-sm">No students joined yet</p>
         </div>
       ) : (
-        remoteUsers.map(user => (
+        participants.map(student => (
           <div
-          key={user.uid}
+          key={student.uid}
           className={`p-3 rounded-lg border transition-all ${
-            user.uid === activeSpeaker
-            ? 'bg-yellow-500/20 border-yellow-500/50'
-            : 'bg-gray-800/50 border-gray-600/30'
-          }`}
+            student.uid === activeSpeaker
+            ? 'bg-green-500/20 border-green-500/50'
+            : 'bg-gray-700/50 border-gray-600/30'
+          } ${pinnedUser === student.uid ? 'ring-2 ring-yellow-400' : ''}`}
           >
           <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
-          <User size={20} className="text-white" />
+          <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+          <User size={16} className="text-white" />
           </div>
           <div>
-          <p className="text-white font-medium">Student {user.uid}</p>
+          <p className="text-white font-medium">Student {student.uid}</p>
+          <p className="text-cyan-300 text-xs">
+          {student.isSpeaking ? 'Speaking' : 'Joined'}
+          </p>
           </div>
           </div>
           <div className="flex items-center space-x-2">
-          {user.hasVideo && <Video size={16} className="text-green-400" />}
-          {user.hasAudio ? (
-            <Mic size={16} className="text-green-400" />
+          {student.hasVideo && <Video size={14} className="text-green-400" />}
+          {student.hasAudio ? (
+            <Mic size={14} className="text-green-400" />
           ) : (
-            <MicOff size={16} className="text-red-400" />
+            <MicOff size={14} className="text-red-400" />
           )}
-          {user.isSpeaking && (
-            <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+          {student.isSpeaking && (
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
           )}
+          <button
+          onClick={() => setPinnedUser(pinnedUser === student.uid ? null : student.uid)}
+          className="p-1 rounded hover:bg-gray-600 transition-colors"
+          title={pinnedUser === student.uid ? 'Unpin' : 'Pin student'}
+          >
+          <Pin size={14} className={pinnedUser === student.uid ? 'text-yellow-400' : 'text-gray-400'} />
+          </button>
           </div>
           </div>
           </div>
@@ -1199,61 +1343,67 @@ const VideoCallModal = ({
     )}
     </div>
 
-    {/* Control Bar */}
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/98 to-transparent p-6">
-    <div className="flex flex-col items-center space-y-4">
-    <div className="flex items-center space-x-6 text-sm text-cyan-300">
-    <span>{remoteUsers.length} student{remoteUsers.length !== 1 ? 's' : ''}</span>
-    <span>•</span>
-    <span>{formatConnectionTime(connectionTime)}</span>
-    <span>•</span>
-    <span>{agoraClient ? 'Connected' : 'Connecting'}</span>
-    </div>
-
-    <div className="flex items-center space-x-4">
+    {/* Control Bar - Teacher Specific */}
+    <div className="bg-gray-800/90 backdrop-blur-sm border-t border-gray-700 p-6">
+    <div className="flex items-center justify-center gap-4 lg:gap-6">
+    {/* Audio Control */}
     <button
     onClick={toggleAudio}
-    className={`p-4 rounded-2xl transition-all duration-300 hover:scale-110 ${
-      isAudioEnabled
-      ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
-      : 'bg-red-600 hover:bg-red-500 text-white'
-    }`}
-    >
-    {isAudioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-    </button>
+    disabled={!isConnected}
+    className={`
+      relative p-4 rounded-2xl transition-all duration-200 transform hover:scale-110 active:scale-95
+      shadow-lg border-2 disabled:opacity-50 disabled:cursor-not-allowed
+      ${isAudioMuted
+        ? 'bg-red-500 hover:bg-red-600 border-red-400 text-white'
+        : 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400 text-white'
+      }
+      `}
+      title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
+      >
+      {isAudioMuted ? <MicOff size={24} /> : <Mic size={24} />}
+      </button>
 
-    <button
-    onClick={toggleVideo}
-    className={`p-4 rounded-2xl transition-all duration-300 hover:scale-110 ${
-      isVideoEnabled
-      ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
-      : 'bg-red-600 hover:bg-red-500 text-white'
-    }`}
-    >
-    {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
-    </button>
+      {/* Video Control */}
+      <button
+      onClick={toggleVideo}
+      disabled={!isConnected}
+      className={`
+        relative p-4 rounded-2xl transition-all duration-200 transform hover:scale-110 active:scale-95
+        shadow-lg border-2 disabled:opacity-50 disabled:cursor-not-allowed
+        ${isVideoOff
+          ? 'bg-red-500 hover:bg-red-600 border-red-400 text-white'
+          : 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400 text-white'
+        }
+        `}
+        title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+        >
+        {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+        </button>
 
-    <button
-    onClick={toggleScreenShare}
-    className={`p-4 rounded-2xl transition-all duration-300 hover:scale-110 ${
-      isScreenSharing
-      ? 'bg-orange-600 hover:bg-orange-500 text-white'
-      : 'bg-cyan-600 hover:bg-cyan-500 text-white'
-    }`}
-    >
-    <Monitor size={24} />
-    </button>
+        {/* Screen Share */}
+        <button
+        onClick={toggleScreenShare}
+        disabled={!isConnected}
+        className="p-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white transition-all duration-200 transform hover:scale-110 active:scale-95 shadow-lg border-2 border-cyan-400"
+        title="Share screen"
+        >
+        <Monitor size={24} />
+        </button>
 
-    <button
-    onClick={leaveCall}
-    className="p-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 hover:scale-110"
-    >
-    <PhoneOff size={24} />
-    </button>
-    </div>
-    </div>
-    </div>
-    </div>
+        {/* More space for additional controls if needed */}
+        <div className="w-px h-12 bg-gray-600"></div>
+
+        {/* End Call - Prominent for Teacher */}
+        <button
+        onClick={leaveCall}
+        className="p-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-200 transform hover:scale-110 active:scale-95 shadow-lg border-2 border-red-400 font-semibold"
+        title="End class for all students"
+        >
+        <PhoneOff size={24} />
+        </button>
+        </div>
+        </div>
+        </div>
   );
 };
 
@@ -3613,14 +3763,8 @@ export default function TeacherDashboard() {
     />
 
     {showVideoCallModal && activeVideoCall && (
-      <VideoCallModal
-      // ✅ FIXED: Use correct prop name
+      <TeacherVideoCall
       classData={activeVideoCall}
-      // ✅ PROVIDE ALL REQUIRED PARAMETERS WITH FALLBACKS
-      channel={activeVideoCall.channel || activeVideoCall.meetingId || `class-${activeVideoCall.classId}`}
-      token={activeVideoCall.token || getDefaultToken()}
-      appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID}
-      uid={activeVideoCall.uid || user?.id}
       onClose={() => {
         setShowVideoCallModal(false);
         setActiveVideoCall(null);
@@ -3630,6 +3774,10 @@ export default function TeacherDashboard() {
         setVideoCallError(error);
         toast.error(`Video call error: ${error}`);
       }}
+      channel={activeVideoCall.channel}
+      token={activeVideoCall.token}
+      appId={activeVideoCall.appId}
+      uid={activeVideoCall.uid}
       />
     )}
     </div>
