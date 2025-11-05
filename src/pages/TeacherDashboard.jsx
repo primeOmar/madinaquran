@@ -10,7 +10,7 @@ import {
   Search,
   Plus,
   FileText,
-  FileCheck,Pin,
+  FileCheck,
   Trash2,
   X,
   ChevronDown,
