@@ -244,7 +244,8 @@ const initializeAgora = async (options = {}) => {
   }
 };
 
-//te<chevideocall modal
+
+// Production-ready VideoCallModal Component
 const VideoCallModal = ({
   classData,
   onClose,
@@ -258,7 +259,11 @@ const VideoCallModal = ({
   // STATE MANAGEMENT
   // ============================================================================
   const [agoraClient, setAgoraClient] = useState(null);
-  const [localTracks, setLocalTracks] = useState({});
+  const [localTracks, setLocalTracks] = useState({
+    audioTrack: null,
+    videoTrack: null,
+    screenTrack: null
+  });
   const [remoteUsers, setRemoteUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -266,13 +271,10 @@ const VideoCallModal = ({
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [connectionTime, setConnectionTime] = useState(0);
-  const [callStartTime] = useState(Date.now());
   const [pinnedUser, setPinnedUser] = useState(null);
   const [showParticipants, setShowParticipants] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [debugLogs, setDebugLogs] = useState([]);
-  const [retryCount, setRetryCount] = useState(0);
 
   // ============================================================================
   // REFS
@@ -284,20 +286,22 @@ const VideoCallModal = ({
   const isInitializedRef = useRef(false);
 
   // ============================================================================
-  // DEBUG LOGGING
+  // UTILITY FUNCTIONS
   // ============================================================================
-  const addDebugLog = useCallback((message) => {
-    const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-    const logMessage = `[${timestamp}] ${message}`;
-    console.log(`🔍 ${logMessage}`);
-    setDebugLogs(prev => [...prev.slice(-99), logMessage]);
-  }, []);
+  const formatConnectionTime = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    : `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // ============================================================================
-  // VALIDATE CREDENTIALS
+  // VALIDATION & ERROR HANDLING
   // ============================================================================
   const validateCredentials = useCallback(() => {
-    addDebugLog('🔐 Validating Agora credentials...');
+    console.log('🔐 Validating Agora credentials...');
 
     const missingFields = [];
     if (!appId) missingFields.push('appId');
@@ -306,112 +310,105 @@ const VideoCallModal = ({
     if (uid === undefined || uid === null) missingFields.push('uid');
 
     if (missingFields.length > 0) {
-      const errorMsg = `Missing required fields: ${missingFields.join(', ')}`;
-      addDebugLog(`❌ Credential validation failed: ${errorMsg}`);
-      return errorMsg;
+      return `Missing required fields: ${missingFields.join(', ')}`;
     }
 
-    addDebugLog('✅ Credentials validated successfully');
+    console.log('✅ Credentials validated successfully');
     return null;
-  }, [appId, channel, token, uid, addDebugLog]);
+  }, [appId, channel, token, uid]);
 
   // ============================================================================
-  // TIMER MANAGEMENT
-  // ============================================================================
-  useEffect(() => {
-    timerIntervalRef.current = setInterval(() => {
-      setConnectionTime(Math.floor((Date.now() - callStartTime) / 1000));
-    }, 1000);
-
-    return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-    };
-  }, [callStartTime]);
-
-  // ============================================================================
-  // LOCAL TRACKS MANAGEMENT - FIXED
+  // TRACK MANAGEMENT - FIXED
   // ============================================================================
   const createLocalTracks = async () => {
     try {
-      addDebugLog('🎤 Creating local tracks...');
+      console.log('🎤 Creating local tracks...');
 
-      // Create audio track with enhanced settings
-      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        AEC: true, // Acoustic Echo Cancellation
-        ANS: true, // Automatic Noise Suppression
-        AGC: true  // Automatic Gain Control
+      // Request camera and microphone permissions first
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      } catch (permissionError) {
+        throw new Error('Camera and microphone permissions are required for video calls');
+      }
+
+      // Create audio track
+      const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        AEC: true,
+        ANS: true,
+        AGC: true
       });
-      addDebugLog('✅ Microphone track created');
 
-      // Create video track with optimal settings
-      const cameraTrack = await AgoraRTC.createCameraVideoTrack({
+      // Create video track
+      const videoTrack = await AgoraRTC.createCameraVideoTrack({
         encoderConfig: {
           width: 640,
           height: 480,
           frameRate: 15,
           bitrateMin: 400,
-          bitrateMax: 1000
+          bitrateMax: 800
         },
-        optimizationMode: 'balanced'
+        optimizationMode: 'motion'
       });
-      addDebugLog('✅ Camera track created');
 
-      return { microphoneTrack, cameraTrack };
+      console.log('✅ Local tracks created successfully');
+      return { audioTrack, videoTrack };
 
     } catch (error) {
-      addDebugLog(`❌ Track creation failed: ${error.message}`);
+      console.error('❌ Track creation failed:', error);
 
-      if (error.message.includes('Permission denied')) {
-        throw new Error('Please allow camera and microphone access to join the call');
+      if (error.message.includes('Permission denied') || error.name === 'NotAllowedError') {
+        throw new Error('Please allow camera and microphone access in your browser settings');
       }
-      throw error;
+      if (error.message.includes('NotFoundError') || error.name === 'NotFoundError') {
+        throw new Error('No camera or microphone found. Please check your devices');
+      }
+
+      throw new Error(`Device access failed: ${error.message}`);
     }
   };
 
   // ============================================================================
-  // PLAY LOCAL VIDEO - CRITICAL FIX
+  // VIDEO PLAYBACK - CRITICAL FIXES
   // ============================================================================
   const playLocalVideo = useCallback(async (videoTrack) => {
     if (!videoTrack || !localVideoRef.current) {
-      addDebugLog('❌ Cannot play local video: missing track or ref');
+      console.error('❌ Cannot play local video: missing track or ref');
       return;
     }
 
     try {
       // Clear any existing content
-      localVideoRef.current.innerHTML = '';
+      if (localVideoRef.current) {
+        localVideoRef.current.innerHTML = '';
+      }
 
-      // Play with mirror effect
-      await videoTrack.play(localVideoRef.current, { mirror: true });
-      addDebugLog('✅ Local video playing successfully');
+      // Play the video track
+      await videoTrack.play(localVideoRef.current, {
+        mirror: true
+      });
+
+      console.log('✅ Local video playing successfully');
     } catch (error) {
-      addDebugLog(`❌ Failed to play local video: ${error.message}`);
+      console.error('❌ Failed to play local video:', error);
+      throw new Error('Failed to start camera preview');
     }
-  }, [addDebugLog]);
+  }, []);
 
-  // ============================================================================
-  // REMOTE VIDEO PLAYBACK - CRITICAL FIX
-  // ============================================================================
   const playRemoteVideo = useCallback((uid, videoTrack) => {
     if (!videoTrack) {
-      addDebugLog(`❌ No video track for user ${uid}`);
+      console.error(`❌ No video track for user ${uid}`);
       return;
     }
 
-    // Retry mechanism with exponential backoff
     const attemptPlay = (attempt = 0) => {
       const videoElement = remoteVideoRefs.current.get(uid);
 
       if (!videoElement) {
-        if (attempt < 15) {
-          // Wait for DOM to be ready
-          setTimeout(() => attemptPlay(attempt + 1), 200 * (attempt + 1));
-          addDebugLog(`⏳ Waiting for video element ${uid} (attempt ${attempt + 1})`);
-        } else {
-          addDebugLog(`❌ Video element not found for ${uid} after 15 attempts`);
+        if (attempt < 10) {
+          setTimeout(() => attemptPlay(attempt + 1), 200);
+          return;
         }
+        console.error(`❌ Video element not found for ${uid} after 10 attempts`);
         return;
       }
 
@@ -421,82 +418,72 @@ const VideoCallModal = ({
 
         // Play the video
         videoTrack.play(videoElement);
-        addDebugLog(`✅ Remote video playing for user ${uid}`);
+        console.log(`✅ Remote video playing for user ${uid}`);
       } catch (error) {
-        addDebugLog(`❌ Failed to play remote video ${uid}: ${error.message}`);
+        console.error(`❌ Failed to play remote video ${uid}:`, error);
 
-        if (attempt < 5) {
-          setTimeout(() => attemptPlay(attempt + 1), 1000);
+        if (attempt < 3) {
+          setTimeout(() => attemptPlay(attempt + 1), 500);
         }
       }
     };
 
     attemptPlay();
-  }, [addDebugLog]);
+  }, []);
 
   // ============================================================================
   // EVENT LISTENERS - FIXED
   // ============================================================================
   const setupEventListeners = useCallback((client) => {
-    addDebugLog('📡 Setting up event listeners...');
+    console.log('📡 Setting up event listeners...');
 
-    // User published (when a remote user publishes media)
+    // User published event
     client.on('user-published', async (user, mediaType) => {
-      addDebugLog(`📡 User ${user.uid} published ${mediaType}`);
+      console.log(`📡 User ${user.uid} published ${mediaType}`);
 
       try {
-        // Subscribe to the user's media
+        // Subscribe to the remote user
         await client.subscribe(user, mediaType);
-        addDebugLog(`✅ Subscribed to ${user.uid} ${mediaType}`);
+        console.log(`✅ Subscribed to ${user.uid} ${mediaType}`);
 
         if (mediaType === 'video') {
-          // Update or add user with video track
           setRemoteUsers(prev => {
-            const existingIndex = prev.findIndex(u => u.uid === user.uid);
-
-            if (existingIndex >= 0) {
-              // Update existing user
-              const updated = [...prev];
-              updated[existingIndex] = {
-                ...updated[existingIndex],
-                hasVideo: true,
-                videoTrack: user.videoTrack
-              };
-              return updated;
+            const existingUser = prev.find(u => u.uid === user.uid);
+            if (existingUser) {
+              return prev.map(u =>
+              u.uid === user.uid
+              ? { ...u, hasVideo: true, videoTrack: user.videoTrack }
+              : u
+              );
             } else {
-              // Add new user
               return [...prev, {
                 uid: user.uid,
                 hasVideo: true,
                 hasAudio: false,
                 videoTrack: user.videoTrack,
                 audioTrack: null,
-                isSpeaking: false,
-                joinedAt: new Date(),
-                         role: 'student'
+                isSpeaking: false
               }];
             }
           });
 
-          // Play video after state update
+          // Play the remote video
           setTimeout(() => {
-            playRemoteVideo(user.uid, user.videoTrack);
-          }, 300);
+            if (user.videoTrack) {
+              playRemoteVideo(user.uid, user.videoTrack);
+            }
+          }, 100);
         }
 
         if (mediaType === 'audio') {
-          // Update or add user with audio track
           setRemoteUsers(prev => {
-            const existingIndex = prev.findIndex(u => u.uid === user.uid);
-
-            if (existingIndex >= 0) {
-              const updated = [...prev];
-              updated[existingIndex] = {
-                ...updated[existingIndex],
-                hasAudio: true,
-                audioTrack: user.audioTrack
-              };
-              return updated;
+            const existingUser = prev.find(u => u.uid === user.uid);
+            if (existingUser) {
+              return prev.map(u =>
+              u.uid === user.uid
+              ? { ...u, hasAudio: true, audioTrack: user.audioTrack }
+              : u
+              );
             } else {
               return [...prev, {
                 uid: user.uid,
@@ -504,41 +491,38 @@ const VideoCallModal = ({
                 hasAudio: true,
                 videoTrack: null,
                 audioTrack: user.audioTrack,
-                isSpeaking: false,
-                joinedAt: new Date(),
-                         role: 'student'
+                isSpeaking: false
               }];
             }
           });
 
-          // Play audio
+          // Play the remote audio
           if (user.audioTrack) {
-            user.audioTrack.play();
-            addDebugLog(`🔊 Playing audio for user ${user.uid}`);
+            user.audioTrack.play().catch(console.error);
 
-            // Monitor audio levels
-            user.audioTrack.on('volume-indicator', (volume) => {
+            // Monitor audio levels for active speaker
+            user.audioTrack.on('volume-indicator', (volumes) => {
+              const volume = volumes[0]?.level;
               if (volume > 0.1) {
                 setActiveSpeaker(user.uid);
                 setRemoteUsers(prev =>
-                prev.map(u =>
-                u.uid === user.uid
-                ? { ...u, isSpeaking: true }
-                : { ...u, isSpeaking: false }
-                )
+                prev.map(u => ({
+                  ...u,
+                  isSpeaking: u.uid === user.uid
+                }))
                 );
               }
             });
           }
         }
       } catch (error) {
-        addDebugLog(`❌ Failed to subscribe to ${user.uid}: ${error.message}`);
+        console.error(`❌ Failed to handle user-published:`, error);
       }
     });
 
-    // User unpublished
+    // User unpublished event
     client.on('user-unpublished', (user, mediaType) => {
-      addDebugLog(`📡 User ${user.uid} unpublished ${mediaType}`);
+      console.log(`📡 User ${user.uid} unpublished ${mediaType}`);
 
       setRemoteUsers(prev =>
       prev.map(u =>
@@ -546,9 +530,7 @@ const VideoCallModal = ({
       ? {
         ...u,
         hasVideo: mediaType === 'video' ? false : u.hasVideo,
-        hasAudio: mediaType === 'audio' ? false : u.hasAudio,
-        videoTrack: mediaType === 'video' ? null : u.videoTrack,
-        audioTrack: mediaType === 'audio' ? null : u.audioTrack
+        hasAudio: mediaType === 'audio' ? false : u.hasAudio
       }
       : u
       )
@@ -559,9 +541,9 @@ const VideoCallModal = ({
       }
     });
 
-    // User joined
+    // User joined event
     client.on('user-joined', (user) => {
-      addDebugLog(`🎉 User ${user.uid} joined the channel`);
+      console.log(`🎉 User ${user.uid} joined the channel`);
 
       setRemoteUsers(prev => {
         if (!prev.find(u => u.uid === user.uid)) {
@@ -571,60 +553,43 @@ const VideoCallModal = ({
             hasAudio: false,
             videoTrack: null,
             audioTrack: null,
-            isSpeaking: false,
-            joinedAt: new Date(),
-                     role: 'student'
+            isSpeaking: false
           }];
         }
         return prev;
       });
     });
 
-    // User left
+    // User left event
     client.on('user-left', (user, reason) => {
-      addDebugLog(`👋 User ${user.uid} left the channel (${reason})`);
+      console.log(`👋 User ${user.uid} left the channel: ${reason}`);
 
       setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
       remoteVideoRefs.current.delete(user.uid);
-    });
 
-    // Connection state change
-    client.on('connection-state-change', (curState, prevState, reason) => {
-      addDebugLog(`🔗 Connection: ${prevState} → ${curState} (${reason || 'normal'})`);
-    });
-
-    // Network quality
-    client.on('network-quality', (stats) => {
-      if (stats.uplinkNetworkQuality > 3 || stats.downlinkNetworkQuality > 3) {
-        addDebugLog(`⚠️ Poor network quality detected`);
+      if (pinnedUser === user.uid) {
+        setPinnedUser(null);
       }
     });
 
-    // Token privilege will expire
-    client.on('token-privilege-will-expire', async () => {
-      addDebugLog('⚠️ Token will expire soon');
-      // Implement token refresh logic here if needed
+    // Connection state changes
+    client.on('connection-state-change', (curState, prevState, reason) => {
+      console.log(`🔗 Connection state: ${prevState} → ${curState}`, reason);
     });
 
-    // Token privilege expired
-    client.on('token-privilege-did-expire', () => {
-      addDebugLog('❌ Token expired - need to refresh');
-      setError('Session expired. Please rejoin.');
-    });
-
-    addDebugLog('✅ Event listeners configured');
-  }, [addDebugLog, playRemoteVideo]);
+    console.log('✅ Event listeners configured');
+  }, [playRemoteVideo, pinnedUser]);
 
   // ============================================================================
-  // AGORA INITIALIZATION - FIXED
+  // AGORA CLIENT INITIALIZATION - FIXED
   // ============================================================================
-  const initializeAgora = async () => {
+  const initializeAgoraClient = async () => {
     try {
-      addDebugLog('🚀 Initializing Agora...');
+      console.log('🚀 Initializing Agora client...');
 
       // Validate Agora SDK
       if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK not loaded. Include the Agora script in your HTML.');
+        throw new Error('Agora SDK not loaded. Please check your implementation.');
       }
 
       // Validate credentials
@@ -633,30 +598,26 @@ const VideoCallModal = ({
         throw new Error(validationError);
       }
 
-      addDebugLog(`📋 Config - Channel: ${channel}, UID: ${uid}`);
+      console.log(`📋 Initializing with - Channel: ${channel}, UID: ${uid}`);
 
-      // Create Agora client
+      // Create client
       const client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8'
       });
 
-      addDebugLog('✅ Agora client created');
-
-      // Setup event listeners BEFORE joining
+      // Set up event listeners
       setupEventListeners(client);
 
       // Join the channel
-      addDebugLog(`🔗 Joining channel: ${channel}`);
-
+      console.log(`🔗 Joining channel: ${channel}`);
       await client.join(appId, channel, token, uid);
-
-      addDebugLog('✅ Successfully joined channel');
+      console.log('✅ Successfully joined channel');
 
       return client;
 
     } catch (error) {
-      addDebugLog(`❌ Agora initialization failed: ${error.message}`);
+      console.error('❌ Agora initialization failed:', error);
       throw error;
     }
   };
@@ -666,42 +627,39 @@ const VideoCallModal = ({
   // ============================================================================
   const publishLocalTracks = async (client, tracks) => {
     try {
-      addDebugLog('📤 Publishing local tracks...');
+      console.log('📤 Publishing local tracks...');
 
       const tracksToPublish = [];
-      if (tracks.microphoneTrack) tracksToPublish.push(tracks.microphoneTrack);
-      if (tracks.cameraTrack) tracksToPublish.push(tracks.cameraTrack);
+      if (tracks.audioTrack) tracksToPublish.push(tracks.audioTrack);
+      if (tracks.videoTrack) tracksToPublish.push(tracks.videoTrack);
 
       if (tracksToPublish.length > 0) {
         await client.publish(tracksToPublish);
-        addDebugLog(`✅ Published ${tracksToPublish.length} tracks`);
+        console.log(`✅ Published ${tracksToPublish.length} local tracks`);
       }
 
       // Play local video
-      if (tracks.cameraTrack) {
-        await playLocalVideo(tracks.cameraTrack);
+      if (tracks.videoTrack) {
+        await playLocalVideo(tracks.videoTrack);
       }
 
     } catch (error) {
-      addDebugLog(`❌ Failed to publish tracks: ${error.message}`);
+      console.error('❌ Failed to publish tracks:', error);
       throw error;
     }
   };
 
   // ============================================================================
-  // VIDEO TILE COMPONENT - FIXED
+  // VIDEO COMPONENTS - FIXED
   // ============================================================================
-  const VideoTile = ({ user, isLocal = false, showInfo = true, onPin }) => {
+  const VideoTile = ({ user, isLocal = false, onPin }) => {
     const videoRef = useRef(null);
 
     useEffect(() => {
       if (isLocal) return;
 
       if (user?.videoTrack && videoRef.current) {
-        // Store ref for remote user
         remoteVideoRefs.current.set(user.uid, videoRef.current);
-
-        // Play video
         playRemoteVideo(user.uid, user.videoTrack);
       }
 
@@ -713,84 +671,79 @@ const VideoCallModal = ({
     }, [user, isLocal]);
 
     const hasVideo = isLocal ? isVideoEnabled : user?.hasVideo;
-    const userName = isLocal ? '👑 You (Teacher)' : `Student ${user?.uid}`;
+    const displayName = isLocal ? 'You (Teacher)' : `Student ${user?.uid}`;
 
     return (
       <div className={`
-        relative rounded-xl overflow-hidden bg-gray-900 border-2 transition-all duration-300 h-full
+        relative rounded-xl overflow-hidden bg-gray-900 border-2 transition-all duration-300
         ${isLocal ? 'border-cyan-500' : 'border-green-500'}
         ${user?.isSpeaking ? 'ring-4 ring-yellow-400' : ''}
+        aspect-video
         `}>
         {hasVideo ? (
           <div
           ref={isLocal ? localVideoRef : videoRef}
           className="w-full h-full bg-black"
-          style={{ minHeight: '200px' }}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
           <div className="text-center">
-          <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
-          <User className="text-gray-400" size={40} />
+          <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-2">
+          <User className="text-gray-400" size={32} />
           </div>
-          <p className="text-gray-300 text-sm">{userName}</p>
+          <p className="text-gray-300 text-sm">{displayName}</p>
           </div>
           </div>
         )}
 
-        {showInfo && (
-          <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-          <div className="bg-black/80 text-white px-3 py-1.5 rounded-lg text-sm backdrop-blur-sm flex items-center space-x-2">
-          <span>{userName}</span>
-          {!isLocal && !user?.hasAudio && <span className="text-red-400">🔇</span>}
-          {!isLocal && user?.isSpeaking && <span className="text-green-400">🎤</span>}
-          </div>
+        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+        <div className="bg-black/80 text-white px-2 py-1 rounded text-sm backdrop-blur-sm">
+        {displayName}
+        {!isLocal && !user?.hasAudio && ' 🔇'}
+        {!isLocal && user?.isSpeaking && ' 🎤'}
+        </div>
 
-          {!isLocal && onPin && (
-            <button
-            onClick={() => onPin(user.uid)}
-            className="bg-black/80 p-2 rounded-lg hover:bg-black/90 transition-colors"
-            >
-            <Pin size={16} className="text-white" />
-            </button>
-          )}
-          </div>
+        {!isLocal && onPin && (
+          <button
+          onClick={() => onPin(user.uid)}
+          className="bg-black/80 p-1 rounded hover:bg-black/90 transition-colors"
+          >
+          <Pin size={14} className="text-white" />
+          </button>
         )}
+        </div>
         </div>
     );
   };
 
-  // ============================================================================
-  // VIDEO GRID - OPTIMIZED
-  // ============================================================================
   const VideoGrid = () => {
-    const totalParticipants = remoteUsers.length + 1; // +1 for local user
-
-    // Determine grid layout
-    const getGridClass = () => {
-      if (totalParticipants === 1) return 'grid-cols-1';
-      if (totalParticipants === 2) return 'grid-cols-1 md:grid-cols-2';
-      if (totalParticipants <= 4) return 'grid-cols-2';
-      if (totalParticipants <= 9) return 'grid-cols-2 md:grid-cols-3';
-      return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
-    };
+    const totalUsers = remoteUsers.length + 1; // +1 for local user
 
     if (pinnedUser) {
       const pinned = remoteUsers.find(u => u.uid === pinnedUser);
-      const others = remoteUsers.filter(u => u.uid !== pinnedUser);
+      const otherUsers = remoteUsers.filter(u => u.uid !== pinnedUser);
 
       return (
         <div className="h-full flex flex-col lg:flex-row gap-3 p-3">
+        {/* Pinned user (main view) */}
         <div className="flex-1 min-h-0">
-        <VideoTile user={pinned} showInfo onPin={setPinnedUser} />
+        {pinned ? (
+          <VideoTile user={pinned} onPin={setPinnedUser} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-800 rounded-xl">
+          <p className="text-gray-400">User disconnected</p>
+          </div>
+        )}
         </div>
+
+        {/* Sidebar with local video and other users */}
         <div className="lg:w-80 flex flex-row lg:flex-col gap-3 overflow-auto">
-        <div className="w-full aspect-video">
-        <VideoTile isLocal showInfo />
+        <div className="w-48 lg:w-full aspect-video flex-shrink-0">
+        <VideoTile isLocal onPin={setPinnedUser} />
         </div>
-        {others.map(user => (
-          <div key={user.uid} className="w-full aspect-video flex-shrink-0">
-          <VideoTile user={user} showInfo onPin={setPinnedUser} />
+        {otherUsers.map(user => (
+          <div key={user.uid} className="w-48 lg:w-full aspect-video flex-shrink-0">
+          <VideoTile user={user} onPin={setPinnedUser} />
           </div>
         ))}
         </div>
@@ -798,41 +751,48 @@ const VideoCallModal = ({
       );
     }
 
+    // Grid layout
+    const getGridClass = () => {
+      if (totalUsers === 1) return 'grid-cols-1';
+      if (totalUsers === 2) return 'grid-cols-1 md:grid-cols-2';
+      if (totalUsers <= 4) return 'grid-cols-2';
+      if (totalUsers <= 9) return 'grid-cols-2 md:grid-cols-3';
+      return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
+    };
+
     return (
-      <div className={`h-full grid ${getGridClass()} gap-3 p-3 auto-rows-fr overflow-auto`}>
-      <VideoTile isLocal showInfo />
+      <div className={`h-full grid ${getGridClass()} gap-3 p-3 auto-rows-fr`}>
+      <VideoTile isLocal onPin={setPinnedUser} />
       {remoteUsers.map(user => (
-        <VideoTile key={user.uid} user={user} showInfo onPin={setPinnedUser} />
+        <VideoTile key={user.uid} user={user} onPin={setPinnedUser} />
       ))}
       </div>
     );
   };
 
   // ============================================================================
-  // CONTROL FUNCTIONS
+  // CONTROL FUNCTIONS - FIXED
   // ============================================================================
   const toggleAudio = async () => {
-    const audioTrack = localTracks.microphoneTrack;
-    if (audioTrack) {
+    if (localTracks.audioTrack) {
       try {
-        await audioTrack.setEnabled(!isAudioEnabled);
+        await localTracks.audioTrack.setEnabled(!isAudioEnabled);
         setIsAudioEnabled(!isAudioEnabled);
-        addDebugLog(`🎤 Audio ${!isAudioEnabled ? 'enabled' : 'disabled'}`);
+        console.log(`🎤 Audio ${!isAudioEnabled ? 'enabled' : 'disabled'}`);
       } catch (error) {
-        addDebugLog(`❌ Error toggling audio: ${error.message}`);
+        console.error('❌ Error toggling audio:', error);
       }
     }
   };
 
   const toggleVideo = async () => {
-    const videoTrack = localTracks.cameraTrack;
-    if (videoTrack) {
+    if (localTracks.videoTrack) {
       try {
-        await videoTrack.setEnabled(!isVideoEnabled);
+        await localTracks.videoTrack.setEnabled(!isVideoEnabled);
         setIsVideoEnabled(!isVideoEnabled);
-        addDebugLog(`📹 Video ${!isVideoEnabled ? 'enabled' : 'disabled'}`);
+        console.log(`📹 Video ${!isVideoEnabled ? 'enabled' : 'disabled'}`);
       } catch (error) {
-        addDebugLog(`❌ Error toggling video: ${error.message}`);
+        console.error('❌ Error toggling video:', error);
       }
     }
   };
@@ -853,21 +813,22 @@ const VideoCallModal = ({
           optimizationMode: 'detail'
         }, 'auto');
 
-        // Unpublish camera if active
-        if (localTracks.cameraTrack) {
-          await agoraClient.unpublish(localTracks.cameraTrack);
+        // Unpublish camera track
+        if (localTracks.videoTrack) {
+          await agoraClient.unpublish(localTracks.videoTrack);
         }
 
+        // Publish screen track
         await agoraClient.publish(screenTrack);
 
-        // Handle screen share stop event
+        // Handle screen track ended event
         screenTrack.on('track-ended', () => {
           toggleScreenShare();
         });
 
         setLocalTracks(prev => ({ ...prev, screenTrack }));
         setIsScreenSharing(true);
-        addDebugLog('🖥️ Screen sharing started');
+        console.log('🖥️ Screen sharing started');
 
       } else {
         // Stop screen sharing
@@ -876,54 +837,58 @@ const VideoCallModal = ({
           localTracks.screenTrack.close();
         }
 
-        // Restart camera
-        if (localTracks.cameraTrack) {
-          await agoraClient.publish(localTracks.cameraTrack);
-          await playLocalVideo(localTracks.cameraTrack);
+        // Publish camera track again
+        if (localTracks.videoTrack) {
+          await agoraClient.publish(localTracks.videoTrack);
         }
 
         setLocalTracks(prev => ({ ...prev, screenTrack: null }));
         setIsScreenSharing(false);
-        addDebugLog('🖥️ Screen sharing stopped');
+        console.log('🖥️ Screen sharing stopped');
       }
     } catch (error) {
-      addDebugLog(`❌ Screen share error: ${error.message}`);
-      setIsScreenSharing(false);
+      console.error('❌ Screen share error:', error);
+      if (error.message?.includes('Permission denied')) {
+        alert('Please grant screen sharing permissions to share your screen.');
+      }
     }
   };
 
   const leaveCall = async () => {
-    if (!window.confirm('Are you sure you want to end the session?')) {
+    if (!window.confirm('Are you sure you want to leave the call?')) {
       return;
     }
 
     try {
-      addDebugLog('📞 Leaving call...');
+      console.log('📞 Leaving call...');
 
       // Clear timer
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
 
-      // Close all local tracks
-      Object.values(localTracks).forEach(track => {
-        if (track && typeof track.close === 'function') {
-          track.close();
-          addDebugLog(`🔇 Closed track: ${track.trackMediaType}`);
-        }
-      });
+      // Close all tracks
+      if (localTracks.audioTrack) {
+        localTracks.audioTrack.close();
+      }
+      if (localTracks.videoTrack) {
+        localTracks.videoTrack.close();
+      }
+      if (localTracks.screenTrack) {
+        localTracks.screenTrack.close();
+      }
 
       // Leave channel
       if (agoraClient) {
         await agoraClient.leave();
-        addDebugLog('✅ Left channel successfully');
       }
 
+      console.log('✅ Call cleanup complete');
     } catch (error) {
-      addDebugLog(`❌ Error leaving call: ${error.message}`);
+      console.error('❌ Error during call cleanup:', error);
     } finally {
       setAgoraClient(null);
-      setLocalTracks({});
+      setLocalTracks({ audioTrack: null, videoTrack: null, screenTrack: null });
       setRemoteUsers([]);
       remoteVideoRefs.current.clear();
       onClose();
@@ -931,11 +896,9 @@ const VideoCallModal = ({
   };
 
   const copySessionLink = () => {
-    const link = `${window.location.origin}/join-class/${channel}`;
-    navigator.clipboard.writeText(link).then(() => {
-      addDebugLog('📋 Session link copied');
-      alert('Session link copied to clipboard!');
-    });
+    const link = `${window.location.origin}/join/${channel}`;
+    navigator.clipboard.writeText(link);
+    alert('Session link copied to clipboard!');
   };
 
   const toggleFullscreen = () => {
@@ -949,11 +912,11 @@ const VideoCallModal = ({
   };
 
   // ============================================================================
-  // MAIN INITIALIZATION
+  // MAIN INITIALIZATION - FIXED
   // ============================================================================
   const initializeVideoCall = async () => {
     if (isInitializedRef.current) {
-      addDebugLog('⚠️ Already initialized, skipping...');
+      console.log('⚠️ Already initialized, skipping...');
       return;
     }
 
@@ -962,10 +925,10 @@ const VideoCallModal = ({
       setError(null);
       isInitializedRef.current = true;
 
-      addDebugLog('🎬 Starting video call initialization...');
+      console.log('🎬 Starting video call initialization...');
 
-      // Step 1: Initialize Agora
-      const client = await initializeAgora();
+      // Step 1: Initialize Agora client
+      const client = await initializeAgoraClient();
       setAgoraClient(client);
 
       // Step 2: Create local tracks
@@ -976,11 +939,11 @@ const VideoCallModal = ({
       await publishLocalTracks(client, tracks);
 
       setIsLoading(false);
-      addDebugLog('✅ Video call ready!');
+      console.log('✅ Video call initialized successfully!');
 
     } catch (err) {
       const errorMessage = err.message || 'Failed to initialize video call';
-      addDebugLog(`❌ Initialization failed: ${errorMessage}`);
+      console.error('❌ Video call initialization failed:', errorMessage);
       setError(errorMessage);
       setIsLoading(false);
       isInitializedRef.current = false;
@@ -989,9 +952,16 @@ const VideoCallModal = ({
   };
 
   // ============================================================================
-  // INITIALIZE ON MOUNT
+  // EFFECTS & CLEANUP
   // ============================================================================
   useEffect(() => {
+    // Start connection timer
+    const startTime = Date.now();
+    timerIntervalRef.current = setInterval(() => {
+      setConnectionTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
+    // Initialize video call
     if (channel && token && appId && uid !== undefined) {
       initializeVideoCall();
     } else {
@@ -1001,48 +971,34 @@ const VideoCallModal = ({
       if (!appId) missing.push('appId');
       if (uid === undefined) missing.push('uid');
 
-      setError(`Missing: ${missing.join(', ')}`);
+      setError(`Missing required parameters: ${missing.join(', ')}`);
       setIsLoading(false);
     }
 
-    // Cleanup on unmount
+    // Cleanup function
     return () => {
+      console.log('🧹 Cleaning up video call...');
+
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
 
+      // Close tracks
       Object.values(localTracks).forEach(track => {
         if (track && typeof track.close === 'function') {
           track.close();
         }
       });
 
+      // Leave channel
       if (agoraClient) {
         agoraClient.leave().catch(console.error);
       }
     };
-  }, []); // Empty dependency array - only run once
+  }, []);
 
   // ============================================================================
-  // UTILITY FUNCTIONS
-  // ============================================================================
-  const formatConnectionTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const DebugPanel = () => (
-   
-  );
-
-  // ============================================================================
-  // ERROR STATE
+  // RENDER
   // ============================================================================
   if (error) {
     return (
@@ -1054,29 +1010,16 @@ const VideoCallModal = ({
       </div>
       <h2 className="text-2xl font-bold text-white mb-4">Connection Error</h2>
       <p className="text-red-200 mb-6 text-lg">{error}</p>
-
-      <div className="text-left bg-red-900/30 p-4 rounded-xl mb-6">
-      <h4 className="font-semibold text-red-300 mb-2">Configuration Status:</h4>
-      <ul className="text-sm space-y-2 text-red-200">
-      <li>• <strong>App ID:</strong> {appId ? '✅ OK' : '❌ Missing'}</li>
-      <li>• <strong>Channel:</strong> {channel ? '✅ OK' : '❌ Missing'}</li>
-      <li>• <strong>Token:</strong> {token ? '✅ OK' : '❌ Missing'}</li>
-      <li>• <strong>UID:</strong> {uid !== undefined ? '✅ OK' : '❌ Missing'}</li>
-      </ul>
-      </div>
-
       <div className="flex space-x-3">
       <button
       onClick={() => {
         setError(null);
-        setRetryCount(0);
         isInitializedRef.current = false;
         initializeVideoCall();
       }}
-      disabled={retryCount >= 3}
-      className="flex-1 px-4 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
+      className="flex-1 px-4 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-semibold transition-colors"
       >
-      {retryCount >= 3 ? 'Max Retries Reached' : `Retry (${3 - retryCount} left)`}
+      Retry
       </button>
       <button
       onClick={onClose}
@@ -1091,35 +1034,28 @@ const VideoCallModal = ({
     );
   }
 
-  // ============================================================================
-  // MAIN RENDER
-  // ============================================================================
   return (
     <div
     ref={containerRef}
     className="fixed inset-0 z-50 bg-black/98 backdrop-blur-xl flex flex-col"
     >
-    <DebugPanel />
-
-    {/* Header Bar */}
+    {/* Header */}
     <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-gray-900/95 to-green-900/95 backdrop-blur-lg border-b border-cyan-500/20 p-4 shadow-lg">
     <div className="flex items-center justify-between">
     <div className="flex items-center space-x-4">
     <div className="flex items-center space-x-2">
     <div className={`w-3 h-3 rounded-full ${
       isLoading ? 'bg-yellow-500 animate-pulse' :
-      agoraClient ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+      agoraClient ? 'bg-green-500' : 'bg-red-500'
     }`} />
     <Crown className="text-yellow-400" size={20} />
     <h2 className="text-xl font-bold text-white">
     {classData?.title || 'Teacher Session'}
     </h2>
     </div>
-
     <div className="hidden md:flex items-center space-x-4 text-sm">
-    <span className="text-cyan-300 flex items-center">
-    <Users size={16} className="mr-1" />
-    {remoteUsers.length} {remoteUsers.length === 1 ? 'student' : 'students'}
+    <span className="text-cyan-300">
+    {remoteUsers.length} student{remoteUsers.length !== 1 ? 's' : ''}
     </span>
     <span className="text-green-300">
     🕒 {formatConnectionTime(connectionTime)}
@@ -1135,7 +1071,6 @@ const VideoCallModal = ({
     >
     <Share2 size={20} />
     </button>
-
     <button
     onClick={() => setShowParticipants(!showParticipants)}
     className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg relative"
@@ -1143,12 +1078,11 @@ const VideoCallModal = ({
     >
     <Users size={20} />
     {remoteUsers.length > 0 && (
-      <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+      <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white text-xs rounded-full flex items-center justify-center">
       {remoteUsers.length}
       </span>
     )}
     </button>
-
     <button
     onClick={toggleFullscreen}
     className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all rounded-lg"
@@ -1156,7 +1090,6 @@ const VideoCallModal = ({
     >
     {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
     </button>
-
     <button
     onClick={leaveCall}
     className="p-2 bg-red-600 hover:bg-red-500 text-white transition-all rounded-lg shadow-lg"
@@ -1168,15 +1101,16 @@ const VideoCallModal = ({
     </div>
     </div>
 
-    {/* Main Video Area */}
+    {/* Main Content */}
     <div className="flex-1 flex pt-20 pb-32">
-    <div className="flex-1 min-h-0 relative">
+    {/* Video Grid */}
+    <div className="flex-1 min-h-0">
     {isLoading ? (
       <div className="flex items-center justify-center h-full">
       <div className="text-center">
       <div className="animate-spin rounded-full h-20 w-20 border-4 border-cyan-500 border-t-transparent mx-auto mb-6"></div>
-      <p className="text-cyan-300 text-xl font-semibold mb-2">Starting Teacher Session...</p>
-      <p className="text-cyan-400 text-sm">Connecting to classroom</p>
+      <p className="text-cyan-300 text-xl font-semibold mb-2">Starting Session...</p>
+      <p className="text-cyan-400 text-sm">Initializing video and audio</p>
       </div>
       </div>
     ) : (
@@ -1186,13 +1120,13 @@ const VideoCallModal = ({
 
     {/* Participants Sidebar */}
     {showParticipants && (
-      <div className="w-80 bg-gray-900/95 backdrop-blur-lg border-l border-cyan-500/20 p-4 overflow-y-auto shadow-xl">
+      <div className="w-80 bg-gray-900/95 backdrop-blur-lg border-l border-cyan-500/20 p-4 overflow-y-auto">
       <h3 className="text-lg font-bold text-white mb-4 flex items-center">
-      <Users className="mr-2 text-cyan-400" size={20} />
+      <Users className="mr-2" size={20} />
       Participants ({remoteUsers.length + 1})
       </h3>
 
-      {/* Local user (teacher) */}
+      {/* Local User */}
       <div className="mb-4 p-3 rounded-lg bg-cyan-500/20 border border-cyan-500/30">
       <div className="flex items-center justify-between">
       <div className="flex items-center space-x-3">
@@ -1219,7 +1153,7 @@ const VideoCallModal = ({
       </div>
       </div>
 
-      {/* Remote users (students) */}
+      {/* Remote Users */}
       <div className="space-y-2">
       {remoteUsers.length === 0 ? (
         <div className="text-center py-8 text-gray-400">
@@ -1232,7 +1166,7 @@ const VideoCallModal = ({
           key={user.uid}
           className={`p-3 rounded-lg border transition-all ${
             user.uid === activeSpeaker
-            ? 'bg-yellow-500/20 border-yellow-500/50 shadow-lg'
+            ? 'bg-yellow-500/20 border-yellow-500/50'
             : 'bg-gray-800/50 border-gray-600/30'
           }`}
           >
@@ -1243,17 +1177,10 @@ const VideoCallModal = ({
           </div>
           <div>
           <p className="text-white font-medium">Student {user.uid}</p>
-          <p className="text-cyan-300 text-xs">
-          {user.joinedAt.toLocaleTimeString()}
-          </p>
           </div>
           </div>
           <div className="flex items-center space-x-2">
-          {user.hasVideo ? (
-            <Video size={16} className="text-green-400" />
-          ) : (
-            <VideoOff size={16} className="text-gray-400" />
-          )}
+          {user.hasVideo && <Video size={16} className="text-green-400" />}
           {user.hasAudio ? (
             <Mic size={16} className="text-green-400" />
           ) : (
@@ -1273,80 +1200,57 @@ const VideoCallModal = ({
     </div>
 
     {/* Control Bar */}
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/98 via-gray-900/95 to-transparent p-6 shadow-2xl">
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/98 to-transparent p-6">
     <div className="flex flex-col items-center space-y-4">
-    {/* Stats Bar */}
     <div className="flex items-center space-x-6 text-sm text-cyan-300">
-    <span className="flex items-center">
-    <Users size={16} className="mr-2" />
-    {remoteUsers.length} {remoteUsers.length === 1 ? 'Student' : 'Students'}
-    </span>
-    <span>•</span>
-    <span className="flex items-center">
-    <div className={`w-2 h-2 rounded-full mr-2 ${
-      agoraClient ? 'bg-green-500' : 'bg-red-500'
-    }`} />
-    {agoraClient ? 'Connected' : 'Disconnected'}
-    </span>
+    <span>{remoteUsers.length} student{remoteUsers.length !== 1 ? 's' : ''}</span>
     <span>•</span>
     <span>{formatConnectionTime(connectionTime)}</span>
+    <span>•</span>
+    <span>{agoraClient ? 'Connected' : 'Connecting'}</span>
     </div>
 
-    {/* Control Buttons */}
     <div className="flex items-center space-x-4">
     <button
     onClick={toggleAudio}
-    className={`p-5 rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl ${
+    className={`p-4 rounded-2xl transition-all duration-300 hover:scale-110 ${
       isAudioEnabled
       ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
       : 'bg-red-600 hover:bg-red-500 text-white'
     }`}
-    title={isAudioEnabled ? 'Mute Microphone' : 'Unmute Microphone'}
     >
     {isAudioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
     </button>
 
     <button
     onClick={toggleVideo}
-    className={`p-5 rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl ${
+    className={`p-4 rounded-2xl transition-all duration-300 hover:scale-110 ${
       isVideoEnabled
       ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
       : 'bg-red-600 hover:bg-red-500 text-white'
     }`}
-    title={isVideoEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
     >
     {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
     </button>
 
     <button
     onClick={toggleScreenShare}
-    className={`p-5 rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl ${
+    className={`p-4 rounded-2xl transition-all duration-300 hover:scale-110 ${
       isScreenSharing
       ? 'bg-orange-600 hover:bg-orange-500 text-white'
       : 'bg-cyan-600 hover:bg-cyan-500 text-white'
     }`}
-    title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
     >
     <Monitor size={24} />
     </button>
 
-    <div className="w-px h-12 bg-gray-600" />
-
     <button
     onClick={leaveCall}
-    className="p-5 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-xl"
-    title="End Session"
+    className="p-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 hover:scale-110"
     >
     <PhoneOff size={24} />
     </button>
     </div>
-
-    {/* Status Indicators */}
-    {isScreenSharing && (
-      <div className="bg-orange-500/20 border border-orange-500/30 text-orange-300 px-4 py-2 rounded-lg text-sm">
-      🖥️ You are sharing your screen
-      </div>
-    )}
     </div>
     </div>
     </div>
