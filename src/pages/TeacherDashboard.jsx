@@ -274,7 +274,7 @@ const VideoCallModal = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [debugLogs, setDebugLogs] = useState([]);
   const [retryCount, setRetryCount] = useState(0);
-  
+
   // ============================================================================
   // REFS
   // ============================================================================
@@ -282,7 +282,7 @@ const VideoCallModal = ({
   const remoteVideoRefs = useRef(new Map());
   const timerIntervalRef = useRef(null);
   const containerRef = useRef(null);
-  
+
   // ============================================================================
   // DEBUG LOGGING
   // ============================================================================
@@ -292,29 +292,29 @@ const VideoCallModal = ({
     console.log(`🔍 ${logMessage}`);
     setDebugLogs(prev => [...prev.slice(-99), logMessage]);
   }, []);
-  
+
   // ============================================================================
   // VALIDATE CREDENTIALS - FIXED
   // ============================================================================
   const validateCredentials = useCallback(() => {
     addDebugLog('🔐 Validating Agora credentials...');
-    
+
     const missingFields = [];
     if (!appId) missingFields.push('appId');
     if (!channel) missingFields.push('channel');
     if (!token) missingFields.push('token');
     if (!uid) missingFields.push('uid');
-    
+
     if (missingFields.length > 0) {
       const errorMsg = `Missing required fields: ${missingFields.join(', ')}`;
       addDebugLog(`❌ Credential validation failed: ${errorMsg}`);
       return errorMsg;
     }
-    
+
     addDebugLog('✅ Credentials validated successfully');
     return null;
   }, [appId, channel, token, uid, addDebugLog]);
-  
+
   // ============================================================================
   // TIMER MANAGEMENT
   // ============================================================================
@@ -322,62 +322,62 @@ const VideoCallModal = ({
     timerIntervalRef.current = setInterval(() => {
       setConnectionTime(Math.floor((Date.now() - callStartTime) / 1000));
     }, 1000);
-    
+
     return () => {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
     };
   }, [callStartTime]);
-  
+
   // ============================================================================
   // AGORA INITIALIZATION - WITH RETRY LOGIC
   // ============================================================================
   const initializeAgora = async () => {
     try {
       addDebugLog('🚀 Initializing Agora Teacher Session...');
-      
+
       // Validate Agora SDK
       if (typeof AgoraRTC === 'undefined') {
         throw new Error('Agora SDK not loaded. Please check if Agora script is properly included.');
       }
-      
+
       // Validate credentials
       const validationError = validateCredentials();
       if (validationError) {
         throw new Error(validationError);
       }
-      
+
       addDebugLog(`📋 Using App ID: ${appId?.substring(0, 8)}..., Channel: ${channel}, UID: ${uid}`);
-      
+
       // Create client with enhanced configuration
       const client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8'
       });
-      
+
       // Setup event listeners BEFORE joining
       setupEventListeners(client);
-      
+
       addDebugLog(`🔗 Joining channel: ${channel} as Teacher UID: ${uid}`);
-      
+
       // Join channel with timeout
       const joinPromise = client.join(appId, channel, token, uid);
       const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Join timeout after 15 seconds')), 15000)
       );
-      
+
       await Promise.race([joinPromise, timeoutPromise]);
-      
+
       addDebugLog('✅ Successfully joined channel as teacher');
       return client;
-      
+
     } catch (error) {
       addDebugLog(`❌ Agora initialization failed: ${error.message}`);
       throw error;
     }
   };
-  
+
   // ============================================================================
   // EVENT LISTENERS
   // ============================================================================
@@ -385,11 +385,11 @@ const VideoCallModal = ({
     // User published event
     client.on('user-published', async (user, mediaType) => {
       addDebugLog(`📡 Student ${user.uid} published ${mediaType}`);
-      
+
       try {
         await client.subscribe(user, mediaType);
         addDebugLog(`✅ Subscribed to student ${user.uid} ${mediaType}`);
-        
+
         if (mediaType === 'video') {
           setRemoteUsers(prev => {
             const existingUser = prev.find(u => u.uid === user.uid);
@@ -412,13 +412,13 @@ const VideoCallModal = ({
               }];
             }
           });
-          
+
           // Play video after a short delay to ensure DOM is updated
           setTimeout(() => {
             playRemoteVideo(user.uid, user.videoTrack);
           }, 200);
         }
-        
+
         if (mediaType === 'audio') {
           setRemoteUsers(prev => {
             const existingUser = prev.find(u => u.uid === user.uid);
@@ -441,11 +441,11 @@ const VideoCallModal = ({
               }];
             }
           });
-          
+
           if (user.audioTrack) {
             try {
               user.audioTrack.play();
-              
+
               user.audioTrack.on('volume-change', (volume) => {
                 if (volume > 0.1) {
                   setActiveSpeaker(user.uid);
@@ -456,7 +456,7 @@ const VideoCallModal = ({
                   : u
                   )
                   );
-                  
+
                   setTimeout(() => {
                     setRemoteUsers(prev =>
                     prev.map(u =>
@@ -477,10 +477,10 @@ const VideoCallModal = ({
         addDebugLog(`❌ Subscription failed: ${error.message}`);
       }
     });
-    
+
     client.on('user-unpublished', (user, mediaType) => {
       addDebugLog(`📡 Student ${user.uid} unpublished ${mediaType}`);
-      
+
       setRemoteUsers(prev =>
       prev.map(u =>
       u.uid === user.uid
@@ -493,10 +493,10 @@ const VideoCallModal = ({
       )
       );
     });
-    
+
     client.on('user-joined', (user) => {
       addDebugLog(`🎉 Student ${user.uid} joined the session`);
-      
+
       setRemoteUsers(prev => {
         if (!prev.find(u => u.uid === user.uid)) {
           return [...prev, {
@@ -513,14 +513,14 @@ const VideoCallModal = ({
         return prev;
       });
     });
-    
+
     client.on('user-left', (user) => {
       addDebugLog(`👋 Student ${user.uid} left the session`);
-      
+
       setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
       remoteVideoRefs.current.delete(user.uid);
     });
-    
+
     client.on('network-quality', (stats) => {
       setConnectionStats(prev => ({
         ...prev,
@@ -528,12 +528,12 @@ const VideoCallModal = ({
         downlinkQuality: stats.downlinkNetworkQuality
       }));
     });
-    
+
     client.on('connection-state-change', (curState, prevState) => {
       addDebugLog(`🔗 Connection state: ${prevState} → ${curState}`);
     });
   };
-  
+
   // ============================================================================
   // REMOTE VIDEO PLAYBACK
   // ============================================================================
@@ -542,10 +542,10 @@ const VideoCallModal = ({
       addDebugLog(`❌ No video track for student ${uid}`);
       return;
     }
-    
+
     const playWithRetry = async (retryCount = 0) => {
       const videoElement = remoteVideoRefs.current.get(uid);
-      
+
       if (!videoElement) {
         if (retryCount < 10) {
           setTimeout(() => playWithRetry(retryCount + 1), 300 * (retryCount + 1));
@@ -554,32 +554,32 @@ const VideoCallModal = ({
         addDebugLog(`❌ No video element found for student ${uid} after ${retryCount} retries`);
         return;
       }
-      
+
       try {
         await videoTrack.play(videoElement);
         addDebugLog(`✅ Video playing for student ${uid}`);
       } catch (error) {
         addDebugLog(`❌ Video play failed for ${uid} (attempt ${retryCount + 1}): ${error.message}`);
-        
+
         if (retryCount < 5) {
           setTimeout(() => playWithRetry(retryCount + 1), 500 * (retryCount + 1));
         }
       }
     };
-    
+
     playWithRetry();
   }, [addDebugLog]);
-  
+
   // ============================================================================
   // LOCAL TRACKS MANAGEMENT
   // ============================================================================
   const createAndPublishLocalTracks = async (client) => {
     try {
       addDebugLog('🎤 Creating teacher tracks...');
-      
+
       let microphoneTrack = null;
       let cameraTrack = null;
-      
+
       // Create microphone track
       try {
         microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack({
@@ -592,14 +592,14 @@ const VideoCallModal = ({
         addDebugLog(`❌ Microphone access failed: ${audioError.message}`);
         throw new Error('Microphone permission denied. Please allow microphone access.');
       }
-      
+
       // Create camera track
       try {
         cameraTrack = await AgoraRTC.createCameraVideoTrack({
           encoderConfig: '720p_1'
         });
         addDebugLog('✅ Teacher camera created');
-        
+
         // Play local video immediately
         if (cameraTrack && localVideoRef.current) {
           try {
@@ -613,45 +613,45 @@ const VideoCallModal = ({
         addDebugLog(`❌ Camera access failed: ${videoError.message}`);
         throw new Error('Camera permission denied. Please allow camera access.');
       }
-      
+
       // Publish tracks
       const tracksToPublish = [];
       if (microphoneTrack) tracksToPublish.push(microphoneTrack);
       if (cameraTrack) tracksToPublish.push(cameraTrack);
-      
+
       if (tracksToPublish.length > 0) {
         await client.publish(tracksToPublish);
         addDebugLog('✅ Teacher tracks published');
       }
-      
+
       return { microphoneTrack, cameraTrack };
-      
+
     } catch (error) {
       addDebugLog(`❌ Track creation failed: ${error.message}`);
       throw error;
     }
   };
-  
+
   // ============================================================================
   // VIDEO COMPONENTS
   // ============================================================================
   const VideoTile = ({ user, size = 'medium', showInfo = true, onPin }) => {
     const videoRef = useRef(null);
     const isLocal = !user;
-    
+
     useEffect(() => {
       if (!isLocal && user?.videoTrack && videoRef.current) {
         remoteVideoRefs.current.set(user.uid, videoRef.current);
         playRemoteVideo(user.uid, user.videoTrack);
       }
-      
+
       return () => {
         if (!isLocal && user) {
           remoteVideoRefs.current.delete(user.uid);
         }
       };
     }, [user, isLocal, playRemoteVideo]);
-    
+
     return (
       <div className={`
         relative rounded-xl overflow-hidden bg-gray-800 border-2 transition-all duration-300
@@ -680,7 +680,7 @@ const VideoCallModal = ({
           <User className="text-gray-400" size={32} />
           </div>
         )}
-        
+
         {showInfo && (
           <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
           <div className="bg-black/70 text-white px-2 py-1 rounded text-sm backdrop-blur-sm">
@@ -688,7 +688,7 @@ const VideoCallModal = ({
           {!isLocal && !user?.hasAudio && ' 🔇'}
           {!isLocal && user?.isSpeaking && ' 🎤'}
           </div>
-          
+
           {!isLocal && onPin && (
             <button
             onClick={() => onPin(user.uid)}
@@ -702,20 +702,20 @@ const VideoCallModal = ({
         </div>
     );
   };
-  
+
   const VideoGrid = () => {
     const isMobile = window.innerWidth < 768;
     const allVideos = [{ type: 'local' }, ...remoteUsers];
-    
+
     const gridCols = isMobile ? 'grid-cols-1' :
     allVideos.length <= 2 ? 'grid-cols-2' :
     allVideos.length <= 4 ? 'grid-cols-2' :
     allVideos.length <= 9 ? 'grid-cols-3' : 'grid-cols-4';
-    
+
     if (pinnedUser) {
       const pinned = remoteUsers.find(u => u.uid === pinnedUser);
       const sidebarUsers = remoteUsers.filter(u => u.uid !== pinnedUser);
-      
+
       return (
         <div className="h-full flex flex-col lg:flex-row gap-4 p-2">
         <div className="flex-1 min-h-0">
@@ -732,7 +732,7 @@ const VideoCallModal = ({
         </div>
       );
     }
-    
+
     return (
       <div className={`h-full grid ${gridCols} gap-4 overflow-auto p-2`}>
       {allVideos.map((item) => (
@@ -746,7 +746,7 @@ const VideoCallModal = ({
       </div>
     );
   };
-  
+
   // ============================================================================
   // CONTROL FUNCTIONS
   // ============================================================================
@@ -762,7 +762,7 @@ const VideoCallModal = ({
       }
     }
   };
-  
+
   const toggleVideo = async () => {
     const videoTrack = localTracks.cameraTrack;
     if (videoTrack) {
@@ -775,10 +775,10 @@ const VideoCallModal = ({
       }
     }
   };
-  
+
   const toggleScreenShare = async () => {
     if (!agoraClient) return;
-    
+
     try {
       if (!isScreenSharing) {
         const screenTrack = await AgoraRTC.createScreenVideoTrack({
@@ -790,39 +790,39 @@ const VideoCallModal = ({
           },
           optimizationMode: 'detail'
         }, 'auto');
-        
+
         if (localTracks.cameraTrack) {
           await agoraClient.unpublish(localTracks.cameraTrack);
           localTracks.cameraTrack.stop();
         }
-        
+
         await agoraClient.publish(screenTrack);
         setLocalTracks(prev => ({ ...prev, screenTrack }));
         setIsScreenSharing(true);
         addDebugLog('🖥️ Screen sharing started');
-        
+
       } else {
         if (localTracks.screenTrack) {
           await agoraClient.unpublish(localTracks.screenTrack);
           localTracks.screenTrack.stop();
         }
-        
+
         // Restart camera
         try {
           const cameraTrack = await AgoraRTC.createCameraVideoTrack({
             encoderConfig: '720p_1'
           });
-          
+
           await agoraClient.publish(cameraTrack);
           setLocalTracks(prev => ({ ...prev, cameraTrack, screenTrack: null }));
-          
+
           if (localVideoRef.current) {
             cameraTrack.play(localVideoRef.current, { mirror: true });
           }
         } catch (cameraError) {
           addDebugLog(`❌ Could not restart camera: ${cameraError.message}`);
         }
-        
+
         setIsScreenSharing(false);
         addDebugLog('🖥️ Screen sharing stopped');
       }
@@ -830,26 +830,26 @@ const VideoCallModal = ({
       addDebugLog(`❌ Error toggling screen share: ${error.message}`);
     }
   };
-  
+
   const leaveCall = async () => {
     if (window.confirm('Are you sure you want to end the session for all participants?')) {
       try {
         addDebugLog('📞 Teacher leaving video call...');
-        
+
         if (timerIntervalRef.current) {
           clearInterval(timerIntervalRef.current);
         }
-        
+
         Object.values(localTracks).forEach(track => {
           if (track && typeof track.close === 'function') {
             track.close();
           }
         });
-        
+
         if (agoraClient) {
           await agoraClient.leave();
         }
-        
+
         addDebugLog('✅ Video call cleanup complete');
       } catch (error) {
         addDebugLog(`❌ Error during call cleanup: ${error.message}`);
@@ -861,31 +861,31 @@ const VideoCallModal = ({
       }
     }
   };
-  
+
   const retryConnection = async () => {
     if (retryCount >= 3) {
       setError('Maximum retry attempts reached. Please check your configuration.');
       return;
     }
-    
+
     setRetryCount(prev => prev + 1);
     setError(null);
     setIsLoading(true);
-    
+
     addDebugLog(`🔄 Retry attempt ${retryCount + 1} of 3`);
-    
+
     setTimeout(() => {
       initializeVideoCall();
     }, 1000 * retryCount);
   };
-  
+
   const copySessionLink = () => {
     const link = `${window.location.origin}/join-class/${channel}`;
     navigator.clipboard.writeText(link).then(() => {
       addDebugLog('📋 Session link copied to clipboard');
     });
   };
-  
+
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen?.();
@@ -894,7 +894,7 @@ const VideoCallModal = ({
     }
     setIsFullscreen(!document.fullscreenElement);
   };
-  
+
   // ============================================================================
   // MAIN INITIALIZATION
   // ============================================================================
@@ -902,16 +902,16 @@ const VideoCallModal = ({
     try {
       setIsLoading(true);
       setError(null);
-      
+
       const client = await initializeAgora();
       setAgoraClient(client);
-      
+
       const tracks = await createAndPublishLocalTracks(client);
       setLocalTracks(tracks);
-      
+
       setIsLoading(false);
       addDebugLog('✅ Teacher video call initialized successfully');
-      
+
     } catch (err) {
       const errorMessage = err.message || 'Unknown error occurred';
       addDebugLog(`❌ Teacher video call initialization failed: ${errorMessage}`);
@@ -920,7 +920,7 @@ const VideoCallModal = ({
       onError?.(errorMessage);
     }
   };
-  
+
   useEffect(() => {
     if (channel && token && appId && uid) {
       initializeVideoCall();
@@ -930,18 +930,18 @@ const VideoCallModal = ({
       if (!token) missing.push('token');
       if (!appId) missing.push('appId');
       if (!uid) missing.push('uid');
-      
+
       setError(`Missing required parameters: ${missing.join(', ')}`);
       setIsLoading(false);
     }
-    
+
     return () => {
       if (agoraClient || localTracks.microphoneTrack || localTracks.cameraTrack) {
         leaveCall();
       }
     };
   }, [channel, token, appId, uid]);
-  
+
   // ============================================================================
   // UTILITY FUNCTIONS
   // ============================================================================
@@ -949,13 +949,13 @@ const VideoCallModal = ({
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
+
     if (hours > 0) {
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-  
+
   const DebugPanel = () => (
     <div className="fixed top-20 right-4 w-80 bg-black/90 backdrop-blur-lg border border-cyan-500/20 rounded-lg p-4 max-h-96 overflow-y-auto z-50">
     <div className="flex items-center justify-between mb-2">
@@ -976,7 +976,7 @@ const VideoCallModal = ({
     </div>
     </div>
   );
-  
+
   // ============================================================================
   // RENDER COMPONENT
   // ============================================================================
@@ -1021,14 +1021,14 @@ const VideoCallModal = ({
       </div>
     );
   }
-  
+
   return (
     <div
     ref={containerRef}
     className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col"
     >
     <DebugPanel />
-    
+
     {/* Header */}
     <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-gray-900/90 to-green-900/90 backdrop-blur-lg border-b border-cyan-500/20 p-4">
     <div className="flex items-center justify-between">
@@ -1040,7 +1040,7 @@ const VideoCallModal = ({
     {classData?.title || 'Teacher Session'}
     </h2>
     </div>
-    
+
     <div className="hidden md:flex items-center space-x-4 text-sm">
     <span className="text-cyan-300">
     {remoteUsers.length} students
@@ -1050,7 +1050,7 @@ const VideoCallModal = ({
     </span>
     </div>
     </div>
-    
+
     <div className="flex items-center space-x-2">
     <button
     onClick={copySessionLink}
@@ -1059,7 +1059,7 @@ const VideoCallModal = ({
     >
     <Share2 size={20} />
     </button>
-    
+
     <button
     onClick={() => setShowParticipants(!showParticipants)}
     className="p-2 text-cyan-300 hover:text-white transition-colors rounded-lg hover:bg-cyan-500/20 relative"
@@ -1072,7 +1072,7 @@ const VideoCallModal = ({
       </span>
     )}
     </button>
-    
+
     <button
     onClick={toggleFullscreen}
     className="p-2 text-cyan-300 hover:text-white transition-colors rounded-lg hover:bg-cyan-500/20"
@@ -1080,7 +1080,7 @@ const VideoCallModal = ({
     >
     {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
     </button>
-    
+
     <button
     onClick={leaveCall}
     className="p-2 bg-red-600 hover:bg-red-500 text-white transition-colors rounded-lg"
@@ -1091,7 +1091,7 @@ const VideoCallModal = ({
     </div>
     </div>
     </div>
-    
+
     {/* Main Content */}
     <div className="flex-1 flex pt-20 pb-28">
     <div className="flex-1 min-h-0">
@@ -1107,7 +1107,7 @@ const VideoCallModal = ({
       <VideoGrid />
     )}
     </div>
-    
+
     {showParticipants && (
       <div className="w-80 bg-gray-900/90 backdrop-blur-lg border-l border-cyan-500/20 p-4 overflow-y-auto">
       <h3 className="text-lg font-bold text-white mb-4 flex items-center">
@@ -1156,7 +1156,7 @@ const VideoCallModal = ({
       </div>
     )}
     </div>
-    
+
     {/* Control Bar */}
     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/95 to-transparent p-6">
     <div className="flex flex-col items-center space-y-4">
@@ -1167,7 +1167,7 @@ const VideoCallModal = ({
     <span>•</span>
     <span>{formatConnectionTime(connectionTime)}</span>
     </div>
-    
+
     <div className="flex items-center space-x-3">
     <button
     onClick={toggleAudio}
@@ -1179,7 +1179,7 @@ const VideoCallModal = ({
     >
     {isAudioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
     </button>
-    
+
     <button
     onClick={toggleVideo}
     className={`p-4 rounded-2xl transition-all duration-300 transform hover:scale-110 ${
@@ -1190,7 +1190,7 @@ const VideoCallModal = ({
     >
     {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
     </button>
-    
+
     <button
     onClick={toggleScreenShare}
     className={`p-4 rounded-2xl transition-all duration-300 transform hover:scale-110 ${
@@ -1202,7 +1202,7 @@ const VideoCallModal = ({
     >
     <Monitor size={24} />
     </button>
-    
+
     <button
     onClick={leaveCall}
     className="p-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all duration-300 transform hover:scale-110 shadow-lg"
@@ -3573,12 +3573,13 @@ export default function TeacherDashboard() {
 
     {showVideoCallModal && activeVideoCall && (
       <VideoCallModal
-      class={activeVideoCall}
-      // ✅ PASS BACKEND CREDENTIALS WITH FALLBACKS
-      channel={activeVideoCall.channel || activeVideoCall.meetingId}
-      token={activeVideoCall.token}
-      appId={activeVideoCall.appId}
-      uid={activeVideoCall.uid || user.id}
+      // ✅ FIXED: Use correct prop name
+      classData={activeVideoCall}
+      // ✅ PROVIDE ALL REQUIRED PARAMETERS WITH FALLBACKS
+      channel={activeVideoCall.channel || activeVideoCall.meetingId || `class-${activeVideoCall.classId}`}
+      token={activeVideoCall.token || getDefaultToken()}
+      appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID}
+      uid={activeVideoCall.uid || user?.id}
       onClose={() => {
         setShowVideoCallModal(false);
         setActiveVideoCall(null);
