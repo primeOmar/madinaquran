@@ -245,13 +245,6 @@ const initializeAgora = async (options = {}) => {
 };
 
 // Video Call Modal Component
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  Mic, MicOff, Video, VideoOff, Monitor, PhoneOff, Users, 
-  Settings, Grid, Pin, User, Crown, Share2, Maximize2, Minimize2,
-  Clock, Zap, BarChart3, Volume2, VolumeX, Camera, CameraOff
-} from 'lucide-react';
-
 const VideoCallModal = ({
   class: classData,
   onClose,
