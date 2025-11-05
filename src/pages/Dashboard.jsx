@@ -247,7 +247,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, []);
 
   // ============================================================================
-  // CLEANUP
+  // CLEANUP - ENHANCED WITH FIXES
   // ============================================================================
   const performCompleteCleanup = useCallback(async () => {
     debugLog('🧹 Starting cleanup...');
@@ -263,11 +263,15 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         timerRef.current = null;
       }
 
+      // 🚀 CRITICAL FIX: Add delay before cleanup to ensure proper disconnection
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       const cleanupTrack = async (track, type) => {
         if (track) {
           try {
-            track.stop();
-            track.close();
+            // 🚀 CRITICAL FIX: Stop and close tracks properly
+            if (track.stop) track.stop();
+            if (track.close) track.close();
             debugLog(`✅ ${type} track cleaned up`);
           } catch (e) {
             debugError(`Error cleaning up ${type} track:`, e);
@@ -285,6 +289,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       if (agoraClientRef.current) {
         try {
+          // 🚀 CRITICAL FIX: Ensure proper channel leave
           await agoraClientRef.current.leave();
           debugLog('✅ Left Agora channel');
         } catch (e) {
@@ -293,11 +298,21 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         agoraClientRef.current = null;
       }
 
+      // 🚀 CRITICAL FIX: Safe DOM cleanup
       if (localVideoRef.current) {
-        localVideoRef.current.innerHTML = '';
+        try {
+          localVideoRef.current.innerHTML = '';
+        } catch (e) {
+          debugError('Error cleaning local video:', e);
+        }
       }
+
       if (remoteVideosContainerRef.current) {
-        remoteVideosContainerRef.current.innerHTML = '';
+        try {
+          remoteVideosContainerRef.current.innerHTML = '';
+        } catch (e) {
+          debugError('Error cleaning remote videos:', e);
+        }
       }
 
       if (isMountedRef.current) {
@@ -308,9 +323,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         setParticipants([]);
         setActiveSpeaker(null);
         setLocalVideoReady(false);
-        // Reset to initial muted state
-        setIsAudioMuted(true);
-        setIsVideoOff(true);
+        // Keep the mute states as they are for next session
       }
 
       debugLog('✅ Cleanup complete');
@@ -320,7 +333,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [debugLog, debugError]);
 
   // ============================================================================
-  // REMOTE VIDEO MANAGEMENT
+  // REMOTE VIDEO MANAGEMENT - ENHANCED WITH SAFE REMOVAL
   // ============================================================================
   const setupRemoteVideo = useCallback(async (user) => {
     debugLog(`📺 Setting up remote video for user ${user.uid}`);
@@ -383,14 +396,21 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
   const removeRemoteVideo = useCallback((uid) => {
     debugLog(`🗑️ Removing remote video for user ${uid}`);
-    const videoElement = document.getElementById(`remote-video-${uid}`);
-    if (videoElement) {
-      videoElement.remove();
+    try {
+      const videoElement = document.getElementById(`remote-video-${uid}`);
+      if (videoElement && videoElement.parentNode) {
+        videoElement.remove();
+      } else if (videoElement) {
+        // If no parent node, just clear the content
+        videoElement.innerHTML = '';
+      }
+    } catch (error) {
+      debugError(`Error removing remote video for ${uid}:`, error);
     }
   }, [debugLog]);
 
   // ============================================================================
-  // TRACK MANAGEMENT - PRODUCTION READY WITH FIXES
+  // TRACK MANAGEMENT - FIXED FOR TRACK_IS_DISABLED ERROR
   // ============================================================================
   const createLocalTracks = useCallback(async () => {
     debugLog('🎤 Creating local tracks...');
@@ -410,10 +430,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         throw new Error('MICROPHONE_PERMISSION_DENIED');
       });
 
-      // 🚀 CRITICAL FIX: Set initial audio state immediately
-      await audioTrack.setEnabled(!isAudioMuted);
+      // 🚀 CRITICAL FIX: DO NOT disable tracks initially - keep them enabled for publishing
       localTracksRef.current.audio = audioTrack;
-      debugLog(`✅ Audio track created - initially ${isAudioMuted ? 'MUTED' : 'UNMUTED'}`);
+      debugLog(`✅ Audio track created - initially ENABLED for publishing`);
 
       // Create video track with fallback strategy
       debugLog('Creating video track...');
@@ -451,10 +470,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         }
       }
 
-      // 🚀 CRITICAL FIX: Set initial video state immediately
-      await videoTrack.setEnabled(!isVideoOff);
+      // 🚀 CRITICAL FIX: DO NOT disable tracks initially - keep them enabled for publishing
       localTracksRef.current.video = videoTrack;
-      debugLog(`✅ Video track created - initially ${isVideoOff ? 'OFF' : 'ON'}`);
+      debugLog(`✅ Video track created - initially ENABLED for publishing`);
 
       // Play local video with proper error handling
       if (localVideoRef.current && videoTrack) {
@@ -522,7 +540,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       throw error;
     }
-  }, [debugLog, debugError, localVideoReady, isAudioMuted, isVideoOff]);
+  }, [debugLog, debugError, localVideoReady]); // 🚀 REMOVED isAudioMuted and isVideoOff dependencies
 
   // ============================================================================
   // PARTICIPANT MANAGEMENT
@@ -606,7 +624,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [debugLog, debugError, setupRemoteVideo, removeRemoteVideo, updateParticipants]);
 
   // ============================================================================
-  // JOIN CHANNEL - PRODUCTION READY WITH FIXES
+  // JOIN CHANNEL - FIXED FOR TRACK_IS_DISABLED AND UID_CONFLICT
   // ============================================================================
   const joinChannel = useCallback(async () => {
     if (!isOpen || !classItem?.video_session?.meeting_id) {
@@ -614,8 +632,9 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       return;
     }
 
-    if (isConnecting || isConnected) {
-      debugLog('⚠️ Already connecting or connected');
+    // 🚀 CRITICAL FIX: Prevent multiple join attempts
+    if (isConnecting || isConnected || agoraClientRef.current) {
+      debugLog('⚠️ Already connecting, connected, or client exists');
       return;
     }
 
@@ -633,6 +652,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       if (!joinResult.success) {
         throw new Error(joinResult.error || 'Failed to join session');
+      }
+
+      // 🚀 CRITICAL FIX: Validate credentials
+      if (!joinResult.appId || !joinResult.channel) {
+        throw new Error('Invalid join credentials: missing appId or channel');
       }
 
       debugLog('✅ Got join credentials', {
@@ -680,7 +704,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
 
       debugLog(`✅ Joined channel with UID: ${uid}`);
 
-      // Publish tracks
+      // Publish tracks FIRST (tracks are enabled by default)
       const tracksToPublish = [];
       if (localTracksRef.current.audio) {
         tracksToPublish.push(localTracksRef.current.audio);
@@ -695,7 +719,15 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
         debugLog('✅ Tracks published');
       }
 
-      // 🚀 CRITICAL FIX: Tracks already set in createLocalTracks - removed redundant setting
+      // 🚀 CRITICAL FIX: Set track states AFTER successful publishing
+      if (localTracksRef.current.audio) {
+        await localTracksRef.current.audio.setEnabled(!isAudioMuted);
+        debugLog(`🎤 Audio ${isAudioMuted ? 'MUTED' : 'UNMUTED'} after publishing`);
+      }
+      if (localTracksRef.current.video) {
+        await localTracksRef.current.video.setEnabled(!isVideoOff);
+        debugLog(`📹 Video ${isVideoOff ? 'OFF' : 'ON'} after publishing`);
+      }
 
       // Setup remote user handling
       setupRemoteUserHandling(client);
@@ -714,7 +746,12 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     } catch (error) {
       debugError('❌ Join channel failed:', error);
 
-      if (error.message.includes('permission') || error.message.includes('PERMISSION')) {
+      // Enhanced error handling
+      if (error.message.includes('TRACK_IS_DISABLED')) {
+        setError('Media tracks failed to initialize. Please refresh and try again.');
+      } else if (error.message.includes('UID_CONFLICT')) {
+        setError('Already connected from another device/tab. Please close other sessions.');
+      } else if (error.message.includes('permission') || error.message.includes('PERMISSION')) {
         setError('Camera/microphone permission denied. Please check browser settings.');
       } else if (error.message.includes('timeout') || error.message.includes('TIMEOUT')) {
         setError('Connection timeout. Please check your internet connection.');
@@ -730,6 +767,8 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     classItem,
     isConnecting,
     isConnected,
+    isAudioMuted, // 🚀 KEEP these dependencies for track state setting
+    isVideoOff,   // 🚀 KEEP these dependencies for track state setting
     createLocalTracks,
     setupRemoteUserHandling,
     performCompleteCleanup,
