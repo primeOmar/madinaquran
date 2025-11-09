@@ -1675,7 +1675,144 @@ const ClassesTab = ({
   }, [classes]);
 
   // Beautiful Video Loading Animation Component
+  const VideoLoadingOverlay = ({ classItem, type = "starting" }) => (
+    <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl"
+    >
+    <div className="text-center max-w-2xl mx-4">
+    {/* Animated Logo/Icon */}
+    <motion.div
+    animate={{
+      scale: [1, 1.1, 1],
+      rotate: [0, 5, -5, 0],
+    }}
+    transition={{
+      duration: 2,
+      repeat: Infinity,
+      ease: "easeInOut"
+    }}
+    className="w-32 h-32 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-2xl"
+    >
+    <Video className="text-white" size={48} />
+    </motion.div>
 
+    {/* Pulsing Rings */}
+    <div className="relative mb-8">
+    <motion.div
+    animate={{
+      scale: [1, 1.5, 2],
+      opacity: [0.7, 0.4, 0],
+    }}
+    transition={{
+      duration: 2,
+      repeat: Infinity,
+      ease: "easeOut"
+    }}
+    className="absolute inset-0 border-4 border-cyan-400 rounded-full"
+    />
+    <motion.div
+    animate={{
+      scale: [1, 1.8, 2.2],
+      opacity: [0.5, 0.2, 0],
+    }}
+    transition={{
+      duration: 2.5,
+      repeat: Infinity,
+      ease: "easeOut",
+      delay: 0.5
+    }}
+    className="absolute inset-0 border-4 border-blue-400 rounded-full"
+    />
+    </div>
+
+    {/* Loading Text */}
+    <motion.h3
+    initial={{ y: 20, opacity: 0 }}
+    animate={{ y: 0, opacity: 1 }}
+    transition={{ delay: 0.2 }}
+    className="text-3xl font-bold text-white mb-4"
+    >
+    {type === "starting" ? "🚀 Launching Madina Session" : "🔄 Rejoining Neural Network"}
+    </motion.h3>
+
+    <motion.p
+    initial={{ y: 20, opacity: 0 }}
+    animate={{ y: 0, opacity: 1 }}
+    transition={{ delay: 0.4 }}
+    className="text-cyan-300 text-lg mb-6"
+    >
+    {classItem?.title || "Madina Learning Session"}
+    </motion.p>
+
+    {/* Animated Progress */}
+    <div className="bg-gray-800/50 rounded-full h-3 mx-auto max-w-md mb-6 overflow-hidden">
+    <motion.div
+    initial={{ width: "0%" }}
+    animate={{ width: "100%" }}
+    transition={{
+      duration: 3,
+      repeat: Infinity,
+      ease: "easeInOut"
+    }}
+    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
+    />
+    </div>
+
+    {/* Loading Steps */}
+    <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ delay: 0.6 }}
+    className="grid grid-cols-3 gap-4 text-sm text-cyan-400"
+    >
+    {[
+      "Initializing Neural Link...",
+      "Connecting to Students...",
+      "Activating AI Channels..."
+    ].map((step, index) => (
+      <motion.div
+      key={step}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.8 + index * 0.3 }}
+      className="flex items-center justify-center space-x-2"
+      >
+      <motion.div
+      animate={{
+        scale: [1, 1.2, 1],
+        opacity: [0.5, 1, 0.5],
+      }}
+      transition={{
+        duration: 1.5,
+        repeat: Infinity,
+        delay: index * 0.5
+      }}
+      className="w-2 h-2 bg-cyan-400 rounded-full"
+      />
+      <span>{step}</span>
+      </motion.div>
+    ))}
+    </motion.div>
+
+    {/* Cancel Button */}
+    <motion.button
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ delay: 1 }}
+    onClick={() => {
+      setShowVideoLoader(false);
+      setJoiningSession(null);
+    }}
+    className="mt-8 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-2xl transition-colors duration-200"
+    >
+    Cancel Connection
+    </motion.button>
+    </div>
+    </motion.div>
+  );
 
   // Mini loading indicator for buttons
   const LoadingButtonContent = ({ text, loadingText }) => (
@@ -3029,27 +3166,36 @@ export default function TeacherDashboard() {
   const handleStartVideoSession = async (classItem) => {
     try {
       setStartingSession(classItem.id);
+      console.log('🚀 Starting video session for class:', classItem.id);
 
-      // ✅ USE VIDEOAPI INSTEAD OF VIDEOSERVICE
       const result = await videoApi.startVideoSession(classItem.id, user.id);
-
-      console.log('🔍 Backend response:', result); // Debug log
+      console.log('🔍 Raw API response:', result);
 
       if (result.success) {
-        // ✅ ENSURE ALL REQUIRED PROPERTIES ARE SET
+        // 🚨 CRITICAL FIX: Map API response fields correctly
         const videoCallData = {
-          meetingId: result.meetingId,
-          channel: result.channel,
+          // Map the API response fields to what TeacherVideoCall expects
+          meetingId: result.meetingId || result.meeting_id,
+          channel: result.channel || result.meetingId, // Use meetingId as fallback for channel
           token: result.token,
-          appId: result.appId,
-          uid: result.uid,
+          appId: result.appId || result.app_id || import.meta.env.VITE_AGORA_APP_ID,
+          uid: result.uid || user.id,
           classId: classItem.id,
           className: classItem.title,
           isTeacher: true,
           startTime: new Date().toISOString()
         };
 
-        console.log('🎯 Video call data:', videoCallData); // Debug log
+        console.log('🎯 Processed video call data:', videoCallData);
+
+        // Validate we have the minimum required fields
+        if (!videoCallData.channel || !videoCallData.appId) {
+          console.error('❌ Missing required fields:', {
+            channel: videoCallData.channel,
+            appId: videoCallData.appId
+          });
+          throw new Error('Invalid video session configuration received from server');
+        }
 
         setActiveVideoCall(videoCallData);
         setShowVideoCallModal(true);
@@ -3061,12 +3207,13 @@ export default function TeacherDashboard() {
           const newSession = {
             classId: classItem.id,
             className: classItem.title,
-            meetingId: result.meetingId,
-            channel: result.channel, // ✅ Store channel for rejoin
+            meetingId: videoCallData.meetingId,
+            channel: videoCallData.channel,
             startTime: new Date().toISOString()
           };
           return [newSession, ...filtered].slice(0, 5);
         });
+
       } else {
         throw new Error(result.error || 'Failed to start video session');
       }
@@ -3720,23 +3867,23 @@ export default function TeacherDashboard() {
     />
 
     {showVideoCallModal && activeVideoCall && (
-  <TeacherVideoCall
-    classData={activeVideoCall}
-    onClose={() => {
-      setShowVideoCallModal(false);
-      setActiveVideoCall(null);
-      setVideoCallError(null);
-    }}
-    onError={(error) => {
-      setVideoCallError(error);
-      toast.error(`Video call error: ${error}`);
-    }}
-    channel={activeVideoCall.channel || activeVideoCall.meetingId} // Fallback to meetingId if channel missing
-    token={activeVideoCall.token}
-    appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID} // Fallback to env variable
-    uid={activeVideoCall.uid || user?.id} // Fallback to user ID
-  />
-)}
+      <TeacherVideoCall
+      classData={activeVideoCall}
+      onClose={() => {
+        setShowVideoCallModal(false);
+        setActiveVideoCall(null);
+        setVideoCallError(null);
+      }}
+      onError={(error) => {
+        setVideoCallError(error);
+        toast.error(`Video call error: ${error}`);
+      }}
+      channel={activeVideoCall.channel || activeVideoCall.meetingId || `class-${activeVideoCall.classId}`}
+      token={activeVideoCall.token || null}
+      appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID || 'fallback-app-id'}
+      uid={activeVideoCall.uid || user?.id || Date.now().toString()}
+      />
+    )}
     </div>
   );
 }
