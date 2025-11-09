@@ -1622,7 +1622,7 @@ const ClassesTab = ({
   const copyClassLink = (meetingId) => {
     const link = `${window.location.origin}/join-class/${meetingId}`;
     navigator.clipboard.writeText(link);
-    toast.success('🔗 Madina link copied to neural clipboard!');
+    toast.success('🔗 Madina link copied to  clipboard!');
   };
 
   const handleDeleteClass = async (classItem) => {
@@ -1675,144 +1675,7 @@ const ClassesTab = ({
   }, [classes]);
 
   // Beautiful Video Loading Animation Component
-  const VideoLoadingOverlay = ({ classItem, type = "starting" }) => (
-    <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl"
-    >
-    <div className="text-center max-w-2xl mx-4">
-    {/* Animated Logo/Icon */}
-    <motion.div
-    animate={{
-      scale: [1, 1.1, 1],
-      rotate: [0, 5, -5, 0],
-    }}
-    transition={{
-      duration: 2,
-      repeat: Infinity,
-      ease: "easeInOut"
-    }}
-    className="w-32 h-32 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-2xl"
-    >
-    <Video className="text-white" size={48} />
-    </motion.div>
 
-    {/* Pulsing Rings */}
-    <div className="relative mb-8">
-    <motion.div
-    animate={{
-      scale: [1, 1.5, 2],
-      opacity: [0.7, 0.4, 0],
-    }}
-    transition={{
-      duration: 2,
-      repeat: Infinity,
-      ease: "easeOut"
-    }}
-    className="absolute inset-0 border-4 border-cyan-400 rounded-full"
-    />
-    <motion.div
-    animate={{
-      scale: [1, 1.8, 2.2],
-      opacity: [0.5, 0.2, 0],
-    }}
-    transition={{
-      duration: 2.5,
-      repeat: Infinity,
-      ease: "easeOut",
-      delay: 0.5
-    }}
-    className="absolute inset-0 border-4 border-blue-400 rounded-full"
-    />
-    </div>
-
-    {/* Loading Text */}
-    <motion.h3
-    initial={{ y: 20, opacity: 0 }}
-    animate={{ y: 0, opacity: 1 }}
-    transition={{ delay: 0.2 }}
-    className="text-3xl font-bold text-white mb-4"
-    >
-    {type === "starting" ? "🚀 Launching Madina Session" : "🔄 Rejoining Neural Network"}
-    </motion.h3>
-
-    <motion.p
-    initial={{ y: 20, opacity: 0 }}
-    animate={{ y: 0, opacity: 1 }}
-    transition={{ delay: 0.4 }}
-    className="text-cyan-300 text-lg mb-6"
-    >
-    {classItem?.title || "Madina Learning Session"}
-    </motion.p>
-
-    {/* Animated Progress */}
-    <div className="bg-gray-800/50 rounded-full h-3 mx-auto max-w-md mb-6 overflow-hidden">
-    <motion.div
-    initial={{ width: "0%" }}
-    animate={{ width: "100%" }}
-    transition={{
-      duration: 3,
-      repeat: Infinity,
-      ease: "easeInOut"
-    }}
-    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
-    />
-    </div>
-
-    {/* Loading Steps */}
-    <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    transition={{ delay: 0.6 }}
-    className="grid grid-cols-3 gap-4 text-sm text-cyan-400"
-    >
-    {[
-      "Initializing Neural Link...",
-      "Connecting to Students...",
-      "Activating AI Channels..."
-    ].map((step, index) => (
-      <motion.div
-      key={step}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.8 + index * 0.3 }}
-      className="flex items-center justify-center space-x-2"
-      >
-      <motion.div
-      animate={{
-        scale: [1, 1.2, 1],
-        opacity: [0.5, 1, 0.5],
-      }}
-      transition={{
-        duration: 1.5,
-        repeat: Infinity,
-        delay: index * 0.5
-      }}
-      className="w-2 h-2 bg-cyan-400 rounded-full"
-      />
-      <span>{step}</span>
-      </motion.div>
-    ))}
-    </motion.div>
-
-    {/* Cancel Button */}
-    <motion.button
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    transition={{ delay: 1 }}
-    onClick={() => {
-      setShowVideoLoader(false);
-      setJoiningSession(null);
-    }}
-    className="mt-8 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-2xl transition-colors duration-200"
-    >
-    Cancel Connection
-    </motion.button>
-    </div>
-    </motion.div>
-  );
 
   // Mini loading indicator for buttons
   const LoadingButtonContent = ({ text, loadingText }) => (
@@ -3857,23 +3720,23 @@ export default function TeacherDashboard() {
     />
 
     {showVideoCallModal && activeVideoCall && (
-      <TeacherVideoCall
-      classData={activeVideoCall}
-      onClose={() => {
-        setShowVideoCallModal(false);
-        setActiveVideoCall(null);
-        setVideoCallError(null);
-      }}
-      onError={(error) => {
-        setVideoCallError(error);
-        toast.error(`Video call error: ${error}`);
-      }}
-      channel={activeVideoCall.channel}
-      token={activeVideoCall.token}
-      appId={activeVideoCall.appId}
-      uid={activeVideoCall.uid}
-      />
-    )}
+  <TeacherVideoCall
+    classData={activeVideoCall}
+    onClose={() => {
+      setShowVideoCallModal(false);
+      setActiveVideoCall(null);
+      setVideoCallError(null);
+    }}
+    onError={(error) => {
+      setVideoCallError(error);
+      toast.error(`Video call error: ${error}`);
+    }}
+    channel={activeVideoCall.channel || activeVideoCall.meetingId} // Fallback to meetingId if channel missing
+    token={activeVideoCall.token}
+    appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID} // Fallback to env variable
+    uid={activeVideoCall.uid || user?.id} // Fallback to user ID
+  />
+)}
     </div>
   );
 }
