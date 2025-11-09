@@ -308,6 +308,57 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
   }, []);
 
   // ============================================================================
+  // PERMISSION HELPERS - NEW
+  // ============================================================================
+  const showPermissionInstructions = useCallback(() => {
+    const isChrome = /Chrome/.test(navigator.userAgent);
+    const isFirefox = /Firefox/.test(navigator.userAgent);
+    const isSafari = /Safari/.test(navigator.userAgent);
+
+    let instructions = '';
+
+  if (isChrome) {
+    instructions = `1. Click the camera/microphone icon in the address bar
+    2. Select "Allow" for both camera and microphone
+    3. Refresh the page and try again`;
+  } else if (isFirefox) {
+    instructions = `1. Click the camera/microphone icon in the address bar
+    2. Check both camera and microphone permissions
+    3. Refresh the page and try again`;
+  } else if (isSafari) {
+    instructions = `1. Go to Safari > Preferences > Websites
+    2. Find Camera and Microphone settings
+    3. Allow access for this website
+    4. Refresh the page and try again`;
+  } else {
+    instructions = `1. Look for camera/microphone icons in your browser's address bar
+    2. Allow permissions for this website
+    3. Refresh the page and try again`;
+  }
+
+  return instructions;
+  }, []);
+
+  const requestPermissions = useCallback(async () => {
+    try {
+      debugLog('🔐 Requesting media permissions...');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true
+      });
+
+      // Immediately stop the tracks (we just wanted permission)
+      stream.getTracks().forEach(track => track.stop());
+
+      debugLog('✅ Media permissions granted');
+      return true;
+    } catch (error) {
+      debugError('❌ Media permissions denied:', error);
+      return false;
+    }
+  }, [debugLog, debugError]);
+
+  // ============================================================================
   // CLEANUP - OPTIMIZED FOR PERFORMANCE
   // ============================================================================
   const performCompleteCleanup = useCallback(async () => {
@@ -531,26 +582,31 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
   }, [debugLog, debugError]);
 
   // ============================================================================
-  // TRACK CREATION - OPTIMIZED
+  // TRACK CREATION - OPTIMIZED WITH PERMISSION HANDLING
   // ============================================================================
   const createLocalTracks = useCallback(async () => {
     debugLog('🎤 Creating optimized teacher local tracks...');
 
     try {
-      // Create audio track with optimized settings
-      const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        AEC: true,  // Acoustic Echo Cancellation
-        ANS: true,  // Automatic Noise Suppression
-        AGC: true,  // Automatic Gain Control
-        encoderConfig: {
-          sampleRate: 48000,
-          stereo: true,
-          bitrate: 128
-        }
-      }).catch(error => {
-        debugError('Teacher audio track creation failed:', error);
-        throw new Error('MICROPHONE_PERMISSION_DENIED');
-      });
+      // Create audio track with graceful permission handling
+      let audioTrack;
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+          AEC: true,  // Acoustic Echo Cancellation
+          ANS: true,  // Automatic Noise Suppression
+          AGC: true,  // Automatic Gain Control
+          encoderConfig: {
+            sampleRate: 48000,
+            stereo: true,
+            bitrate: 128
+          }
+        });
+        debugLog('✅ Audio track created successfully');
+      } catch (audioError) {
+        debugError('Audio track creation failed, continuing without audio:', audioError);
+        // Don't throw error - continue without audio
+        audioTrack = null;
+      }
 
       // Create video track with fallback strategy
       let videoTrack;
@@ -573,20 +629,32 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
           videoTrack = await AgoraRTC.createCameraVideoTrack(config);
           debugLog(`✅ Video track created with config: ${config.encoderConfig.width}x${config.encoderConfig.height}`);
           break;
-        } catch (error) {
-          debugError(`Video config failed: ${config.encoderConfig.width}x${config.encoderConfig.height}`, error);
+        } catch (videoError) {
+          debugError(`Video config failed: ${config.encoderConfig.width}x${config.encoderConfig.height}`, videoError);
           if (config === videoConfigs[videoConfigs.length - 1]) {
-            throw new Error('CAMERA_PERMISSION_DENIED');
+            // If all video configs fail, check if we can continue without video
+            if (!audioTrack) {
+              throw new Error('Both audio and video permissions denied');
+            }
+            videoTrack = null;
+            debugLog('⚠️ Video permission denied, continuing without video');
           }
         }
       }
 
-      // Store tracks
+      // Store tracks (even if null)
       localTracksRef.current.audio = audioTrack;
       localTracksRef.current.video = videoTrack;
 
-      // Setup local video display
-      await setupLocalVideo(videoTrack);
+      // Setup local video display only if we have video
+      if (videoTrack) {
+        await setupLocalVideo(videoTrack);
+      } else {
+        // Show video off state immediately
+        setLocalVideoReady(true);
+        setIsVideoOff(true);
+        debugLog('✅ Video setup skipped (no video track)');
+      }
 
       return { audio: audioTrack, video: videoTrack };
 
@@ -594,10 +662,8 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
       debugError('Teacher track creation failed:', error);
 
       // Enhanced error messages
-      if (error.message === 'MICROPHONE_PERMISSION_DENIED') {
-        setError('Microphone permission required. Please allow microphone access and refresh.');
-      } else if (error.message === 'CAMERA_PERMISSION_DENIED') {
-        setError('Camera permission required. Please allow camera access and refresh.');
+      if (error.message.includes('MICROPHONE_PERMISSION_DENIED') || error.message.includes('CAMERA_PERMISSION_DENIED')) {
+        setError('Camera/microphone access required. Please allow permissions and refresh the page.');
       } else {
         setError(`Device access error: ${error.message}`);
       }
@@ -741,7 +807,7 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
   }, [debugLog, debugError, setupRemoteVideo, removeRemoteVideo, updateParticipants, pinnedUser]);
 
   // ============================================================================
-  // JOIN CHANNEL - OPTIMIZED FOR PERFORMANCE
+  // JOIN CHANNEL - OPTIMIZED FOR PERFORMANCE WITH PERMISSION HANDLING
   // ============================================================================
   const joinChannel = useCallback(async () => {
     if (!channel || !appId) {
@@ -781,7 +847,7 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
       });
       agoraClientRef.current = client;
 
-      // Create local tracks first
+      // Create local tracks first (this will handle permission errors gracefully)
       debugLog('🎥 Creating local tracks...');
       await createLocalTracks();
 
@@ -798,22 +864,40 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
       const actualUid = await Promise.race([joinPromise, timeoutPromise]);
       debugLog(`✅ Teacher joined channel with UID: ${actualUid}`);
 
-      // Publish tracks
+      // Publish available tracks (don't fail if some tracks are missing)
       const tracksToPublish = [];
-      if (localTracksRef.current.audio) tracksToPublish.push(localTracksRef.current.audio);
-      if (localTracksRef.current.video) tracksToPublish.push(localTracksRef.current.video);
+      if (localTracksRef.current.audio) {
+        tracksToPublish.push(localTracksRef.current.audio);
+        debugLog('🎤 Audio track available for publishing');
+      } else {
+        debugLog('⚠️ No audio track available (permission denied)');
+      }
+
+      if (localTracksRef.current.video) {
+        tracksToPublish.push(localTracksRef.current.video);
+        debugLog('📹 Video track available for publishing');
+      } else {
+        debugLog('⚠️ No video track available (permission denied)');
+        // Ensure video is marked as off
+        setIsVideoOff(true);
+      }
 
       if (tracksToPublish.length > 0) {
         debugLog(`📤 Publishing ${tracksToPublish.length} tracks...`);
         await client.publish(tracksToPublish);
         debugLog('✅ Tracks published successfully');
+      } else {
+        debugLog('⚠️ No tracks to publish - user will join without media');
+        // Show user-friendly message
+        setError('You joined without camera/microphone. Students can still see and hear you if you enable permissions later.');
       }
 
-      // Set initial track states
+      // Set initial track states for available tracks
       if (localTracksRef.current.audio) {
         await localTracksRef.current.audio.setEnabled(!isAudioMuted);
         debugLog(`🎤 Audio ${isAudioMuted ? 'MUTED' : 'UNMUTED'} after publishing`);
       }
+
       if (localTracksRef.current.video) {
         await localTracksRef.current.video.setEnabled(!isVideoOff);
         debugLog(`📹 Video ${isVideoOff ? 'OFF' : 'ON'} after publishing`);
@@ -844,7 +928,7 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
   } else if (error.message.includes('UID_CONFLICT')) {
     userMessage += 'Already connected from another device/tab.';
   } else if (error.message.includes('permission') || error.message.includes('PERMISSION')) {
-    userMessage += 'Camera/microphone permission denied. Please check browser settings.';
+    userMessage += 'Camera/microphone permission denied. You can still join without media.';
   } else if (error.message.includes('timeout') || error.message.includes('TIMEOUT')) {
     userMessage += 'Connection timeout. Please check your internet connection.';
   } else if (error.message.includes('INVALID_APP_ID')) {
@@ -1081,17 +1165,25 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
     };
   }, [performCompleteCleanup, debugLog]);
 
-  // Auto-join when credentials are available
+  // Auto-join when credentials are available with permission request
   useEffect(() => {
     if (channel && appId && !agoraClientRef.current && !isConnecting && !isConnected) {
       debugLog('🔔 Teacher credentials available, joining channel...');
+
+      const joinWithPermissions = async () => {
+        // Try to request permissions first
+        await requestPermissions();
+        // Then join channel
+        await joinChannel();
+      };
+
       const joinTimeout = setTimeout(() => {
-        joinChannel();
+        joinWithPermissions();
       }, 500);
 
       return () => clearTimeout(joinTimeout);
     }
-  }, [channel, appId, joinChannel, isConnecting, isConnected, debugLog]);
+  }, [channel, appId, joinChannel, isConnecting, isConnected, debugLog, requestPermissions]);
 
   // Drag event listeners
   useEffect(() => {
@@ -1217,21 +1309,50 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
     </div>
     </div>
 
-    {/* Error Display */}
+    {/* Enhanced Error Display with Permission Help */}
     {error && (
-      <div className="bg-red-600/90 backdrop-blur-sm text-white p-4 mx-4 mt-4 rounded-xl flex items-center justify-between shadow-lg animate-pulse">
-      <div className="flex items-center gap-3">
-      <div className="bg-white/20 p-1 rounded-full">
+      <div className="bg-red-600/90 backdrop-blur-sm text-white p-4 mx-4 mt-4 rounded-xl shadow-lg">
+      <div className="flex items-start gap-3">
+      <div className="bg-white/20 p-1 rounded-full flex-shrink-0 mt-1">
       <AlertCircle size={16} />
       </div>
+      <div className="flex-1">
+      <div className="flex items-center justify-between mb-2">
       <span className="text-sm font-medium">{error}</span>
-      </div>
       <button
       onClick={() => setError('')}
-      className="text-white hover:text-red-200 text-xl font-bold ml-2 transition-colors"
+      className="text-white hover:text-red-200 text-xl font-bold ml-2 transition-colors flex-shrink-0"
       >
       ×
       </button>
+      </div>
+
+      {(error.includes('permission') || error.includes('PERMISSION')) && (
+        <div className="bg-yellow-500/20 p-3 rounded-lg border border-yellow-500/30 mt-2">
+        <p className="text-yellow-200 text-sm font-medium mb-2">How to fix:</p>
+        <pre className="text-yellow-100 text-xs whitespace-pre-wrap">
+        {showPermissionInstructions()}
+        </pre>
+        <button
+        onClick={() => {
+          // Try to request permissions again
+          navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+          .then(stream => {
+            stream.getTracks().forEach(track => track.stop());
+            setError('Permissions granted! Please refresh the page.');
+          })
+          .catch(err => {
+            setError('Please manually allow permissions in your browser settings.');
+          });
+        }}
+        className="mt-2 px-3 py-1 bg-yellow-600 hover:bg-yellow-500 text-white text-xs rounded transition-colors"
+        >
+        Request Permissions Again
+        </button>
+        </div>
+      )}
+      </div>
+      </div>
       </div>
     )}
 
