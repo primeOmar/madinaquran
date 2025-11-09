@@ -388,6 +388,83 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
   }, [debugLog, debugError]);
 
   // ============================================================================
+  // LOCAL VIDEO SETUP - MISSING FUNCTION ADDED
+  // ============================================================================
+  const setupLocalVideo = useCallback(async (videoTrack) => {
+    if (!localVideoRef.current || !videoTrack) {
+      debugError('Local video setup failed: No video track or container');
+      return;
+    }
+
+    debugLog('🎥 Setting up teacher local video...');
+
+    try {
+      // Clear container safely
+      if (localVideoRef.current) {
+        localVideoRef.current.innerHTML = '';
+      }
+
+      // Create a video element
+      const videoElement = document.createElement('div');
+      videoElement.className = 'w-full h-full';
+      localVideoRef.current.appendChild(videoElement);
+
+      // Play the video track
+      await videoTrack.play(videoElement, {
+        mirror: true,
+        fit: 'cover'
+      });
+
+      debugLog('✅ Teacher local video play() called successfully');
+
+      // Handle video ready state
+      const handleVideoReady = () => {
+        if (isMountedRef.current) {
+          setLocalVideoReady(true);
+          debugLog('✅ Teacher local video ready and playing');
+        }
+      };
+
+      // Use multiple methods to detect when video is ready
+      if (videoTrack.isPlaying) {
+        handleVideoReady();
+      } else {
+        videoTrack.once('first-frame-decoded', handleVideoReady);
+
+        // Fallback: Check video element state
+        const checkVideoState = setInterval(() => {
+          if (videoElement.querySelector('video')?.readyState > 0) {
+            clearInterval(checkVideoState);
+            handleVideoReady();
+          }
+        }, 100);
+
+        setTimeout(() => {
+          clearInterval(checkVideoState);
+          if (isMountedRef.current && !localVideoReady) {
+            debugLog('⚠️ Teacher video timeout - setting ready anyway');
+            setLocalVideoReady(true);
+          }
+        }, 5000);
+      }
+
+    } catch (playError) {
+      debugError('Error playing teacher local video:', playError);
+      // Set ready anyway to avoid blocking UI
+      setLocalVideoReady(true);
+
+      // Fallback: Show video off state
+      if (localVideoRef.current) {
+        localVideoRef.current.innerHTML = `
+        <div class="w-full h-full flex items-center justify-center bg-gray-800">
+        <VideoOff className="text-gray-500 w-12 h-12" />
+        </div>
+        `;
+      }
+    }
+  }, [debugLog, debugError, localVideoReady]);
+
+  // ============================================================================
   // REMOTE VIDEO MANAGEMENT - ENHANCED
   // ============================================================================
   const setupRemoteVideo = useCallback(async (user) => {
@@ -484,112 +561,50 @@ const TeacherVideoCall = ({ classData, onClose, onError, channel, token, appId, 
 
     try {
       // Create audio track
-      debugLog('Creating teacher audio track...');
       const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
         AEC: true,
         ANS: true,
-        encoderConfig: {
-          sampleRate: 48000,
-          stereo: true,
-        }
       }).catch(error => {
         debugError('Teacher audio track creation failed:', error);
         throw new Error('MICROPHONE_PERMISSION_DENIED');
       });
 
-      localTracksRef.current.audio = audioTrack;
-      debugLog(`✅ Teacher audio track created - initially ENABLED for publishing`);
-
-      // Create video track
-      debugLog('Creating teacher video track...');
+      // Create video track with fallback
       let videoTrack;
-
       try {
         videoTrack = await AgoraRTC.createCameraVideoTrack({
           encoderConfig: {
             width: 1280,
             height: 720,
             frameRate: 30,
-            bitrateMin: 1000,
-            bitrateMax: 2000,
           },
           optimizationMode: 'detail',
         });
-        debugLog('✅ Teacher HD video track created');
-      } catch (hdError) {
-        debugError('Teacher HD camera failed, trying standard:', hdError);
-        try {
-          videoTrack = await AgoraRTC.createCameraVideoTrack({
-            encoderConfig: {
-              width: 640,
-              height: 480,
-              frameRate: 24,
-            }
-          });
-          debugLog('✅ Teacher standard video track created');
-        } catch (fallbackError) {
-          debugError('All teacher camera attempts failed:', fallbackError);
-          throw new Error('CAMERA_PERMISSION_DENIED');
-        }
+      } catch (error) {
+        debugError('HD camera failed, trying standard:', error);
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: 640,
+            height: 480,
+            frameRate: 24,
+          }
+        });
       }
 
+      // 🚀 CRITICAL: Store tracks immediately
+      localTracksRef.current.audio = audioTrack;
       localTracksRef.current.video = videoTrack;
-      debugLog(`✅ Teacher video track created - initially ENABLED for publishing`);
 
-      // Play local video
-      if (localVideoRef.current && videoTrack) {
-        debugLog('🎥 Playing teacher local video...');
-        localVideoRef.current.innerHTML = '';
+      // 🚀 CRITICAL: Setup local video display BEFORE joining channel
+      await setupLocalVideo(videoTrack);
 
-  try {
-    await videoTrack.play(localVideoRef.current, {
-      mirror: true,
-      fit: 'cover'
-    });
-
-    debugLog('✅ Teacher local video play() called');
-
-    const handleVideoReady = () => {
-      if (isMountedRef.current) {
-        setLocalVideoReady(true);
-        debugLog('✅ Teacher local video ready and playing');
-      }
-    };
-
-    if (videoTrack.isPlaying) {
-      handleVideoReady();
-    } else {
-      videoTrack.once('first-frame-decoded', handleVideoReady);
-      setTimeout(() => {
-        if (!localVideoReady && isMountedRef.current) {
-          debugLog('⚠️ Teacher video timeout - setting ready anyway');
-          setLocalVideoReady(true);
-        }
-      }, 3000);
-    }
-  } catch (playError) {
-    debugError('Error playing teacher local video:', playError);
-    setLocalVideoReady(true);
-  }
-      }
-
-      debugLog('✅ Teacher local tracks created successfully');
       return { audio: audioTrack, video: videoTrack };
 
     } catch (error) {
       debugError('Teacher track creation failed:', error);
-
-      if (error.message === 'MICROPHONE_PERMISSION_DENIED') {
-        setError('Microphone permission required. Please allow microphone access.');
-      } else if (error.message === 'CAMERA_PERMISSION_DENIED') {
-        setError('Camera permission required. Please allow camera access.');
-      } else {
-        setError(error.message || 'Failed to access camera and microphone. Please check permissions.');
-      }
-
       throw error;
     }
-  }, [debugLog, debugError, localVideoReady]);
+  }, [debugLog, debugError, setupLocalVideo]);
 
   // ============================================================================
   // PARTICIPANT MANAGEMENT
