@@ -640,109 +640,52 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
     
     setIsConnecting(true);
     setError('');
-    debugLog('🚀 Student joining class video session...');
+    debugLog('🚀 Student starting debug join process...');
     
     try {
-      // 🚀 CRITICAL FIX: Use class-based join instead of meeting_id
+      // 🚀 DEBUG: First check what sessions exist
+      debugLog('🔍 Checking available sessions...');
+      const sessionCheck = await studentApi.debugClassSessions(classItem.id);
+      debugLog('📊 Session check result:', sessionCheck);
+      
+      if (sessionCheck.totalSessions === 0) {
+        throw new Error('No video sessions found for this class. Teacher needs to start a session first.');
+      }
+      
+      if (sessionCheck.activeSessions === 0) {
+        throw new Error('No active video sessions found. Teacher may have ended the session.');
+      }
+      
+      // 🚀 DEBUG: Now try to join
+      debugLog('🎯 Attempting to join class session...');
       const joinResult = await studentApi.joinClassVideoSession(classItem.id);
       
       if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to join class session');
+        throw new Error(joinResult.error || 'Failed to join session');
       }
       
+      debugLog('✅ Debug join successful, proceeding with Agora setup...');
+      
+      // Continue with your existing Agora setup code...
       const { appId, channel, token, uid } = joinResult;
       
-      debugLog('✅ Student join credentials:', {
+      debugLog('🔑 Join credentials received:', {
         channel: channel,
         hasToken: !!token,
         uid: uid,
-        meetingId: joinResult.session?.meeting_id
+        meetingId: joinResult.meetingId
       });
       
-      // Continue with Agora setup
-      debugLog('🔧 Creating Agora client...');
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8',
-      });
-      agoraClientRef.current = client;
-      
-      // Setup network monitoring
-      client.on('network-quality', (quality) => {
-        setNetworkQuality({
-          upload: quality.uplinkNetworkQuality,
-          download: quality.downlinkNetworkQuality
-        });
-      });
-      
-      client.on('exception', (event) => {
-        debugError('Agora exception:', event);
-      });
-      
-      debugLog('🎥 Creating local tracks...');
-      await createLocalTracks();
-      
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      debugLog('🔗 Student joining Agora channel...');
-      const actualUid = await client.join(
-        appId,
-        channel,
-        token || null,
-        uid || null
-      );
-      
-      debugLog(`✅ Student joined channel with UID: ${actualUid}`);
-      
-      // Publish tracks
-      const tracksToPublish = [];
-      if (localTracksRef.current.audio) {
-        tracksToPublish.push(localTracksRef.current.audio);
-      }
-      if (localTracksRef.current.video) {
-        tracksToPublish.push(localTracksRef.current.video);
-      }
-      
-      if (tracksToPublish.length > 0) {
-        debugLog(`📤 Student publishing ${tracksToPublish.length} tracks...`);
-        await client.publish(tracksToPublish);
-        debugLog('✅ Student tracks published');
-      }
-      
-      // Set initial track states
-      if (localTracksRef.current.audio) {
-        await localTracksRef.current.audio.setEnabled(!isAudioMuted);
-        debugLog(`🎤 Student audio ${isAudioMuted ? 'MUTED' : 'UNMUTED'} after publishing`);
-      }
-      if (localTracksRef.current.video) {
-        await localTracksRef.current.video.setEnabled(!isVideoOff);
-        debugLog(`📹 Student video ${isVideoOff ? 'OFF' : 'ON'} after publishing`);
-      }
-      
-      setupRemoteUserHandling(client);
-      
-      setIsConnected(true);
-      setIsConnecting(false);
-      
-      timerRef.current = setInterval(() => {
-        setCallDuration(prev => prev + 1);
-      }, 1000);
-      
-      debugLog('🎉 Student successfully joined and ready!');
+      // ... rest of your Agora setup code
       
     } catch (error) {
-      debugError('❌ Student join channel failed:', error);
+      debugError('❌ Student debug join failed:', error);
       
+      // Enhanced error messages
       if (error.message.includes('No active video session')) {
-        setError('No active class session found. Please ask the teacher to start the session.');
-      } else if (error.message.includes('TRACK_IS_DISABLED')) {
-        setError('Media tracks failed to initialize. Please refresh and try again.');
-      } else if (error.message.includes('UID_CONFLICT')) {
-        setError('Already connected from another device/tab. Please close other sessions.');
-      } else if (error.message.includes('permission') || error.message.includes('PERMISSION')) {
-        setError('Camera/microphone permission denied. Please check browser settings.');
-      } else if (error.message.includes('timeout') || error.message.includes('TIMEOUT')) {
-        setError('Connection timeout. Please check your internet connection.');
+        setError('No active class session found. Please ask the teacher to start the video session first.');
+      } else if (error.message.includes('No video sessions found')) {
+        setError('This class has no video sessions. The teacher needs to create a session first.');
       } else {
         setError(error.message || 'Failed to join video session');
       }
@@ -750,8 +693,7 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       setIsConnecting(false);
       await performCompleteCleanup();
     }
-  }, [isOpen, classItem, isConnecting, isConnected, isAudioMuted, isVideoOff, createLocalTracks, setupRemoteUserHandling, performCompleteCleanup, debugLog, debugError]);
-
+  }, [isOpen, classItem, isConnecting, isConnected, debugLog, debugError, performCompleteCleanup]);
   // ============================================================================
   // CONTROLS - PRODUCTION READY WITH FIXES
   // ============================================================================
