@@ -1153,43 +1153,81 @@ export const studentApi = {
       return await this.recordParticipationFallback(participationData);
     }
   },
-  joinClassVideoSession: async (classId) => {
-    const debug = {
-      step: 0,
-      logs: [],
-      startTime: Date.now()
-    };
-    
-    const logStep = (message, data = null) => {
-      debug.step++;
-      const logEntry = {
-        step: debug.step,
-        message,
-        data,
-        timestamp: new Date().toISOString(),
-        elapsed: Date.now() - debug.startTime
-      };
-      debug.logs.push(logEntry);
-      console.log(`🔍 DEBUG Step ${debug.step}: ${message}`, data || '');
-    };
-    
+  async joinClassVideoSession(classId) {
     try {
-      logStep('Starting joinClassVideoSession', { classId });
-      
-      // 1. Get current user
-      logStep('Getting current user');
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error(`User authentication failed: ${userError?.message || 'No user found'}`);
-      }
-      
-      logStep('User authenticated', { userId: user.id, email: user.email });
-      
-      // 2. Find active session for this class
-      logStep('Looking for active session for class', { classId });
-      
+      const user = await this.getCurrentUser();
+
+      ProductionLogger.info('🎒 Student joining class video session', {
+        classId,
+        userId: user.id
+      });
+
+      // 1. Find active session for this class
       const { data: activeSession, error: sessionError } = await supabase
+      .from('video_sessions')
+      .select(`
+      *,
+      class:classes (title, teacher_id),
+              teacher:teacher_id (name, email, agora_config)
+              `)
+      .eq('class_id', classId)
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
+
+      if (sessionError || !activeSession) {
+        throw new Error('No active video session found for this class. Please ask the teacher to start the session.');
+      }
+
+      ProductionLogger.info('✅ Found active session', {
+        meetingId: activeSession.meeting_id,
+        channel: activeSession.channel_name
+      });
+
+      // 2. Get join credentials
+      const joinData = await this.getJoinCredentials(
+        activeSession.meeting_id,
+        user.id,
+        user.email
+      );
+
+      if (!joinData) {
+        throw new Error('Failed to obtain join credentials');
+      }
+
+      // 3. Record participation
+      await this.recordInitialParticipation(activeSession.meeting_id, user.id, joinData.uid)
+      .catch(error => ProductionLogger.warn('Initial participation recording failed', error));
+
+      return {
+        success: true,
+        meetingId: activeSession.meeting_id,
+        channel: joinData.channel,
+        token: joinData.token,
+        appId: joinData.appId,
+        uid: joinData.uid,
+        sessionInfo: {
+          classTitle: activeSession.class?.title,
+          teacherName: activeSession.teacher?.name
+        }
+      };
+
+    } catch (error) {
+      ProductionLogger.error('❌ Student joinClassVideoSession failed', error);
+      return {
+        success: false,
+        error: error.message,
+        errorCode: getErrorCode(error)
+      };
+    }
+  },
+  // 🚀 NEW: Get active session for a class
+  getActiveClassSession: async (classId) => {
+    try {
+      console.log('🔍 Student looking for active session for class:', classId);
+
+      const { data, error } = await supabase
       .from('video_sessions')
       .select(`
       *,
@@ -1201,153 +1239,71 @@ export const studentApi = {
       .order('started_at', { ascending: false })
       .limit(1)
       .single();
-      
-      if (sessionError) {
-        if (sessionError.code === 'PGRST116') {
-          logStep('No active session found', { error: 'PGRST116 - No rows returned' });
-          throw new Error('No active video session found for this class. Please ask the teacher to start the session.');
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          console.log('🔍 No active session found for class:', classId);
+          return null;
         }
-        throw new Error(`Session lookup failed: ${sessionError.message}`);
+        throw error;
       }
-      
-      if (!activeSession) {
-        logStep('No active session found - null result');
-        throw new Error('No active video session found for this class. Please ask the teacher to start the session.');
-      }
-      
-      logStep('Active session found', {
-        meetingId: activeSession.meeting_id,
-        sessionId: activeSession.id,
-        status: activeSession.status,
-        startedAt: activeSession.started_at
-      });
-      
-      // 3. Use existing studentApi.joinVideoSession method
-      logStep('Calling existing studentApi.joinVideoSession', {
-        meetingId: activeSession.meeting_id,
-        userId: user.id
-      });
-      
-      const joinResult = await studentApi.joinVideoSession(activeSession.meeting_id);
-      
-      logStep('joinVideoSession result', {
-        success: joinResult.success,
-        hasError: joinResult.error,
-        channel: joinResult.channel,
-        hasToken: !!joinResult.token,
-        uid: joinResult.uid
-      });
-      
-      if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to join video session');
-      }
-      
-      // 4. Record participation
-      logStep('Recording participation');
-      try {
-        await studentApi.recordParticipation({
-          session_id: activeSession.id,
-          student_id: user.id,
-          class_id: classId,
-          is_teacher: false,
-          joined_at: new Date().toISOString(),
-                                             status: 'joined',
-                                             device_info: {
-                                               user_agent: navigator.userAgent,
-                                               platform: navigator.platform,
-                                               browser: 'chrome' // You can detect this properly
-                                             }
-        });
-        logStep('Participation recorded successfully');
-      } catch (participationError) {
-        logStep('Participation recording failed (non-critical)', { error: participationError.message });
-        // Don't throw for participation errors
-      }
-      
-      const finalResult = {
-        success: true,
-        meetingId: activeSession.meeting_id,
-        channel: joinResult.channel,
-        token: joinResult.token,
-        appId: joinResult.appId,
-        uid: joinResult.uid,
-        session: activeSession,
-        debug: {
-          steps: debug.step,
-          logs: debug.logs,
-          totalTime: Date.now() - debug.startTime
-        }
-      };
-      
-      logStep('Join completed successfully', finalResult);
-      return finalResult;
-      
+
+      console.log('✅ Student found active session:', data.meeting_id);
+      return data;
+
     } catch (error) {
-      logStep('Join failed with error', { error: error.message, stack: error.stack });
-      
-      const errorResult = {
-        success: false,
-        error: error.message,
-        errorCode: getErrorCode(error),
-        debug: {
-          steps: debug.step,
-          logs: debug.logs,
-          totalTime: Date.now() - debug.startTime
-        }
-      };
-      
-      console.error('❌ Student joinClassVideoSession DEBUG FAILURE:', errorResult);
-      throw error;
+      console.error('❌ Error getting active class session:', error);
+      return null;
     }
   },
-  
-  
-  // 🚀 NEW: Get active session for a class
-  // 🚀 DEBUG: Enhanced getActiveClassSession method
-  getActiveClassSession: async (classId) => {
+
+  async debugClassSessions(classId) {
     try {
-      console.log('🔍 DEBUG: getActiveClassSession for class:', classId);
-      
-      const { data, error } = await supabase
+      ProductionLogger.info('🔍 Debugging class sessions', { classId });
+
+      // Check for any video sessions for this class
+      const { data: sessions, error } = await supabase
       .from('video_sessions')
       .select(`
       *,
       class:classes (title, teacher_id),
-              teacher:teacher_id (name, email),
-              participants:session_participants(count)
+              teacher:teacher_id (name, email)
               `)
       .eq('class_id', classId)
-      .eq('status', 'active')
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single();
-      
-      if (error) {
-        console.log('🔍 DEBUG: Session query error:', {
-          code: error.code,
-          message: error.message,
-          details: error.details
-        });
-        
-        if (error.code === 'PGRST116') {
-          return null; // No session found
-        }
-        throw error;
-      }
-      
-      console.log('🔍 DEBUG: Session found:', {
-        id: data.id,
-        meeting_id: data.meeting_id,
-        status: data.status,
-        started_at: data.started_at,
-        participants: data.participants?.[0]?.count || 0
+      .order('started_at', { ascending: false });
+
+      if (error) throw error;
+
+      const activeSessions = sessions?.filter(s => s.status === 'active') || [];
+      const totalSessions = sessions?.length || 0;
+
+      ProductionLogger.info('Session debug results', {
+        totalSessions,
+        activeSessions: activeSessions.length,
+        sessions: sessions?.map(s => ({
+          id: s.id,
+          meeting_id: s.meeting_id,
+          status: s.status,
+          started_at: s.started_at
+        }))
       });
-      
-      return data;
-      
+
+      return {
+        totalSessions,
+        activeSessions: activeSessions.length,
+        sessions: activeSessions,
+        hasActiveSession: activeSessions.length > 0
+      };
+
     } catch (error) {
-      console.error('❌ DEBUG: getActiveClassSession error:', error);
-      return null;
+      ProductionLogger.error('Session debug failed', error);
+      return {
+        totalSessions: 0,
+        activeSessions: 0,
+        sessions: [],
+        hasActiveSession: false,
+        error: error.message
+      };
     }
   },
   // ===== STATISTICS & ANALYTICS =====
