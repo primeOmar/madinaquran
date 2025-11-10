@@ -626,53 +626,47 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
   // ============================================================================
   // JOIN CHANNEL - FIXED FOR TRACK_IS_DISABLED AND UID_CONFLICT
   // ============================================================================
+
   const joinChannel = useCallback(async () => {
-    if (!isOpen || !classItem?.video_session?.meeting_id) {
-      debugLog('⚠️ Cannot join: missing meeting ID or not open');
+    if (!isOpen || !classItem?.id) {
+      debugLog('⚠️ Cannot join: missing class data or not open');
       return;
     }
-
-    // 🚀 CRITICAL FIX: Prevent multiple join attempts
+    
     if (isConnecting || isConnected || agoraClientRef.current) {
       debugLog('⚠️ Already connecting, connected, or client exists');
       return;
     }
-
+    
     setIsConnecting(true);
     setError('');
-    debugLog('🚀 Starting to join channel...');
-
+    debugLog('🚀 Student joining class video session...');
+    
     try {
-      const meetingId = classItem.video_session.meeting_id;
-      debugLog(`📞 Meeting ID: ${meetingId}`);
-
-      // Get join credentials from your API
-      debugLog('🔑 Getting join credentials...');
-      const joinResult = await studentApi.joinVideoSession(meetingId);
-
+      // 🚀 CRITICAL FIX: Use class-based join instead of meeting_id
+      const joinResult = await studentApi.joinClassVideoSession(classItem.id);
+      
       if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to join session');
+        throw new Error(joinResult.error || 'Failed to join class session');
       }
-
-      // 🚀 CRITICAL FIX: Validate credentials
-      if (!joinResult.appId || !joinResult.channel) {
-        throw new Error('Invalid join credentials: missing appId or channel');
-      }
-
-      debugLog('✅ Got join credentials', {
-        appId: joinResult.appId?.substring(0, 8) + '...',
-               channel: joinResult.channel,
-               hasToken: !!joinResult.token
+      
+      const { appId, channel, token, uid } = joinResult;
+      
+      debugLog('✅ Student join credentials:', {
+        channel: channel,
+        hasToken: !!token,
+        uid: uid,
+        meetingId: joinResult.session?.meeting_id
       });
-
-      // Create Agora client
+      
+      // Continue with Agora setup
       debugLog('🔧 Creating Agora client...');
       const client = AgoraRTC.createClient({
         mode: 'rtc',
         codec: 'vp8',
       });
       agoraClientRef.current = client;
-
+      
       // Setup network monitoring
       client.on('network-quality', (quality) => {
         setNetworkQuality({
@@ -680,31 +674,27 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
           download: quality.downlinkNetworkQuality
         });
       });
-
-      // Setup error handling
+      
       client.on('exception', (event) => {
         debugError('Agora exception:', event);
       });
-
-      // Create local tracks FIRST
+      
       debugLog('🎥 Creating local tracks...');
       await createLocalTracks();
-
-      // Small delay to ensure tracks are fully initialized
+      
       await new Promise(resolve => setTimeout(resolve, 300));
-
-      // Join channel
-      debugLog('🔗 Joining Agora channel...');
-      const uid = await client.join(
-        joinResult.appId,
-        joinResult.channel,
-        joinResult.token || null,
-        joinResult.uid || null
+      
+      debugLog('🔗 Student joining Agora channel...');
+      const actualUid = await client.join(
+        appId,
+        channel,
+        token || null,
+        uid || null
       );
-
-      debugLog(`✅ Joined channel with UID: ${uid}`);
-
-      // Publish tracks FIRST (tracks are enabled by default)
+      
+      debugLog(`✅ Student joined channel with UID: ${actualUid}`);
+      
+      // Publish tracks
       const tracksToPublish = [];
       if (localTracksRef.current.audio) {
         tracksToPublish.push(localTracksRef.current.audio);
@@ -712,42 +702,40 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       if (localTracksRef.current.video) {
         tracksToPublish.push(localTracksRef.current.video);
       }
-
+      
       if (tracksToPublish.length > 0) {
-        debugLog(`📤 Publishing ${tracksToPublish.length} tracks...`);
+        debugLog(`📤 Student publishing ${tracksToPublish.length} tracks...`);
         await client.publish(tracksToPublish);
-        debugLog('✅ Tracks published');
+        debugLog('✅ Student tracks published');
       }
-
-      // 🚀 CRITICAL FIX: Set track states AFTER successful publishing
+      
+      // Set initial track states
       if (localTracksRef.current.audio) {
         await localTracksRef.current.audio.setEnabled(!isAudioMuted);
-        debugLog(`🎤 Audio ${isAudioMuted ? 'MUTED' : 'UNMUTED'} after publishing`);
+        debugLog(`🎤 Student audio ${isAudioMuted ? 'MUTED' : 'UNMUTED'} after publishing`);
       }
       if (localTracksRef.current.video) {
         await localTracksRef.current.video.setEnabled(!isVideoOff);
-        debugLog(`📹 Video ${isVideoOff ? 'OFF' : 'ON'} after publishing`);
+        debugLog(`📹 Student video ${isVideoOff ? 'OFF' : 'ON'} after publishing`);
       }
-
-      // Setup remote user handling
+      
       setupRemoteUserHandling(client);
-
-      // Update connection state
+      
       setIsConnected(true);
       setIsConnecting(false);
-
-      // Start call timer
+      
       timerRef.current = setInterval(() => {
         setCallDuration(prev => prev + 1);
       }, 1000);
-
-      debugLog('🎉 Successfully joined and ready!');
-
+      
+      debugLog('🎉 Student successfully joined and ready!');
+      
     } catch (error) {
-      debugError('❌ Join channel failed:', error);
-
-      // Enhanced error handling
-      if (error.message.includes('TRACK_IS_DISABLED')) {
+      debugError('❌ Student join channel failed:', error);
+      
+      if (error.message.includes('No active video session')) {
+        setError('No active class session found. Please ask the teacher to start the session.');
+      } else if (error.message.includes('TRACK_IS_DISABLED')) {
         setError('Media tracks failed to initialize. Please refresh and try again.');
       } else if (error.message.includes('UID_CONFLICT')) {
         setError('Already connected from another device/tab. Please close other sessions.');
@@ -758,23 +746,11 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       } else {
         setError(error.message || 'Failed to join video session');
       }
-
+      
       setIsConnecting(false);
       await performCompleteCleanup();
     }
-  }, [
-    isOpen,
-    classItem,
-    isConnecting,
-    isConnected,
-    isAudioMuted, // 🚀 KEEP these dependencies for track state setting
-    isVideoOff,   // 🚀 KEEP these dependencies for track state setting
-    createLocalTracks,
-    setupRemoteUserHandling,
-    performCompleteCleanup,
-    debugLog,
-    debugError
-  ]);
+  }, [isOpen, classItem, isConnecting, isConnected, isAudioMuted, isVideoOff, createLocalTracks, setupRemoteUserHandling, performCompleteCleanup, debugLog, debugError]);
 
   // ============================================================================
   // CONTROLS - PRODUCTION READY WITH FIXES
