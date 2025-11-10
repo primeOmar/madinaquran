@@ -1,6 +1,167 @@
 import { supabase } from './supabaseClient';
 
 export const teacherApi = {
+    // 🚀 CRITICAL FIX: Create AND join video session
+    createAndJoinVideoSession: async (classId) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
+        console.log('🎥 Teacher creating and joining video session for class:', classId);
+
+        // 1. First create the session using your existing method
+        const sessionData = await teacherApi.startVideoSession(classId);
+
+        if (!sessionData || !sessionData.meeting_id) {
+          throw new Error('Failed to create video session');
+        }
+
+        console.log('✅ Session created:', sessionData.meeting_id);
+
+        // 2. Then join the session using the videoApi
+        const joinResult = await videoApi.joinVideoSession(sessionData.meeting_id, user.id);
+
+        if (!joinResult.success) {
+          throw new Error(joinResult.error || 'Failed to join video session');
+        }
+
+        console.log('✅ Teacher joined session successfully:', {
+          meetingId: sessionData.meeting_id,
+          channel: joinResult.channel,
+          hasToken: !!joinResult.token
+        });
+
+        return {
+          ...sessionData,
+          agora_credentials: {
+            appId: joinResult.appId,
+            channel: joinResult.channel,
+            token: joinResult.token,
+            uid: joinResult.uid
+          }
+        };
+
+      } catch (error) {
+        console.error('❌ Error in createAndJoinVideoSession:', error);
+        throw error;
+      }
+    },
+
+    // 🚀 CRITICAL FIX: Join existing video session (for when teacher rejoins)
+    joinVideoSession: async (meetingId) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
+        console.log('🎥 Teacher joining existing video session:', meetingId);
+
+        // Use the same videoApi that students use
+        const joinResult = await videoApi.joinVideoSession(meetingId, user.id);
+
+        if (!joinResult.success) {
+          throw new Error(joinResult.error || 'Failed to join video session');
+        }
+
+        console.log('✅ Teacher joined existing session successfully:', {
+          meetingId: joinResult.meetingId,
+          channel: joinResult.channel,
+          hasToken: !!joinResult.token
+        });
+
+        return joinResult;
+
+      } catch (error) {
+        console.error('❌ Error in teacher joinVideoSession:', error);
+        throw error;
+      }
+    },
+
+    // 🚀 NEW: Get active session for a class
+    getClassVideoSession: async (classId) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
+        console.log('🔍 Looking for active video session for class:', classId);
+
+        const { data, error } = await supabase
+        .from('video_sessions')
+        .select(`
+        *,
+        class:classes (title, teacher_id)
+        `)
+        .eq('class_id', classId)
+        .eq('status', 'active')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+        if (error) {
+          if (error.code === 'PGRST116') {
+            console.log('🔍 No active session found for class:', classId);
+            return null;
+          }
+          throw error;
+        }
+
+        // Verify teacher owns this class
+        if (data.class.teacher_id !== user.id) {
+          throw new Error('Unauthorized to access this video session');
+        }
+
+        console.log('✅ Found active session:', data.meeting_id);
+        return data;
+
+      } catch (error) {
+        console.error('❌ Error getting class video session:', error);
+        throw error;
+      }
+    },
+
+    // 🚀 NEW: Get or create video session for a class
+    getOrCreateVideoSession: async (classId) => {
+      try {
+        console.log('🎥 Getting or creating video session for class:', classId);
+
+        // First, check if there's an active session
+        const existingSession = await teacherApi.getClassVideoSession(classId);
+
+        if (existingSession) {
+          console.log('🔄 Found existing session, joining:', existingSession.meeting_id);
+
+          // Join the existing session
+          const joinResult = await teacherApi.joinVideoSession(existingSession.meeting_id);
+          return {
+            ...existingSession,
+            agora_credentials: {
+              appId: joinResult.appId,
+              channel: joinResult.channel,
+              token: joinResult.token,
+              uid: joinResult.uid
+            },
+            isNewSession: false
+          };
+        }
+
+        // No active session, create a new one
+        console.log('🆕 No active session found, creating new one');
+        return await teacherApi.createAndJoinVideoSession(classId);
+
+      } catch (error) {
+        console.error('❌ Error in getOrCreateVideoSession:', error);
+        throw error;
+      }
+    },
+
   // Get teacher's classes with related data
   getMyClasses: async () => {
     try {
@@ -121,20 +282,36 @@ export const teacherApi = {
   getSubmissions: async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         throw new Error('User not authenticated');
       }
 
+      // First, get the teacher's assignments
+      const { data: teacherAssignments, error: assignmentsError } = await supabase
+      .from('assignments')
+      .select('id')
+      .eq('teacher_id', user.id);
+
+      if (assignmentsError) throw assignmentsError;
+
+      if (!teacherAssignments || teacherAssignments.length === 0) {
+        return [];
+      }
+
+      const assignmentIds = teacherAssignments.map(a => a.id);
+
+      // Then get submissions for those assignments
       const { data, error } = await supabase
-        .from('assignment_submissions')
-        .select(`
-          *,
-          assignment:assignments (*),
-          student:profiles (name, email)
-        `)
-        .eq('assignment.teacher_id', user.id)
-        .order('submitted_at', { ascending: false });
+      .from('assignment_submissions')
+      .select(`
+      *,
+      assignment:assignments (*),
+              student:profiles!assignment_submissions_student_id_fkey (name, email),
+              graded_by:profiles!assignment_submissions_graded_by_fkey (name)
+              `)
+      .in('assignment_id', assignmentIds)
+      .order('submitted_at', { ascending: false });
 
       if (error) throw error;
       return data || [];
