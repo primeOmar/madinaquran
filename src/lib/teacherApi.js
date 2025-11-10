@@ -161,6 +161,180 @@ export const teacherApi = {
         throw error;
       }
     },
+    
+    startClassVideoSession: async (classId) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+        
+        console.log('🎥 Teacher starting/joining class video session:', classId);
+        
+        // 1. First, check if there's an active session for this class
+        const activeSession = await teacherApi.getActiveClassSession(classId);
+        
+        if (activeSession) {
+          console.log('🔄 Found active session, joining:', activeSession.meeting_id);
+          
+          // Join the existing session
+          const joinResult = await videoApi.joinVideoSession(activeSession.meeting_id, user.id);
+          
+          if (!joinResult.success) {
+            throw new Error(joinResult.error || 'Failed to join existing session');
+          }
+          
+          return {
+            ...activeSession,
+            agora_credentials: {
+              appId: joinResult.appId,
+              channel: joinResult.channel,
+              token: joinResult.token,
+              uid: joinResult.uid
+            },
+            isNewSession: false
+          };
+        }
+        
+        // 2. No active session, create a new one
+        console.log('🆕 No active session found, creating new one');
+        
+        // Create session record
+        const sessionData = await teacherApi.createVideoSession(classId);
+        
+        if (!sessionData || !sessionData.meeting_id) {
+          throw new Error('Failed to create video session');
+        }
+        
+        console.log('✅ Session created:', sessionData.meeting_id);
+        
+        // Join the newly created session
+        const joinResult = await videoApi.joinVideoSession(sessionData.meeting_id, user.id);
+        
+        if (!joinResult.success) {
+          // Clean up the session if join fails
+          await teacherApi.endVideoSession(sessionData.id);
+          throw new Error(joinResult.error || 'Failed to join new session');
+        }
+        
+        console.log('✅ Teacher joined new session successfully');
+        
+        return {
+          ...sessionData,
+          agora_credentials: {
+            appId: joinResult.appId,
+            channel: joinResult.channel,
+            token: joinResult.token,
+            uid: joinResult.uid
+          },
+          isNewSession: true
+        };
+        
+      } catch (error) {
+        console.error('❌ Error in startClassVideoSession:', error);
+        throw error;
+      }
+    },
+    
+    // 🚀 NEW: Get active session for a class
+    getActiveClassSession: async (classId) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+        
+        console.log('🔍 Looking for active video session for class:', classId);
+        
+        const { data, error } = await supabase
+        .from('video_sessions')
+        .select(`
+        *,
+        class:classes (title, teacher_id)
+        `)
+        .eq('class_id', classId)
+        .eq('status', 'active')
+        .eq('teacher_id', user.id) // Ensure teacher owns this class
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+        
+        if (error) {
+          if (error.code === 'PGRST116') {
+            console.log('🔍 No active session found for class:', classId);
+            return null;
+          }
+          throw error;
+        }
+        
+        console.log('✅ Found active session:', data.meeting_id);
+        return data;
+        
+      } catch (error) {
+        console.error('❌ Error getting active class session:', error);
+        return null;
+      }
+    },
+    
+    // 🚀 UPDATED: Create video session with better meeting ID
+    createVideoSession: async (classId) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+        
+        // Verify teacher owns this class
+        const { data: classData, error: classError } = await supabase
+        .from('classes')
+        .select('id, title, teacher_id')
+        .eq('id', classId)
+        .single();
+        
+        if (classError) throw classError;
+        
+        if (classData.teacher_id !== user.id) {
+          throw new Error('Unauthorized to start video session for this class');
+        }
+        
+        // Generate consistent meeting ID
+        const meetingId = `class_${classId}_${Date.now()}`;
+        
+        console.log('🎥 Creating video session with ID:', meetingId);
+        
+        const { data, error } = await supabase
+        .from('video_sessions')
+        .insert([{
+          class_id: classId,
+          teacher_id: user.id,
+          meeting_id: meetingId,
+          channel_name: meetingId, // Use meeting ID as channel name
+          status: 'active',
+          started_at: new Date().toISOString(),
+                scheduled_date: new Date().toISOString()
+        }])
+        .select()
+        .single();
+        
+        if (error) throw error;
+        
+        // Update class status
+        await supabase
+        .from('classes')
+        .update({ status: 'active' })
+        .eq('id', classId);
+        
+        console.log('✅ Video session created successfully');
+        return data;
+        
+      } catch (error) {
+        console.error('❌ Error creating video session:', error);
+        throw error;
+      }
+    },
 
   // Get teacher's classes with related data
   getMyClasses: async () => {
