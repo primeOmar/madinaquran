@@ -1676,14 +1676,6 @@ const ClassesTab = ({
   return (
     <div>
     {/* Full-screen Video Loading Overlay */}
-    <AnimatePresence>
-    {showVideoLoader && joiningSession && (
-      <VideoLoadingOverlay
-      classItem={classes.find(c => c.id === joiningSession)}
-      type={startingSession === joiningSession ? "starting" : "rejoining"}
-      />
-    )}
-    </AnimatePresence>
 
     <QuickRejoinSection
     recentSessions={recentSessions}
