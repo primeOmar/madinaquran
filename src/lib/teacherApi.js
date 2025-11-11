@@ -64,13 +64,18 @@ export const teacherApi = {
   createNewSession: async (classId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-
+      
       if (!user) {
         throw new Error('User not authenticated');
       }
-
+      
       console.log('🚀 Calling backend to start session...');
-
+      console.log('📦 Request payload:', {
+        class_id: classId,
+        user_id: user.id,
+        user_email: user.email
+      });
+      
       // ✅ CORRECTED: Use /api/video/start-session
       const response = await fetch(`${API_BASE_URL}/api/video/start-session`, {
         method: 'POST',
@@ -82,23 +87,49 @@ export const teacherApi = {
           user_id: user.id
         })
       });
-
+      
+      console.log('🔍 Backend response status:', response.status);
+      console.log('🔍 Backend response headers:', Object.fromEntries(response.headers.entries()));
+      
+      // Get the response text first to see what's actually being returned
+      const responseText = await response.text();
+      console.log('🔍 Raw backend response:', responseText);
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Try to parse the error response
+        let errorDetails = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorDetails = errorData.error || errorData.message || responseText;
+          console.log('🔍 Parsed error data:', errorData);
+        } catch (e) {
+          console.log('🔍 Could not parse error response as JSON');
+          errorDetails = responseText || errorDetails;
+        }
+        throw new Error(errorDetails);
       }
-
-      const result = await response.json();
-
+      
+      // Parse the successful response
+      let result;
+      try {
+        result = JSON.parse(responseText);
+        console.log('🔍 Parsed success response:', result);
+      } catch (e) {
+        console.error('❌ Failed to parse success response as JSON');
+        throw new Error('Invalid JSON response from server');
+      }
+      
       if (!result.success) {
         throw new Error(result.error || 'Failed to create session via backend');
       }
-
+      
       console.log('✅ Backend session creation successful:', {
         meetingId: result.meeting_id,
         channel: result.channel,
-        hasToken: !!result.token
+        hasToken: !!result.token,
+        fullResult: result
       });
-
+      
       return {
         id: result.session?.db_session_id,
         meeting_id: result.meeting_id,
@@ -115,7 +146,7 @@ export const teacherApi = {
         },
         isNewSession: true
       };
-
+      
     } catch (error) {
       console.error('❌ Error creating new session via backend:', error);
       throw error;
@@ -522,23 +553,24 @@ export const teacherApi = {
     },
 
     // 🚀 NEW: Get active session for a class
+    // 🚀 UPDATED: Get active session for a class (FIXED)
     getActiveClassSession: async (classId) => {
       try {
         console.log('🔍 Looking for active session for class:', classId);
-
+        
         const { data: session, error } = await supabase
         .from('video_sessions')
         .select(`
         *,
         class:classes (title, teacher_id),
-                teacher:teacher_id (name, email, agora_config)
+                teacher:profiles!video_sessions_teacher_id_fkey (name, email)
                 `)
         .eq('class_id', classId)
         .eq('status', 'active')
         .order('started_at', { ascending: false })
         .limit(1)
         .single();
-
+        
         if (error) {
           if (error.code === 'PGRST116') {
             console.log('🔍 No active session found for class:', classId);
@@ -546,10 +578,10 @@ export const teacherApi = {
           }
           throw error;
         }
-
+        
         console.log('✅ Found active session:', session.meeting_id);
         return session;
-
+        
       } catch (error) {
         console.error('❌ Error getting active class session:', error);
         return null;
