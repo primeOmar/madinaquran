@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-
+const API_BASE_URL = 'https://madina-quran-backend.onrender.com';
 export const teacherApi = {
   getOrCreateActiveSession: async (classId) => {
     try {
