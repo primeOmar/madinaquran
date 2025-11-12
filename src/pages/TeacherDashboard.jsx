@@ -1096,22 +1096,22 @@ const ClassesTab = ({
   const [liveSessions, setLiveSessions] = useState([]);
   const [joiningSession, setJoiningSession] = useState(null);
   const [showVideoLoader, setShowVideoLoader] = useState(false);
-
+  
   // Define helper functions BEFORE useMemo to avoid hoisting issues
   const hasActiveSession = (classItem) => {
     return classItem.video_sessions?.some(s => s.status === 'active') ||
     classItem.video_session?.status === 'active';
   };
-
+  
   const isClassLive = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
     const now = new Date();
     const timeDiff = now - classTime;
     const hoursDiff = timeDiff / (1000 * 60 * 60);
-
+    
     return hoursDiff >= -0.5 && hoursDiff <= 2 && classItem.status === 'scheduled';
   };
-
+  
   const canStartVideo = (classItem) => {
     const classTime = new Date(classItem.scheduled_date);
     const now = new Date();
@@ -1119,21 +1119,22 @@ const ClassesTab = ({
     const hoursDiff = timeDiff / (1000 * 60 * 60);
     return classItem.status === 'scheduled' && hoursDiff > -2 && !hasActiveSession(classItem);
   };
-
+  
   const getActiveSession = (classItem) => {
     return classItem.video_sessions?.find(s => s.status === 'active') ||
     classItem.video_session;
   };
-
+  
   // Enhanced session joining with animation
   const handleStartSessionWithAnimation = async (classItem) => {
     setJoiningSession(classItem.id);
     setShowVideoLoader(true);
-
+    
     try {
       await onStartVideoSession(classItem);
     } catch (error) {
       console.error('Failed to start session:', error);
+      toast.error(`Failed to start session: ${error.message}`);
     } finally {
       // Keep loader visible for minimum time for better UX
       setTimeout(() => {
@@ -1142,15 +1143,16 @@ const ClassesTab = ({
       }, 2000);
     }
   };
-
+  
   const handleRejoinSessionWithAnimation = async (classItem) => {
     setJoiningSession(classItem.id);
     setShowVideoLoader(true);
-
+    
     try {
-      await handleEnhancedRejoin(classItem);
+      await onRejoinSession(classItem);
     } catch (error) {
       console.error('Failed to rejoin session:', error);
+      toast.error(`Failed to rejoin session: ${error.message}`);
     } finally {
       setTimeout(() => {
         setJoiningSession(null);
@@ -1158,19 +1160,19 @@ const ClassesTab = ({
       }, 2000);
     }
   };
-
+  
   // Now useMemo can safely use these functions
   const { upcomingClasses, completedClasses, activeClasses } = useMemo(() => {
     const now = new Date();
     const sortedClasses = [...classes].sort((a, b) => {
       return new Date(a.scheduled_date) - new Date(b.scheduled_date);
     });
-
+    
     // Active classes (currently live)
     const active = sortedClasses.filter(cls => {
       return hasActiveSession(cls) || isClassLive(cls);
     });
-
+    
     // Upcoming classes
     const upcoming = sortedClasses.filter(cls => {
       const classTime = new Date(cls.scheduled_date);
@@ -1178,7 +1180,7 @@ const ClassesTab = ({
       const hoursDiff = timeDiff / (1000 * 60 * 60);
       return hoursDiff > -2 && cls.status === 'scheduled' && !hasActiveSession(cls);
     });
-
+    
     // Completed classes
     const completed = sortedClasses.filter(cls => {
       const classTime = new Date(cls.scheduled_date);
@@ -1186,49 +1188,30 @@ const ClassesTab = ({
       const hoursDiff = timeDiff / (1000 * 60 * 60);
       return (hoursDiff <= -2 || cls.status === 'completed') && !hasActiveSession(cls);
     });
-
+    
     return {
       activeClasses: active,
       upcomingClasses: upcoming,
       completedClasses: completed
     };
   }, [classes]);
-
+  
   const copyClassLink = (meetingId) => {
     const link = `${window.location.origin}/join-class/${meetingId}`;
     navigator.clipboard.writeText(link);
-    toast.success('🔗 Madina link copied to  clipboard!');
+    toast.success('🔗 Madina link copied to clipboard!');
   };
-
+  
   const handleDeleteClass = async (classItem) => {
     try {
       setLocalDeletingClass(classItem.id);
       await onDeleteClass(classItem.id);
     } catch (error) {
       setLocalDeletingClass(null);
+      toast.error('Failed to delete class');
     }
   };
-
-  // Enhanced rejoin function for background sessions
-  const handleEnhancedRejoin = async (classItem) => {
-    try {
-      const activeSession = getActiveSession(classItem);
-
-      if (activeSession) {
-        await onRejoinSession(classItem);
-      } else {
-        if (isClassLive(classItem)) {
-          await onStartVideoSession(classItem);
-        } else {
-          toast.error('No active session found to rejoin');
-        }
-      }
-    } catch (error) {
-      console.error('Rejoin failed:', error);
-      toast.error('Failed to rejoin session');
-    }
-  };
-
+  
   // Check for background sessions on component mount
   useEffect(() => {
     const detectBackgroundSessions = () => {
@@ -1236,20 +1219,19 @@ const ClassesTab = ({
       hasActiveSession(cls) || isClassLive(cls)
       );
       setLiveSessions(backgroundSessions);
-
+      
       if (backgroundSessions.length > 0) {
         console.log('🔄 Detected background sessions:', backgroundSessions.length);
       }
     };
-
+    
     detectBackgroundSessions();
-
+    
     const interval = setInterval(detectBackgroundSessions, 30000);
-
+    
     return () => clearInterval(interval);
   }, [classes]);
-
-
+  
   // Mini loading indicator for buttons
   const LoadingButtonContent = ({ text, loadingText }) => (
     <motion.div
@@ -1267,7 +1249,7 @@ const ClassesTab = ({
     <span>{loadingText}</span>
     </motion.div>
   );
-
+  
   // Render function to avoid complex inline JSX
   const renderLiveSessionCard = (classItem) => {
     const activeSession = getActiveSession(classItem);
@@ -1277,7 +1259,7 @@ const ClassesTab = ({
     const isJoining = joiningSession === classItem.id;
     const sessionDuration = activeSession ?
     Math.floor((new Date() - new Date(activeSession.start_time || classItem.scheduled_date)) / 60000) : 0;
-
+    
     return (
       <MadinaCard key={classItem.id} gradient="from-red-900/50 to-pink-900/50" className="border-l-4 border-red-500 relative">
       {/* Loading Overlay for this specific card */}
@@ -1297,7 +1279,7 @@ const ClassesTab = ({
         </div>
         </motion.div>
       )}
-
+      
       <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
       <div className="flex-1">
       <div className="flex items-start justify-between mb-4">
@@ -1329,7 +1311,7 @@ const ClassesTab = ({
       🔴 LIVE
       </MadinaBadge>
       </div>
-
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
       <div className="flex items-center text-cyan-200">
       <Calendar size={18} className="mr-3 text-cyan-400" />
@@ -1338,7 +1320,7 @@ const ClassesTab = ({
       <p className="text-xs text-cyan-300">Started</p>
       </div>
       </div>
-
+      
       {classItem.duration && (
         <div className="flex items-center text-cyan-200">
         <Clock size={18} className="mr-3 text-cyan-400" />
@@ -1348,7 +1330,7 @@ const ClassesTab = ({
         </div>
         </div>
       )}
-
+      
       <div className="flex items-center text-cyan-200">
       <Users size={18} className="mr-3 text-cyan-400" />
       <div>
@@ -1357,11 +1339,11 @@ const ClassesTab = ({
       </div>
       </div>
       </div>
-
+      
       {classItem.description && (
         <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
       )}
-
+      
       {activeSession && (
         <div className="bg-red-800/20 p-4 rounded-xl border border-red-500/30 mb-4">
         <div className="flex items-center justify-between">
@@ -1377,7 +1359,7 @@ const ClassesTab = ({
         </div>
         </div>
       )}
-
+      
       {classItem.course?.name && (
         <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
         <BookOpen size={16} className="mr-2 text-cyan-400" />
@@ -1385,8 +1367,9 @@ const ClassesTab = ({
         </div>
       )}
       </div>
-
+      
       <div className="flex flex-col space-y-3 w-full lg:w-auto">
+      {/* Always show Rejoin button for live sessions */}
       <MadinaButton
       onClick={() => handleRejoinSessionWithAnimation(classItem)}
       disabled={isJoining || isStarting}
@@ -1405,7 +1388,7 @@ const ClassesTab = ({
         </>
       )}
       </MadinaButton>
-
+      
       {activeSession && (
         <>
         <MadinaButton
@@ -1415,7 +1398,7 @@ const ClassesTab = ({
         <Share2 size={20} className="mr-3" />
         Copy Invite Link
         </MadinaButton>
-
+        
         <MadinaButton
         onClick={() => onEndVideoSession(classItem, activeSession)}
         disabled={isEnding}
@@ -1435,7 +1418,8 @@ const ClassesTab = ({
         </MadinaButton>
         </>
       )}
-
+      
+      {/* Show Start Session button if no active session but class is live */}
       {!activeSession && isClassLive(classItem) && (
         <MadinaButton
         onClick={() => handleStartSessionWithAnimation(classItem)}
@@ -1455,7 +1439,7 @@ const ClassesTab = ({
         )}
         </MadinaButton>
       )}
-
+      
       <MadinaButton
       onClick={() => handleDeleteClass(classItem)}
       disabled={localDeletingClass === classItem.id}
@@ -1476,25 +1460,25 @@ const ClassesTab = ({
       </MadinaButton>
       </div>
       </div>
-
+      
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
       <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
       <MadinaBadge variant="live">
       LIVE SESSION
       </MadinaBadge>
-
+      
       <span className="flex items-center text-green-400 text-sm">
       <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2"></div>
       Madina channel active
       </span>
-
+      
       {activeSession && (
         <span className="text-cyan-400 text-sm">
         Last active: {formatDateTime(activeSession.updated_at || activeSession.start_time)}
         </span>
       )}
       </div>
-
+      
       <div className="flex items-center space-x-2 text-cyan-300 text-sm">
       <User size={14} />
       <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} connected</span>
@@ -1503,14 +1487,14 @@ const ClassesTab = ({
       </MadinaCard>
     );
   };
-
+  
   const renderUpcomingSessionCard = (classItem) => {
     const studentCount = classItem.students_classes?.length || 0;
     const canStart = canStartVideo(classItem);
     const isStarting = startingSession === classItem.id;
     const isDeleting = localDeletingClass === classItem.id;
     const isJoining = joiningSession === classItem.id;
-
+    
     return (
       <MadinaCard key={classItem.id} gradient="from-blue-900/50 to-purple-900/50">
       {/* Loading Overlay for this specific card */}
@@ -1530,7 +1514,7 @@ const ClassesTab = ({
         </div>
         </motion.div>
       )}
-
+      
       <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
       <div className="flex-1">
       <div className="flex items-start justify-between mb-4">
@@ -1538,7 +1522,7 @@ const ClassesTab = ({
       <h4 className="font-bold text-2xl text-white mb-2">{classItem.title}</h4>
       </div>
       </div>
-
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
       <div className="flex items-center text-cyan-200">
       <Calendar size={18} className="mr-3 text-cyan-400" />
@@ -1547,7 +1531,7 @@ const ClassesTab = ({
       <p className="text-xs text-cyan-300">Temporal Coordinates</p>
       </div>
       </div>
-
+      
       {classItem.duration && (
         <div className="flex items-center text-cyan-200">
         <Clock size={18} className="mr-3 text-cyan-400" />
@@ -1557,7 +1541,7 @@ const ClassesTab = ({
         </div>
         </div>
       )}
-
+      
       <div className="flex items-center text-cyan-200">
       <Users size={18} className="mr-3 text-cyan-400" />
       <div>
@@ -1566,11 +1550,11 @@ const ClassesTab = ({
       </div>
       </div>
       </div>
-
+      
       {classItem.description && (
         <p className="text-cyan-300 text-lg mb-4">{classItem.description}</p>
       )}
-
+      
       {classItem.course?.name && (
         <div className="inline-flex items-center bg-cyan-800/30 border border-cyan-700/30 px-4 py-2 rounded-full">
         <BookOpen size={16} className="mr-2 text-cyan-400" />
@@ -1578,7 +1562,7 @@ const ClassesTab = ({
         </div>
       )}
       </div>
-
+      
       <div className="flex flex-col space-y-3 w-full lg:w-auto">
       {canStart && (
         <MadinaButton
@@ -1599,7 +1583,7 @@ const ClassesTab = ({
         )}
         </MadinaButton>
       )}
-
+      
       <MadinaButton
       onClick={() => handleDeleteClass(classItem)}
       disabled={isDeleting}
@@ -1620,14 +1604,14 @@ const ClassesTab = ({
       </MadinaButton>
       </div>
       </div>
-
+      
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-6 pt-4 border-t border-white/10">
       <div className="flex items-center space-x-4 text-sm mb-3 md:mb-0">
       <MadinaBadge variant="warning">
       SCHEDULED
       </MadinaBadge>
       </div>
-
+      
       <div className="flex items-center space-x-2 text-cyan-300 text-sm">
       <User size={14} />
       <span>{studentCount} neural learner{studentCount !== 1 ? 's' : ''} enrolled</span>
@@ -1636,7 +1620,7 @@ const ClassesTab = ({
       </MadinaCard>
     );
   };
-
+  
   return (
     <div>
     {/* Full-screen Video Loading Overlay */}
@@ -1644,7 +1628,7 @@ const ClassesTab = ({
     recentSessions={recentSessions}
     onRejoin={onRejoinSession}
     />
-
+    
     {/* Live Sessions Section */}
     {activeClasses.length > 0 && (
       <div className="mb-8">
@@ -1660,7 +1644,7 @@ const ClassesTab = ({
       </div>
       </div>
     )}
-
+    
     {videoCallError && (
       <MadinaCard gradient="from-red-900/30 to-pink-900/30" className="mb-6">
       <div className="flex items-center justify-between">
@@ -1677,7 +1661,7 @@ const ClassesTab = ({
       </div>
       </MadinaCard>
     )}
-
+    
     <div className="flex justify-between items-center mb-6">
     <div>
     <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
@@ -1690,7 +1674,7 @@ const ClassesTab = ({
     {upcomingClasses.length} upcoming • {completedClasses.length} completed
     </div>
     </div>
-
+    
     {upcomingClasses.length > 0 && (
       <div className="mb-8">
       <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
@@ -1702,7 +1686,7 @@ const ClassesTab = ({
       </div>
       </div>
     )}
-
+    
     {completedClasses.length > 0 && (
       <div>
       <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
@@ -1723,7 +1707,7 @@ const ClassesTab = ({
       </div>
       </div>
     )}
-
+    
     {classes.length === 0 && (
       <MadinaCard className="text-center py-16">
       <Video size={80} className="mx-auto text-cyan-400 mb-4 opacity-50" />
@@ -3295,20 +3279,21 @@ export default function TeacherDashboard() {
 
     {showVideoCallModal && activeVideoCall && (
       <TeacherVideoCall
-      classData={activeVideoCall}
+      classItem={activeVideoCall} 
+      isOpen={showVideoCallModal}
       onClose={() => {
         setShowVideoCallModal(false);
         setActiveVideoCall(null);
         setVideoCallError(null);
       }}
-      onError={(error) => {
-        setVideoCallError(error);
-        toast.error(`Video call error: ${error}`);
+      onSessionUpdate={(update) => {
+        console.log('Session update:', update);
+        if (update.type === 'session_ended') {
+          setShowVideoCallModal(false);
+          setActiveVideoCall(null);
+          loadTeacherData(); 
+        }
       }}
-      channel={activeVideoCall.channel || activeVideoCall.meetingId || `class-${activeVideoCall.classId}`}
-      token={activeVideoCall.token || null}
-      appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID || 'fallback-app-id'}
-      uid={activeVideoCall.uid || user?.id || Date.now().toString()}
       />
     )}
     </div>
