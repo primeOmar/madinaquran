@@ -3060,20 +3060,9 @@ export default function TeacherDashboard() {
 
     {showVideoCallModal && activeVideoCall && (
       <TeacherVideoCall
-      classData={activeVideoCall}
-      onClose={() => {
-        setShowVideoCallModal(false);
-        setActiveVideoCall(null);
-        setVideoCallError(null);
-      }}
-      onError={(error) => {
-        setVideoCallError(error);
-        toast.error(`Video call error: ${error}`);
-      }}
-      channel={activeVideoCall.channel || activeVideoCall.meetingId || `class-${activeVideoCall.classId}`}
-      token={activeVideoCall.token || null}
-      appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID || 'fallback-app-id'}
-      uid={activeVideoCall.uid || user?.id || Date.now().toString()}
+      classItem={selectedClass}
+      isOpen={showVideoCall}
+      onClose={() => setShowVideoCall(false)}
       />
     )}
     </div>
