@@ -2361,24 +2361,25 @@ export default function TeacherDashboard() {
     audioRecorder={audioRecorder}
     />
 
-    {showVideoCallModal && activeVideoCall && (
-      <TeacherVideoCall
-      classItem={activeVideoCall}
-      onClose={() => {
+{showVideoCallModal && activeVideoCall && (
+  <TeacherVideoCall
+    classItem={activeVideoCall}  
+    isOpen={showVideoCallModal}
+    onClose={() => {
+      setShowVideoCallModal(false);
+      setActiveVideoCall(null);
+      setVideoCallError(null);
+    }}
+    onSessionUpdate={(update) => {
+      console.log('Session update:', update);
+      // Handle session events
+      if (update.type === 'session_ended') {
         setShowVideoCallModal(false);
         setActiveVideoCall(null);
-        setVideoCallError(null);
-      }}
-      onError={(error) => {
-        setVideoCallError(error);
-        toast.error(`Video call error: ${error}`);
-      }}
-      channel={activeVideoCall.channel || activeVideoCall.meetingId || `class-${activeVideoCall.classId}`}
-      token={activeVideoCall.token || null}
-      appId={activeVideoCall.appId || import.meta.env.VITE_AGORA_APP_ID || 'fallback-app-id'}
-      uid={activeVideoCall.uid || user?.id || Date.now().toString()}
-      />
-    )}
+      }
+    }}
+  />
+)}
     </div>
   );
 }
