@@ -136,6 +136,12 @@ const useAudioRecorder = () => {
   };
 };
 
+// Quick Rejoin Section Component
+const QuickRejoinSection = ({ recentSessions, onRejoin }) => {
+  if (!recentSessions || recentSessions.length === 0) return null;
+
+
+};
 
 
 // Classes Tab Component
