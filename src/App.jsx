@@ -30,6 +30,7 @@ import AdminDashboard from "./components/admin/AdminDashboard";
 import AdminRegister from "./pages/AdminRegister";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherDashboard from "./pages/TeacherDashboard";
+import TeacherVideoCall from "./pages/TeacherVideoCall";
 import AuthCallback from './pages/AuthCallback';
 import EmailConfirmationHandler from './pages/EmailConfirmationHandler';
 
