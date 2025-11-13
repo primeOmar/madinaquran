@@ -522,247 +522,89 @@ export const studentApi = {
   },
 
   // ===== VIDEO SESSION MANAGEMENT =====
-  async joinVideoSession(meetingId) {
-    let lastError = null;
-    const startTime = Date.now();
+ async joinVideoSession(meetingId) {
+  try {
+    const user = await this.getCurrentUser();
+    
+    ProductionLogger.info('🎯 Student joining session:', meetingId);
 
-    try {
-      const user = await this.getCurrentUser();
-
-      ProductionLogger.info('Student joining video session', {
-        userId: user.id,
-        meetingId,
-        startTime: new Date().toISOString()
-      });
-
-      // Validate meeting ID
-      if (!meetingId || typeof meetingId !== 'string' || meetingId.trim().length === 0) {
-        throw new Error('Invalid meeting ID format');
-      }
-
-      // Get join credentials
-      const joinData = await this.getJoinCredentials(meetingId, user.id, user.email);
-
-      if (!joinData) {
-        throw new Error('Failed to obtain join credentials from all sources');
-      }
-
-      // Validate join data
-      const validationError = validateJoinData(joinData);
-      if (validationError) {
-        throw new Error(`Invalid join data: ${validationError}`);
-      }
-
-      // ✅ UPDATED: Record initial participation with correct schema
-      await this.recordInitialParticipation(meetingId, user.id, joinData.uid)
-      .catch(error => ProductionLogger.warn('Initial participation recording failed', error));
-
-      const result = {
-        success: true,
-        meetingId: meetingId,
-        channel: joinData.channel,
-        token: joinData.token,
-        appId: joinData.appId,
-        uid: joinData.uid,
-        source: joinData.source,
-        timestamp: new Date().toISOString(),
-        sessionInfo: joinData.sessionInfo,
-        responseTime: Date.now() - startTime
-      };
-
-      ProductionLogger.info('Video session join successful', result);
-      return result;
-
-    } catch (error) {
-      lastError = error;
-      ProductionLogger.error('Video session join failed', error);
-
-      // ✅ NEW: Record failed participation attempt
-      await this.recordFailedParticipation(meetingId, error)
-      .catch(err => ProductionLogger.warn('Failed participation recording failed', err));
-    }
-
-    // Retry logic
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        ProductionLogger.warn(`Retry attempt ${attempt}/${MAX_RETRIES} for session join`);
-
-        const user = await this.getCurrentUser();
-        const joinData = await this.getJoinCredentials(meetingId, user.id, user.email);
-
-        if (joinData) {
-          const result = {
-            success: true,
-            meetingId: meetingId,
-            channel: joinData.channel,
-            token: joinData.token,
-            appId: joinData.appId,
-            uid: joinData.uid,
-            source: joinData.source,
-            timestamp: new Date().toISOString(),
-            sessionInfo: joinData.sessionInfo,
-            retryAttempt: attempt,
-            responseTime: Date.now() - startTime
-          };
-
-          ProductionLogger.info('Video session join successful after retry', result);
-          return result;
-        }
-
-        if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
-        }
-      } catch (error) {
-        lastError = error;
-        if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
-        }
-      }
-    }
-
-    ProductionLogger.error('All video session join attempts failed', lastError);
-    return {
-      success: false,
-      error: lastError?.message || 'Failed to join video session after multiple attempts',
-      errorCode: getErrorCode(lastError),
-      retryCount: MAX_RETRIES,
-      timestamp: new Date().toISOString(),
-      responseTime: Date.now() - startTime
-    };
-  },
-
-  async getJoinCredentials(meetingId, userId, userEmail) {
-    const credentialSources = [
-      { name: 'primary-backend', priority: 1, method: this.getCredentialsFromBackend.bind(this) },
-      { name: 'database-fallback', priority: 2, method: this.getCredentialsFromDatabase.bind(this) },
-      { name: 'emergency-fallback', priority: 3, method: this.getEmergencyCredentials.bind(this) }
-    ];
-
-    credentialSources.sort((a, b) => a.priority - b.priority);
-
-    for (const source of credentialSources) {
-      try {
-        ProductionLogger.debug(`Trying credential source: ${source.name}`);
-        const credentials = await source.method(meetingId, userId, userEmail);
-
-        if (credentials && credentials.channel && credentials.appId) {
-          ProductionLogger.info(`Credentials obtained from ${source.name}`);
-          return {
-            ...credentials,
-            source: source.name,
-            obtainedAt: new Date().toISOString()
-          };
-        }
-      } catch (error) {
-        ProductionLogger.warn(`Credential source ${source.name} failed`, error.message);
-      }
-    }
-
-    return null;
-  },
-
-  async getCredentialsFromBackend(meetingId, userId, userEmail) {
-    try {
-      const data = await ApiRequestHandler.makeRequest(
-        `${API_BASE_URL}/api/video/join-session`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            meeting_id: meetingId,
-            user_id: userId,
-            user_type: 'student',
-            user_name: userEmail || 'Student'
-          })
-        }
-      );
-
-      if (!data.success) {
-        throw new Error(data.error || 'Join request failed');
-      }
-
-      if (!data.channel || !data.app_id) {
-        throw new Error('Invalid response: missing channel or app_id');
-      }
-
-      return {
-        channel: data.channel,
-        token: data.token,
-        appId: data.app_id || data.appId,
-        uid: data.uid,
-        sessionInfo: {
-          classTitle: data.class_title,
-          teacherName: data.teacher_name
-        }
-      };
-
-    } catch (error) {
-      ProductionLogger.error('Backend credential fetch failed', error);
-      throw error;
-    }
-  },
-
-  async getCredentialsFromDatabase(meetingId, userId, userEmail) {
-    try {
-      const { data: session, error } = await supabase
+    // ✅ STEP 1: Get session from database (includes channel_name)
+    const { data: session, error: sessionError } = await supabase
       .from('video_sessions')
       .select(`
-      channel_name,
-      class_id,
-      classes (
-        teacher:teacher_id (
-          agora_config
-        )
-      )
+        *,
+        class:classes (title, teacher_id),
+        teacher:teacher_id (name, agora_config)
       `)
       .eq('meeting_id', meetingId)
+      .eq('status', 'active')
       .single();
 
-      if (error || !session) {
-        throw new Error('Session not found in database');
-      }
-
-      const teacherConfig = session.classes?.teacher?.agora_config;
-      const appId = teacherConfig?.appId || AGORA_APP_ID;
-
-      if (!appId) {
-        throw new Error('No Agora App ID configured');
-      }
-
-      const channel = session.channel_name || `class_${session.class_id}_${meetingId}`;
-
-      return {
-        channel: channel,
-        token: null,
-        appId: appId,
-        uid: generateDeterministicUID(userId, meetingId),
-        isFallback: true
-      };
-
-    } catch (error) {
-      ProductionLogger.error('Database credential fallback failed', error);
-      throw error;
-    }
-  },
-
-  async getEmergencyCredentials(meetingId, userId, userEmail) {
-    if (!AGORA_APP_ID) {
-      throw new Error('Emergency fallback: No Agora App ID in environment');
+    if (sessionError || !session) {
+      throw new Error('No active video session found. Teacher needs to start the class first.');
     }
 
-    const channel = `emergency_${meetingId.substring(0, 8)}`;
-    const uid = generateDeterministicUID(userId, meetingId);
+    // ✅ STEP 2: Get teacher's Agora App ID
+    const appId = session.teacher?.agora_config?.appId || 
+                  import.meta.env.VITE_AGORA_APP_ID;
 
-    ProductionLogger.warn('Using emergency fallback credentials');
+    if (!appId) {
+      throw new Error('Agora configuration error');
+    }
+
+    // ✅ STEP 3: Use EXACT channel name from session
+    const channelName = session.channel_name;
+
+    if (!channelName) {
+      throw new Error('Invalid session: missing channel name');
+    }
+
+    // ✅ STEP 4: Generate CONSISTENT student UID
+    const generateStudentUID = () => {
+      const combined = `student_${user.id}_${channelName}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return Math.abs(hash) % 1000000;
+    };
+
+    const uid = generateStudentUID();
+
+    ProductionLogger.info('✅ Student credentials generated:', {
+      channel: channelName,
+      uid: uid,
+      meetingId: meetingId
+    });
+
+    // Record participation
+    await this.recordInitialParticipation(meetingId, user.id, uid)
+      .catch(error => ProductionLogger.warn('Participation recording failed', error));
 
     return {
-      channel: channel,
+      success: true,
+      meetingId: meetingId,
+      channel: channelName, // ✅ EXACT channel from session
       token: null,
-      appId: AGORA_APP_ID,
+      appId: appId,
       uid: uid,
-      isEmergency: true,
-      warning: 'Using emergency fallback mode - limited functionality'
+      sessionInfo: {
+        classTitle: session.class?.title,
+        teacherName: session.teacher?.name
+      }
     };
-  },
+
+  } catch (error) {
+    ProductionLogger.error('❌ Join failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      errorCode: getErrorCode(error)
+    };
+  }
+},
 
   async getSessionStatus(meetingId) {
     try {
@@ -1153,60 +995,51 @@ export const studentApi = {
       return await this.recordParticipationFallback(participationData);
     }
   },
-  async joinClassVideoSession(classId) {
+  joinClassVideoSession: async (classId) => {
     try {
-      const user = await this.getCurrentUser();
+      const user = await studentApi.getCurrentUser();
 
-      ProductionLogger.info('🎒 Student joining class video session', {
+      ProductionLogger.info('🎯 Student joining class video session (UNIFIED)', {
         classId,
         userId: user.id
       });
 
       // 1. Find active session for this class
-      const { data: activeSession, error: sessionError } = await supabase
-      .from('video_sessions')
-      .select(`
-      *,
-      class:classes (title, teacher_id),
-              teacher:teacher_id (name, email, agora_config)
-              `)
-      .eq('class_id', classId)
-      .eq('status', 'active')
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single();
+      const activeSession = await studentApi.findActiveClassSession(classId);
 
-      if (sessionError || !activeSession) {
+      if (!activeSession) {
         throw new Error('No active video session found for this class. Please ask the teacher to start the session.');
       }
 
-      ProductionLogger.info('✅ Found active session', {
+      ProductionLogger.info('✅ Found active session:', {
         meetingId: activeSession.meeting_id,
-        channel: activeSession.channel_name
+        channel: activeSession.channel_name,
+        teacherId: activeSession.teacher_id
       });
 
-      // 2. Get join credentials
-      const joinData = await this.getJoinCredentials(
-        activeSession.meeting_id,
-        user.id,
-        user.email
+      // 2. Get Agora credentials using the SAME channel as teacher
+      const credentials = await studentApi.generateStudentAgoraCredentials(
+        activeSession.channel_name,
+        user.id
       );
 
-      if (!joinData) {
-        throw new Error('Failed to obtain join credentials');
-      }
-
       // 3. Record participation
-      await this.recordInitialParticipation(activeSession.meeting_id, user.id, joinData.uid)
-      .catch(error => ProductionLogger.warn('Initial participation recording failed', error));
+      await studentApi.recordStudentParticipation(activeSession.meeting_id, user.id, credentials.uid)
+      .catch(error => ProductionLogger.warn('Participation recording failed', error));
+
+      ProductionLogger.info('🎯 Student join successful:', {
+        channel: credentials.channel,
+        uid: credentials.uid,
+        meetingId: activeSession.meeting_id
+      });
 
       return {
         success: true,
         meetingId: activeSession.meeting_id,
-        channel: joinData.channel,
-        token: joinData.token,
-        appId: joinData.appId,
-        uid: joinData.uid,
+        channel: credentials.channel,
+        token: credentials.token,
+        appId: credentials.appId,
+        uid: credentials.uid,
         sessionInfo: {
           classTitle: activeSession.class?.title,
           teacherName: activeSession.teacher?.name
@@ -1222,6 +1055,140 @@ export const studentApi = {
       };
     }
   },
+  findActiveClassSession: async (classId) => {
+    try {
+      ProductionLogger.debug('🔍 Looking for active session for class:', classId);
+
+      const { data: session, error } = await supabase
+      .from('video_sessions')
+      .select(`
+      *,
+      class:classes (title, teacher_id),
+              teacher:teacher_id (name, email, agora_config)
+              `)
+      .eq('class_id', classId)
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          ProductionLogger.debug('🔍 No active session found for class:', classId);
+          return null;
+        }
+        throw error;
+      }
+
+      ProductionLogger.debug('✅ Found active session:', session.meeting_id);
+      return session;
+
+    } catch (error) {
+      ProductionLogger.error('❌ Error finding active session:', error);
+      return null;
+    }
+  },
+
+  generateStudentAgoraCredentials: async (channelName, studentId) => {
+    try {
+      // Get teacher's Agora config from the session
+      const { data: session } = await supabase
+      .from('video_sessions')
+      .select(`
+      teacher:teacher_id (agora_config)
+      `)
+      .eq('channel_name', channelName)
+      .eq('status', 'active')
+      .single();
+
+      const appId = session?.teacher?.agora_config?.appId || process.env.VITE_AGORA_APP_ID;
+
+      if (!appId) {
+        throw new Error('Agora App ID not configured');
+      }
+
+      // 🎯 CRITICAL: Generate consistent UID for student
+      const generateStudentUID = () => {
+        const combined = `student_${studentId}_${channelName}`;
+        let hash = 0;
+        for (let i = 0; i < combined.length; i++) {
+          const char = combined.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash;
+        }
+        return Math.abs(hash) % 1000000;
+      };
+
+      const uid = generateStudentUID();
+
+      ProductionLogger.debug('🎯 Generated student Agora credentials:', {
+        appId: appId.substring(0, 8) + '...',
+                             channel: channelName,
+                             uid
+      });
+
+      return {
+        appId,
+        channel: channelName,
+        token: null,
+        uid: uid
+      };
+
+    } catch (error) {
+      ProductionLogger.error('❌ Error generating student credentials:', error);
+      throw error;
+    }
+  },
+
+  recordStudentParticipation: async (meetingId, studentId, agoraUid) => {
+    try {
+      const { data: session } = await supabase
+      .from('video_sessions')
+      .select('id, class_id, channel_name')
+      .eq('meeting_id', meetingId)
+      .single();
+
+      if (!session) {
+        throw new Error('Session not found');
+      }
+
+      const participationData = {
+        session_id: session.id,
+        student_id: studentId,
+        class_id: session.class_id,
+        is_teacher: false,
+        joined_at: new Date().toISOString(),
+        status: 'joined',
+        agora_uid: agoraUid,
+        device_info: {
+          user_agent: navigator.userAgent,
+          browser: getBrowserInfo(),
+          channel: session.channel_name // 🎯 DEBUG: Track which channel student joined
+        }
+      };
+
+      ProductionLogger.debug('📝 Recording student participation:', participationData);
+
+      const { error } = await supabase
+      .from('session_participants')
+      .upsert(participationData, {
+        onConflict: 'session_id,student_id'
+      });
+
+      if (error) {
+        ProductionLogger.warn('Participation recording failed', error);
+        throw error;
+      }
+
+      ProductionLogger.info('✅ Student participation recorded');
+      return { success: true };
+
+    } catch (error) {
+      ProductionLogger.warn('Student participation recording failed', error);
+      throw error;
+    }
+  },
+
   // 🚀 NEW: Get active session for a class
   getActiveClassSession: async (classId) => {
     try {
