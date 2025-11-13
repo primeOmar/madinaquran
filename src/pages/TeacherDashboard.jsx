@@ -2363,7 +2363,7 @@ export default function TeacherDashboard() {
 
     {showVideoCallModal && activeVideoCall && (
       <TeacherVideoCall
-      classData={activeVideoCall}
+      classItem={activeVideoCall}
       onClose={() => {
         setShowVideoCallModal(false);
         setActiveVideoCall(null);
