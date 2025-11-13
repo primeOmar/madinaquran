@@ -3,7 +3,7 @@ import AgoraRTC from 'agora-rtc-sdk-ng';
 import {
   Mic, MicOff, Video, VideoOff, Phone, Users, Clock,
   Settings, Share2, MessageCircle, User, Wifi, WifiOff,
-  AlertCircle, Loader2, XCircle, CheckCircle, Copy
+  AlertCircle, Loader2, XCircle, CheckCircle, Copy,isOpen
 } from "lucide-react";
 import { toast } from 'react-toastify';
 import { motion } from "framer-motion";
