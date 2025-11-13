@@ -3,40 +3,12 @@ import AgoraRTC from 'agora-rtc-sdk-ng';
 import {
   Mic, MicOff, Video, VideoOff, Phone, Users, Clock,
   Settings, Share2, MessageCircle, User, Wifi, WifiOff,
-  AlertCircle, Loader2, XCircle, CheckCircle, Copy,isOpen
+  AlertCircle, Loader2, XCircle, CheckCircle, Copy
 } from "lucide-react";
 import { toast } from 'react-toastify';
 import { motion } from "framer-motion";
 import { teacherApi } from '../lib/teacherApi';
-// Add this to your TeacherVideoCall component
-useEffect(() => {
-  console.log('🔍 TeacherVideoCall Debug:', {
-    isOpen,
-    classItem: classItem ? {
-      id: classItem.id,
-      title: classItem.title,
-      classId: classItem.classId
-    } : null,
-    sessionState: {
-      isConnecting: sessionState.isConnecting,
-      isConnected: sessionState.isConnected,
-      error: sessionState.error
-    }
-  });
-}, [isOpen, classItem, sessionState]);
 
-// Test the API call separately
-const testTeacherApi = async () => {
-  try {
-    console.log('🧪 Testing teacher API...');
-    const result = await teacherApi.getOrCreateActiveSession(classItem.id);
-    console.log('✅ Teacher API result:', result);
-    return result;
-  } catch (error) {
-    console.error('❌ Teacher API error:', error);
-    throw error;
-  }
-};
 // Madina Design System Components
 const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
   <div
@@ -129,6 +101,36 @@ const TeacherVideoCall = ({
     console.error(`[${timestamp}] ❌ TEACHER_VIDEO_ERROR: ${message}`, error);
   }, []);
 
+  // Add debug useEffect inside the component
+  useEffect(() => {
+    console.log('🔍 TeacherVideoCall Debug:', {
+      isOpen,
+      classItem: classItem ? {
+        id: classItem.id,
+        title: classItem.title,
+        classId: classItem.classId
+      } : null,
+      sessionState: {
+        isConnecting: sessionState.isConnecting,
+        isConnected: sessionState.isConnected,
+        error: sessionState.error
+      }
+    });
+  }, [isOpen, classItem, sessionState]);
+
+  // Test the API call separately
+  const testTeacherApi = async () => {
+    try {
+      console.log('🧪 Testing teacher API...');
+      const result = await teacherApi.getOrCreateActiveSession(classItem.id);
+      console.log('✅ Teacher API result:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Teacher API error:', error);
+      throw error;
+    }
+  };
+
   // Test media permissions
   const testMediaPermissions = async () => {
     try {
@@ -219,127 +221,128 @@ const TeacherVideoCall = ({
     });
   };
 
- // Enhanced initializeSession function in TeacherVideoCall
-const initializeSession = useCallback(async () => {
-  if (!isOpen || !classItem?.id || sessionState.isConnecting || sessionState.isConnected) {
-    return;
-  }
-
-  debugLog('🚀 Starting teacher video session', {
-    classId: classItem.id,
-    className: classItem.title
-  });
-
-  setSessionState(prev => ({
-    ...prev,
-    isConnecting: true,
-    error: null
-  }));
-
-  try {
-    // Step 1: Test media permissions
-    debugLog('🎯 Testing media permissions...');
-    await testMediaPermissions();
-
-    // Step 2: Get session credentials from teacher API
-    debugLog('🔗 Getting session from teacher API...');
-    const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
-    
-    if (!sessionData || !sessionData.agora_credentials) {
-      throw new Error('Failed to get session credentials');
+  // Enhanced initializeSession function in TeacherVideoCall
+  const initializeSession = useCallback(async () => {
+    if (!isOpen || !classItem?.id || sessionState.isConnecting || sessionState.isConnected) {
+      return;
     }
 
-    const { appId, channel, token, uid } = sessionData.agora_credentials;
-
-    debugLog('✅ Session credentials received', {
-      channel,
-      uid,
-      hasAppId: !!appId,
-      hasToken: !!token
+    debugLog('🚀 Starting teacher video session', {
+      classId: classItem.id,
+      className: classItem.title
     });
 
-    // Step 3: Validate configuration
-    if (!appId || appId.includes('your_agora_app_id')) {
-      throw new Error('Invalid Agora App ID configuration');
-    }
-
-    // Step 4: Initialize Agora client
-    debugLog('🔧 Initializing Agora client...');
-    const client = AgoraRTC.createClient({
-      mode: 'rtc',
-      codec: 'vp8'
-    });
-    agoraClientRef.current = client;
-
-    // Step 5: Setup event handlers
-    setupAgoraEventHandlers(client);
-
-    // Step 6: Create local tracks
-    debugLog('🎤 Creating local tracks...');
-    const tracks = await createLocalTracksWithRetry();
-
-    // Step 7: Join channel
-    debugLog(`🚪 Joining channel: ${channel}`);
-    await joinChannelWithTimeout(client, appId, channel, token, uid);
-
-    // Step 8: Publish tracks
-    debugLog('📤 Publishing tracks...');
-    if (tracks.audio && tracks.video) {
-      await client.publish([tracks.audio, tracks.video]);
-      debugLog('✅ Published audio and video tracks');
-    }
-
-    // Step 9: Play local video
-    await playLocalVideo();
-
-    // Step 10: Update state
     setSessionState(prev => ({
       ...prev,
-      isConnected: true,
-      isConnecting: false,
-      sessionInfo: {
-        meetingId: sessionData.meeting_id,
-        isNewSession: sessionData.isNewSession,
-        startTime: new Date().toISOString(),
-        channel: channel
-      },
-      meetingId: sessionData.meeting_id,
-      channel: channel
+      isConnecting: true,
+      error: null
     }));
 
-    // Step 11: Start timer
-    timerRef.current = setInterval(() => {
+    try {
+      // Step 1: Test media permissions
+      debugLog('🎯 Testing media permissions...');
+      await testMediaPermissions();
+
+      // Step 2: Get session credentials from teacher API
+      debugLog('🔗 Getting session from teacher API...');
+      const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
+      
+      if (!sessionData || !sessionData.agora_credentials) {
+        throw new Error('Failed to get session credentials');
+      }
+
+      const { appId, channel, token, uid } = sessionData.agora_credentials;
+
+      debugLog('✅ Session credentials received', {
+        channel,
+        uid,
+        hasAppId: !!appId,
+        hasToken: !!token
+      });
+
+      // Step 3: Validate configuration
+      if (!appId || appId.includes('your_agora_app_id')) {
+        throw new Error('Invalid Agora App ID configuration');
+      }
+
+      // Step 4: Initialize Agora client
+      debugLog('🔧 Initializing Agora client...');
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
+      agoraClientRef.current = client;
+
+      // Step 5: Setup event handlers
+      setupAgoraEventHandlers(client);
+
+      // Step 6: Create local tracks
+      debugLog('🎤 Creating local tracks...');
+      const tracks = await createLocalTracksWithRetry();
+
+      // Step 7: Join channel
+      debugLog(`🚪 Joining channel: ${channel}`);
+      await joinChannelWithTimeout(client, appId, channel, token, uid);
+
+      // Step 8: Publish tracks
+      debugLog('📤 Publishing tracks...');
+      if (tracks.audio && tracks.video) {
+        await client.publish([tracks.audio, tracks.video]);
+        debugLog('✅ Published audio and video tracks');
+      }
+
+      // Step 9: Play local video
+      await playLocalVideo();
+
+      // Step 10: Update state
       setSessionState(prev => ({
         ...prev,
-        callDuration: prev.callDuration + 1
+        isConnected: true,
+        isConnecting: false,
+        sessionInfo: {
+          meetingId: sessionData.meeting_id,
+          isNewSession: sessionData.isNewSession,
+          startTime: new Date().toISOString(),
+          channel: channel
+        },
+        meetingId: sessionData.meeting_id,
+        channel: channel
       }));
-    }, 1000);
 
-    debugLog('🎉 Teacher video session started successfully');
-    toast.success(sessionData.isNewSession ? '🎉 Class session started!' : '🔄 Rejoined existing session!');
+      // Step 11: Start timer
+      timerRef.current = setInterval(() => {
+        setSessionState(prev => ({
+          ...prev,
+          callDuration: prev.callDuration + 1
+        }));
+      }, 1000);
 
-  } catch (error) {
-    debugError('❌ Session initialization failed', error);
-    
-    let userMessage = 'Failed to start video session. ';
-    if (error.message.includes('permission')) {
-      userMessage = 'Camera/microphone permission required. Please allow access.';
-    } else if (error.message.includes('network')) {
-      userMessage = 'Network connection issue. Please check your internet.';
-    } else {
-      userMessage += error.message || 'Please check your connection.';
+      debugLog('🎉 Teacher video session started successfully');
+      toast.success(sessionData.isNewSession ? '🎉 Class session started!' : '🔄 Rejoined existing session!');
+
+    } catch (error) {
+      debugError('❌ Session initialization failed', error);
+      
+      let userMessage = 'Failed to start video session. ';
+      if (error.message.includes('permission')) {
+        userMessage = 'Camera/microphone permission required. Please allow access.';
+      } else if (error.message.includes('network')) {
+        userMessage = 'Network connection issue. Please check your internet.';
+      } else {
+        userMessage += error.message || 'Please check your connection.';
+      }
+
+      setSessionState(prev => ({
+        ...prev,
+        isConnecting: false,
+        error: userMessage
+      }));
+
+      toast.error(userMessage);
+      await performCleanup();
     }
+  }, [isOpen, classItem, sessionState.isConnecting, sessionState.isConnected]);
 
-    setSessionState(prev => ({
-      ...prev,
-      isConnecting: false,
-      error: userMessage
-    }));
-
-    toast.error(userMessage);
-    await performCleanup();
-  }
-}, [isOpen, classItem, sessionState.isConnecting, sessionState.isConnected]);
   // Agora Event Handlers
   const setupAgoraEventHandlers = useCallback((client) => {
     debugLog('📡 Setting up Agora event handlers');
