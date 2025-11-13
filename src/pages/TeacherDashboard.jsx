@@ -37,6 +37,7 @@ import { teacherApi } from '../lib/teacherApi';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from "framer-motion";
+import TeacherVideoCall from './pages/TeacherVideoCall';
 
 // Madina Design System Components
 const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
