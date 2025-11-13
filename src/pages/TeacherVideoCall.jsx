@@ -9,52 +9,6 @@ import { toast } from 'react-toastify';
 import { motion } from "framer-motion";
 import { teacherApi } from '../lib/teacherApi';
 
-// Madina Design System Components
-const MadinaCard = ({ children, className = "", gradient = "from-blue-900/50 to-purple-900/50", ...props }) => (
-  <div
-    className={`bg-gradient-to-br ${gradient} backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 shadow-2xl ${className}`}
-    {...props}
-  >
-    {children}
-  </div>
-);
-
-const MadinaButton = ({ children, variant = "primary", className = "", ...props }) => {
-  const baseClasses = "px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 flex items-center justify-center";
-
-  const variants = {
-    primary: "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg",
-    success: "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-lg",
-    danger: "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg",
-    warning: "bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white shadow-lg",
-    ghost: "bg-white/10 hover:bg-white/20 text-white border border-white/20"
-  };
-
-  return (
-    <button className={`${baseClasses} ${variants[variant]} ${className}`} {...props}>
-      {children}
-    </button>
-  );
-};
-
-const MadinaBadge = ({ children, variant = "info", className = "" }) => {
-  const baseClasses = "px-3 py-1 rounded-full text-xs font-bold backdrop-blur-lg border";
-
-  const variants = {
-    info: "bg-blue-500/20 text-blue-300 border-blue-500/30",
-    success: "bg-green-500/20 text-green-300 border-green-500/30",
-    warning: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
-    danger: "bg-red-500/20 text-red-300 border-red-500/30",
-    live: "bg-red-500/20 text-red-300 border-red-500/30 animate-pulse"
-  };
-
-  return (
-    <span className={`${baseClasses} ${variants[variant]} ${className}`}>
-      {children}
-    </span>
-  );
-};
-
 // Enhanced Teacher Video Call Component
 const TeacherVideoCall = ({
   classItem,
@@ -75,7 +29,8 @@ const TeacherVideoCall = ({
     sessionInfo: null,
     localVideoReady: false,
     meetingId: null,
-    channel: null
+    channel: null,
+    connectionState: 'DISCONNECTED'
   });
 
   // Refs
@@ -101,249 +56,116 @@ const TeacherVideoCall = ({
     console.error(`[${timestamp}] ❌ TEACHER_VIDEO_ERROR: ${message}`, error);
   }, []);
 
-  // Add debug useEffect inside the component
+  // Enhanced media device detection
   useEffect(() => {
-    console.log('🔍 TeacherVideoCall Debug:', {
-      isOpen,
-      classItem: classItem ? {
-        id: classItem.id,
-        title: classItem.title,
-        classId: classItem.classId
-      } : null,
-      sessionState: {
-        isConnecting: sessionState.isConnecting,
-        isConnected: sessionState.isConnected,
-        error: sessionState.error
+    const checkMediaDevices = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === 'videoinput');
+        const mics = devices.filter(device => device.kind === 'audioinput');
+        
+        debugLog('Media devices detected', {
+          cameras: cameras.length,
+          mics: mics.length,
+          cameraLabels: cameras.map(c => c.label),
+          micLabels: mics.map(m => m.label)
+        });
+      } catch (error) {
+        debugError('Error detecting media devices', error);
       }
-    });
-  }, [isOpen, classItem, sessionState]);
+    };
 
-  // Test the API call separately
-  const testTeacherApi = async () => {
-    try {
-      console.log('🧪 Testing teacher API...');
-      const result = await teacherApi.getOrCreateActiveSession(classItem.id);
-      console.log('✅ Teacher API result:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ Teacher API error:', error);
-      throw error;
+    if (isOpen) {
+      checkMediaDevices();
     }
-  };
+  }, [isOpen, debugLog, debugError]);
 
-  // Test media permissions
+  // Test media permissions - SIMPLIFIED
   const testMediaPermissions = async () => {
     try {
-      debugLog('🎯 Testing camera and microphone permissions...');
-
-      // Test camera
-      const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      debugLog('✅ Camera permission granted');
-      cameraStream.getTracks().forEach(track => track.stop());
-
-      // Test microphone
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      debugLog('✅ Microphone permission granted');
-      micStream.getTracks().forEach(track => track.stop());
-
+      debugLog('🎯 Testing media permissions...');
+      
+      // Test both camera and microphone together (more realistic)
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true, 
+        audio: true 
+      });
+      
+      debugLog('✅ Media permissions granted', {
+        videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length
+      });
+      
+      // Clean up
+      stream.getTracks().forEach(track => track.stop());
+      
     } catch (error) {
       debugError('❌ Media permission error:', error);
+      let errorMessage = 'Camera/microphone access required. ';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage += 'Please allow camera and microphone permissions in your browser.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No camera or microphone found.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage += 'Camera/microphone is busy with another application.';
+      } else {
+        errorMessage += error.message;
+      }
+      
       setSessionState(prev => ({
         ...prev,
-        error: `Media permission denied: ${error.message}. Please allow camera and microphone access.`
+        error: errorMessage
       }));
       throw error;
     }
   };
 
-  // Helper functions for track creation with retry
-  const createLocalTracksWithRetry = async (retries = 3) => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        debugLog(`🎤 Creating local tracks (attempt ${attempt}/${retries})...`);
+  // SIMPLIFIED track creation
+  const createLocalTracks = async () => {
+    try {
+      debugLog('🎤 Creating local tracks...');
 
-        const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+      // Create audio track with fallback
+      let audioTrack = null;
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
           AEC: true,
           ANS: true,
           AGC: true,
-          encoderConfig: {
-            sampleRate: 48000,
-            stereo: true,
-            bitrate: 128
-          }
         });
-
-        const videoTrack = await AgoraRTC.createCameraVideoTrack({
-          encoderConfig: {
-            width: 1280,
-            height: 720,
-            frameRate: 30,
-            bitrateMin: 1000,
-            bitrateMax: 3000
-          },
-          optimizationMode: 'detail',
-          mirror: true
-        });
-
-        localTracksRef.current.audio = audioTrack;
-        localTracksRef.current.video = videoTrack;
-
-        debugLog('✅ Local tracks created successfully');
-        return { audio: audioTrack, video: videoTrack };
-
-      } catch (error) {
-        debugError(`❌ Track creation failed (attempt ${attempt})`, error);
-
-        if (attempt === retries) {
-          throw error;
-        }
-
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-      }
-    }
-  };
-
-  const joinChannelWithTimeout = async (client, appId, channel, token, uid, timeout = 15000) => {
-    return new Promise(async (resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        reject(new Error('Connection timeout - please check your network connection'));
-      }, timeout);
-
-      try {
-        await client.join(appId, channel, token, uid);
-        clearTimeout(timeoutId);
-        resolve();
-      } catch (error) {
-        clearTimeout(timeoutId);
-        reject(error);
-      }
-    });
-  };
-
-  // Enhanced initializeSession function in TeacherVideoCall
-  const initializeSession = useCallback(async () => {
-    if (!isOpen || !classItem?.id || sessionState.isConnecting || sessionState.isConnected) {
-      return;
-    }
-
-    debugLog('🚀 Starting teacher video session', {
-      classId: classItem.id,
-      className: classItem.title
-    });
-
-    setSessionState(prev => ({
-      ...prev,
-      isConnecting: true,
-      error: null
-    }));
-
-    try {
-      // Step 1: Test media permissions
-      debugLog('🎯 Testing media permissions...');
-      await testMediaPermissions();
-
-      // Step 2: Get session credentials from teacher API
-      debugLog('🔗 Getting session from teacher API...');
-      const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
-      
-      if (!sessionData || !sessionData.agora_credentials) {
-        throw new Error('Failed to get session credentials');
+        debugLog('✅ Audio track created');
+      } catch (audioError) {
+        debugError('Audio track creation failed, continuing without audio', audioError);
+        // Continue without audio
       }
 
-      const { appId, channel, token, uid } = sessionData.agora_credentials;
-
-      debugLog('✅ Session credentials received', {
-        channel,
-        uid,
-        hasAppId: !!appId,
-        hasToken: !!token
-      });
-
-      // Step 3: Validate configuration
-      if (!appId || appId.includes('your_agora_app_id')) {
-        throw new Error('Invalid Agora App ID configuration');
-      }
-
-      // Step 4: Initialize Agora client
-      debugLog('🔧 Initializing Agora client...');
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8'
-      });
-      agoraClientRef.current = client;
-
-      // Step 5: Setup event handlers
-      setupAgoraEventHandlers(client);
-
-      // Step 6: Create local tracks
-      debugLog('🎤 Creating local tracks...');
-      const tracks = await createLocalTracksWithRetry();
-
-      // Step 7: Join channel
-      debugLog(`🚪 Joining channel: ${channel}`);
-      await joinChannelWithTimeout(client, appId, channel, token, uid);
-
-      // Step 8: Publish tracks
-      debugLog('📤 Publishing tracks...');
-      if (tracks.audio && tracks.video) {
-        await client.publish([tracks.audio, tracks.video]);
-        debugLog('✅ Published audio and video tracks');
-      }
-
-      // Step 9: Play local video
-      await playLocalVideo();
-
-      // Step 10: Update state
-      setSessionState(prev => ({
-        ...prev,
-        isConnected: true,
-        isConnecting: false,
-        sessionInfo: {
-          meetingId: sessionData.meeting_id,
-          isNewSession: sessionData.isNewSession,
-          startTime: new Date().toISOString(),
-          channel: channel
+      // Create video track (essential)
+      const videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: {
+          width: 640,
+          height: 480, // Lower resolution for better compatibility
+          frameRate: 24,
+          bitrateMin: 500,
+          bitrateMax: 1000
         },
-        meetingId: sessionData.meeting_id,
-        channel: channel
-      }));
+        optimizationMode: 'motion',
+        mirror: true
+      });
+      debugLog('✅ Video track created');
 
-      // Step 11: Start timer
-      timerRef.current = setInterval(() => {
-        setSessionState(prev => ({
-          ...prev,
-          callDuration: prev.callDuration + 1
-        }));
-      }, 1000);
+      localTracksRef.current.audio = audioTrack;
+      localTracksRef.current.video = videoTrack;
 
-      debugLog('🎉 Teacher video session started successfully');
-      toast.success(sessionData.isNewSession ? '🎉 Class session started!' : '🔄 Rejoined existing session!');
+      return { audio: audioTrack, video: videoTrack };
 
     } catch (error) {
-      debugError('❌ Session initialization failed', error);
-      
-      let userMessage = 'Failed to start video session. ';
-      if (error.message.includes('permission')) {
-        userMessage = 'Camera/microphone permission required. Please allow access.';
-      } else if (error.message.includes('network')) {
-        userMessage = 'Network connection issue. Please check your internet.';
-      } else {
-        userMessage += error.message || 'Please check your connection.';
-      }
-
-      setSessionState(prev => ({
-        ...prev,
-        isConnecting: false,
-        error: userMessage
-      }));
-
-      toast.error(userMessage);
-      await performCleanup();
+      debugError('Track creation failed:', error);
+      throw error;
     }
-  }, [isOpen, classItem, sessionState.isConnecting, sessionState.isConnected]);
+  };
 
-  // Agora Event Handlers
+  // Enhanced Agora Event Handlers - SIMILAR TO STUDENT COMPONENT
   const setupAgoraEventHandlers = useCallback((client) => {
     debugLog('📡 Setting up Agora event handlers');
 
@@ -440,16 +262,34 @@ const TeacherVideoCall = ({
       }));
     });
 
-    // Connection state changes
+    // Connection state changes - ENHANCED
     client.on('connection-state-change', (curState, prevState) => {
       debugLog(`🔄 Connection state changed: ${prevState} → ${curState}`);
+      
+      setSessionState(prev => ({
+        ...prev,
+        connectionState: curState
+      }));
 
-      if (curState === 'DISCONNECTED' || curState === 'FAILED') {
+      if (curState === 'CONNECTED') {
+        debugLog('✅ Successfully connected to Agora channel');
+        setSessionState(prev => ({ ...prev, isConnected: true, isConnecting: false }));
+      } else if (curState === 'DISCONNECTED' || curState === 'FAILED') {
+        debugError('❌ Connection lost or failed', { curState, prevState });
         setSessionState(prev => ({
           ...prev,
-          error: `Connection lost: ${curState}. Attempting to reconnect...`
+          error: `Connection issue: ${curState}. Please check your internet connection.`,
+          isConnected: false,
+          isConnecting: false
         }));
+      } else if (curState === 'CONNECTING') {
+        setSessionState(prev => ({ ...prev, isConnecting: true }));
       }
+    });
+
+    // Stream fallback for quality adaptation
+    client.on('stream-fallback', (evt) => {
+      debugLog(`📊 Stream fallback: ${evt.isFallback ? 'fallback' : 'recovery'}`);
     });
 
   }, [classItem?.id, debugLog, debugError, onSessionUpdate]);
@@ -480,7 +320,7 @@ const TeacherVideoCall = ({
     }
   }, [debugLog, debugError]);
 
-  // Remote Video Management
+  // Remote Video Management - SIMILAR TO STUDENT COMPONENT
   const setupRemoteVideo = useCallback(async (user) => {
     const container = remoteVideosContainerRef.current;
     if (!container) return;
@@ -506,7 +346,7 @@ const TeacherVideoCall = ({
         // Add student info overlay
         const overlay = document.createElement('div');
         overlay.className = 'absolute bottom-3 left-3 bg-black/70 text-white px-3 py-2 rounded-lg text-sm backdrop-blur-sm';
-        overlay.textContent = `Student ${user.uid}`;
+        overlay.textContent = user.uid === 1 ? 'Teacher' : `Student ${user.uid}`;
         videoElement.appendChild(overlay);
       }
     } catch (error) {
@@ -522,7 +362,133 @@ const TeacherVideoCall = ({
   const updateParticipantsList = useCallback(() => {
     const participants = Array.from(remoteUsersMapRef.current.values());
     setSessionState(prev => ({ ...prev, participants }));
-  }, []);
+    debugLog('Participants updated', { count: participants.length, participants });
+  }, [debugLog]);
+
+  // ENHANCED initializeSession - SIMPLIFIED LIKE STUDENT COMPONENT
+  const initializeSession = useCallback(async () => {
+    if (!isOpen || !classItem?.id || sessionState.isConnecting || sessionState.isConnected) {
+      debugLog('Skipping session initialization - invalid state');
+      return;
+    }
+
+    debugLog('🚀 Starting teacher video session', {
+      classId: classItem.id,
+      className: classItem.title
+    });
+
+    setSessionState(prev => ({
+      ...prev,
+      isConnecting: true,
+      error: null
+    }));
+
+    try {
+      // Step 1: Test media permissions
+      debugLog('🎯 Testing media permissions...');
+      await testMediaPermissions();
+
+      // Step 2: Get session credentials from teacher API
+      debugLog('🔗 Getting session from teacher API...');
+      const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
+      
+      if (!sessionData || !sessionData.agora_credentials) {
+        throw new Error('Failed to get session credentials');
+      }
+
+      const { appId, channel, token, uid } = sessionData.agora_credentials;
+
+      debugLog('✅ Session credentials received', {
+        channel,
+        uid,
+        hasAppId: !!appId,
+        hasToken: !!token
+      });
+
+      // Step 3: Validate configuration
+      if (!appId || appId.includes('your_agora_app_id')) {
+        throw new Error('Invalid Agora App ID configuration');
+      }
+
+      // Step 4: Create local tracks FIRST
+      debugLog('🎤 Creating local tracks...');
+      const tracks = await createLocalTracks();
+
+      // Step 5: Play local video BEFORE joining channel
+      await playLocalVideo();
+
+      // Step 6: Initialize Agora client
+      debugLog('🔧 Initializing Agora client...');
+      const client = AgoraRTC.createClient({
+        mode: 'rtc',
+        codec: 'vp8'
+      });
+      agoraClientRef.current = client;
+
+      // Step 7: Setup event handlers
+      setupAgoraEventHandlers(client);
+
+      // Step 8: Join channel
+      debugLog(`🚪 Joining channel: ${channel}`);
+      await client.join(appId, channel, token, uid);
+      debugLog('✅ Joined channel successfully');
+
+      // Step 9: Publish tracks
+      debugLog('📤 Publishing tracks...');
+      const tracksToPublish = [tracks.audio, tracks.video].filter(Boolean);
+      if (tracksToPublish.length > 0) {
+        await client.publish(tracksToPublish);
+        debugLog(`✅ Published ${tracksToPublish.length} tracks`);
+      }
+
+      // Step 10: Update state - connection will be confirmed by connection-state-change event
+      setSessionState(prev => ({
+        ...prev,
+        sessionInfo: {
+          meetingId: sessionData.meeting_id,
+          isNewSession: sessionData.isNewSession,
+          startTime: new Date().toISOString(),
+          channel: channel
+        },
+        meetingId: sessionData.meeting_id,
+        channel: channel
+      }));
+
+      // Step 11: Start timer
+      timerRef.current = setInterval(() => {
+        setSessionState(prev => ({
+          ...prev,
+          callDuration: prev.callDuration + 1
+        }));
+      }, 1000);
+
+      debugLog('🎉 Teacher video session initialization complete');
+      toast.success(sessionData.isNewSession ? '🎉 Class session started!' : '🔄 Rejoined existing session!');
+
+    } catch (error) {
+      debugError('❌ Session initialization failed', error);
+      
+      let userMessage = 'Failed to start video session. ';
+      if (error.message.includes('permission')) {
+        userMessage = 'Camera/microphone permission required. Please allow access and refresh.';
+      } else if (error.message.includes('network')) {
+        userMessage = 'Network connection issue. Please check your internet.';
+      } else if (error.message.includes('App ID')) {
+        userMessage = 'Configuration error. Please contact support.';
+      } else {
+        userMessage += error.message || 'Please check your connection.';
+      }
+
+      setSessionState(prev => ({
+        ...prev,
+        isConnecting: false,
+        error: userMessage
+      }));
+
+      toast.error(userMessage);
+      await performCleanup();
+    }
+  }, [isOpen, classItem, sessionState.isConnecting, sessionState.isConnected, setupAgoraEventHandlers]);
 
   // Media Control Functions
   const toggleAudio = useCallback(async () => {
@@ -584,7 +550,11 @@ const TeacherVideoCall = ({
       // End session via backend if we have session info
       if (sessionState.sessionInfo?.meetingId) {
         debugLog('📡 Notifying backend about session end...');
-        await teacherApi.endVideoSession(sessionState.sessionInfo.meetingId);
+        try {
+          await teacherApi.endVideoSession(sessionState.sessionInfo.meetingId);
+        } catch (apiError) {
+          debugError('Backend session end failed (non-critical)', apiError);
+        }
       }
 
       await performCleanup();
@@ -622,7 +592,7 @@ const TeacherVideoCall = ({
     }
   }, [classItem?.id, sessionState.sessionInfo, onClose, onSessionUpdate, debugLog, debugError]);
 
-  // Cleanup Function
+  // Cleanup Function - SIMILAR TO STUDENT COMPONENT
   const performCleanup = useCallback(async () => {
     debugLog('🧹 Performing cleanup...');
 
@@ -672,6 +642,10 @@ const TeacherVideoCall = ({
         remoteVideosContainerRef.current.innerHTML = '';
       }
 
+      if (localVideoRef.current) {
+        localVideoRef.current.innerHTML = '';
+      }
+
       debugLog('✅ Cleanup completed');
 
     } catch (error) {
@@ -712,24 +686,27 @@ const TeacherVideoCall = ({
   // Effects
   useEffect(() => {
     isMountedRef.current = true;
+    debugLog('🎬 Teacher component mounted');
 
     return () => {
+      debugLog('🎬 Teacher component unmounting');
       isMountedRef.current = false;
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
     };
-  }, []);
+  }, [debugLog]);
 
   useEffect(() => {
     if (isOpen && classItem) {
+      debugLog('🔔 Teacher dialog opened, scheduling session start...');
       const timer = setTimeout(() => {
         initializeSession();
-      }, 1000); // Small delay for better UX
+      }, 1000);
 
       return () => clearTimeout(timer);
     }
-  }, [isOpen, classItem, initializeSession]);
+  }, [isOpen, classItem, initializeSession, debugLog]);
 
   // Don't render if not open
   if (!isOpen) return null;
@@ -793,6 +770,17 @@ const TeacherVideoCall = ({
         </div>
       )}
 
+      {/* Debug Info - Remove in production */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-blue-900/80 text-white p-2 text-xs">
+          <div>Connection: {sessionState.connectionState}</div>
+          <div>Local Video: {sessionState.localVideoReady ? '✅' : '❌'}</div>
+          <div>Audio Track: {localTracksRef.current.audio ? '✅' : '❌'}</div>
+          <div>Video Track: {localTracksRef.current.video ? '✅' : '❌'}</div>
+          <div>Participants: {sessionState.participants.length}</div>
+        </div>
+      )}
+
       {/* Main Video Area */}
       <div className="flex-1 relative p-4">
         {/* Remote Videos Grid */}
@@ -808,14 +796,13 @@ const TeacherVideoCall = ({
                 <p className="text-lg font-medium mb-2">Waiting for students to join...</p>
                 <p className="text-gray-500">Share the class link with your students</p>
                 {sessionState.meetingId && (
-                  <MadinaButton
+                  <button
                     onClick={copyClassLink}
-                    variant="primary"
-                    className="mt-4"
+                    className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 mx-auto"
                   >
-                    <Copy size={16} className="mr-2" />
+                    <Copy size={16} />
                     Copy Student Join Link
-                  </MadinaButton>
+                  </button>
                 )}
               </div>
             </div>
