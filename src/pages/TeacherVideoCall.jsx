@@ -8,6 +8,332 @@ import {
 import { toast } from 'react-toastify';
 import { motion } from "framer-motion";
 import { teacherApi } from '../lib/teacherApi';
+// Add this comprehensive debug useEffect at the top of your TeacherVideoCall component
+useEffect(() => {
+  console.log('🔍 TEACHER VIDEO CALL STATE:', {
+    isOpen,
+    classItem: classItem ? { id: classItem.id, title: classItem.title } : null,
+    sessionState: {
+      isConnecting: sessionState.isConnecting,
+      isConnected: sessionState.isConnected,
+      connectionState: sessionState.connectionState,
+      localVideoReady: sessionState.localVideoReady,
+      error: sessionState.error
+    },
+    tracks: {
+      audio: !!localTracksRef.current.audio,
+      video: !!localTracksRef.current.video
+    },
+    client: !!agoraClientRef.current
+  });
+}, [isOpen, classItem, sessionState]);
+
+// Enhanced initializeSession function with step-by-step debugging
+const initializeSession = useCallback(async () => {
+  if (!isOpen || !classItem?.id) {
+    debugLog('❌ Cannot initialize: missing isOpen or classItem');
+    return;
+  }
+  
+  if (sessionState.isConnecting || sessionState.isConnected) {
+    debugLog('⚠️ Already connecting or connected, skipping');
+    return;
+  }
+
+  debugLog('🚀 STARTING TEACHER SESSION INITIALIZATION');
+  
+  setSessionState(prev => ({
+    ...prev,
+    isConnecting: true,
+    error: null
+  }));
+
+  try {
+    // STEP 1: Test media permissions
+    debugLog('🎯 STEP 1: Testing media permissions...');
+    await testMediaPermissions();
+    debugLog('✅ Media permissions granted');
+
+    // STEP 2: Get session credentials
+    debugLog('🔗 STEP 2: Getting session credentials...');
+    const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
+    console.log('📋 SESSION DATA FROM API:', sessionData);
+    
+    if (!sessionData || !sessionData.agora_credentials) {
+      throw new Error('No session credentials received from API');
+    }
+
+    const { appId, channel, token, uid } = sessionData.agora_credentials;
+    debugLog('✅ Credentials received', { channel, uid, hasAppId: !!appId, hasToken: !!token });
+
+    // Validate App ID
+    if (!appId || appId.includes('your_agora_app_id')) {
+      throw new Error(`Invalid App ID: ${appId}`);
+    }
+
+    // STEP 3: Create local tracks
+    debugLog('🎤 STEP 3: Creating local tracks...');
+    const tracks = await createLocalTracks();
+    debugLog('✅ Local tracks created', { 
+      hasAudio: !!tracks.audio, 
+      hasVideo: !!tracks.video 
+    });
+
+    // STEP 4: Play local video immediately
+    debugLog('📹 STEP 4: Playing local video...');
+    await playLocalVideo();
+    debugLog('✅ Local video playing');
+
+    // STEP 5: Initialize Agora client
+    debugLog('🔧 STEP 5: Initializing Agora client...');
+    const client = AgoraRTC.createClient({
+      mode: 'rtc',
+      codec: 'vp8'
+    });
+    agoraClientRef.current = client;
+    debugLog('✅ Agora client created');
+
+    // STEP 6: Setup event handlers
+    debugLog('📡 STEP 6: Setting up event handlers...');
+    setupAgoraEventHandlers(client);
+    debugLog('✅ Event handlers configured');
+
+    // STEP 7: Join channel
+    debugLog(`🚪 STEP 7: Joining channel: ${channel}`);
+    console.log('🎯 JOINING WITH:', { appId, channel, token, uid });
+    
+    await client.join(appId, channel, token, uid);
+    debugLog('✅ Successfully joined channel');
+
+    // STEP 8: Publish tracks
+    debugLog('📤 STEP 8: Publishing tracks...');
+    const tracksToPublish = [tracks.audio, tracks.video].filter(Boolean);
+    console.log('📤 PUBLISHING TRACKS:', tracksToPublish);
+    
+    if (tracksToPublish.length > 0) {
+      await client.publish(tracksToPublish);
+      debugLog(`✅ Published ${tracksToPublish.length} tracks`);
+    } else {
+      debugLog('⚠️ No tracks to publish');
+    }
+
+    // STEP 9: Update connection state
+    debugLog('✅ STEP 9: Session initialization complete');
+    setSessionState(prev => ({
+      ...prev,
+      isConnected: true,
+      isConnecting: false,
+      sessionInfo: {
+        meetingId: sessionData.meeting_id,
+        isNewSession: sessionData.isNewSession,
+        startTime: new Date().toISOString(),
+        channel: channel
+      },
+      meetingId: sessionData.meeting_id,
+      channel: channel
+    }));
+
+    // STEP 10: Start timer
+    timerRef.current = setInterval(() => {
+      setSessionState(prev => ({
+        ...prev,
+        callDuration: prev.callDuration + 1
+      }));
+    }, 1000);
+
+    debugLog('🎉 TEACHER SESSION FULLY INITIALIZED');
+    toast.success(sessionData.isNewSession ? '🎉 Class session started!' : '🔄 Rejoined existing session!');
+
+  } catch (error) {
+    console.error('❌ TEACHER SESSION INITIALIZATION FAILED:', error);
+    debugError('Session initialization failed', error);
+    
+    let userMessage = 'Failed to start video session. ';
+    if (error.message.includes('permission')) {
+      userMessage = 'Camera/microphone permission required. Please allow access and refresh.';
+    } else if (error.message.includes('network')) {
+      userMessage = 'Network connection issue. Please check your internet.';
+    } else if (error.message.includes('App ID') || error.message.includes('Invalid')) {
+      userMessage = 'Configuration error. Please check Agora App ID settings.';
+    } else if (error.message.includes('token')) {
+      userMessage = 'Authentication error. Please try again.';
+    } else {
+      userMessage += error.message || 'Unknown error occurred.';
+    }
+
+    setSessionState(prev => ({
+      ...prev,
+      isConnecting: false,
+      error: userMessage
+    }));
+
+    toast.error(userMessage);
+    
+    // Perform cleanup on failure
+    await performCleanup();
+  }
+}, [isOpen, classItem, sessionState.isConnecting, sessionState.isConnected, setupAgoraEventHandlers]);
+
+// Enhanced Agora event handlers with better connection state tracking
+const setupAgoraEventHandlers = useCallback((client) => {
+  debugLog('📡 Setting up Agora event handlers');
+
+  // Connection state changes - ENHANCED
+  client.on('connection-state-change', (curState, prevState) => {
+    console.log('🔄 AGORA CONNECTION STATE CHANGE:', { prevState, curState });
+    debugLog(`Connection state: ${prevState} → ${curState}`);
+
+    setSessionState(prev => ({
+      ...prev,
+      connectionState: curState
+    }));
+
+    switch (curState) {
+      case 'CONNECTED':
+        debugLog('✅ Successfully connected to Agora channel');
+        setSessionState(prev => ({ 
+          ...prev, 
+          isConnected: true, 
+          isConnecting: false,
+          error: null 
+        }));
+        break;
+        
+      case 'CONNECTING':
+        debugLog('🔄 Connecting to Agora channel...');
+        setSessionState(prev => ({ ...prev, isConnecting: true }));
+        break;
+        
+      case 'DISCONNECTED':
+        debugLog('❌ Disconnected from Agora channel');
+        setSessionState(prev => ({ 
+          ...prev, 
+          isConnected: false, 
+          isConnecting: false,
+          error: 'Disconnected from session. Please try rejoining.' 
+        }));
+        break;
+        
+      case 'FAILED':
+        debugLog('❌ Connection failed');
+        setSessionState(prev => ({ 
+          ...prev, 
+          isConnected: false, 
+          isConnecting: false,
+          error: 'Connection failed. Please check your internet and try again.' 
+        }));
+        break;
+        
+      default:
+        debugLog(`ℹ️ Connection state: ${curState}`);
+    }
+  });
+
+  // User published (student joined with media)
+  client.on('user-published', async (user, mediaType) => {
+    console.log('🔔 USER PUBLISHED:', { uid: user.uid, mediaType });
+    debugLog(`Student ${user.uid} published ${mediaType}`);
+
+    try {
+      await client.subscribe(user, mediaType);
+      debugLog(`✅ Subscribed to student ${user.uid} ${mediaType}`);
+
+      if (!remoteUsersMapRef.current.has(user.uid)) {
+        remoteUsersMapRef.current.set(user.uid, {
+          uid: user.uid,
+          hasVideo: false,
+          hasAudio: false,
+          role: 'student',
+          joinedAt: new Date().toISOString()
+        });
+      }
+
+      const userInfo = remoteUsersMapRef.current.get(user.uid);
+
+      if (mediaType === 'video') {
+        userInfo.hasVideo = true;
+        await setupRemoteVideo(user);
+      } else if (mediaType === 'audio') {
+        userInfo.hasAudio = true;
+        if (user.audioTrack) {
+          user.audioTrack.play();
+          debugLog(`🔊 Playing audio from student ${user.uid}`);
+        }
+      }
+
+      updateParticipantsList();
+
+      if (onSessionUpdate) {
+        onSessionUpdate({
+          type: 'student_joined',
+          classId: classItem?.id,
+          studentUid: user.uid,
+          totalParticipants: remoteUsersMapRef.current.size + 1
+        });
+      }
+
+    } catch (error) {
+      debugError(`Subscribe error for student ${user.uid}`, error);
+    }
+  });
+
+  // Network quality monitoring
+  client.on('network-quality', (quality) => {
+    setSessionState(prev => ({
+      ...prev,
+      networkQuality: {
+        upload: quality.uplinkNetworkQuality,
+        download: quality.downlinkNetworkQuality
+      }
+    }));
+  });
+
+  // Stream type changed
+  client.on('stream-type-changed', (evt) => {
+    debugLog(`📊 Stream type changed: ${evt.uid} -> ${evt.streamType}`);
+  });
+
+  debugLog('✅ All Agora event handlers configured');
+}, [classItem?.id, debugLog, debugError, onSessionUpdate]);
+
+// Add this test function to check what's happening
+const testConnection = async () => {
+  console.log('🧪 RUNNING CONNECTION TEST');
+  
+  try {
+    // Test 1: Check if component is properly mounted
+    console.log('✅ Component mounted:', isMountedRef.current);
+    
+    // Test 2: Check if we have classItem
+    console.log('✅ Class item:', classItem ? { id: classItem.id, title: classItem.title } : 'MISSING');
+    
+    // Test 3: Test media permissions directly
+    console.log('🎯 Testing media permissions directly...');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    console.log('✅ Media permissions work:', {
+      videoTracks: stream.getVideoTracks().length,
+      audioTracks: stream.getAudioTracks().length
+    });
+    stream.getTracks().forEach(track => track.stop());
+    
+    // Test 4: Test API call
+    console.log('🔗 Testing API call...');
+    const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
+    console.log('✅ API response:', sessionData);
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Connection test failed:', error);
+    return false;
+  }
+};
+
+// Call the test function when component mounts
+useEffect(() => {
+  if (isOpen && classItem) {
+    testConnection();
+  }
+}, [isOpen, classItem]);
 
 // Enhanced Teacher Video Call Component
 const TeacherVideoCall = ({
