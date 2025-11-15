@@ -1,64 +1,92 @@
 import { supabase } from './supabaseClient';
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com';
 export const teacherApi = {
-  getOrCreateActiveSession: async (classId) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
+getOrCreateActiveSession: async (classId) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
 
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
+    console.log('🎯 Teacher getting/creating session for class:', classId);
 
-      console.log('🎯 Teacher getting or creating active session for class:', classId);
+    // 1. Check for EXISTING active session first
+    const { data: existingSession, error: sessionError } = await supabase
+      .from('video_sessions')
+      .select(`
+        *,
+        class:classes (title, teacher_id)
+      `)
+      .eq('class_id', classId)
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
 
-      // 1. First try to join existing session via backend
-      try {
-        const activeSession = await teacherApi.getActiveClassSession(classId);
-        if (activeSession) {
-          console.log('🔄 Found existing session, joining via backend:', activeSession.meeting_id);
+    // 2. If session exists, JOIN IT (don't create new one!)
+    if (existingSession && !sessionError) {
+      console.log('🔄 Found existing session, joining:', existingSession.meeting_id);
+      
+      // Get Agora credentials for EXISTING channel
+      const credentials = await teacherApi.generateAgoraCredentials(
+        existingSession.channel_name,
+        user.id
+      );
 
-          // Join via backend endpoint
-          const joinResponse = await fetch(`${API_BASE_URL}/join-session`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              meeting_id: activeSession.meeting_id,
-              user_id: user.id,
-              user_type: 'teacher'
-            })
-          });
-
-          const joinResult = await joinResponse.json();
-
-          if (joinResult.success) {
-            console.log('✅ Successfully joined existing session via backend');
-            return {
-              ...activeSession,
-              agora_credentials: {
-                appId: joinResult.app_id,
-                channel: joinResult.channel,
-                token: joinResult.token,
-                uid: joinResult.uid
-              },
-              isNewSession: false
-            };
-          }
-        }
-      } catch (joinError) {
-        console.log('⚠️ No active session to join, creating new one:', joinError.message);
-      }
-
-      // 2. Create new session via backend
-      console.log('🆕 Creating new session via backend for class:', classId);
-      return await teacherApi.createNewSession(classId);
-
-    } catch (error) {
-      console.error('❌ Error in getOrCreateActiveSession:', error);
-      throw error;
+      return {
+        ...existingSession,
+        agora_credentials: credentials,
+        isNewSession: false
+      };
     }
-  },
+
+    // 3. No active session - create NEW one
+    console.log('🆕 No active session, creating new one');
+    
+    const timestamp = Date.now();
+    const meetingId = `class_${classId}_${timestamp}`;
+    const channelName = `channel_${classId}_${timestamp}`; // ✅ CONSISTENT channel name
+
+    console.log('🎯 Creating with channel:', channelName);
+
+    // Create session in database
+    const { data: newSession, error: createError } = await supabase
+      .from('video_sessions')
+      .insert([{
+        class_id: classId,
+        teacher_id: user.id,
+        meeting_id: meetingId,
+        channel_name: channelName, // ✅ Store channel name
+        status: 'active',
+        started_at: new Date().toISOString(),
+        scheduled_date: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (createError) throw createError;
+
+    // Update class status
+    await supabase
+      .from('classes')
+      .update({ status: 'active' })
+      .eq('id', classId);
+
+    // Generate Agora credentials
+    const credentials = await teacherApi.generateAgoraCredentials(
+      channelName,
+      user.id
+    );
+
+    return {
+      ...newSession,
+      agora_credentials: credentials,
+      isNewSession: true
+    };
+
+  } catch (error) {
+    console.error('❌ Error in getOrCreateActiveSession:', error);
+    throw error;
+  }
+},
 
 
   createNewSession: async (classId) => {
@@ -224,64 +252,89 @@ generateAgoraCredentials: async (channelName, userId) => {
     },
 
     // 🚀 CRITICAL FIX: Join existing video session (for when teacher rejoins)
-    joinVideoSession: async (meetingId) => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
+   async joinVideoSession(meetingId) {
+  try {
+    const user = await this.getCurrentUser();
+    
+    ProductionLogger.info('🎯 Student joining session:', meetingId);
 
-        if (!user) {
-          throw new Error('User not authenticated');
-        }
+    // ✅ STEP 1: Get session from database (includes channel_name)
+    const { data: session, error: sessionError } = await supabase
+      .from('video_sessions')
+      .select(`
+        *,
+        class:classes (title, teacher_id),
+        teacher:teacher_id (name, agora_config)
+      `)
+      .eq('meeting_id', meetingId)
+      .eq('status', 'active')
+      .single();
 
-        console.log('🎥 Teacher joining video session via backend:', meetingId);
+    if (sessionError || !session) {
+      throw new Error('No active video session found. Teacher needs to start the class first.');
+    }
 
-        // ✅ CORRECTED: Use /api/video/join-session
-        const response = await fetch(`${API_BASE_URL}/api/video/join-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            meeting_id: meetingId,
-            user_id: user.id,
-            user_type: 'teacher',
-            user_name: user.email
-          })
-        });
+    // ✅ STEP 2: Get teacher's Agora App ID
+    const appId = session.teacher?.agora_config?.appId || 
+                  import.meta.env.VITE_AGORA_APP_ID;
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+    if (!appId) {
+      throw new Error('Agora configuration error');
+    }
 
-        const result = await response.json();
+    // ✅ STEP 3: Use EXACT channel name from session
+    const channelName = session.channel_name;
 
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to join session via backend');
-        }
+    if (!channelName) {
+      throw new Error('Invalid session: missing channel name');
+    }
 
-        console.log('✅ Backend join successful:', {
-          channel: result.channel,
-          uid: result.uid,
-          hasToken: !!result.token
-        });
-
-        return {
-          success: true,
-          meetingId: result.meetingId || result.meeting_id,
-          channel: result.channel,
-          token: result.token,
-          appId: result.appId || result.app_id,
-          uid: result.uid,
-          sessionInfo: {
-            classTitle: result.sessionInfo?.class_title || result.session?.class_title,
-            teacherName: user.email
-          }
-        };
-
-      } catch (error) {
-        console.error('❌ Error in teacher joinVideoSession:', error);
-        throw error;
+    // ✅ STEP 4: Generate CONSISTENT student UID
+    const generateStudentUID = () => {
+      const combined = `student_${user.id}_${channelName}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
       }
-    },
+      return Math.abs(hash) % 1000000;
+    };
+
+    const uid = generateStudentUID();
+
+    ProductionLogger.info('✅ Student credentials generated:', {
+      channel: channelName,
+      uid: uid,
+      meetingId: meetingId
+    });
+
+    // Record participation
+    await this.recordInitialParticipation(meetingId, user.id, uid)
+      .catch(error => ProductionLogger.warn('Participation recording failed', error));
+
+    return {
+      success: true,
+      meetingId: meetingId,
+      channel: channelName, // ✅ EXACT channel from session
+      token: null,
+      appId: appId,
+      uid: uid,
+      sessionInfo: {
+        classTitle: session.class?.title,
+        teacherName: session.teacher?.name
+      }
+    };
+
+  } catch (error) {
+    ProductionLogger.error('❌ Join failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      errorCode: getErrorCode(error)
+    };
+  }
+},
 
 
 
