@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { toast } from 'react-toastify';
 import { motion } from "framer-motion";
-import { teacherApi } from '../lib/teacherApi';
+import { videoApi } from '../lib/videoApi'; 
 
 const TeacherVideoCall = ({
   classItem,
@@ -273,7 +273,7 @@ const TeacherVideoCall = ({
     setSessionState(prev => ({ ...prev, participants }));
   }, []);
 
-  // Initialize Session
+  // Initialize Session using videoApi
   const initializeSession = useCallback(async () => {
     if (!isOpen || !classItem?.id || sessionState.isConnecting || sessionState.isConnected) {
       return;
@@ -288,13 +288,16 @@ const TeacherVideoCall = ({
     try {
       await testMediaPermissions();
 
-      const sessionData = await teacherApi.getOrCreateActiveSession(classItem.id);
+      // 🎯 UPDATED: Use videoApi to start teacher session
+      console.log('🎯 Starting teacher session via videoApi...');
+      const sessionData = await videoApi.startTeacherSession(classItem.id);
       
-      if (!sessionData || !sessionData.agora_credentials) {
-        throw new Error('Failed to get session credentials');
+      if (!sessionData || !sessionData.success || !sessionData.agora_credentials) {
+        throw new Error(sessionData.error || 'Failed to start teacher session');
       }
 
-      const { appId, channel, token, uid } = sessionData.agora_credentials;
+      const { appId, channel, token, uid } = sessionData.ago
+ra_credentials;
 
       if (!appId || appId.includes('your_agora_app_id')) {
         throw new Error('Invalid Agora App ID configuration');
@@ -310,6 +313,8 @@ const TeacherVideoCall = ({
       agoraClientRef.current = client;
 
       setupAgoraEventHandlers(client);
+      
+      // Join the channel with credentials from videoApi
       await client.join(appId, channel, token, uid);
 
       const tracksToPublish = [tracks.audio, tracks.video].filter(Boolean);
@@ -320,12 +325,12 @@ const TeacherVideoCall = ({
       setSessionState(prev => ({
         ...prev,
         sessionInfo: {
-          meetingId: sessionData.meeting_id,
+          meetingId: sessionData.meetingId,
           isNewSession: sessionData.isNewSession,
           startTime: new Date().toISOString(),
           channel: channel
         },
-        meetingId: sessionData.meeting_id,
+        meetingId: sessionData.meetingId,
         channel: channel
       }));
 
@@ -413,9 +418,13 @@ const TeacherVideoCall = ({
         });
       }
 
+      // 🎯 UPDATED: Use videoApi to end session
       if (sessionState.sessionInfo?.meetingId) {
         try {
-          await teacherApi.endVideoSession(sessionState.sessionInfo.meetingId);
+          const endResult = await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
+          if (!endResult.success) {
+            console.warn('Backend session end warning:', endResult.error);
+          }
         } catch (apiError) {
           console.error('Backend session end failed', apiError);
         }
@@ -529,6 +538,20 @@ const TeacherVideoCall = ({
     }
   }, [sessionState.meetingId]);
 
+  // Get session health (optional)
+  const checkSessionHealth = useCallback(async () => {
+    if (!sessionState.meetingId) return;
+    
+    try {
+      const health = await videoApi.checkSessionHealth(sessionState.meetingId);
+      if (health && !health.healthy) {
+        console.warn('Session health check failed:', health);
+      }
+    } catch (error) {
+      console.error('Health check failed:', error);
+    }
+  }, [sessionState.meetingId]);
+
   // Effects
   useEffect(() => {
     isMountedRef.current = true;
@@ -550,6 +573,17 @@ const TeacherVideoCall = ({
       return () => clearTimeout(timer);
     }
   }, [isOpen, classItem, initializeSession]);
+
+  // Health check effect
+  useEffect(() => {
+    let healthInterval;
+    if (sessionState.isConnected && sessionState.meetingId) {
+      healthInterval = setInterval(checkSessionHealth, 30000); // Check every 30 seconds
+    }
+    return () => {
+      if (healthInterval) clearInterval(healthInterval);
+    };
+  }, [sessionState.isConnected, sessionState.meetingId, checkSessionHealth]);
 
   // Don't render if not open
   if (!isOpen) return null;
