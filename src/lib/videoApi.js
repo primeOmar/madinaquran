@@ -4,11 +4,32 @@ import { supabase } from './supabaseClient';
 
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com';
 
+// 🎯 PRODUCTION LOGGER
+class VideoLogger {
+  static info(message, data = null) {
+    console.log(`🎯 [TEACHER-VIDEO] ${message}`, data || '');
+  }
+
+  static error(message, error = null) {
+    console.error(`❌ [TEACHER-VIDEO] ${message}`, error || '');
+  }
+
+  static warn(message, data = null) {
+    console.warn(`⚠️ [TEACHER-VIDEO] ${message}`, data || '');
+  }
+
+  static debug(message, data = null) {
+    if (import.meta.env.DEV) {
+      console.debug(`🐛 [TEACHER-VIDEO] ${message}`, data || '');
+    }
+  }
+}
+
 export const videoApi = {
   // 🎯 MAIN TEACHER SESSION MANAGEMENT
   startTeacherSession: async (classId) => {
     try {
-      console.log('🎯 [VIDEO] Starting teacher session for class:', classId);
+      VideoLogger.info('Starting teacher session for class:', classId);
       
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) throw new Error('Teacher not authenticated');
@@ -29,7 +50,7 @@ export const videoApi = {
         throw new Error(`Invalid credentials: ${validation.issues.join(', ')}`);
       }
 
-      console.log('✅ [VIDEO] Teacher session started successfully:', {
+      VideoLogger.info('Teacher session started successfully:', {
         meetingId: sessionData.meeting_id,
         channel: sessionData.channel_name,
         hasToken: !!credentials.token
@@ -49,57 +70,7 @@ export const videoApi = {
       };
 
     } catch (error) {
-      console.error('❌ [VIDEO] Failed to start teacher session:', error);
-      return {
-        success: false,
-        error: error.message,
-        errorCode: videoApi.getErrorCode(error)
-      };
-    }
-  },
-
-  // 🎯 STUDENT SESSION JOINING
-  joinStudentSession: async (meetingId, studentId) => {
-    try {
-      console.log('🎯 [VIDEO] Student joining session:', meetingId);
-
-      // Step 1: Get session details
-      const session = await videoApi.getSessionDetails(meetingId);
-      
-      if (!session || session.status !== 'active') {
-        throw new Error('No active session found. Teacher needs to start the class first.');
-      }
-
-      // Step 2: Generate student credentials
-      const credentials = await videoApi.generateAgoraCredentials(
-        session.channel_name,
-        studentId,
-        'subscriber'
-      );
-
-      // Step 3: Record student participation
-      await videoApi.recordStudentParticipation(meetingId, studentId, credentials.uid);
-
-      console.log('✅ [VIDEO] Student session join ready:', {
-        meetingId: meetingId,
-        channel: session.channel_name,
-        studentId: studentId
-      });
-
-      return {
-        success: true,
-        meetingId: meetingId,
-        channel: session.channel_name,
-        agora_credentials: credentials,
-        sessionInfo: {
-          classTitle: session.class?.title,
-          teacherName: session.teacher?.name,
-          isActive: session.status === 'active'
-        }
-      };
-
-    } catch (error) {
-      console.error('❌ [VIDEO] Student join failed:', error);
+      VideoLogger.error('Failed to start teacher session:', error);
       return {
         success: false,
         error: error.message,
@@ -111,7 +82,7 @@ export const videoApi = {
   // 🎯 SESSION MANAGEMENT
   getOrCreateTeacherSession: async (classId, teacherId) => {
     try {
-      console.log('🔍 [VIDEO] Looking for active session for class:', classId);
+      VideoLogger.debug('Looking for active session for class:', classId);
 
       // Check for existing active session
       const { data: existingSession, error: sessionError } = await supabase
@@ -129,7 +100,7 @@ export const videoApi = {
 
       // Return existing session if found
       if (existingSession && !sessionError) {
-        console.log('🔄 [VIDEO] Found existing session:', existingSession.meeting_id);
+        VideoLogger.debug('Found existing session:', existingSession.meeting_id);
         return {
           ...existingSession,
           isNewSession: false
@@ -137,7 +108,7 @@ export const videoApi = {
       }
 
       // Create new session
-      console.log('🆕 [VIDEO] Creating new session for class:', classId);
+      VideoLogger.debug('Creating new session for class:', classId);
       
       const timestamp = Date.now();
       const meetingId = `class_${classId}_${timestamp}`;
@@ -169,14 +140,14 @@ export const videoApi = {
         .update({ status: 'active' })
         .eq('id', classId);
 
-      console.log('✅ [VIDEO] New session created:', meetingId);
+      VideoLogger.info('New session created:', meetingId);
       return {
         ...newSession,
         isNewSession: true
       };
 
     } catch (error) {
-      console.error('❌ [VIDEO] Session creation failed:', error);
+      VideoLogger.error('Session creation failed:', error);
       throw error;
     }
   },
@@ -184,7 +155,7 @@ export const videoApi = {
   // 🎯 AGORA CREDENTIALS GENERATION
   generateAgoraCredentials: async (channelName, userId, role = 'publisher') => {
     try {
-      console.log('🔑 [AGORA] Generating credentials for:', {
+      VideoLogger.debug('Generating credentials for:', {
         channel: channelName,
         userId: userId,
         role: role
@@ -198,7 +169,7 @@ export const videoApi = {
         .single();
 
       if (profileError) {
-        console.warn('⚠️ [AGORA] Profile not found, using env config');
+        VideoLogger.warn('Profile not found, using env config');
       }
 
       const appId = userProfile?.agora_config?.appId || 
@@ -233,7 +204,7 @@ export const videoApi = {
         generatedAt: new Date().toISOString()
       };
 
-      console.log('✅ [AGORA] Credentials generated:', {
+      VideoLogger.debug('Credentials generated:', {
         channel: credentials.channel,
         uid: credentials.uid,
         hasToken: !!credentials.token,
@@ -243,14 +214,14 @@ export const videoApi = {
       return credentials;
 
     } catch (error) {
-      console.error('❌ [AGORA] Credentials generation failed:', error);
+      VideoLogger.error('Credentials generation failed:', error);
       
       // Fallback to backend token generation
       try {
-        console.log('🔄 [AGORA] Trying backend token generation...');
+        VideoLogger.debug('Trying backend token generation...');
         return await videoApi.generateBackendToken(channelName, userId, role);
       } catch (fallbackError) {
-        console.error('❌ [AGORA] All token generation methods failed');
+        VideoLogger.error('All token generation methods failed');
         throw new Error('Unable to generate video call credentials');
       }
     }
@@ -265,7 +236,7 @@ export const videoApi = {
 
       const agoraRole = role === 'publisher' ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
 
-      console.log('🔧 [AGORA] Building token:', {
+      VideoLogger.debug('Building token:', {
         channel: channelName,
         uid: uid,
         role: agoraRole
@@ -287,7 +258,7 @@ export const videoApi = {
       return token;
 
     } catch (error) {
-      console.error('❌ [AGORA] Token generation failed:', error);
+      VideoLogger.error('Token generation failed:', error);
       throw error;
     }
   },
@@ -295,7 +266,7 @@ export const videoApi = {
   // 🌐 BACKEND TOKEN FALLBACK
   generateBackendToken: async (channelName, userId, role) => {
     try {
-      console.log('🌐 [AGORA] Requesting token from backend...');
+      VideoLogger.debug('Requesting token from backend...');
 
       const response = await fetch(`${API_BASE_URL}/api/video/generate-token`, {
         method: 'POST',
@@ -330,7 +301,7 @@ export const videoApi = {
       };
 
     } catch (error) {
-      console.error('❌ [AGORA] Backend token failed:', error);
+      VideoLogger.error('Backend token failed:', error);
       throw error;
     }
   },
@@ -358,7 +329,7 @@ export const videoApi = {
   // 📊 SESSION HEALTH CHECK
   checkSessionHealth: async (meetingId) => {
     try {
-      console.log('🔍 [VIDEO] Checking session health:', meetingId);
+      VideoLogger.debug('Checking session health:', meetingId);
 
       const { data: session, error } = await supabase
         .from('video_sessions')
@@ -379,7 +350,7 @@ export const videoApi = {
       }
 
       const isHealthy = session.status === 'active' && 
-                       new Date(session.started_at) > new Date(Date.now() - 24 * 60 * 60 * 1000); // Within 24 hours
+                       new Date(session.started_at) > new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       return {
         healthy: isHealthy,
@@ -393,7 +364,7 @@ export const videoApi = {
       };
 
     } catch (error) {
-      console.error('❌ [VIDEO] Health check failed:', error);
+      VideoLogger.error('Health check failed:', error);
       return {
         healthy: false,
         error: error.message,
@@ -405,7 +376,7 @@ export const videoApi = {
   // 🛑 END SESSION
   endVideoSession: async (meetingId) => {
     try {
-      console.log('🛑 [VIDEO] Ending session:', meetingId);
+      VideoLogger.info('Ending session:', meetingId);
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
@@ -420,75 +391,32 @@ export const videoApi = {
         .eq('meeting_id', meetingId);
 
       if (updateError) {
-        console.warn('⚠️ [VIDEO] Session update warning:', updateError);
+        VideoLogger.warn('Session update warning:', updateError);
       }
 
       // Update class status
-      await supabase
-        .from('classes')
-        .update({ status: 'completed' })
-        .eq('id', (
-          await supabase
-            .from('video_sessions')
-            .select('class_id')
-            .eq('meeting_id', meetingId)
-            .single()
-        ).data?.class_id);
+      const { data: session } = await supabase
+        .from('video_sessions')
+        .select('class_id')
+        .eq('meeting_id', meetingId)
+        .single();
 
-      console.log('✅ [VIDEO] Session ended successfully');
+      if (session?.class_id) {
+        await supabase
+          .from('classes')
+          .update({ status: 'completed' })
+          .eq('id', session.class_id);
+      }
+
+      VideoLogger.info('Session ended successfully');
       return { success: true };
 
     } catch (error) {
-      console.error('❌ [VIDEO] Session end failed:', error);
+      VideoLogger.error('Session end failed:', error);
       return {
         success: false,
         error: error.message
       };
-    }
-  },
-
-  // 📝 RECORD STUDENT PARTICIPATION
-  recordStudentParticipation: async (meetingId, studentId, agoraUid) => {
-    try {
-      const { error } = await supabase
-        .from('session_participants')
-        .insert([{
-          meeting_id: meetingId,
-          user_id: studentId,
-          agora_uid: agoraUid,
-          joined_at: new Date().toISOString(),
-          role: 'student'
-        }]);
-
-      if (error) {
-        console.warn('⚠️ [VIDEO] Participation recording failed:', error);
-      } else {
-        console.log('✅ [VIDEO] Student participation recorded:', { studentId, agoraUid });
-      }
-    } catch (error) {
-      console.warn('⚠️ [VIDEO] Participation recording error:', error);
-    }
-  },
-
-  // 🔍 GET SESSION DETAILS
-  getSessionDetails: async (meetingId) => {
-    try {
-      const { data: session, error } = await supabase
-        .from('video_sessions')
-        .select(`
-          *,
-          class:classes (title, teacher_id),
-          teacher:profiles!video_sessions_teacher_id_fkey (name, email, agora_config)
-        `)
-        .eq('meeting_id', meetingId)
-        .single();
-
-      if (error) throw error;
-      return session;
-
-    } catch (error) {
-      console.error('❌ [VIDEO] Session details fetch failed:', error);
-      throw new Error('Session not found or inaccessible');
     }
   },
 
@@ -550,28 +478,7 @@ export const videoApi = {
       return sessions || [];
 
     } catch (error) {
-      console.error('❌ [VIDEO] Active sessions fetch failed:', error);
-      return [];
-    }
-  },
-
-  // 🔧 UTILITY: GET SESSION PARTICIPANTS
-  getSessionParticipants: async (meetingId) => {
-    try {
-      const { data: participants, error } = await supabase
-        .from('session_participants')
-        .select(`
-          *,
-          user:profiles (name, email)
-        `)
-        .eq('meeting_id', meetingId)
-        .order('joined_at', { ascending: true });
-
-      if (error) throw error;
-      return participants || [];
-
-    } catch (error) {
-      console.error('❌ [VIDEO] Participants fetch failed:', error);
+      VideoLogger.error('Active sessions fetch failed:', error);
       return [];
     }
   },
