@@ -1,7 +1,6 @@
 import { supabase } from './supabaseClient';
 
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com';
-
 // 🎯 PRODUCTION LOGGER
 class VideoLogger {
   static info(message, data = null) {
