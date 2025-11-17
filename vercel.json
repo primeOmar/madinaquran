@@ -20,11 +20,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "VITE_SUPABASE_URL": "@vite_supabase_url",
-    "VITE_SUPABASE_ANON_KEY": "@vite_supabase_anon_key", 
-    "VITE_AGORA_APP_ID": "@vite_agora_app_id",
-    "VITE_API_BASE_URL": "https://madina-quran-backend.onrender.com"
-  }
+  ]
 }
