@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import {
-Mic, MicOff, Video, VideoOff, Phone, Users,
+  Mic, MicOff, Video, VideoOff, Phone, Users,
   Settings, Share2, MessageCircle, Wifi, WifiOff,
-  AlertCircle, CheckCircle, Copy
+  AlertCircle, CheckCircle, Copy, RefreshCw
 } from "lucide-react";
 import { toast } from 'react-toastify';
 import { motion } from "framer-motion";
@@ -28,7 +28,9 @@ const TeacherVideoCall = ({
     sessionInfo: null,
     localVideoReady: false,
     meetingId: null,
-    channel: null
+    channel: null,
+    connectionState: 'DISCONNECTED',
+    isReconnecting: false
   });
 
   // Refs
@@ -42,16 +44,19 @@ const TeacherVideoCall = ({
   const agoraClientRef = useRef(null);
   const remoteUsersMapRef = useRef(new Map());
   const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
 
   // 🎯 PRODUCTION LOGGER
   const debugLog = useCallback((message, data = null) => {
+    if (import.meta.env.PROD) return; // Silence in production
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
     console.log(`[${timestamp}] 🎯 TEACHER: ${message}`, data || '');
   }, []);
 
-  const debugError = useCallback((message, error) => {
+  const debugError = useCallback((message, error = null) => {
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-    console.error(`[${timestamp}] ❌ TEACHER ERROR: ${message}`, error);
+    console.error(`[${timestamp}] ❌ TEACHER ERROR: ${message}`, error || '');
   }, []);
 
   // 🧹 CLEANUP FUNCTION
@@ -114,13 +119,16 @@ const TeacherVideoCall = ({
           ...prev,
           isConnected: false,
           isConnecting: false,
+          isReconnecting: false,
           callDuration: 0,
           error: null,
           participants: [],
-          localVideoReady: false
+          localVideoReady: false,
+          connectionState: 'DISCONNECTED'
         }));
       }
 
+      retryCountRef.current = 0;
       debugLog('Cleanup complete');
     } catch (error) {
       debugError('Cleanup error:', error);
@@ -192,27 +200,37 @@ const TeacherVideoCall = ({
     debugLog('Setting up Agora event handlers');
 
     // Connection state changes
-    client.on('connection-state-change', (curState) => {
-      debugLog(`Connection state: ${curState}`);
+    client.on('connection-state-change', (curState, prevState, reason) => {
+      debugLog(`Connection state: ${curState}, Reason: ${reason}`);
       
+      setSessionState(prev => ({ ...prev, connectionState: curState }));
+
       if (curState === 'CONNECTED') {
         setSessionState(prev => ({ 
           ...prev, 
           isConnected: true, 
           isConnecting: false,
+          isReconnecting: false,
           error: null 
         }));
+        retryCountRef.current = 0;
         debugLog('✅ Connected to Agora channel');
       } else if (curState === 'DISCONNECTED' || curState === 'FAILED') {
         setSessionState(prev => ({ 
           ...prev, 
           isConnected: false, 
           isConnecting: false,
-          error: 'Connection lost. Please check your internet connection.' 
+          error: reason || 'Connection lost' 
         }));
-        debugError('❌ Disconnected from Agora channel');
-      } else if (curState === 'CONNECTING') {
-        setSessionState(prev => ({ ...prev, isConnecting: true }));
+        debugError('❌ Disconnected from Agora channel:', reason);
+      } else if (curState === 'CONNECTING' || curState === 'RECONNECTING') {
+        setSessionState(prev => ({ 
+          ...prev, 
+          isConnecting: true,
+          isReconnecting: curState === 'RECONNECTING'
+        }));
+      } else if (curState === 'DISCONNECTING') {
+        setSessionState(prev => ({ ...prev, isConnecting: false }));
       }
     });
 
@@ -305,8 +323,60 @@ const TeacherVideoCall = ({
       }));
     });
 
+    // Token privilege will expire
+    client.on('token-privilege-will-expire', async () => {
+      debugLog('Token will expire, refreshing...');
+      try {
+        await refreshAgoraToken();
+      } catch (error) {
+        debugError('Token refresh failed:', error);
+      }
+    });
+
+    // Token privilege expired
+    client.on('token-privilege-did-expire', async () => {
+      debugLog('Token expired, attempting refresh...');
+      try {
+        await refreshAgoraToken();
+      } catch (error) {
+        debugError('Token refresh failed after expiry:', error);
+        setSessionState(prev => ({
+          ...prev,
+          error: 'Session token expired. Please reconnect.'
+        }));
+      }
+    });
+
     debugLog('Agora event handlers setup complete');
   }, [classItem?.id, onSessionUpdate, debugLog, debugError]);
+
+  // 🔄 REFRESH AGORA TOKEN
+  const refreshAgoraToken = useCallback(async () => {
+    if (!sessionState.channel || !agoraClientRef.current) return;
+
+    try {
+      debugLog('Refreshing Agora token...');
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const newCredentials = await videoApi.refreshToken(
+        sessionState.channel, 
+        user.id
+      );
+
+      if (!newCredentials.token) {
+        throw new Error('Failed to refresh token');
+      }
+
+      await agoraClientRef.current.renewToken(newCredentials.token);
+      debugLog('✅ Token refreshed successfully');
+      
+    } catch (error) {
+      debugError('Token refresh failed:', error);
+      throw error;
+    }
+  }, [sessionState.channel]);
 
   // 📺 REMOTE VIDEO MANAGEMENT
   const setupRemoteVideo = useCallback(async (user) => {
@@ -371,7 +441,7 @@ const TeacherVideoCall = ({
       const sessionData = await videoApi.startTeacherSession(classItem.id);
       
       if (!sessionData || !sessionData.success || !sessionData.agora_credentials) {
-        throw new Error(sessionData.error || 'Failed to start teacher session');
+        throw new Error(sessionData?.error || 'Failed to start teacher session');
       }
 
       const { appId, channel, token, uid } = sessionData.agora_credentials;
@@ -401,9 +471,16 @@ const TeacherVideoCall = ({
       // Setup event handlers
       setupAgoraEventHandlers(client);
       
-      // Join the channel
+      // Join the channel with timeout
       debugLog(`Joining channel: ${channel}`);
-      await client.join(appId, channel, token, uid);
+      const JOIN_TIMEOUT = 15000;
+      
+      const joinPromise = client.join(appId, channel, token, uid);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Connection timeout after 15s')), JOIN_TIMEOUT);
+      });
+
+      await Promise.race([joinPromise, timeoutPromise]);
       debugLog('✅ Successfully joined channel');
 
       // Publish tracks
@@ -428,7 +505,8 @@ const TeacherVideoCall = ({
         meetingId: sessionData.meetingId,
         channel: channel,
         isConnected: true,
-        isConnecting: false
+        isConnecting: false,
+        connectionState: 'CONNECTED'
       }));
 
       // Start call duration timer
@@ -448,7 +526,7 @@ const TeacherVideoCall = ({
       let userMessage = 'Failed to start video session. ';
       if (error.message.includes('permission')) {
         userMessage = 'Camera/microphone permission required. Please allow access and refresh.';
-      } else if (error.message.includes('network')) {
+      } else if (error.message.includes('network') || error.message.includes('timeout')) {
         userMessage = 'Network connection issue. Please check your internet.';
       } else if (error.message.includes('App ID')) {
         userMessage = 'Configuration error. Please contact support.';
@@ -467,6 +545,23 @@ const TeacherVideoCall = ({
     }
   }, [isOpen, classItem, sessionState.isConnecting, sessionState.isConnected, setupAgoraEventHandlers, performCleanup, debugLog, debugError]);
 
+  // 🔄 RECONNECT SESSION
+  const reconnectSession = useCallback(async () => {
+    if (retryCountRef.current >= maxRetries) {
+      setSessionState(prev => ({
+        ...prev,
+        error: 'Maximum reconnection attempts reached. Please refresh the page.'
+      }));
+      return;
+    }
+
+    retryCountRef.current += 1;
+    debugLog(`Reconnection attempt ${retryCountRef.current}/${maxRetries}`);
+    
+    setSessionState(prev => ({ ...prev, error: null, isReconnecting: true }));
+    await initializeSession();
+  }, [initializeSession, debugLog]);
+
   // 🎤 MEDIA CONTROL FUNCTIONS
   const toggleAudio = useCallback(async () => {
     if (!localTracksRef.current.audio || !sessionState.isConnected) return;
@@ -480,7 +575,9 @@ const TeacherVideoCall = ({
         isAudioMuted: newMutedState
       }));
 
-      toast.info(newMutedState ? '🔇 Microphone muted' : '🎤 Microphone on');
+      if (!import.meta.env.PROD) {
+        toast.info(newMutedState ? '🔇 Microphone muted' : '🎤 Microphone on');
+      }
       debugLog(`Audio ${newMutedState ? 'muted' : 'unmuted'}`);
     } catch (error) {
       debugError('Toggle audio failed:', error);
@@ -500,7 +597,9 @@ const TeacherVideoCall = ({
         isVideoOff: newVideoOffState
       }));
 
-      toast.info(newVideoOffState ? '📹 Camera off' : '📹 Camera on');
+      if (!import.meta.env.PROD) {
+        toast.info(newVideoOffState ? '📹 Camera off' : '📹 Camera on');
+      }
       debugLog(`Video ${newVideoOffState ? 'off' : 'on'}`);
     } catch (error) {
       debugError('Toggle video failed:', error);
@@ -613,6 +712,7 @@ const TeacherVideoCall = ({
   const getConnectionStatus = () => {
     if (sessionState.isConnected) return { text: 'Connected', color: 'text-green-400', bg: 'bg-green-500' };
     if (sessionState.isConnecting) return { text: 'Connecting...', color: 'text-yellow-400', bg: 'bg-yellow-500' };
+    if (sessionState.isReconnecting) return { text: 'Reconnecting...', color: 'text-orange-400', bg: 'bg-orange-500' };
     return { text: 'Disconnected', color: 'text-red-400', bg: 'bg-red-500' };
   };
 
@@ -691,6 +791,12 @@ const TeacherVideoCall = ({
                   <span className="bg-green-500 px-2 py-0.5 rounded text-xs">NEW SESSION</span>
                 </>
               )}
+              {sessionState.isReconnecting && (
+                <>
+                  <span>•</span>
+                  <span className="bg-orange-500 px-2 py-0.5 rounded text-xs">RECONNECTING</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -718,12 +824,23 @@ const TeacherVideoCall = ({
             <AlertCircle size={16} />
             <span className="text-sm font-medium">{sessionState.error}</span>
           </div>
-          <button
-            onClick={() => setSessionState(prev => ({ ...prev, error: null }))}
-            className="text-xl font-bold hover:text-gray-200 transition-colors"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-2">
+            {sessionState.connectionState === 'DISCONNECTED' && (
+              <button
+                onClick={reconnectSession}
+                className="bg-white text-red-600 px-3 py-1 rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-gray-100 transition-colors"
+              >
+                <RefreshCw size={14} />
+                Retry
+              </button>
+            )}
+            <button
+              onClick={() => setSessionState(prev => ({ ...prev, error: null }))}
+              className="text-xl font-bold hover:text-gray-200 transition-colors ml-2"
+            >
+              ×
+            </button>
+          </div>
         </div>
       )}
 
@@ -797,7 +914,7 @@ const TeacherVideoCall = ({
         </div>
 
         {/* Connecting Overlay */}
-        {sessionState.isConnecting && (
+        {(sessionState.isConnecting || sessionState.isReconnecting) && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
@@ -810,9 +927,11 @@ const TeacherVideoCall = ({
                 className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full mx-auto mb-6"
               />
               <h3 className="text-2xl font-semibold mb-3 bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                Starting Class Session
+                {sessionState.isReconnecting ? 'Reconnecting...' : 'Starting Class Session'}
               </h3>
-              <p className="text-gray-300 mb-2">Setting up your classroom...</p>
+              <p className="text-gray-300 mb-2">
+                {sessionState.isReconnecting ? 'Reconnecting to classroom...' : 'Setting up your classroom...'}
+              </p>
               <div className="flex justify-center gap-1 mt-4">
                 <motion.div
                   animate={{ scale: [1, 1.2, 1] }}
@@ -879,14 +998,18 @@ const TeacherVideoCall = ({
             <Share2 size={24} />
           </motion.button>
 
-          {/* Chat Button */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="p-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white transition-colors shadow-lg"
-          >
-            <MessageCircle size={24} />
-          </motion.button>
+          {/* Reconnect Button */}
+          {!sessionState.isConnected && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={reconnectSession}
+              className="p-4 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white transition-colors shadow-lg"
+              disabled={sessionState.isConnecting}
+            >
+              <RefreshCw size={24} />
+            </motion.button>
+          )}
 
           {/* Settings Button */}
           <motion.button
