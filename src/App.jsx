@@ -14,7 +14,6 @@ import CTA from "./components/CTA";
 import Footer from "./components/Footer";
 //import VideoCall from "./components/VideoCall";
 import { useAuth } from "./components/AuthContext"; // ✅ Pull auth state
-import ConnectionTest from './pages/ConnectionTest';
 
 // ✅ Storage initialization
 import { initializeStorage } from "./lib/supabaseClient";
