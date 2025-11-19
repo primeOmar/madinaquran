@@ -284,7 +284,7 @@ const TeacherVideoCall = ({ classItem, isOpen, onClose }) => {
   }, [debugLog, debugError, setupRemoteVideo, removeRemoteVideo]);
 
   // START SESSION
- const startSession = useCallback(async () => {
+const startSession = useCallback(async () => {
   if (!isOpen || !classItem?.id || isConnecting || isConnected) {
     debugLog('⚠️ Cannot start session');
     return;
@@ -295,7 +295,8 @@ const TeacherVideoCall = ({ classItem, isOpen, onClose }) => {
   setError('');
 
   try {
-    // STEP 1: Start/Join session via API - USING CORRECT ENDPOINT
+    // STEP 1: Start session via API
+    debugLog('📡 Calling startTeacherSession API...');
     const sessionResult = await teacherVideoApi.startTeacherSession(classItem.id);
 
     if (!sessionResult.success) {
@@ -305,7 +306,7 @@ const TeacherVideoCall = ({ classItem, isOpen, onClose }) => {
     const { meetingId, channel, agora_credentials } = sessionResult;
     const { appId, token, uid } = agora_credentials;
 
-    debugLog('🎯 SESSION CREDENTIALS:', {
+    debugLog('🎯 SESSION CREDENTIALS RECEIVED:', {
       meetingId,
       channel,
       appId,
@@ -315,87 +316,83 @@ const TeacherVideoCall = ({ classItem, isOpen, onClose }) => {
 
     setSessionInfo(sessionResult);
 
-    // STEP 2: Create tracks
-    await createLocalTracks();
-
-    // STEP 3: Play local video
-    await playLocalVideo();
-
-    // STEP 4: Initialize Agora client
-    debugLog('🔧 Creating Agora client...');
+    // STEP 2: Initialize Agora client FIRST
+    debugLog('🔧 Initializing Agora client...');
     const client = AgoraRTC.createClient({ 
       mode: 'rtc', 
-      codec: 'vp8',
-      role: 'host'
+      codec: 'vp8'
     });
     agoraClientRef.current = client;
 
-    // STEP 5: Setup event handlers
+    // STEP 3: Setup connection state monitoring
+    client.on('connection-state-change', (curState, prevState) => {
+      debugLog(`🔗 Agora Connection State: ${prevState} → ${curState}`);
+      
+      if (curState === 'CONNECTED') {
+        setIsConnected(true);
+        setIsConnecting(false);
+        setError('');
+        debugLog('🎉 CONNECTED to Agora channel!');
+      } else if (curState === 'CONNECTING') {
+        debugLog('🔄 Connecting to Agora...');
+      } else if (curState === 'DISCONNECTED' || curState === 'FAILED') {
+        setIsConnected(false);
+        setError(`Connection ${curState.toLowerCase()}`);
+        debugError(`Connection failed: ${curState}`);
+      }
+    });
+
+    // STEP 4: Setup remote user handling
     setupRemoteUserHandling(client);
 
-    // STEP 6: Add connection state listener
- client.on('connection-state-change', (curState, prevState) => {
-  debugLog(`🔗 Connection state: ${prevState} -> ${curState}`);
-  
-  if (curState === 'CONNECTED') {
-    setIsConnected(true);
-    if (isConnecting) setIsConnecting(false);
-  } else if (curState === 'DISCONNECTED' || curState === 'FAILED') {
-    setIsConnected(false);
-    setError(`Connection ${curState.toLowerCase()}`);
-  }
-});
-
-client.on('token-privilege-will-expire', () => {
-  debugLog('🔄 Token will expire soon');
-  // to implement token renewal here
-});
-
-client.on('token-privilege-did-expire', () => {
-  debugLog('❌ Token expired');
-  setError('Session token expired');
-  setIsConnected(false);
-});
-
-    // STEP 7: Join channel with token
-    debugLog(`🚪 Joining channel: ${channel} with UID: ${uid}`);
-    
-    // Join with token (even if null - Agora allows this for testing)
+    // STEP 5: Join channel FIRST (before creating tracks)
+    debugLog(`🚪 Joining Agora channel: ${channel} with UID: ${uid}`);
     await client.join(appId, channel, token, uid);
-    debugLog('✅ Successfully joined channel');
+    debugLog('✅ Successfully joined Agora channel');
 
-    // STEP 8: Publish tracks
-    debugLog('📤 Publishing tracks...');
-    const tracks = [localTracksRef.current.audio, localTracksRef.current.video].filter(Boolean);
+    // STEP 6: Create and publish local tracks
+    debugLog('🎤 Creating local audio/video tracks...');
+    const tracks = await createLocalTracks();
     
-    if (tracks.length > 0) {
-      await client.publish(tracks);
-      debugLog(`✅ Published ${tracks.length} tracks`);
-    }
+    debugLog('📤 Publishing tracks to channel...');
+    await client.publish([tracks.audio, tracks.video]);
+    debugLog('✅ Tracks published successfully');
 
-    // STEP 9: Update connection state
-    setIsConnected(true);
-    setIsConnecting(false);
+    // STEP 7: Play local video
+    await playLocalVideo();
 
-    // STEP 10: Start call timer
+    // STEP 8: Record participation (non-blocking)
+    teacherVideoApi.recordTeacherParticipation(meetingId)
+      .then(result => {
+        if (result.success) {
+          debugLog('✅ Teacher participation recorded');
+        }
+      })
+      .catch(err => {
+        debugError('Participation recording failed:', err);
+      });
+
+    // STEP 9: Start call timer
     timerRef.current = setInterval(() => {
       setCallDuration(prev => prev + 1);
     }, 1000);
 
-    debugLog('🎉 TEACHER SESSION ACTIVE!');
+    debugLog('🎉 TEACHER SESSION FULLY INITIALIZED!');
 
   } catch (error) {
     debugError('❌ SESSION START FAILED:', error);
 
     let errorMessage = 'Failed to start video session';
     if (error.message?.includes('permission')) {
-      errorMessage = 'Camera/microphone permission required';
+      errorMessage = 'Camera/microphone permission required. Please allow access and try again.';
     } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
-      errorMessage = 'Network error - check your connection';
+      errorMessage = 'Network error - please check your internet connection';
     } else if (error.message?.includes('token')) {
-      errorMessage = 'Authentication error - invalid token';
+      errorMessage = 'Authentication error - invalid session token';
     } else if (error.message?.includes('AGORA_APP_ID')) {
-      errorMessage = 'Video service not configured';
+      errorMessage = 'Video service not configured properly';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred';
     }
 
     setError(errorMessage);
@@ -408,6 +405,40 @@ client.on('token-privilege-did-expire', () => {
   performCompleteCleanup, debugLog, debugError
 ]);
 
+//function to check and request permissions
+const checkMediaPermissions = useCallback(async () => {
+  try {
+    debugLog('🔍 Checking media permissions...');
+    
+    // Check camera permission
+    const cameraPermission = await navigator.permissions.query({ name: 'camera' });
+    const microphonePermission = await navigator.permissions.query({ name: 'microphone' });
+    
+    debugLog('📷 Camera permission:', cameraPermission.state);
+    debugLog('🎤 Microphone permission:', microphonePermission.state);
+
+    if (cameraPermission.state === 'denied' || microphonePermission.state === 'denied') {
+      setError('Camera/microphone access denied. Please enable permissions in your browser settings.');
+      return false;
+    }
+
+    // Try to get media streams to trigger permission prompt
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: true, 
+      video: true 
+    });
+    
+    // Stop all tracks immediately
+    stream.getTracks().forEach(track => track.stop());
+    
+    debugLog('✅ Media permissions granted');
+    return true;
+  } catch (error) {
+    debugError('❌ Media permission check failed:', error);
+    setError('Camera/microphone access required. Please allow permissions to continue.');
+    return false;
+  }
+}, [debugLog, debugError]);
   // CONTROLS
   const toggleAudio = useCallback(async () => {
     if (!localTracksRef.current.audio || !isConnected) return;
