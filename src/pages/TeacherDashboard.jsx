@@ -2362,23 +2362,11 @@ export default function TeacherDashboard() {
     />
 
 {showVideoCallModal && activeVideoCall && (
-  <TeacherVideoCall
-    classItem={activeVideoCall}  
-    isOpen={showVideoCallModal}
-    onClose={() => {
-      setShowVideoCallModal(false);
-      setActiveVideoCall(null);
-      setVideoCallError(null);
-    }}
-    onSessionUpdate={(update) => {
-      console.log('Session update:', update);
-      // Handle session events
-      if (update.type === 'session_ended') {
-        setShowVideoCallModal(false);
-        setActiveVideoCall(null);
-      }
-    }}
-  />
+ <TeacherVideoCall
+        classItem={selectedClass}
+        isOpen={isVideoCallOpen}
+        onClose={() => setIsVideoCallOpen(false)}
+      />
 )}
     </div>
   );
