@@ -18,7 +18,7 @@ import {
   MonitorOff
 } from 'lucide-react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import { teacherVideoApi } from '../api/teacherVideoApi';
+import { teacherVideoApi } from '../lib/teacherVideoApi';
 
 const TeacherVideoCall = ({ classItem, isOpen, onClose }) => {
   // STATE
