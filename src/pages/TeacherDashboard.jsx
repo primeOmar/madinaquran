@@ -10,7 +10,7 @@ import {
   Search,
   Plus,
   FileText,
-  FileCheck,Move,
+  FileCheck,isOpen,
   Trash2,
   X,
   ChevronDown,
@@ -1658,70 +1658,96 @@ export default function TeacherDashboard() {
   }, [classes, filters]);
 
   // Video Call System
-  const handleStartVideoSession = async (classItem) => {
-    try {
-      setStartingSession(classItem.id);
-      console.log('🚀 Starting video session for class:', classItem.id);
 
-      const result = await videoApi.startVideoSession(classItem.id, user.id);
-      console.log('🔍 Raw API response:', result);
+const handleStartVideoSession = async (classItem) => {
+  try {
+    setStartingSession(classItem.id);
+    console.log('🚀 Starting video session for class:', classItem.id);
 
-      if (result.success) {
-        // 🚨 CRITICAL FIX: Map API response fields correctly
-        const videoCallData = {
-          // Map the API response fields to what TeacherVideoCall expects
-          meetingId: result.meetingId || result.meeting_id,
-          channel: result.channel || result.meetingId, // Use meetingId as fallback for channel
-          token: result.token,
-          appId: result.appId || result.app_id || import.meta.env.VITE_AGORA_APP_ID,
-          uid: result.uid || user.id,
-          classId: classItem.id,
-          className: classItem.title,
-          isTeacher: true,
-          startTime: new Date().toISOString()
-        };
+    // Use the CORRECT endpoint that matches your backend logs
+    const response = await fetch('https://madina-quran-backend.onrender.com/api/agora/join-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        meeting_id: `class_${classItem.id}_${Date.now()}`,
+        user_id: user.id, // Use actual user ID from auth
+        user_type: 'teacher',
+        user_name: user.name || 'Teacher'
+      })
+    });
 
-        console.log('🎯 Processed video call data:', videoCallData);
-
-        // Validate we have the minimum required fields
-        if (!videoCallData.channel || !videoCallData.appId) {
-          console.error('❌ Missing required fields:', {
-            channel: videoCallData.channel,
-            appId: videoCallData.appId
-          });
-          throw new Error('Invalid video session configuration received from server');
-        }
-
-        setActiveVideoCall(videoCallData);
-        setShowVideoCallModal(true);
-        toast.success('🎥 Video session started!');
-
-        // Add to recent sessions
-        setRecentSessions(prev => {
-          const filtered = prev.filter(s => s.classId !== classItem.id);
-          const newSession = {
-            classId: classItem.id,
-            className: classItem.title,
-            meetingId: videoCallData.meetingId,
-            channel: videoCallData.channel,
-            startTime: new Date().toISOString()
-          };
-          return [newSession, ...filtered].slice(0, 5);
-        });
-
-      } else {
-        throw new Error(result.error || 'Failed to start video session');
-      }
-
-    } catch (error) {
-      console.error('❌ Failed to start video session:', error);
-      setVideoCallError(error.message);
-      toast.error(error.message);
-    } finally {
-      setStartingSession(null);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: Failed to join session`);
     }
-  };
 
+    const sessionData = await response.json();
+    console.log('🔍 Raw backend response:', sessionData);
+
+    if (!sessionData.success) {
+      throw new Error(sessionData.error || 'Failed to start session');
+    }
+
+    // 🚨 CRITICAL FIX: Map the response correctly based on your backend logs
+    const videoCallData = {
+      // These are the fields your backend actually returns (from your logs)
+      id: classItem.id,
+      title: classItem.title,
+      teacher_id: user.id,
+      
+      // Map backend response to what TeacherVideoCall expects
+      meetingId: sessionData.meeting_id,
+      channel: sessionData.channel,
+      token: sessionData.token,
+      appId: sessionData.appId || sessionData.app_id,
+      uid: sessionData.agora_uid || sessionData.uid,
+      
+      // Additional info for the component
+      isTeacher: true,
+      startTime: new Date().toISOString()
+    };
+
+    console.log('🎯 Processed video call data:', videoCallData);
+
+    // Validate we have the minimum required fields
+    if (!videoCallData.channel || !videoCallData.appId) {
+      console.error('❌ Missing required fields:', {
+        channel: videoCallData.channel,
+        appId: videoCallData.appId,
+        token: videoCallData.token ? 'Present' : 'Missing',
+        uid: videoCallData.uid
+      });
+      throw new Error('Invalid video session configuration received from server');
+    }
+
+    setActiveVideoCall(videoCallData);
+    setShowVideoCallModal(true);
+    setVideoCallError(null);
+    
+    toast.success('🎥 Video session started!');
+
+    // Add to recent sessions
+    setRecentSessions(prev => {
+      const filtered = prev.filter(s => s.classId !== classItem.id);
+      const newSession = {
+        classId: classItem.id,
+        className: classItem.title,
+        meetingId: videoCallData.meetingId,
+        channel: videoCallData.channel,
+        startTime: new Date().toISOString()
+      };
+      return [newSession, ...filtered].slice(0, 5);
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start video session:', error);
+    setVideoCallError(error.message);
+    toast.error(`Video session failed: ${error.message}`);
+  } finally {
+    setStartingSession(null);
+  }
+};
   const handleRejoinSession = async (classItem) => {
     try {
       console.log('🔄 Enhanced rejoin for class:', {
@@ -2362,11 +2388,37 @@ export default function TeacherDashboard() {
     />
 
 {showVideoCallModal && activeVideoCall && (
- <TeacherVideoCall
-        classItem={selectedClass}
-        isOpen={isVideoCallOpen}
-        onClose={() => setIsVideoCallOpen(false)}
-      />
+  <TeacherVideoCall
+    classItem={{
+      id: activeVideoCall.id,
+      title: activeVideoCall.title,
+      teacher_id: activeVideoCall.teacher_id
+    }}
+    isOpen={showVideoCallModal}
+    onClose={() => {
+      console.log('🛑 Closing video call modal');
+      setShowVideoCallModal(false);
+      setActiveVideoCall(null);
+      setVideoCallError(null);
+      
+      // Force reload to update session status
+      setTimeout(() => {
+        loadTeacherData();
+      }, 1000);
+    }}
+    onSessionUpdate={(update) => {
+      console.log('📢 Session update received:', update);
+      
+      if (update.type === 'session_ended') {
+        setShowVideoCallModal(false);
+        setActiveVideoCall(null);
+        toast.info('📹 Video session ended');
+        
+        // Reload data to reflect session end
+        loadTeacherData();
+      }
+    }}
+  />
 )}
     </div>
   );
