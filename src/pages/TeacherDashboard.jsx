@@ -2464,16 +2464,16 @@ export default function TeacherDashboard() {
     />
 
     {/* 5. ✅ CRITICAL FIX: Updated TeacherVideoCall Modal Rendering */}
-    {showVideoCallModal && activeVideoCall && (
+        {showVideoCallModal && activeVideoCall && (
       <TeacherVideoCall
-        classId={activeVideoCall.classId}           // ✅ Pass classId directly
-        teacherId={activeVideoCall.teacherId}       // ✅ Pass teacherId directly
-        meetingId={activeVideoCall.meetingId}       // ✅ Pass meetingId for rejoins
-        channel={activeVideoCall.channel}           // ✅ Pass channel
-        token={activeVideoCall.token}               // ✅ Pass token
-        appId={activeVideoCall.appId}               // ✅ Pass appId
-        uid={activeVideoCall.uid}                   // ✅ Pass uid
-        classTitle={activeVideoCall.classTitle}     // ✅ Pass class title
+        classId={activeVideoCall.classId}           
+        teacherId={activeVideoCall.teacherId}       
+        meetingId={activeVideoCall.meetingId}       
+        channel={activeVideoCall.channel}          
+        token={activeVideoCall.token}               
+        appId={activeVideoCall.appId}               
+        uid={activeVideoCall.uid}                   
+        classTitle={activeVideoCall.classTitle}     
         isOpen={showVideoCallModal}
         onClose={(shouldEndSession = false) => {
           console.log('📹 Video call closing...', { shouldEndSession });
