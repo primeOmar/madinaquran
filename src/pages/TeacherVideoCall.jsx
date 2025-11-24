@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoApi from './services/videoApi';
+import videoApi from '../lib/agora/videoApi';
 import './TeacherVideoCall.css';
 
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
