@@ -2464,7 +2464,7 @@ export default function TeacherDashboard() {
     />
 
     {/* 5. ✅ CRITICAL FIX: Updated TeacherVideoCall Modal Rendering */}
-        {showVideoCallModal && activeVideoCall && (
+{showVideoCallModal && activeVideoCall && (
       <TeacherVideoCall
         classId={activeVideoCall.classId}           
         teacherId={activeVideoCall.teacherId}       
@@ -2520,14 +2520,3 @@ export default function TeacherDashboard() {
   );
 }
 
-// Export utility functions for testing and reuse
-export {
-  handleStartVideoSession,
-  handleRejoinSession,
-  handleJoinExistingSession,
-  handleRejoinRecentSession,
-  safeVideoApiCall,
-  validateVideoCallData,
-  cleanupVideoSession,
-  debugVideoSession
-};
