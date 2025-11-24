@@ -1695,260 +1695,229 @@ export default function TeacherDashboard() {
 const handleStartVideoSession = async (classItem) => {
   try {
     setStartingSession(classItem.id);
-    console.log('🚀 Starting video session for class:', classItem.id);
-
-    // Use the CORRECT endpoint that matches your backend logs
-    const response = await fetch('https://madina-quran-backend.onrender.com/api/agora/join-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        meeting_id: `class_${classItem.id}_${Date.now()}`,
-        user_id: user.id, // Use actual user ID from auth
-        user_type: 'teacher',
-        user_name: user.name || 'Teacher'
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: Failed to join session`);
-    }
-
-    const sessionData = await response.json();
-    console.log('🔍 Raw backend response:', sessionData);
-
-    if (!sessionData.success) {
-      throw new Error(sessionData.error || 'Failed to start session');
-    }
-
-    // 🚨 CRITICAL FIX: Map the response correctly based on your backend logs
-    const videoCallData = {
-      // These are the fields your backend actually returns (from your logs)
-      id: classItem.id,
-      title: classItem.title,
-      teacher_id: user.id,
-      
-      // Map backend response to what TeacherVideoCall expects
-      meetingId: sessionData.meeting_id,
-      channel: sessionData.channel,
-      token: sessionData.token,
-      appId: sessionData.appId || sessionData.app_id,
-      uid: sessionData.agora_uid || sessionData.uid,
-      
-      // Additional info for the component
-      isTeacher: true,
-      startTime: new Date().toISOString()
-    };
-
-    console.log('🎯 Processed video call data:', videoCallData);
-
-    // Validate we have the minimum required fields
-    if (!videoCallData.channel || !videoCallData.appId) {
-      console.error('❌ Missing required fields:', {
-        channel: videoCallData.channel,
-        appId: videoCallData.appId,
-        token: videoCallData.token ? 'Present' : 'Missing',
-        uid: videoCallData.uid
-      });
-      throw new Error('Invalid video session configuration received from server');
-    }
-
-    setActiveVideoCall(videoCallData);
-    setShowVideoCallModal(true);
     setVideoCallError(null);
     
-    toast.success('🎥 Video session started!');
+    console.log('🚀 Starting video session...', {
+      classId: classItem.id,
+      userId: user.id,
+      className: classItem.title
+    });
+
+    // ✅ FIX: Use videoApi with correct parameters
+    const sessionData = await videoApi.startVideoSession(
+      classItem.id,  // classId
+      user.id        // userId (teacherId)
+    );
+
+    console.log('✅ Session created:', sessionData);
+
+    // ✅ FIX: Validate response structure
+    if (!sessionData.success) {
+      throw new Error(sessionData.error || 'Failed to create session');
+    }
+
+    if (!sessionData.appId || !sessionData.channel || !sessionData.token) {
+      console.error('❌ Invalid session data:', sessionData);
+      throw new Error('Server returned incomplete video session data');
+    }
+
+    // ✅ FIX: Store complete session data
+    const videoCallData = {
+      // Required for TeacherVideoCall component
+      classId: classItem.id,
+      teacherId: user.id,
+      
+      // Session credentials
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      token: sessionData.token,
+      appId: sessionData.appId,
+      uid: sessionData.uid,
+      
+      // Additional class info
+      classTitle: classItem.title,
+      classDescription: classItem.description,
+      
+      // Session metadata
+      startTime: new Date().toISOString(),
+      sessionId: sessionData.session?.id
+    };
+
+    console.log('🎯 Video call data prepared:', videoCallData);
+
+    // Update state
+    setActiveVideoCall(videoCallData);
+    setShowVideoCallModal(true);
 
     // Add to recent sessions
+    const newRecentSession = {
+      classId: classItem.id,
+      className: classItem.title,
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      startTime: new Date().toISOString(),
+      sessionId: sessionData.session?.id
+    };
+
     setRecentSessions(prev => {
       const filtered = prev.filter(s => s.classId !== classItem.id);
-      const newSession = {
-        classId: classItem.id,
-        className: classItem.title,
-        meetingId: videoCallData.meetingId,
-        channel: videoCallData.channel,
-        startTime: new Date().toISOString()
-      };
-      return [newSession, ...filtered].slice(0, 5);
+      const updated = [newRecentSession, ...filtered].slice(0, 5);
+      localStorage.setItem('teacherRecentSessions', JSON.stringify(updated));
+      return updated;
     });
+
+    toast.success('🎥 Video session started successfully!');
 
   } catch (error) {
     console.error('❌ Failed to start video session:', error);
-    setVideoCallError(error.message);
-    toast.error(`Video session failed: ${error.message}`);
+    setVideoCallError(error.message || 'Failed to start video session');
+    toast.error(`Video session error: ${error.message}`);
   } finally {
     setStartingSession(null);
   }
 };
-  const handleRejoinSession = async (classItem) => {
-    try {
-      console.log('🔄 Enhanced rejoin for class:', {
-        className: classItem.title,
-        classId: classItem.id,
-        availableSessions: classItem.video_sessions?.length || 0
-      });
 
-      // Step 1: Try to find a valid session using multiple methods
-      let validSession = null;
+const handleRejoinSession = async (classItem) => {
+  try {
+    console.log('🔄 Rejoining session for class:', classItem.id);
 
-      // Method A: Check backend for active sessions for this class
-      console.log('🔍 Checking backend for active sessions...');
-      const sessionSearch = await videoApi.findValidSession(classItem.id, user.id);
+    // Check if there's an active session in the database
+    const activeSession = classItem.video_sessions?.find(s => s.status === 'active') ||
+                         classItem.video_session;
 
-      if (sessionSearch.success) {
-        validSession = sessionSearch;
-        console.log('✅ Found valid session via backend:', {
-          meetingId: validSession.meetingId,
-          source: validSession.source
-        });
-      } else {
-        // Method B: Start a completely new session
-        console.log('🚀 Starting completely new session...');
-        const newSession = await videoApi.startVideoSession(classItem.id, user.id);
-
-        if (newSession.success) {
-          validSession = {
-            success: true,
-            meetingId: newSession.meetingId,
-            session: newSession.session,
-            source: 'brand_new_session'
-          };
-          console.log('✅ Created new session:', validSession.meetingId);
-        } else {
-          throw new Error('Failed to create new session: ' + (newSession.error || 'Unknown error'));
-        }
-      }
-
-      // Step 2: Join the valid session
-      console.log('🎯 Joining session with meetingId:', validSession.meetingId);
-      const joinResult = await videoApi.joinVideoSession(validSession.meetingId, user.id);
-
-      if (!joinResult.success) {
-        throw new Error(joinResult.error || 'Failed to join session');
-      }
-
-      // Step 3: Setup video call data
-      const videoCallData = {
-        meetingId: joinResult.meetingId,
-        channel: joinResult.channel,
-        token: joinResult.token,
-        appId: joinResult.appId,
-        uid: joinResult.uid,
-        classId: classItem.id,
-        className: classItem.title,
-        isTeacher: true,
-        startTime: new Date().toISOString()
-      };
-
-      console.log('✅ Rejoin successful! Video call data:', videoCallData);
-
-      // Step 4: Update state and show modal
-      setActiveVideoCall(videoCallData);
-      setShowVideoCallModal(true);
-
-      // Update recent sessions
-      setRecentSessions(prev => {
-        const filtered = prev.filter(s => s.classId !== classItem.id);
-        const newSession = {
-          classId: classItem.id,
-          className: classItem.title,
-          meetingId: joinResult.meetingId,
-          channel: joinResult.channel,
-          startTime: new Date().toISOString(),
-                        source: validSession.source
-        };
-        return [newSession, ...filtered].slice(0, 5);
-      });
-
-      // Show appropriate success message
-      if (validSession.source === 'new_session' || validSession.source === 'brand_new_session') {
-        toast.success('🚀 Started new video session!');
-      } else {
-        toast.success('🔄 Successfully rejoined video session!');
-      }
-
-    } catch (error) {
-      console.error('❌ Enhanced rejoin failed:', {
-        error: error.message,
-        class: classItem.title,
-        classId: classItem.id,
-        stack: error.stack
-      });
-
-      // More specific error messages
-      if (error.message.includes('Active session not found') ||
-        error.message.includes('Session not found') ||
-        error.message.includes('404')) {
-        toast.error('Session expired. Please start a new session.');
-        } else if (error.message.includes('network') || error.message.includes('fetch')) {
-          toast.error('Network error. Please check your connection.');
-        } else {
-          toast.error(`Video session error: ${error.message}`);
-        }
+    if (!activeSession || !activeSession.meeting_id) {
+      console.log('⚠️ No active session found, starting new session...');
+      await handleStartVideoSession(classItem);
+      return;
     }
-  };
 
-  const handleJoinExistingSession = async (classItem, session) => {
-    try {
-      const meetingId = session?.meeting_id;
+    // ✅ FIX: Use videoApi to rejoin
+    const sessionData = await videoApi.joinVideoSession(
+      activeSession.meeting_id,
+      user.id,
+      'teacher'
+    );
 
-      if (!meetingId) {
-        throw new Error('No meeting ID found for this session');
-      }
-
-      // ✅ USE VIDEOAPI TO GET JOIN CREDENTIALS
-      const result = await videoApi.joinVideoSession(meetingId, user.id);
-
-      if (result.success) {
-        setActiveVideoCall({
-          meetingId: result.meetingId,
-          channel: result.channel,
-          token: result.token,
-          appId: result.appId,
-          uid: result.uid,
-          classId: classItem.id,
-          className: classItem.title,
-          isTeacher: true,
-          startTime: new Date().toISOString()
-        });
-
-        setRecentSessions(prev => {
-          const filtered = prev.filter(s => s.classId !== classItem.id);
-          const newSession = {
-            classId: classItem.id,
-            className: classItem.title,
-            meetingId: result.meetingId,
-            startTime: new Date().toISOString()
-          };
-          return [newSession, ...filtered].slice(0, 5);
-        });
-
-        localStorage.setItem('teacherRecentSessions', JSON.stringify(recentSessions));
-
-        setShowVideoCallModal(true);
-        toast.success('🔄 Joining existing session...');
-
-      } else {
-        throw new Error(result.error || 'Failed to join session');
-      }
-
-    } catch (error) {
-      console.error('❌ Madina join failed:', error);
-      toast.error(error.message);
+    if (!sessionData.success) {
+      throw new Error(sessionData.error || 'Failed to rejoin session');
     }
-  };
 
-  const handleRejoinRecentSession = async (session) => {
-    try {
-      setActiveVideoCall(session);
-      setShowVideoCallModal(true);
-      toast.success(`🚀 Rejoining ${session.className}...`);
-    } catch (error) {
-      console.error('❌ Madina rejoin failed:', error);
-      toast.error(error.message);
+    // Prepare video call data
+    const videoCallData = {
+      classId: classItem.id,
+      teacherId: user.id,
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      token: sessionData.token,
+      appId: sessionData.appId,
+      uid: sessionData.uid,
+      classTitle: classItem.title,
+      startTime: activeSession.started_at || new Date().toISOString(),
+      sessionId: sessionData.session?.id
+    };
+
+    setActiveVideoCall(videoCallData);
+    setShowVideoCallModal(true);
+    toast.success('🔄 Rejoined video session!');
+
+  } catch (error) {
+    console.error('❌ Failed to rejoin:', error);
+    toast.error(`Rejoin failed: ${error.message}`);
+    
+    // Fallback: try starting new session
+    if (error.message.includes('not found') || error.message.includes('404')) {
+      console.log('🔄 Session expired, starting new session...');
+      await handleStartVideoSession(classItem);
     }
-  };
+  }
+};
+
+const handleJoinExistingSession = async (classItem, session) => {
+  try {
+    if (!session?.meeting_id) {
+      throw new Error('Invalid session: No meeting ID');
+    }
+
+    console.log('🎯 Joining existing session:', session.meeting_id);
+
+    // ✅ FIX: Use videoApi properly
+    const sessionData = await videoApi.joinVideoSession(
+      session.meeting_id,
+      user.id,
+      'teacher'
+    );
+
+    if (!sessionData.success) {
+      throw new Error(sessionData.error || 'Failed to join session');
+    }
+
+    const videoCallData = {
+      classId: classItem.id,
+      teacherId: user.id,
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      token: sessionData.token,
+      appId: sessionData.appId,
+      uid: sessionData.uid,
+      classTitle: classItem.title,
+      startTime: session.started_at || new Date().toISOString(),
+      sessionId: sessionData.session?.id
+    };
+
+    setActiveVideoCall(videoCallData);
+    setShowVideoCallModal(true);
+    toast.success('✅ Joined existing session!');
+
+  } catch (error) {
+    console.error('❌ Join failed:', error);
+    toast.error(`Failed to join: ${error.message}`);
+  }
+};
+
+  const handleRejoinRecentSession = async (recentSession) => {
+  try {
+    console.log('🔄 Rejoining recent session:', recentSession);
+
+    // Validate the session still exists
+    const sessionData = await videoApi.joinVideoSession(
+      recentSession.meetingId,
+      user.id,
+      'teacher'
+    );
+
+    if (!sessionData.success) {
+      throw new Error('Session no longer available');
+    }
+
+    const videoCallData = {
+      classId: recentSession.classId,
+      teacherId: user.id,
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      token: sessionData.token,
+      appId: sessionData.appId,
+      uid: sessionData.uid,
+      classTitle: recentSession.className,
+      startTime: recentSession.startTime,
+      sessionId: sessionData.session?.id
+    };
+
+    setActiveVideoCall(videoCallData);
+    setShowVideoCallModal(true);
+    toast.success(`🔄 Rejoined ${recentSession.className}!`);
+
+  } catch (error) {
+    console.error('❌ Rejoin failed:', error);
+    toast.error('Session expired or unavailable');
+    
+    // Remove from recent sessions
+    setRecentSessions(prev => {
+      const filtered = prev.filter(s => s.meetingId !== recentSession.meetingId);
+      localStorage.setItem('teacherRecentSessions', JSON.stringify(filtered));
+      return filtered;
+    });
+  }
+};
 
   const handleEndVideoSession = async (classItem, session) => {
     try {
@@ -2422,33 +2391,52 @@ const handleStartVideoSession = async (classItem) => {
 
 {showVideoCallModal && activeVideoCall && (
   <TeacherVideoCall
-    classItem={{
-      id: activeVideoCall.id,
-      title: activeVideoCall.title,
-      teacher_id: activeVideoCall.teacher_id
-    }}
+    classId={activeVideoCall.classId}           // ✅ Pass classId directly
+    teacherId={activeVideoCall.teacherId}       // ✅ Pass teacherId directly
+    meetingId={activeVideoCall.meetingId}       // ✅ Pass meetingId for rejoins
+    channel={activeVideoCall.channel}           // ✅ Pass channel
+    token={activeVideoCall.token}               // ✅ Pass token
+    appId={activeVideoCall.appId}               // ✅ Pass appId
+    uid={activeVideoCall.uid}                   // ✅ Pass uid
+    classTitle={activeVideoCall.classTitle}     // ✅ Pass class title
     isOpen={showVideoCallModal}
-    onClose={() => {
-      console.log('🛑 Closing video call modal');
+    onClose={(shouldEndSession = false) => {
+      console.log('📹 Video call closing...', { shouldEndSession });
+      
       setShowVideoCallModal(false);
       setActiveVideoCall(null);
       setVideoCallError(null);
       
-      // Force reload to update session status
+      if (shouldEndSession) {
+        toast.success('✅ Video session ended');
+        // Remove from recent sessions
+        setRecentSessions(prev => {
+          const filtered = prev.filter(
+            s => s.meetingId !== activeVideoCall.meetingId
+          );
+          localStorage.setItem('teacherRecentSessions', JSON.stringify(filtered));
+          return filtered;
+        });
+      } else {
+        toast.info('📹 Video paused - you can rejoin anytime');
+      }
+      
+      // Reload data after 1 second to update session status
       setTimeout(() => {
         loadTeacherData();
       }, 1000);
     }}
     onSessionUpdate={(update) => {
-      console.log('📢 Session update received:', update);
+      console.log('📡 Session update:', update);
       
       if (update.type === 'session_ended') {
         setShowVideoCallModal(false);
         setActiveVideoCall(null);
-        toast.info('📹 Video session ended');
-        
-        // Reload data to reflect session end
+        toast.info('📹 Session ended by system');
         loadTeacherData();
+      } else if (update.type === 'error') {
+        setVideoCallError(update.message);
+        toast.error(`Video error: ${update.message}`);
       }
     }}
   />
