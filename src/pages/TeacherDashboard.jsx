@@ -2488,153 +2488,62 @@ useEffect(() => {
     audioRecorder={audioRecorder}
     />
 
-    {/* 5. ✅ CRITICAL FIX: Updated TeacherVideoCall Modal Rendering */}
-{/* Modern Video Call Modal */}
+
+{/* Simple Full-Screen Container  */}
 <AnimatePresence>
   {showVideoCallModal && activeVideoCall && (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4"
-      style={{ 
-        overflow: 'hidden',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0
-      }}
+      className="fixed inset-0 z-[9999] bg-black"
     >
-      {/* Modern Modal Container */}
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 20 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
-        className="relative w-full h-full max-w-[95vw] max-h-[95vh] bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 rounded-3xl border border-cyan-500/30 shadow-2xl overflow-hidden"
-        style={{
-          width: '100%',
-          height: '100%',
-          maxWidth: '95vw',
-          maxHeight: '95vh'
+      {/* NO HEADER HERE - TeacherVideoCall has its own */}
+      <TeacherVideoCall
+        classId={activeVideoCall.classId}
+        teacherId={activeVideoCall.teacherId}
+        meetingId={activeVideoCall.meetingId}
+        channel={activeVideoCall.channel}
+        token={activeVideoCall.token}
+        appId={activeVideoCall.appId}
+        uid={activeVideoCall.uid}
+        classTitle={activeVideoCall.classTitle}
+        isOpen={showVideoCallModal}
+        onClose={(shouldEndSession = false) => {
+          console.log('Video call closed:', { shouldEndSession });
+          setShowVideoCallModal(false);
+          setActiveVideoCall(null);
+          setVideoCallError(null);
+          
+          if (shouldEndSession) {
+            toast.success('✅ Session ended successfully');
+            setRecentSessions(prev => 
+              prev.filter(s => s.meetingId !== activeVideoCall.meetingId)
+            );
+          } else {
+            toast.info('🔄 Session paused - you can rejoin anytime');
+          }
+          
+          setTimeout(() => loadTeacherData(), 500);
         }}
-      >
-        {/* Modern Modal Header */}
-        <div className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-r from-cyan-900/90 to-purple-900/90 backdrop-blur-lg border-b border-cyan-500/30 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Video className="text-cyan-400" size={24} />
-              <div>
-                <h3 className="text-white font-bold text-lg">
-                  {activeVideoCall.classTitle || 'Live Madina Session'}
-                </h3>
-                <p className="text-cyan-300 text-sm">
-                  Meeting ID: {activeVideoCall.meetingId?.substring(0, 15)}...
-                </p>
-              </div>
-            </div>
+        onSessionUpdate={(update) => {
+          console.log('Session update received:', update);
+          if (update.type === 'session_ended' || update.type === 'error') {
+            setShowVideoCallModal(false);
+            setActiveVideoCall(null);
+            setVideoCallError(null);
             
-            <div className="flex items-center space-x-3">
-              <MadinaBadge variant="live" className="animate-pulse">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
-                🔴 LIVE
-              </MadinaBadge>
-              
-              <button
-                onClick={() => {
-                  console.log('Closing video call modal');
-                  setShowVideoCallModal(false);
-                  setActiveVideoCall(null);
-                  setVideoCallError(null);
-                  toast.info('📹 Video call ended');
-                }}
-                className="p-3 bg-red-600 hover:bg-red-500 rounded-xl text-white transition-all duration-200 hover:scale-105 active:scale-95"
-                title="End Session"
-              >
-                <PhoneOff size={20} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Video Call Container - Full screen area */}
-        <div 
-          className="absolute inset-0 pt-16 pb-4" 
-          style={{ 
-            top: '64px', // Header height
-            bottom: '16px',
-            left: '16px',
-            right: '16px'
-          }}
-        >
-          <TeacherVideoCall
-            classId={activeVideoCall.classId}
-            teacherId={activeVideoCall.teacherId}
-            meetingId={activeVideoCall.meetingId}
-            channel={activeVideoCall.channel}
-            token={activeVideoCall.token}
-            appId={activeVideoCall.appId}
-            uid={activeVideoCall.uid}
-            classTitle={activeVideoCall.classTitle}
-            isOpen={showVideoCallModal}
-            onClose={(shouldEndSession = false) => {
-              console.log('Video call closed:', { shouldEndSession });
-              setShowVideoCallModal(false);
-              setActiveVideoCall(null);
-              setVideoCallError(null);
-              
-              if (shouldEndSession) {
-                toast.success('✅ Session ended successfully');
-                // Clean up recent sessions
-                setRecentSessions(prev => 
-                  prev.filter(s => s.meetingId !== activeVideoCall.meetingId)
-                );
-              } else {
-                toast.info('🔄 Session paused - you can rejoin anytime');
-              }
-              
-              // Reload data to reflect changes
-              setTimeout(() => loadTeacherData(), 500);
-            }}
-            onSessionUpdate={(update) => {
-              console.log('Session update received:', update);
-              if (update.type === 'session_ended' || update.type === 'error') {
-                setShowVideoCallModal(false);
-                setActiveVideoCall(null);
-                setVideoCallError(null);
-                
-                if (update.type === 'error') {
-                  setVideoCallError(update.message);
-                  toast.error(`Video error: ${update.message}`);
-                } else {
-                  toast.info('📹 Session ended by system');
-                }
-                
-                loadTeacherData();
-              }
-            }}
-          />
-        </div>
-
-        {/* Connection Status Bar */}
-        <div className="absolute bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-green-900/80 to-emerald-900/80 backdrop-blur-lg border-t border-green-500/30 p-2">
-          <div className="flex items-center justify-center space-x-4 text-sm">
-            <div className="flex items-center space-x-2 text-green-300">
-              <Wifi size={16} />
-              <span>Connected to Madina Network</span>
-            </div>
-            <div className="flex items-center space-x-2 text-cyan-300">
-              <Users size={16} />
-              <span>Live Session Active</span>
-            </div>
-            <div className="flex items-center space-x-2 text-yellow-300">
-              <Clock size={16} />
-              <span>Session started: {new Date().toLocaleTimeString()}</span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
+            if (update.type === 'error') {
+              setVideoCallError(update.message);
+              toast.error(`Video error: ${update.message}`);
+            } else {
+              toast.info('📹 Session ended by system');
+            }
+            
+            loadTeacherData();
+          }
+        }}
+      />
     </motion.div>
   )}
 </AnimatePresence>
