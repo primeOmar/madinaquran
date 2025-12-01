@@ -323,6 +323,256 @@ const videoApi = {
     }
   },
 
+
+/**
+ * Get chat messages for a session
+ */
+async getSessionMessages(sessionId) {
+  try {
+    console.log('📡 API: Getting session messages for:', sessionId);
+
+    const response = await fetch(`${API_BASE_URL}/agora/session-messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        session_id: sessionId
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.warn('⚠️ API: getSessionMessages failed:', data.error);
+      return []; // Return empty array instead of throwing
+    }
+
+    console.log('✅ API: Retrieved session messages:', {
+      count: data.messages?.length || 0
+    });
+
+    return data.messages || [];
+
+  } catch (error) {
+    console.error('❌ API: getSessionMessages failed:', error);
+    return []; // Always return array, never throw
+  }
+},
+
+/**
+ * Get participants for a session
+ */
+async getSessionParticipants(meetingId) {
+  try {
+    console.log('📡 API: Getting session participants for:', meetingId);
+
+    const response = await fetch(`${API_BASE_URL}/agora/session-participants`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        meeting_id: meetingId
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.warn('⚠️ API: getSessionParticipants failed:', data.error);
+      return []; // Return empty array instead of throwing
+    }
+
+    console.log('✅ API: Retrieved session participants:', {
+      count: data.participants?.length || 0
+    });
+
+    return data.participants || [];
+
+  } catch (error) {
+    console.error('❌ API: getSessionParticipants failed:', error);
+    return []; // Always return array, never throw
+  }
+},
+
+/**
+ * Send a chat message
+ */
+async sendMessage(sessionId, userId, message) {
+  try {
+    console.log('📡 API: Sending message:', {
+      sessionId,
+      userId,
+      messageLength: message.length
+    });
+
+    const response = await fetch(`${API_BASE_URL}/agora/send-message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        user_id: userId,
+        message_text: message,
+        message_type: 'text'
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.warn('⚠️ API: sendMessage failed:', data.error);
+      // Return a mock message so UI doesn't break
+      return {
+        id: Date.now(),
+        message_text: message,
+        message_type: 'text',
+        created_at: new Date().toISOString(),
+        user_id: userId
+      };
+    }
+
+    console.log('✅ API: Message sent successfully:', {
+      messageId: data.message?.id
+    });
+
+    return data.message || {
+      id: Date.now(),
+      message_text: message,
+      created_at: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error('❌ API: sendMessage failed:', error);
+    // Return mock message on error
+    return {
+      id: Date.now(),
+      message_text: message,
+      message_type: 'text',
+      created_at: new Date().toISOString(),
+      user_id: userId,
+      is_mock: true
+    };
+  }
+},
+
+/**
+ * Update participant status
+ */
+async updateParticipantStatus(sessionId, userId, updates) {
+  try {
+    console.log('📡 API: Updating participant status:', {
+      sessionId,
+      userId,
+      updates
+    });
+
+    const response = await fetch(`${API_BASE_URL}/agora/update-participant`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        user_id: userId,
+        ...updates
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.warn('⚠️ API: updateParticipantStatus failed:', data.error);
+      return { success: false, error: data.error };
+    }
+
+    console.log('✅ API: Participant status updated successfully');
+    return { success: true };
+
+  } catch (error) {
+    console.error('❌ API: updateParticipantStatus failed:', error);
+    return { success: false, error: error.message };
+  }
+},
+
+/**
+ * Start recording a session
+ */
+async startRecording(sessionId, userId) {
+  try {
+    console.log('📡 API: Starting recording for session:', sessionId);
+
+    const response = await fetch(`${API_BASE_URL}/agora/start-recording`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        user_id: userId
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.warn('⚠️ API: startRecording failed:', data.error);
+      return { success: false, error: data.error };
+    }
+
+    console.log('✅ API: Recording started successfully');
+    return { success: true };
+
+  } catch (error) {
+    console.error('❌ API: startRecording failed:', error);
+    return { success: false, error: error.message };
+  }
+},
+
+/**
+ * Generate a new token (for token renewal)
+ */
+async generateToken(meetingId, userId) {
+  try {
+    console.log('📡 API: Generating token for:', { meetingId, userId });
+
+    const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        meeting_id: meetingId,
+        user_id: userId
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('❌ API Error generating token:', data);
+      throw new Error(data.error || 'Failed to generate token');
+    }
+
+    console.log('✅ API: Token generated successfully');
+    return {
+      success: true,
+      token: data.token
+    };
+
+  } catch (error) {
+    console.error('❌ API: generateToken failed:', error);
+    throw error;
+  }
+},
   /**
    * Get active video sessions
    */
