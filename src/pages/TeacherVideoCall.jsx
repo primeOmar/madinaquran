@@ -111,8 +111,66 @@ const joinChannel = async (sessionData) => {
     );
     
     await Promise.race([joinPromise, timeoutPromise]);
+
+    // ============== ADD THIS CRITICAL PART ==============
+    // Try to create tracks with fallback for no camera
+    let audioTrack = null;
+    let videoTrack = null;
     
-    // ... rest of the function
+    try {
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: "music_standard"
+      });
+    } catch (audioError) {
+      console.warn('Could not create audio track:', audioError);
+      // Don't fail if no audio
+    }
+
+    try {
+      videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: "720p_2",
+        optimizationMode: "detail"
+      });
+      
+      // Play local video if we have it
+      videoTrack.play('local-video-container');
+    } catch (videoError) {
+      console.warn('Could not create video track:', videoError);
+      // Set up placeholder for local video
+      setupLocalVideoPlaceholder();
+    }
+
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
+
+    // Publish only available tracks
+    const tracksToPublish = [];
+    if (audioTrack) tracksToPublish.push(audioTrack);
+    if (videoTrack) tracksToPublish.push(videoTrack);
+    
+    if (tracksToPublish.length > 0) {
+      await clientRef.current.publish(tracksToPublish);
+    } else {
+      console.warn('No tracks to publish - continuing with audio-only UI');
+    }
+
+    setSessionState(prev => ({
+      ...prev,
+      isJoined: true
+    }));
+
+    // Start tracking session duration
+    startDurationTracking(sessionData.session?.start_time);
+
+    // Start participant updates
+    if (sessionData.session?.id) {
+      startParticipantTracking(sessionData.session.id);
+    }
+
+    // Load chat messages
+    if (sessionData.session?.id) {
+      loadMessages(sessionData.session.id);
+    }
+
   } catch (error) {
     console.error('Join channel error:', error);
     throw new Error(`Failed to join video channel: ${error.message}`);
