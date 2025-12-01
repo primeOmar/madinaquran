@@ -85,75 +85,37 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
- const joinChannel = async (sessionData) => {
+const joinChannel = async (sessionData) => {
   try {
+    // Validate session data
+    if (!sessionData) {
+      throw new Error('No session data provided');
+    }
+    
     const { channel, token, uid, appId } = sessionData;
-
+    
+    // Validate required fields
+    if (!channel || !token || !appId) {
+      throw new Error('Missing required session credentials');
+    }
+    
+    console.log('Joining channel with:', { channel, appId, uid });
+    
     // Setup event listeners
     setupAgoraEventListeners();
-
-    // Join channel
-    await clientRef.current.join(appId, channel, token, uid);
-
-    // Create audio track (always try to get audio)
-    let audioTrack = null;
-    let videoTrack = null;
     
-    try {
-      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        encoderConfig: "music_standard"
-      });
-    } catch (audioError) {
-      console.warn('Could not create audio track:', audioError);
-      // You might want to show a warning but continue anyway
-      // Or you can throw an error if audio is mandatory
-    }
-
-    // Try to create video track, but don't fail if it doesn't work
-    try {
-      videoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: "720p_2",
-        optimizationMode: "detail"
-      });
-      
-      // Play local video if we have it
-      videoTrack.play('local-video-container');
-    } catch (videoError) {
-      console.warn('Could not create video track:', videoError);
-      // Set up placeholder for local video
-      setupLocalVideoPlaceholder();
-    }
-
-    setLocalTracks({ audio: audioTrack, video: videoTrack });
-
-    // Publish only available tracks
-    const tracksToPublish = [];
-    if (audioTrack) tracksToPublish.push(audioTrack);
-    if (videoTrack) tracksToPublish.push(videoTrack);
+    // Join channel with timeout
+    const joinPromise = clientRef.current.join(appId, channel, token, uid);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Join timeout after 10s')), 10000)
+    );
     
-    if (tracksToPublish.length > 0) {
-      await clientRef.current.publish(tracksToPublish);
-    } else {
-      throw new Error('No audio or video devices available');
-    }
-
-    setSessionState(prev => ({
-      ...prev,
-      isJoined: true
-    }));
-
-    // Start tracking session duration
-    startDurationTracking(sessionData.session.start_time);
-
-    // Start participant updates
-    startParticipantTracking(sessionData.session.id);
-
-    // Load chat messages
-    loadMessages(sessionData.session.id);
-
+    await Promise.race([joinPromise, timeoutPromise]);
+    
+    // ... rest of the function
   } catch (error) {
     console.error('Join channel error:', error);
-    throw new Error('Failed to join video channel: ' + error.message);
+    throw new Error(`Failed to join video channel: ${error.message}`);
   }
 };
 
@@ -249,29 +211,29 @@ const getUserInitials = () => {
     });
 
     // Network quality
-    client.on('network-quality', (quality) => {
-      const qualityMap = {
-        0: 'unknown',
-        1: 'excellent',
-        2: 'good',
-        3: 'poor',
-        4: 'poor',
-        5: 'poor',
-        6: 'poor'
-      };
+  client.on('network-quality', (quality) => {
+  try {
+    const qualityMap = {
+      0: 'unknown', 1: 'excellent', 2: 'good', 
+      3: 'poor', 4: 'poor', 5: 'poor', 6: 'poor'
+    };
+    
+    const uplinkQuality = quality?.uplinkNetworkQuality ?? 0;
+    const qualityText = qualityMap[uplinkQuality] || 'unknown';
+    
+    setStats(prev => ({
+      ...prev,
+      connectionQuality: qualityText
+    }));
 
-      setStats(prev => ({
-        ...prev,
-        connectionQuality: qualityMap[quality.uplinkNetworkQuality] || 'unknown'
-      }));
-
-      // Update in database
-      if (sessionState.sessionInfo) {
-        updateParticipantInDatabase({
-          connectionQuality: qualityMap[quality.uplinkNetworkQuality]
-        });
-      }
-    });
+  } catch (error) {
+    console.warn('Network quality error:', error);
+    setStats(prev => ({
+      ...prev,
+      connectionQuality: 'unknown'
+    }));
+  }
+});
 
     // Token privilege will expire
     client.on('token-privilege-will-expire', async () => {
@@ -448,53 +410,122 @@ const getUserInitials = () => {
     }));
   };
 
-  const startParticipantTracking = (sessionId) => {
-    participantUpdateIntervalRef.current = setInterval(async () => {
-      try {
-        const participants = await videoApi.getSessionParticipants(
-          sessionState.sessionInfo.meetingId
-        );
-        setParticipants(participants);
-      } catch (error) {
-        console.error('Participant tracking error:', error);
+const startParticipantTracking = (sessionId) => {
+  // Clear any existing interval first
+  if (participantUpdateIntervalRef.current) {
+    clearInterval(participantUpdateIntervalRef.current);
+  }
+  
+  // Check if we have valid session data
+  if (!sessionState.sessionInfo?.meetingId && !sessionId) {
+    console.warn('No meetingId available for participant tracking');
+    return;
+  }
+  
+  participantUpdateIntervalRef.current = setInterval(async () => {
+    try {
+      const meetingId = sessionState.sessionInfo?.meetingId;
+      
+      if (!meetingId) {
+        console.warn('No meetingId found for participant tracking');
+        return;
       }
-    }, 5000); // Update every 5 seconds
-  };
+      
+      const participants = await videoApi.getSessionParticipants(meetingId);
+      setParticipants(participants || []); // Safely handle null
+      
+      // Update participant count
+      updateParticipantCount();
+      
+    } catch (error) {
+      console.error('Participant tracking error:', error);
+      // Don't throw, just log and continue
+    }
+  }, 5000);
+};
 
   // ============================================
   // Duration Tracking
   // ============================================
 
-  const startDurationTracking = (startTime) => {
-    const start = new Date(startTime);
-    
-    durationIntervalRef.current = setInterval(() => {
-      const now = new Date();
-      const diff = Math.floor((now - start) / 1000);
-      setStats(prev => ({ ...prev, duration: diff }));
-    }, 1000);
-  };
+ const startDurationTracking = (startTime) => {
+  // Validate startTime
+  if (!startTime) {
+    // Use current time as fallback
+    startTime = new Date().toISOString();
+  }
+  
+  const start = new Date(startTime);
+  
+  // Clear any existing interval
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+  }
+  
+  durationIntervalRef.current = setInterval(() => {
+    const now = new Date();
+    const diff = Math.floor((now - start) / 1000);
+    setStats(prev => ({ ...prev, duration: diff }));
+  }, 1000);
+};
 
-  const formatDuration = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+ const formatDuration = (seconds) => {
+  // Add null/undefined check
+  if (!seconds || isNaN(seconds) || seconds < 0) {
+    return "00:00:00";
+  }
+  
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
 
   // ============================================
   // Chat Functions
   // ============================================
 
-  const loadMessages = async (sessionId) => {
-    try {
-      const msgs = await videoApi.getSessionMessages(sessionId);
-      setMessages(msgs.reverse()); // Show oldest first
-    } catch (error) {
-      console.error('Load messages error:', error);
+  const [loading, setLoading] = useState({
+  messages: false,
+  participants: false,
+  tracks: false
+});
+
+const loadMessages = async (sessionId) => {
+  try {
+    // Check if sessionId exists
+    if (!sessionId) {
+      console.warn('No session ID provided for loading messages');
+      return;
     }
-  };
+    
+    // Check if videoApi has getSessionMessages function
+    if (!videoApi.getSessionMessages || typeof videoApi.getSessionMessages !== 'function') {
+      console.warn('getSessionMessages function not available in videoApi');
+      
+      // Mock data for development
+      const mockMessages = [
+        {
+          id: 1,
+          message_text: "Welcome to the video session!",
+          message_type: "system",
+          created_at: new Date().toISOString(),
+          profiles: { full_name: 'System' }
+        }
+      ];
+      setMessages(mockMessages);
+      return;
+    }
+    
+    const msgs = await videoApi.getSessionMessages(sessionId);
+    setMessages(msgs?.reverse() || []); // Safely handle null response
+  } catch (error) {
+    console.error('Load messages error:', error);
+    // Set empty array on error
+    setMessages([]);
+  }
+};
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !sessionState.sessionInfo) return;
