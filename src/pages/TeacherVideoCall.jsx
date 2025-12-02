@@ -246,7 +246,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   // ============================================
-  // Control Functions (unchanged)
+  // Control Functions 
   // ============================================
 
   const toggleAudio = async () => {
@@ -301,12 +301,142 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       }
     }
   };
+// ============================================
+// FIXED Screen Sharing Function
+// ============================================
 
-  // ... rest of your control functions remain the same
+const toggleScreenShare = async () => {
+  try {
+    if (!controls.screenSharing) {
+      // Start screen sharing
+      const screenTrack = await AgoraRTC.createScreenVideoTrack({
+        encoderConfig: '1080p_1', // Optional: Set resolution
+        optimizationMode: 'detail' // Optional: For text clarity
+      });
+      
+      // Stop and unpublish camera video track
+      if (localTracks.video) {
+        await clientRef.current.unpublish([localTracks.video]);
+        localTracks.video.stop();
+        localTracks.video.close();
+      }
+      
+      // Publish screen track
+      await clientRef.current.publish([screenTrack]);
+      
+      // Update local tracks - replace camera video with screen video
+      setLocalTracks(prev => ({ 
+        ...prev, 
+        video: screenTrack 
+      }));
+      
+      // Play screen track in local video element
+      if (localVideoRef.current) {
+        screenTrack.play(localVideoRef.current);
+      }
+      
+      setControls(prev => ({ ...prev, screenSharing: true }));
+      console.log('🖥️ Screen sharing started');
+      
+    } else {
+      // Stop screen sharing and restore camera
+      const screenTrack = localTracks.video;
+      
+      if (screenTrack) {
+        await clientRef.current.unpublish([screenTrack]);
+        screenTrack.stop();
+        screenTrack.close();
+      }
+      
+      // Create and publish camera video track
+      try {
+        const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+        await clientRef.current.publish([cameraTrack]);
+        
+        if (localVideoRef.current) {
+          cameraTrack.play(localVideoRef.current);
+        }
+        
+        setLocalTracks(prev => ({ 
+          ...prev, 
+          video: cameraTrack 
+        }));
+        
+        setControls(prev => ({ 
+          ...prev, 
+          videoEnabled: true,
+          screenSharing: false 
+        }));
+        
+        console.log('🖥️ Screen sharing stopped, camera restored');
+      } catch (cameraError) {
+        console.error('Cannot access camera:', cameraError);
+        setControls(prev => ({ 
+          ...prev, 
+          videoEnabled: false,
+          screenSharing: false 
+        }));
+      }
+    }
+  } catch (error) {
+    console.error('Screen share error:', error);
+    
+    // Handle permission denied error
+    if (error.code === 'PERMISSION_DENIED') {
+      alert('Screen sharing permission was denied. Please allow screen sharing in your browser.');
+    } else if (error.message.includes('canceled')) {
+      console.log('Screen sharing was canceled by user');
+    }
+    
+    // Reset state if screen sharing fails
+    setControls(prev => ({ ...prev, screenSharing: false }));
+  }
+};
+
+  const toggleRecording = async () => {
+    try {
+      const newState = !controls.recording; 
+      if (newState) { 
+        await videoApi.startRecording(sessionState.sessionInfo.meetingId);
+        console.log('⏺️ Recording started');
+      } else {
+        await videoApi.stopRecording(sessionState.sessionInfo.meetingId);
+        console.log('⏹️ Recording stopped');
+      }
+      setControls(prev => ({ ...prev, recording: newState }));
+    } catch (error) {
+      console.error('Toggle recording error:', error);
+    } 
+  };
+  const leaveSession = async () => {
+    try {
+      setIsLeaving(true); 
+      await cleanup();
+      setIsLeaving(false);
+      if (onEndCall) onEndCall(false); 
+    } catch (error) {
+      console.error('Leave session error:', error);
+      setIsLeaving(false);
+    }
+  };
+
+  const endSession = async () => {  
+    try {
+      setIsEnding(true); 
+      await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
+      await cleanup();
+      setIsEnding(false);
+      if (onEndCall) onEndCall(true); 
+    } catch (error) {
+      console.error('End session error:', error);
+      setIsEnding(false);
+    }
+  };
+  
 
   // ============================================
   // Helper Functions
-  // ============================================
+  //  ============================================
 
   const startDurationTracking = () => {
     const startTime = Date.now();
