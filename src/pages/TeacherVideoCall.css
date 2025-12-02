@@ -743,3 +743,76 @@
 .video-control-btn:hover {
   background: rgba(0, 0, 0, 0.8);
 }
+
+/* Add these to your TeacherVideoCall.css */
+
+/* Video Display Fixes */
+.video-display {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  background: #000; /* Black background for better contrast */
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.video-display .video-element {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  background: #000;
+}
+
+/* Ensure video elements display properly */
+#local-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror effect for self-view */
+}
+
+.remote-video-element {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  z-index: 1;
+}
+
+.user-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  backdrop-filter: blur(5px);
+}
+
+/* Screen sharing indicator */
+.screen-share-indicator {
+  background: rgba(0, 123, 255, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: 8px;
+}
+

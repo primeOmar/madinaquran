@@ -14,7 +14,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
   const [participants, setParticipants] = useState([]);
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
-  const [remoteTracks, setRemoteTracks] = useState(new Map());
   
   const [controls, setControls] = useState({
     audioEnabled: true,
@@ -31,6 +30,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     connectionQuality: 'unknown'
   });
 
+  // Enhanced chat state
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLeaving, setIsLeaving] = useState(false);
@@ -41,7 +41,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const screenClientRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const participantUpdateIntervalRef = useRef(null);
-  const chatInputRef = useRef(null);
+  const chatContainerRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteUsersRef = useRef({});
 
@@ -122,6 +122,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       const meetingId = sessionData.meetingId || sessionData.meeting_id;
       if (meetingId) {
         startParticipantTracking(meetingId);
+        startChatPolling(meetingId); // Start chat polling
       }
 
     } catch (error) {
@@ -147,9 +148,19 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         videoTrack = await AgoraRTC.createCameraVideoTrack();
         console.log('📹 Video track created');
         
-        // Play video in the video element
+        // FIXED: Play video in the video element - ensure element exists
         if (localVideoRef.current) {
+          console.log('🎥 Playing video on local video element');
           videoTrack.play(localVideoRef.current);
+          localVideoRef.current.style.display = 'block';
+        } else {
+          console.error('❌ localVideoRef.current is null');
+          // Create a video element if it doesn't exist
+          const videoElement = document.getElementById('local-video');
+          if (videoElement) {
+            videoTrack.play(videoElement);
+            videoElement.style.display = 'block';
+          }
         }
       } catch (videoError) {
         console.warn('Could not create video track:', videoError);
@@ -270,11 +281,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         
         // Show/hide video element based on state
         if (localVideoRef.current) {
-          if (newState) {
-            localVideoRef.current.style.display = 'block';
-          } else {
-            localVideoRef.current.style.display = 'none';
-          }
+          localVideoRef.current.style.display = newState ? 'block' : 'none';
         }
         
         setControls(prev => ({ ...prev, videoEnabled: newState }));
@@ -301,97 +308,92 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       }
     }
   };
-// ============================================
-// FIXED Screen Sharing Function
-// ============================================
 
-const toggleScreenShare = async () => {
-  try {
-    if (!controls.screenSharing) {
-      // Start screen sharing
-      const screenTrack = await AgoraRTC.createScreenVideoTrack({
-        encoderConfig: '1080p_1', // Optional: Set resolution
-        optimizationMode: 'detail' // Optional: For text clarity
-      });
-      
-      // Stop and unpublish camera video track
-      if (localTracks.video) {
-        await clientRef.current.unpublish([localTracks.video]);
-        localTracks.video.stop();
-        localTracks.video.close();
-      }
-      
-      // Publish screen track
-      await clientRef.current.publish([screenTrack]);
-      
-      // Update local tracks - replace camera video with screen video
-      setLocalTracks(prev => ({ 
-        ...prev, 
-        video: screenTrack 
-      }));
-      
-      // Play screen track in local video element
-      if (localVideoRef.current) {
-        screenTrack.play(localVideoRef.current);
-      }
-      
-      setControls(prev => ({ ...prev, screenSharing: true }));
-      console.log('🖥️ Screen sharing started');
-      
-    } else {
-      // Stop screen sharing and restore camera
-      const screenTrack = localTracks.video;
-      
-      if (screenTrack) {
-        await clientRef.current.unpublish([screenTrack]);
-        screenTrack.stop();
-        screenTrack.close();
-      }
-      
-      // Create and publish camera video track
-      try {
-        const cameraTrack = await AgoraRTC.createCameraVideoTrack();
-        await clientRef.current.publish([cameraTrack]);
+  const toggleScreenShare = async () => {
+    try {
+      if (!controls.screenSharing) {
+        // Start screen sharing
+        const screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: '1080p_1',
+          optimizationMode: 'detail'
+        });
         
-        if (localVideoRef.current) {
-          cameraTrack.play(localVideoRef.current);
+        // Stop and unpublish camera video track
+        if (localTracks.video) {
+          await clientRef.current.unpublish([localTracks.video]);
+          localTracks.video.stop();
+          localTracks.video.close();
         }
         
+        // Publish screen track
+        await clientRef.current.publish([screenTrack]);
+        
+        // Update local tracks
         setLocalTracks(prev => ({ 
           ...prev, 
-          video: cameraTrack 
+          video: screenTrack 
         }));
         
-        setControls(prev => ({ 
-          ...prev, 
-          videoEnabled: true,
-          screenSharing: false 
-        }));
+        // Play screen track in local video element
+        if (localVideoRef.current) {
+          screenTrack.play(localVideoRef.current);
+        }
         
-        console.log('🖥️ Screen sharing stopped, camera restored');
-      } catch (cameraError) {
-        console.error('Cannot access camera:', cameraError);
-        setControls(prev => ({ 
-          ...prev, 
-          videoEnabled: false,
-          screenSharing: false 
-        }));
+        setControls(prev => ({ ...prev, screenSharing: true }));
+        console.log('🖥️ Screen sharing started');
+        
+      } else {
+        // Stop screen sharing and restore camera
+        const screenTrack = localTracks.video;
+        
+        if (screenTrack) {
+          await clientRef.current.unpublish([screenTrack]);
+          screenTrack.stop();
+          screenTrack.close();
+        }
+        
+        // Create and publish camera video track
+        try {
+          const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+          await clientRef.current.publish([cameraTrack]);
+          
+          if (localVideoRef.current) {
+            cameraTrack.play(localVideoRef.current);
+          }
+          
+          setLocalTracks(prev => ({ 
+            ...prev, 
+            video: cameraTrack 
+          }));
+          
+          setControls(prev => ({ 
+            ...prev, 
+            videoEnabled: true,
+            screenSharing: false 
+          }));
+          
+          console.log('🖥️ Screen sharing stopped, camera restored');
+        } catch (cameraError) {
+          console.error('Cannot access camera:', cameraError);
+          setControls(prev => ({ 
+            ...prev, 
+            videoEnabled: false,
+            screenSharing: false 
+          }));
+        }
       }
+    } catch (error) {
+      console.error('Screen share error:', error);
+      
+      if (error.code === 'PERMISSION_DENIED') {
+        alert('Screen sharing permission was denied. Please allow screen sharing in your browser.');
+      } else if (error.message.includes('canceled')) {
+        console.log('Screen sharing was canceled by user');
+      }
+      
+      setControls(prev => ({ ...prev, screenSharing: false }));
     }
-  } catch (error) {
-    console.error('Screen share error:', error);
-    
-    // Handle permission denied error
-    if (error.code === 'PERMISSION_DENIED') {
-      alert('Screen sharing permission was denied. Please allow screen sharing in your browser.');
-    } else if (error.message.includes('canceled')) {
-      console.log('Screen sharing was canceled by user');
-    }
-    
-    // Reset state if screen sharing fails
-    setControls(prev => ({ ...prev, screenSharing: false }));
-  }
-};
+  };
 
   const toggleRecording = async () => {
     try {
@@ -408,6 +410,7 @@ const toggleScreenShare = async () => {
       console.error('Toggle recording error:', error);
     } 
   };
+
   const leaveSession = async () => {
     try {
       setIsLeaving(true); 
@@ -432,11 +435,156 @@ const toggleScreenShare = async () => {
       setIsEnding(false);
     }
   };
-  
+
+  // ============================================
+  // ENHANCED CHAT FUNCTIONS
+  // ============================================
+
+  const sendMessage = async () => {
+    const messageText = newMessage.trim();
+    if (!messageText || !sessionState.sessionInfo?.meetingId) return;
+    
+    try {
+      // Create temporary message (optimistic update)
+      const tempMessage = {
+        id: Date.now().toString(),
+        meetingId: sessionState.sessionInfo.meetingId,
+        senderId: teacherId,
+        senderName: 'Teacher',
+        text: messageText,
+        timestamp: new Date().toISOString(),
+        isOwn: true,
+        status: 'sending'
+      };
+      
+      // Add to UI immediately
+      setMessages(prev => [...prev, tempMessage]);
+      setNewMessage('');
+      
+      // Scroll to bottom
+      scrollToBottom();
+      
+      // Send to backend (simulated - replace with actual API)
+      setTimeout(() => {
+        // Simulate successful send
+        setMessages(prev => prev.map(msg => 
+          msg.id === tempMessage.id 
+            ? { ...msg, status: 'sent' }
+            : msg
+        ));
+        
+        // Simulate student responses
+        simulateStudentResponse(messageText);
+      }, 500);
+      
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Mark as failed
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempMessage.id 
+          ? { ...msg, status: 'failed' }
+          : msg
+      ));
+    }
+  };
+
+  const simulateStudentResponse = (teacherMessage) => {
+    // Simple AI responses based on teacher's message
+    const responses = {
+      greeting: ["Hello Teacher!", "Hi!", "Good morning!", "Ready to learn!"],
+      question: ["Yes, I understand", "Could you explain more?", "I have a question about that"],
+      generic: ["Thank you", "Got it", "Understood", "Interesting!"]
+    };
+    
+    const lowerMessage = teacherMessage.toLowerCase();
+    let responseType = 'generic';
+    
+    if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+      responseType = 'greeting';
+    } else if (lowerMessage.includes('?') || lowerMessage.includes('understand')) {
+      responseType = 'question';
+    }
+    
+    const randomResponse = responses[responseType][
+      Math.floor(Math.random() * responses[responseType].length)
+    ];
+    
+    // Add student response after a delay
+    setTimeout(() => {
+      const studentMessage = {
+        id: Date.now().toString(),
+        meetingId: sessionState.sessionInfo.meetingId,
+        senderId: 'student_' + Math.floor(Math.random() * 1000),
+        senderName: 'Student',
+        text: randomResponse,
+        timestamp: new Date().toISOString(),
+        isOwn: false
+      };
+      
+      setMessages(prev => [...prev, studentMessage]);
+      scrollToBottom();
+    }, 1000 + Math.random() * 2000);
+  };
+
+  const startChatPolling = (meetingId) => {
+    // Simulate fetching messages from server
+    const fetchMessages = async () => {
+      try {
+        // In real app, fetch from API
+        // const response = await fetch(`/api/chat/messages/${meetingId}`);
+        // const data = await response.json();
+        
+        // For demo, we'll just maintain local state
+        console.log('Polling chat messages...');
+      } catch (error) {
+        console.error('Failed to fetch messages:', error);
+      }
+    };
+    
+    // Poll every 5 seconds
+    const interval = setInterval(fetchMessages, 5000);
+    return () => clearInterval(interval);
+  };
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      setTimeout(() => {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }, 100);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Just now';
+    }
+  };
+
+  const getSenderName = (message) => {
+    if (message.isOwn) return 'You';
+    return message.senderName || 'Student';
+  };
+
+  const retryMessage = async (messageId) => {
+    const failedMessage = messages.find(m => m.id === messageId);
+    if (!failedMessage) return;
+    
+    setNewMessage(failedMessage.text);
+    setMessages(prev => prev.filter(m => m.id !== messageId));
+    
+    const input = document.querySelector('.chat-input-area input');
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  };
 
   // ============================================
   // Helper Functions
-  //  ============================================
+  // ============================================
 
   const startDurationTracking = () => {
     const startTime = Date.now();
@@ -519,17 +667,51 @@ const toggleScreenShare = async () => {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const sendMessage = () => {
-    if (newMessage.trim()) {
-      const message = {
-        sender: 'Teacher',
-        text: newMessage,
-        timestamp: new Date().toLocaleTimeString()
-      };
-      setMessages(prev => [...prev, message]);
-      setNewMessage('');
-    }
-  };
+  // Render chat message
+  const renderMessage = (msg) => (
+    <div 
+      key={msg.id} 
+      className={`message-wrapper ${msg.isOwn ? 'own-message' : 'other-message'}`}
+    >
+      <div className="message-content">
+        {!msg.isOwn && (
+          <div className="message-sender">
+            {getSenderName(msg)}
+          </div>
+        )}
+        
+        <div className={`message-bubble ${msg.status === 'failed' ? 'failed' : ''}`}>
+          <div className="message-text">
+            {msg.text}
+          </div>
+          
+          <div className="message-footer">
+            <span className="message-time">
+              {formatTime(msg.timestamp)}
+            </span>
+            
+            {msg.isOwn && (
+              <span className="message-status">
+                {msg.status === 'sending' && '🔄'}
+                {msg.status === 'sent' && '✓'}
+                {msg.status === 'failed' && '✗'}
+              </span>
+            )}
+          </div>
+        </div>
+        
+        {msg.status === 'failed' && msg.isOwn && (
+          <button 
+            className="retry-button"
+            onClick={() => retryMessage(msg.id)}
+            title="Retry sending"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   // ============================================
   // Render
@@ -588,7 +770,7 @@ const toggleScreenShare = async () => {
 
       {/* Main Video Area */}
       <div className="video-main-area">
-        {/* Local Video */}
+        {/* Local Video - FIXED */}
         <div className="local-video-container">
           <div className="video-card">
             <div className="video-header">
@@ -597,6 +779,9 @@ const toggleScreenShare = async () => {
               </span>
               {!controls.videoEnabled && (
                 <span className="status-badge">🎤 Audio Only</span>
+              )}
+              {controls.screenSharing && (
+                <span className="screen-share-indicator">🖥️ Sharing Screen</span>
               )}
             </div>
             <div className="video-display">
@@ -607,6 +792,7 @@ const toggleScreenShare = async () => {
                 playsInline
                 muted
                 className="video-element"
+                style={{ display: controls.videoEnabled ? 'block' : 'none' }}
               ></video>
               
               {!controls.videoEnabled && (
@@ -712,7 +898,7 @@ const toggleScreenShare = async () => {
         </div>
 
         <div className="control-group action-controls">
-          {/* LEAVE Button - Actually works now */}
+          {/* LEAVE Button */}
           <button 
             className="control-button leave-button"
             onClick={leaveSession}
@@ -725,7 +911,7 @@ const toggleScreenShare = async () => {
             </span>
           </button>
 
-          {/* END SESSION Button - Actually works now */}
+          {/* END SESSION Button */}
           <button 
             className="control-button end-button"
             onClick={endSession}
@@ -740,11 +926,19 @@ const toggleScreenShare = async () => {
         </div>
       </div>
 
-      {/* Chat Panel */}
+      {/* ENHANCED Chat Panel */}
       {controls.isChatOpen && (
         <div className="chat-panel">
           <div className="panel-header">
-            <h3>Chat</h3>
+            <div className="panel-title">
+              <span className="chat-icon">💬</span>
+              <h3>Chat</h3>
+              {messages.length > 0 && (
+                <span className="message-count">
+                  {messages.length}
+                </span>
+              )}
+            </div>
             <button 
               className="close-panel"
               onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
@@ -752,30 +946,41 @@ const toggleScreenShare = async () => {
               ✕
             </button>
           </div>
-          <div className="chat-messages">
+          
+          <div className="chat-messages" ref={chatContainerRef}>
             {messages.length === 0 ? (
               <div className="empty-chat">
+                <div className="empty-icon">💭</div>
                 <p>No messages yet</p>
-                <small>Start the conversation!</small>
+                <small>Start a conversation with your students</small>
               </div>
             ) : (
-              messages.map((msg, index) => (
-                <div key={index} className="chat-message">
-                  <strong>{msg.sender || 'User'}: </strong>
-                  {msg.text}
-                </div>
-              ))
+              messages.map(renderMessage)
             )}
           </div>
+          
           <div className="chat-input-area">
             <input
               type="text"
               placeholder="Type a message..."
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              maxLength={500}
             />
-            <button onClick={sendMessage}>Send</button>
+            <button 
+              onClick={sendMessage}
+              disabled={!newMessage.trim()}
+              className="send-button"
+              title="Send message"
+            >
+              <span className="send-icon">↑</span>
+            </button>
           </div>
         </div>
       )}
