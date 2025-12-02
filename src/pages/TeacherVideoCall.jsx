@@ -66,7 +66,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         codec: 'vp8' 
       });
 
-      const sessionData = await videoApi.startVideoSession(classId, teacherId);
+      // ✅ Get session data from API
+    const sessionData = await videoApi.startVideoSession(classId, teacherId);
       
       console.log('📊 Session Data:', sessionData);
       
@@ -229,107 +230,169 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   // FIXED LEAVE FUNCTION - Actually leaves the call
-  const leaveSession = async () => {
-    if (isLeaving) return;
+const leaveSession = async () => {
+  console.log('🚪 LEAVE button clicked');
+  
+  if (isLeaving) return;
+  
+  setIsLeaving(true);
+  
+  try {
+    // Stop all tracks
+    if (localTracks.audio) {
+      localTracks.audio.stop();
+      localTracks.audio.close();
+    }
+    if (localTracks.video) {
+      localTracks.video.stop();
+      localTracks.video.close();
+    }
     
-    setIsLeaving(true);
-    console.log('🚪 Leaving session...');
+    // Leave Agora channel
+    if (clientRef.current) {
+      await clientRef.current.leave();
+      console.log('✅ Left Agora channel');
+    }
     
-    try {
-      // Stop local tracks
-      if (localTracks.audio) {
-        localTracks.audio.stop();
-        localTracks.audio.close();
+    // Call API to update backend (but don't wait for it)
+    if (sessionState.sessionInfo?.meetingId) {
+      videoApi.leaveVideoSession(sessionState.sessionInfo.meetingId, teacherId)
+        .then(result => {
+          console.log('✅ API leave call completed:', result);
+        })
+        .catch(err => {
+          console.warn('⚠️ API leave call failed:', err);
+        });
+    }
+    
+    // Clear intervals
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
+    
+    // ✅ CRITICAL: Force UI state update
+    setSessionState({
+      isInitialized: false,
+      isJoined: false,
+      sessionInfo: null,
+      error: null
+    });
+    
+    setControls({
+      audioEnabled: false,
+      videoEnabled: false,
+      screenSharing: false,
+      recording: false,
+      isChatOpen: false,
+      isParticipantsOpen: false
+    });
+    
+    // ✅ CRITICAL: Wait a moment then call parent callback
+    setTimeout(() => {
+      console.log('📞 Calling parent onEndCall callback');
+      if (onEndCall && typeof onEndCall === 'function') {
+        onEndCall();
+      } else {
+        console.error('❌ onEndCall is not a function or is undefined:', onEndCall);
+        // Fallback: show a message and reload if parent callback fails
+        alert('Session ended. Returning to dashboard...');
+        window.location.reload();
       }
-      if (localTracks.video) {
-        localTracks.video.stop();
-        localTracks.video.close();
-      }
-      
-      // Leave Agora channel
-      if (clientRef.current) {
-        await clientRef.current.leave();
-        console.log('✅ Left Agora channel');
-      }
-      
-      // Update backend
-      if (sessionState.sessionInfo?.meetingId) {
-        await videoApi.leaveVideoSession(sessionState.sessionInfo.meetingId, teacherId);
-        console.log('✅ Updated backend status');
-      }
-      
-      // Clear intervals
-      if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-      if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
-      
-      // Call parent to close video call
-      if (onEndCall) {
-        console.log('📞 Calling onEndCall callback');
+    }, 500);
+    
+  } catch (error) {
+    console.error('❌ Error leaving session:', error);
+    // Still try to close
+    setTimeout(() => {
+      if (onEndCall && typeof onEndCall === 'function') {
         onEndCall();
       }
-      
-    } catch (error) {
-      console.error('❌ Leave session error:', error);
-      alert('Error leaving session: ' + error.message);
-    } finally {
-      setIsLeaving(false);
-    }
-  };
+    }, 500);
+  } finally {
+    setIsLeaving(false);
+  }
+};
 
-  // FIXED END SESSION FUNCTION - Ends session for everyone
-  const endSession = async () => {
-    if (isEnding) return;
-    
-    if (!window.confirm('Are you sure you want to end this session for all participants?')) {
-      return;
+const endSession = async () => {
+  console.log('⏹️ END SESSION button clicked');
+  
+  if (isEnding) return;
+  
+  if (!window.confirm('Are you sure you want to end this session for all participants?')) {
+    return;
+  }
+  
+  setIsEnding(true);
+  
+  try {
+    // Stop all tracks
+    if (localTracks.audio) {
+      localTracks.audio.stop();
+      localTracks.audio.close();
+    }
+    if (localTracks.video) {
+      localTracks.video.stop();
+      localTracks.video.close();
     }
     
-    setIsEnding(true);
-    console.log('⏹️ Ending session for all...');
+    // Leave Agora channel
+    if (clientRef.current) {
+      await clientRef.current.leave();
+      console.log('✅ Left Agora channel');
+    }
     
-    try {
-      // Stop local tracks
-      if (localTracks.audio) {
-        localTracks.audio.stop();
-        localTracks.audio.close();
+    // Try to end session via API
+    if (sessionState.sessionInfo?.meetingId) {
+      const result = await videoApi.endVideoSession(sessionState.sessionInfo.meetingId, teacherId);
+      console.log('✅ API end session result:', result);
+    }
+    
+    // Clear intervals
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
+    
+    // ✅ CRITICAL: Force UI state update
+    setSessionState({
+      isInitialized: false,
+      isJoined: false,
+      sessionInfo: null,
+      error: null
+    });
+    
+    setControls({
+      audioEnabled: false,
+      videoEnabled: false,
+      screenSharing: false,
+      recording: false,
+      isChatOpen: false,
+      isParticipantsOpen: false
+    });
+    
+    // ✅ CRITICAL: Wait a moment then call parent callback
+    setTimeout(() => {
+      console.log('📞 Calling parent onEndCall callback');
+      if (onEndCall && typeof onEndCall === 'function') {
+        onEndCall();
+      } else {
+        console.error('❌ onEndCall is not a function or is undefined:', onEndCall);
+        // Fallback: show a message and reload if parent callback fails
+        alert('Session ended. Returning to dashboard...');
+        window.location.reload();
       }
-      if (localTracks.video) {
-        localTracks.video.stop();
-        localTracks.video.close();
-      }
-      
-      // Leave Agora channel
-      if (clientRef.current) {
-        await clientRef.current.leave();
-        console.log('✅ Left Agora channel');
-      }
-      
-      // End session on backend
-      if (sessionState.sessionInfo?.meetingId) {
-        const result = await videoApi.endVideoSession(
-          sessionState.sessionInfo.meetingId,
-          teacherId
-        );
-        console.log('✅ Ended session on backend:', result);
-      }
-      
-      // Clear intervals
-      if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-      if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
-      
-      // Call parent to close video call
-      if (onEndCall) {
-        console.log('📞 Calling onEndCall callback');
+    }, 500);
+    
+  } catch (error) {
+    console.error('❌ Error ending session:', error);
+    alert('Error ending session: ' + error.message);
+    // Still try to close
+    setTimeout(() => {
+      if (onEndCall && typeof onEndCall === 'function') {
         onEndCall();
       }
-      
-    } catch (error) {
-      console.error('❌ End session error:', error);
-      alert('Error ending session: ' + error.message);
-    } finally {
-      setIsEnding(false);
-    }
-  };
+    }, 500);
+  } finally {
+    setIsEnding(false);
+  }
+};
 
   // ============================================
   // Helper Functions

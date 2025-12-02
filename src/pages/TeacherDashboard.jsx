@@ -1703,27 +1703,15 @@ export default function TeacherDashboard() {
         throw new Error('Server returned incomplete video session data');
       }
 
-      // ✅ FIX: Store complete session data
-      const videoCallData = {
-        // Required for TeacherVideoCall component
-        classId: classItem.id,
-        teacherId: user.id,
-        
-        // Session credentials
-        meetingId: sessionData.meetingId,
-        channel: sessionData.channel,
-        token: sessionData.token,
-        appId: sessionData.appId,
-        uid: sessionData.uid,
-        
-        // Additional class info
-        classTitle: classItem.title,
-        classDescription: classItem.description,
-        
-        // Session metadata
-        startTime: new Date().toISOString(),
-        sessionId: sessionData.session?.id
-      };
+     // Prepare video call data -
+const videoCallData = {
+  classId: classItem.id,
+  teacherId: user.id,
+  meetingId: sessionData.meetingId, 
+  classTitle: classItem.title
+};
+
+console.log('🎯 Starting video call with:', videoCallData);
 
       console.log('🎯 Video call data prepared:', videoCallData);
 
@@ -2489,7 +2477,7 @@ useEffect(() => {
     />
 
 
-{/* Simple Full-Screen Container  */}
+{/* Video Call Modal - Conditional Rendering */}
 <AnimatePresence>
   {showVideoCallModal && activeVideoCall && (
     <motion.div
@@ -2498,50 +2486,34 @@ useEffect(() => {
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] bg-black"
     >
-      {/* NO HEADER HERE - TeacherVideoCall has its own */}
+      {/* ✅ CRITICAL FIX: Use onEndCall instead of onClose */}
       <TeacherVideoCall
+        key={`video-call-${activeVideoCall.meetingId}`} // Force re-mount
         classId={activeVideoCall.classId}
         teacherId={activeVideoCall.teacherId}
-        meetingId={activeVideoCall.meetingId}
-        channel={activeVideoCall.channel}
-        token={activeVideoCall.token}
-        appId={activeVideoCall.appId}
-        uid={activeVideoCall.uid}
-        classTitle={activeVideoCall.classTitle}
-        isOpen={showVideoCallModal}
-        onClose={(shouldEndSession = false) => {
-          console.log('Video call closed:', { shouldEndSession });
+        onEndCall={(shouldEndSession = false) => {
+          console.log('🎬 Parent: onEndCall received:', { shouldEndSession });
+          
+          // ✅ CRITICAL: Clear the video call state
           setShowVideoCallModal(false);
           setActiveVideoCall(null);
-          setVideoCallError(null);
           
+          // Show appropriate message
           if (shouldEndSession) {
-            toast.success('✅ Session ended successfully');
+            toast.success('✅ Video session ended successfully');
+            
+            // Remove from recent sessions if ending
             setRecentSessions(prev => 
               prev.filter(s => s.meetingId !== activeVideoCall.meetingId)
             );
           } else {
-            toast.info('🔄 Session paused - you can rejoin anytime');
+            toast.info('🔄 Video session left - you can rejoin anytime');
           }
           
-          setTimeout(() => loadTeacherData(), 500);
-        }}
-        onSessionUpdate={(update) => {
-          console.log('Session update received:', update);
-          if (update.type === 'session_ended' || update.type === 'error') {
-            setShowVideoCallModal(false);
-            setActiveVideoCall(null);
-            setVideoCallError(null);
-            
-            if (update.type === 'error') {
-              setVideoCallError(update.message);
-              toast.error(`Video error: ${update.message}`);
-            } else {
-              toast.info('📹 Session ended by system');
-            }
-            
+          // Reload data to update UI
+          setTimeout(() => {
             loadTeacherData();
-          }
+          }, 500);
         }}
       />
     </motion.div>
