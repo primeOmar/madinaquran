@@ -161,10 +161,13 @@ const joinChannel = async (sessionData) => {
     // Start tracking session duration
     startDurationTracking(sessionData.session?.start_time);
 
-    // Start participant updates
-    if (sessionData.session?.id) {
-      startParticipantTracking(sessionData.session.id);
-    }
+    // Start participant updates - pass the actual meetingId
+const meetingId = sessionData.meetingId || sessionData.meeting_id || sessionData.session?.meeting_id;
+if (meetingId) {
+  startParticipantTracking(meetingId);
+} else {
+  console.error('❌ No meetingId found in session data:', sessionData);
+}
 
     // Load chat messages
     if (sessionData.session?.id) {
@@ -472,29 +475,26 @@ const startParticipantTracking = useCallback((sessionId) => {
   // Clear any existing interval first
   if (participantUpdateIntervalRef.current) {
     clearInterval(participantUpdateIntervalRef.current);
+    participantUpdateIntervalRef.current = null;
   }
-  
-  console.log('🔍 Starting participant tracking with:', {
-    sessionId,
-    currentMeetingId: sessionState.sessionInfo?.meetingId,
-    sessionInfoExists: !!sessionState.sessionInfo
-  });
 
-  // Create a stable reference to the meetingId that doesn't depend on stale state
-  let meetingIdToUse = null;
-  
+  console.log('🔍 Starting participant tracking');
+
+  // Get meetingId from multiple sources
   const getMeetingId = () => {
-    // First, try to get from the argument (passed from joinChannel)
-    if (sessionId && typeof sessionId === 'string') {
-      // Check if it looks like a meetingId (not a numeric database ID)
-      if (sessionId.includes('-') || sessionId.length > 10) {
-        return sessionId;
-      }
+    // First, try the provided sessionId (should be meetingId from joinChannel)
+    if (sessionId) {
+      return sessionId;
     }
     
-    // Try from current state
+    // Try from sessionInfo state
     if (sessionState.sessionInfo?.meetingId) {
       return sessionState.sessionInfo.meetingId;
+    }
+    
+    // Try alternative naming
+    if (sessionState.sessionInfo?.meeting_id) {
+      return sessionState.sessionInfo.meeting_id;
     }
     
     // Try from session object
@@ -505,76 +505,55 @@ const startParticipantTracking = useCallback((sessionId) => {
     return null;
   };
 
-  meetingIdToUse = getMeetingId();
+  const meetingId = getMeetingId();
 
-  if (!meetingIdToUse) {
-    console.warn('⚠️ No meetingId available yet, will retry in 2 seconds');
+  if (!meetingId) {
+    console.warn('⚠️ No meetingId available yet, scheduling retry');
     
-    // Retry after state settles
+    // Schedule a retry after state updates
     const retryTimeout = setTimeout(() => {
       const retryMeetingId = getMeetingId();
       if (retryMeetingId) {
-        console.log('✅ Found meetingId on retry:', retryMeetingId);
         startParticipantTracking(retryMeetingId);
       } else {
         console.error('❌ Still no meetingId after retry');
       }
     }, 2000);
 
-    // Store timeout reference for cleanup
-    participantUpdateIntervalRef.current = {
-      type: 'timeout',
-      id: retryTimeout
-    };
-    
+    // Store timeout for cleanup
+    participantUpdateIntervalRef.current = retryTimeout;
     return;
   }
 
-  console.log('✅ Starting participant tracking with meetingId:', meetingIdToUse);
+  console.log('✅ Starting participant tracking with meetingId:', meetingId);
 
-  // Store meetingId in a ref so the interval callback has access to it
-  const meetingIdRef = useRef(meetingIdToUse);
-  meetingIdRef.current = meetingIdToUse;
+  // Store meetingId in component-scoped variable for the interval
+  let currentMeetingId = meetingId;
 
   // Start the interval
   const intervalId = setInterval(async () => {
     try {
-      console.log('📊 Fetching participants for meeting:', meetingIdRef.current);
-      
-      const participants = await videoApi.getSessionParticipants(meetingIdRef.current);
-      
-      console.log('📊 Participants received:', {
-        count: participants?.length || 0
-      });
-      
+      // Use the stored meetingId
+      const participants = await videoApi.getSessionParticipants(currentMeetingId);
       setParticipants(participants || []);
-      
-      // Update participant count from Agora
       updateParticipantCount();
-      
     } catch (error) {
       console.error('❌ Participant tracking error:', error);
-      // Don't stop tracking on error, just log
     }
   }, 5000);
 
-  // Store the interval ID for cleanup
-  participantUpdateIntervalRef.current = {
-    type: 'interval',
-    id: intervalId
-  };
+  // Store interval ID for cleanup
+  participantUpdateIntervalRef.current = intervalId;
 
   // Initial fetch
-  setTimeout(() => {
-    videoApi.getSessionParticipants(meetingIdRef.current)
-      .then(participants => {
-        setParticipants(participants || []);
-        updateParticipantCount();
-      })
-      .catch(console.error);
-  }, 1000);
+  videoApi.getSessionParticipants(currentMeetingId)
+    .then(participants => {
+      setParticipants(participants || []);
+      updateParticipantCount();
+    })
+    .catch(console.error);
 
-}, [sessionState.sessionInfo]); 
+}, [sessionState.sessionInfo]); // Dependency array
 
   // ============================================
   // Duration Tracking
