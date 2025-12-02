@@ -35,6 +35,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const [newMessage, setNewMessage] = useState('');
   const [isLeaving, setIsLeaving] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [showControls, setShowControls] = useState(true);
 
   // Refs
   const clientRef = useRef(null);
@@ -44,9 +45,34 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const chatContainerRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteUsersRef = useRef({});
+  const controlsTimeoutRef = useRef(null);
+
+  // Auto-hide controls
+  useEffect(() => {
+    const handleMouseMove = () => {
+      setShowControls(true);
+      
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    };
+    
+    handleMouseMove(); // Initial show
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, []);
 
   // ============================================
-  // Initialization
+  // Initialization (same as before)
   // ============================================
 
   useEffect(() => {
@@ -66,10 +92,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         codec: 'vp8' 
       });
 
-      // Get session data from API
       const sessionData = await videoApi.startVideoSession(classId, teacherId);
-      
-      console.log('📊 Session Data:', sessionData);
       
       if (!sessionData.success) {
         throw new Error(sessionData.error || 'Failed to start session');
@@ -101,14 +124,11 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         throw new Error('Missing required session credentials');
       }
       
-      console.log('🔗 Joining channel:', { channel, appId });
-      
       setupAgoraEventListeners();
       
       await clientRef.current.join(appId, channel, token, uid);
       console.log('✅ Successfully joined channel');
 
-      // Create and publish tracks
       await createAndPublishTracks();
 
       setSessionState(prev => ({
@@ -116,13 +136,12 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         isJoined: true
       }));
 
-      // Start tracking
       startDurationTracking();
       
       const meetingId = sessionData.meetingId || sessionData.meeting_id;
       if (meetingId) {
         startParticipantTracking(meetingId);
-        startChatPolling(meetingId); // Start chat polling
+        startChatPolling(meetingId);
       }
 
     } catch (error) {
@@ -142,26 +161,56 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         console.warn('Could not create audio track:', audioError);
       }
 
-      // Create video track
+      // Create video track - FIXED VERSION
       let videoTrack = null;
       try {
-        videoTrack = await AgoraRTC.createCameraVideoTrack();
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: '720p',
+          optimizationMode: 'motion'
+        });
+        
         console.log('📹 Video track created');
         
-        // FIXED: Play video in the video element - ensure element exists
-        if (localVideoRef.current) {
-          console.log('🎥 Playing video on local video element');
-          videoTrack.play(localVideoRef.current);
-          localVideoRef.current.style.display = 'block';
-        } else {
-          console.error('❌ localVideoRef.current is null');
-          // Create a video element if it doesn't exist
-          const videoElement = document.getElementById('local-video');
-          if (videoElement) {
-            videoTrack.play(videoElement);
-            videoElement.style.display = 'block';
-          }
+        // Wait for video element to be available
+        const waitForVideoElement = () => {
+          return new Promise((resolve) => {
+            const checkElement = () => {
+              if (localVideoRef.current) {
+                resolve(localVideoRef.current);
+              } else {
+                setTimeout(checkElement, 100);
+              }
+            };
+            checkElement();
+          });
+        };
+        
+        const videoElement = await waitForVideoElement();
+        console.log('🎥 Video element found:', videoElement);
+        
+        // Play video with error handling
+        try {
+          await videoTrack.play(videoElement);
+          console.log('✅ Video track playing');
+          
+          // Force video display
+          videoElement.style.display = 'block';
+          videoElement.style.opacity = '1';
+          videoElement.style.visibility = 'visible';
+          
+          // Log video element state
+          console.log('Video element state:', {
+            width: videoElement.offsetWidth,
+            height: videoElement.offsetHeight,
+            display: videoElement.style.display,
+            opacity: videoElement.style.opacity
+          });
+          
+        } catch (playError) {
+          console.error('❌ Video play error:', playError);
+          throw playError;
         }
+        
       } catch (videoError) {
         console.warn('Could not create video track:', videoError);
       }
@@ -183,7 +232,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   // ============================================
-  // FIXED Event Listeners with proper video display
+  // Event Listeners (same as before)
   // ============================================
 
   const setupAgoraEventListeners = () => {
@@ -192,16 +241,13 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     client.on('user-published', async (user, mediaType) => {
       console.log('👤 User published:', user.uid, mediaType);
       
-      // Subscribe to the user
       await client.subscribe(user, mediaType);
       
       if (mediaType === 'video') {
-        // Create a container for remote video
         const videoContainer = document.createElement('div');
         videoContainer.id = `remote-video-${user.uid}`;
         videoContainer.className = 'remote-video-container';
         
-        // Create a video element
         const videoElement = document.createElement('video');
         videoElement.id = `video-${user.uid}`;
         videoElement.autoplay = true;
@@ -210,13 +256,11 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         
         videoContainer.appendChild(videoElement);
         
-        // Add to DOM
         const remoteVideosGrid = document.querySelector('.remote-videos-grid');
         if (remoteVideosGrid) {
           remoteVideosGrid.appendChild(videoContainer);
         }
         
-        // Play the video track on the video element
         user.videoTrack.play(videoElement);
         remoteUsersRef.current[user.uid] = { container: videoContainer, videoElement };
       }
@@ -229,8 +273,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     });
 
     client.on('user-unpublished', (user, mediaType) => {
-      console.log('👤 User unpublished:', user.uid, mediaType);
-      
       if (mediaType === 'video') {
         const userData = remoteUsersRef.current[user.uid];
         if (userData && userData.container) {
@@ -238,26 +280,21 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           delete remoteUsersRef.current[user.uid];
         }
       }
-      
       updateParticipantCount();
     });
 
     client.on('user-left', (user) => {
-      console.log('👤 User left:', user.uid);
-      
-      // Clean up the video container
       const userData = remoteUsersRef.current[user.uid];
       if (userData && userData.container) {
         userData.container.remove();
         delete remoteUsersRef.current[user.uid];
       }
-      
       updateParticipantCount();
     });
   };
 
   // ============================================
-  // Control Functions 
+  // Control Functions
   // ============================================
 
   const toggleAudio = async () => {
@@ -279,7 +316,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         const newState = !controls.videoEnabled;
         await localTracks.video.setEnabled(newState);
         
-        // Show/hide video element based on state
         if (localVideoRef.current) {
           localVideoRef.current.style.display = newState ? 'block' : 'none';
         }
@@ -290,7 +326,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         console.error('Toggle video error:', error);
       }
     } else {
-      // Try to create video track if not available
       try {
         const videoTrack = await AgoraRTC.createCameraVideoTrack();
         await clientRef.current.publish([videoTrack]);
@@ -312,29 +347,24 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const toggleScreenShare = async () => {
     try {
       if (!controls.screenSharing) {
-        // Start screen sharing
         const screenTrack = await AgoraRTC.createScreenVideoTrack({
           encoderConfig: '1080p_1',
           optimizationMode: 'detail'
         });
         
-        // Stop and unpublish camera video track
         if (localTracks.video) {
           await clientRef.current.unpublish([localTracks.video]);
           localTracks.video.stop();
           localTracks.video.close();
         }
         
-        // Publish screen track
         await clientRef.current.publish([screenTrack]);
         
-        // Update local tracks
         setLocalTracks(prev => ({ 
           ...prev, 
           video: screenTrack 
         }));
         
-        // Play screen track in local video element
         if (localVideoRef.current) {
           screenTrack.play(localVideoRef.current);
         }
@@ -343,7 +373,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         console.log('🖥️ Screen sharing started');
         
       } else {
-        // Stop screen sharing and restore camera
         const screenTrack = localTracks.video;
         
         if (screenTrack) {
@@ -352,7 +381,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           screenTrack.close();
         }
         
-        // Create and publish camera video track
         try {
           const cameraTrack = await AgoraRTC.createCameraVideoTrack();
           await clientRef.current.publish([cameraTrack]);
@@ -384,13 +412,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       }
     } catch (error) {
       console.error('Screen share error:', error);
-      
-      if (error.code === 'PERMISSION_DENIED') {
-        alert('Screen sharing permission was denied. Please allow screen sharing in your browser.');
-      } else if (error.message.includes('canceled')) {
-        console.log('Screen sharing was canceled by user');
-      }
-      
       setControls(prev => ({ ...prev, screenSharing: false }));
     }
   };
@@ -437,7 +458,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   // ============================================
-  // ENHANCED CHAT FUNCTIONS
+  // Chat Functions (same as before)
   // ============================================
 
   const sendMessage = async () => {
@@ -445,7 +466,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     if (!messageText || !sessionState.sessionInfo?.meetingId) return;
     
     try {
-      // Create temporary message (optimistic update)
       const tempMessage = {
         id: Date.now().toString(),
         meetingId: sessionState.sessionInfo.meetingId,
@@ -457,29 +477,23 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         status: 'sending'
       };
       
-      // Add to UI immediately
       setMessages(prev => [...prev, tempMessage]);
       setNewMessage('');
       
-      // Scroll to bottom
       scrollToBottom();
       
-      // Send to backend (simulated - replace with actual API)
       setTimeout(() => {
-        // Simulate successful send
         setMessages(prev => prev.map(msg => 
           msg.id === tempMessage.id 
             ? { ...msg, status: 'sent' }
             : msg
         ));
         
-        // Simulate student responses
         simulateStudentResponse(messageText);
       }, 500);
       
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Mark as failed
       setMessages(prev => prev.map(msg => 
         msg.id === tempMessage.id 
           ? { ...msg, status: 'failed' }
@@ -489,7 +503,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   const simulateStudentResponse = (teacherMessage) => {
-    // Simple AI responses based on teacher's message
     const responses = {
       greeting: ["Hello Teacher!", "Hi!", "Good morning!", "Ready to learn!"],
       question: ["Yes, I understand", "Could you explain more?", "I have a question about that"],
@@ -509,7 +522,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       Math.floor(Math.random() * responses[responseType].length)
     ];
     
-    // Add student response after a delay
     setTimeout(() => {
       const studentMessage = {
         id: Date.now().toString(),
@@ -527,22 +539,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   const startChatPolling = (meetingId) => {
-    // Simulate fetching messages from server
-    const fetchMessages = async () => {
-      try {
-        // In real app, fetch from API
-        // const response = await fetch(`/api/chat/messages/${meetingId}`);
-        // const data = await response.json();
-        
-        // For demo, we'll just maintain local state
-        console.log('Polling chat messages...');
-      } catch (error) {
-        console.error('Failed to fetch messages:', error);
-      }
-    };
-    
-    // Poll every 5 seconds
-    const interval = setInterval(fetchMessages, 5000);
+    console.log('Polling chat messages...');
+    const interval = setInterval(() => {}, 5000);
     return () => clearInterval(interval);
   };
 
@@ -566,20 +564,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const getSenderName = (message) => {
     if (message.isOwn) return 'You';
     return message.senderName || 'Student';
-  };
-
-  const retryMessage = async (messageId) => {
-    const failedMessage = messages.find(m => m.id === messageId);
-    if (!failedMessage) return;
-    
-    setNewMessage(failedMessage.text);
-    setMessages(prev => prev.filter(m => m.id !== messageId));
-    
-    const input = document.querySelector('.chat-input-area input');
-    if (input) {
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    }
   };
 
   // ============================================
@@ -632,11 +616,9 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const cleanup = () => {
     console.log('🧹 Cleaning up...');
     
-    // Clear intervals
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
     if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
     
-    // Stop and close local tracks
     if (localTracks.audio) {
       localTracks.audio.stop();
       localTracks.audio.close();
@@ -646,12 +628,10 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       localTracks.video.close();
     }
     
-    // Leave channel
     if (clientRef.current) {
       clientRef.current.leave();
     }
     
-    // Clear remote users
     Object.values(remoteUsersRef.current).forEach(userData => {
       if (userData.container) {
         userData.container.remove();
@@ -699,22 +679,12 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
             )}
           </div>
         </div>
-        
-        {msg.status === 'failed' && msg.isOwn && (
-          <button 
-            className="retry-button"
-            onClick={() => retryMessage(msg.id)}
-            title="Retry sending"
-          >
-            Retry
-          </button>
-        )}
       </div>
     </div>
   );
 
   // ============================================
-  // Render
+  // Render - FUTURISTIC DESIGN
   // ============================================
 
   if (sessionState.error) {
@@ -744,65 +714,60 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   }
 
   return (
-    <div className="video-call-container dark-theme">
-      {/* Header */}
-      <div className="call-header">
+    <div className="video-call-container futuristic-theme">
+      {/* Minimal Header */}
+      <div className={`call-header ${showControls ? 'visible' : 'hidden'}`}>
         <div className="header-left">
-          <h2>{sessionState.sessionInfo?.session?.class_title || 'Video Call'}</h2>
-          <div className="call-stats">
-            <span className="stat-item">
-              <span className="stat-icon">⏱️</span>
-              {formatDuration(stats.duration)}
-            </span>
-            <span className="stat-item">
-              <span className="stat-icon">👥</span>
-              {stats.participantCount} online
-            </span>
-          </div>
-        </div>
-        <div className="header-right">
-          <div className="connection-status">
-            <span className={`status-dot ${stats.connectionQuality}`}></span>
-            <span className="status-text">{stats.connectionQuality} connection</span>
+          <div className="session-info">
+            <h2 className="class-title">{sessionState.sessionInfo?.session?.class_title || 'Video Class'}</h2>
+            <div className="header-stats">
+              <span className="stat-chip">
+                <span className="stat-icon">⏱️</span>
+                {formatDuration(stats.duration)}
+              </span>
+              <span className="stat-chip">
+                <span className="stat-icon">👥</span>
+                {stats.participantCount}
+              </span>
+              {controls.recording && (
+                <span className="recording-indicator">
+                  <span className="recording-dot"></span>
+                  REC
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Video Area */}
+      {/* Main Video Area - Full Screen */}
       <div className="video-main-area">
-        {/* Local Video - FIXED */}
-        <div className="local-video-container">
-          <div className="video-card">
-            <div className="video-header">
-              <span className="video-title">
-                <span className="host-badge">HOST</span> You
-              </span>
-              {!controls.videoEnabled && (
-                <span className="status-badge">🎤 Audio Only</span>
-              )}
-              {controls.screenSharing && (
-                <span className="screen-share-indicator">🖥️ Sharing Screen</span>
-              )}
-            </div>
-            <div className="video-display">
-              <video
-                ref={localVideoRef}
-                id="local-video"
-                autoPlay
-                playsInline
-                muted
-                className="video-element"
-                style={{ display: controls.videoEnabled ? 'block' : 'none' }}
-              ></video>
-              
-              {!controls.videoEnabled && (
-                <div className="video-placeholder">
-                  <div className="user-avatar">
-                    <span>YOU</span>
-                  </div>
-                  <p>Camera is off</p>
+        {/* Local Video - Centered and Compact */}
+        <div className="local-video-container floating-video">
+          <div className="video-wrapper">
+            <video
+              ref={localVideoRef}
+              id="local-video"
+              autoPlay
+              playsInline
+              muted
+              className="video-element"
+              style={{ display: controls.videoEnabled ? 'block' : 'none' }}
+            ></video>
+            
+            {!controls.videoEnabled && (
+              <div className="video-placeholder">
+                <div className="user-avatar">
+                  <span>YOU</span>
                 </div>
-              )}
+              </div>
+            )}
+            
+            {/* Video Status Overlay */}
+            <div className="video-status-overlay">
+              {!controls.videoEnabled && <span className="status-tag">🎤 Audio Only</span>}
+              {controls.screenSharing && <span className="status-tag">🖥️ Screen Sharing</span>}
+              <span className="name-tag">Host</span>
             </div>
           </div>
         </div>
@@ -813,134 +778,124 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         </div>
       </div>
 
-      {/* Control Bar */}
-      <div className="control-bar">
-        <div className="control-group primary-controls">
-          <button 
-            className={`control-button audio-control ${controls.audioEnabled ? 'active' : 'muted'}`}
-            onClick={toggleAudio}
-            title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
-          >
-            <span className="control-icon">
-              {controls.audioEnabled ? '🎤' : '🔇'}
-            </span>
-            <span className="control-label">
-              {controls.audioEnabled ? 'Mute' : 'Unmute'}
-            </span>
-          </button>
+      {/* Floating Control Center - Auto-hide */}
+      <div className={`floating-controls ${showControls ? 'visible' : 'hidden'}`}>
+        <div className="control-center">
+          {/* Primary Controls - Compact Circle */}
+          <div className="primary-controls">
+            <button 
+              className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
+              onClick={toggleAudio}
+              title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            >
+              <span className="orb-icon">
+                {controls.audioEnabled ? '🎤' : '🔇'}
+              </span>
+              <span className="orb-tooltip">
+                {controls.audioEnabled ? 'Mute' : 'Unmute'}
+              </span>
+            </button>
 
-          <button 
-            className={`control-button video-control ${controls.videoEnabled ? 'active' : 'inactive'}`}
-            onClick={toggleVideo}
-            title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-          >
-            <span className="control-icon">
-              {controls.videoEnabled ? '📹' : '📷'}
-            </span>
-            <span className="control-label">
-              {controls.videoEnabled ? 'Stop Video' : 'Start Video'}
-            </span>
-          </button>
+            <button 
+              className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
+              onClick={toggleVideo}
+              title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+            >
+              <span className="orb-icon">
+                {controls.videoEnabled ? '📹' : '📷'}
+              </span>
+              <span className="orb-tooltip">
+                {controls.videoEnabled ? 'Stop Video' : 'Start Video'}
+              </span>
+            </button>
 
-          {/* Screen Share */}
-          <button 
-            className={`control-button screen-share-control ${controls.screenSharing ? 'active' : ''}`}
-            onClick={toggleScreenShare}
-            title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
-          >
-            <span className="control-icon">
-              {controls.screenSharing ? '🖥️' : '📱'}
-            </span>
-            <span className="control-label">
-              {controls.screenSharing ? 'Stop Share' : 'Share Screen'}
-            </span>
-          </button>
+            {/* Screen Share */}
+            <button 
+              className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
+              onClick={toggleScreenShare}
+              title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
+            >
+              <span className="orb-icon">
+                {controls.screenSharing ? '🖥️' : '📱'}
+              </span>
+              <span className="orb-tooltip">
+                {controls.screenSharing ? 'Stop Share' : 'Share Screen'}
+              </span>
+            </button>
 
-          {/* Recording */}
-          <button 
-            className={`control-button recording-control ${controls.recording ? 'active' : ''}`}
-            onClick={toggleRecording}
-            title={controls.recording ? 'Stop recording' : 'Start recording'}
-          >
-            <span className="control-icon">
-              {controls.recording ? '⏺️' : '⏺️'}
-            </span>
-            <span className="control-label">
-              {controls.recording ? 'Stop Record' : 'Record'}
-            </span>
-          </button>
-        </div>
+            {/* Recording */}
+            <button 
+              className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
+              onClick={toggleRecording}
+              title={controls.recording ? 'Stop recording' : 'Start recording'}
+            >
+              <span className="orb-icon">
+                ⏺️
+              </span>
+              <span className="orb-tooltip">
+                {controls.recording ? 'Stop Record' : 'Record'}
+              </span>
+              {controls.recording && <div className="pulse-ring"></div>}
+            </button>
+          </div>
 
-        <div className="control-group secondary-controls">
-          {/* Chat */}
-          <button 
-            className={`control-button chat-control ${controls.isChatOpen ? 'active' : ''}`}
-            onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
-            title="Toggle chat"
-          >
-            <span className="control-icon">💬</span>
-            <span className="control-label">Chat</span>
-            {messages.length > 0 && (
-              <span className="notification-badge">{messages.length}</span>
-            )}
-          </button>
+          {/* Secondary Controls - Bottom Row */}
+          <div className="secondary-controls">
+            {/* Chat */}
+            <button 
+              className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
+              onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
+              title="Toggle chat"
+            >
+              <span className="btn-icon">💬</span>
+              {messages.length > 0 && (
+                <span className="message-count-badge">{messages.length}</span>
+              )}
+            </button>
 
-          {/* Participants */}
-          <button 
-            className={`control-button participants-control ${controls.isParticipantsOpen ? 'active' : ''}`}
-            onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
-            title="Show participants"
-          >
-            <span className="control-icon">👥</span>
-            <span className="control-label">Participants</span>
-            <span className="count-badge">{participants.length}</span>
-          </button>
-        </div>
+            {/* Participants */}
+            <button 
+              className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
+              onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
+              title="Show participants"
+            >
+              <span className="btn-icon">👥</span>
+              <span className="participant-count">{participants.length}</span>
+            </button>
 
-        <div className="control-group action-controls">
-          {/* LEAVE Button */}
-          <button 
-            className="control-button leave-button"
-            onClick={leaveSession}
-            disabled={isLeaving}
-            title="Leave the call (others can continue)"
-          >
-            <span className="control-icon">🚪</span>
-            <span className="control-label">
-              {isLeaving ? 'Leaving...' : 'Leave'}
-            </span>
-          </button>
+            {/* Leave & End Buttons */}
+            <div className="action-buttons">
+              <button 
+                className="control-button leave-btn"
+                onClick={leaveSession}
+                disabled={isLeaving}
+                title="Leave the call (others can continue)"
+              >
+                <span className="btn-icon">🚪</span>
+                <span className="btn-text">{isLeaving ? '...' : 'Leave'}</span>
+              </button>
 
-          {/* END SESSION Button */}
-          <button 
-            className="control-button end-button"
-            onClick={endSession}
-            disabled={isEnding}
-            title="End call for everyone"
-          >
-            <span className="control-icon">⏹️</span>
-            <span className="control-label">
-              {isEnding ? 'Ending...' : 'End Session'}
-            </span>
-          </button>
+              <button 
+                className="control-button end-btn"
+                onClick={endSession}
+                disabled={isEnding}
+                title="End call for everyone"
+              >
+                <span className="btn-icon">⏹️</span>
+                <span className="btn-text">{isEnding ? '...' : 'End'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ENHANCED Chat Panel */}
+      {/* Minimal Chat Panel */}
       {controls.isChatOpen && (
-        <div className="chat-panel">
-          <div className="panel-header">
-            <div className="panel-title">
-              <span className="chat-icon">💬</span>
-              <h3>Chat</h3>
-              {messages.length > 0 && (
-                <span className="message-count">
-                  {messages.length}
-                </span>
-              )}
-            </div>
+        <div className="minimal-chat-panel">
+          <div className="chat-header">
+            <h3>Chat ({messages.length})</h3>
             <button 
-              className="close-panel"
+              className="close-chat"
               onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
             >
               ✕
@@ -952,14 +907,13 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
               <div className="empty-chat">
                 <div className="empty-icon">💭</div>
                 <p>No messages yet</p>
-                <small>Start a conversation with your students</small>
               </div>
             ) : (
               messages.map(renderMessage)
             )}
           </div>
           
-          <div className="chat-input-area">
+          <div className="chat-input-compact">
             <input
               type="text"
               placeholder="Type a message..."
@@ -976,12 +930,18 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
             <button 
               onClick={sendMessage}
               disabled={!newMessage.trim()}
-              className="send-button"
-              title="Send message"
+              className="send-btn-mini"
             >
-              <span className="send-icon">↑</span>
+              ↑
             </button>
           </div>
+        </div>
+      )}
+      
+      {/* Show Controls Hint */}
+      {!showControls && (
+        <div className="controls-hint">
+          Move mouse to show controls
         </div>
       )}
     </div>
