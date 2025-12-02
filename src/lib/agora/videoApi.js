@@ -324,6 +324,52 @@ const videoApi = {
   },
 
 
+  // Add this method to your videoApi.js:
+async getSessionInfo(meetingId) {
+  try {
+    console.log('🔍 API: Getting session info for:', meetingId);
+
+    const response = await fetch(`${API_BASE_URL}/agora/session-info/${meetingId}`, {
+      method: 'GET', // Changed to GET
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.warn('⚠️ API: getSessionInfo failed:', data.error);
+      return {
+        success: false,
+        error: data.error,
+        exists: false
+      };
+    }
+
+    console.log('✅ API: Session info retrieved:', {
+      exists: true,
+      status: data.session?.status,
+      meetingId: data.session?.meeting_id
+    });
+
+    return {
+      success: true,
+      session: data.session,
+      exists: true
+    };
+
+  } catch (error) {
+    console.error('❌ API: getSessionInfo failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      exists: false
+    };
+  }
+},
+
 /**
  * Get chat messages for a session
  */
