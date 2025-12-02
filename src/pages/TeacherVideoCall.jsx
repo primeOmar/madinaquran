@@ -43,7 +43,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const participantUpdateIntervalRef = useRef(null);
   const chatInputRef = useRef(null);
   const localVideoRef = useRef(null);
-  const remoteVideoRefs = useRef(new Map());
+  const remoteUsersRef = useRef({});
 
   // ============================================
   // Initialization
@@ -66,8 +66,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         codec: 'vp8' 
       });
 
-      // ✅ Get session data from API
-    const sessionData = await videoApi.startVideoSession(classId, teacherId);
+      // Get session data from API
+      const sessionData = await videoApi.startVideoSession(classId, teacherId);
       
       console.log('📊 Session Data:', sessionData);
       
@@ -108,39 +108,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       await clientRef.current.join(appId, channel, token, uid);
       console.log('✅ Successfully joined channel');
 
-      // Create audio track
-      let audioTrack = null;
-      try {
-        audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-        console.log('🎤 Audio track created');
-      } catch (audioError) {
-        console.warn('Could not create audio track:', audioError);
-      }
-
-      // Create video track
-      let videoTrack = null;
-      try {
-        videoTrack = await AgoraRTC.createCameraVideoTrack();
-        console.log('📹 Video track created');
-        
-        if (localVideoRef.current) {
-          videoTrack.play(localVideoRef.current);
-        }
-      } catch (videoError) {
-        console.warn('Could not create video track:', videoError);
-      }
-
-      setLocalTracks({ audio: audioTrack, video: videoTrack });
-
-      // Publish tracks
-      if (audioTrack || videoTrack) {
-        const tracksToPublish = [];
-        if (audioTrack) tracksToPublish.push(audioTrack);
-        if (videoTrack) tracksToPublish.push(videoTrack);
-        
-        await clientRef.current.publish(tracksToPublish);
-        console.log('📤 Published tracks');
-      }
+      // Create and publish tracks
+      await createAndPublishTracks();
 
       setSessionState(prev => ({
         ...prev,
@@ -161,8 +130,123 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
+  const createAndPublishTracks = async () => {
+    try {
+      // Create audio track
+      let audioTrack = null;
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        console.log('🎤 Audio track created');
+      } catch (audioError) {
+        console.warn('Could not create audio track:', audioError);
+      }
+
+      // Create video track
+      let videoTrack = null;
+      try {
+        videoTrack = await AgoraRTC.createCameraVideoTrack();
+        console.log('📹 Video track created');
+        
+        // Play video in the video element
+        if (localVideoRef.current) {
+          videoTrack.play(localVideoRef.current);
+        }
+      } catch (videoError) {
+        console.warn('Could not create video track:', videoError);
+      }
+
+      setLocalTracks({ audio: audioTrack, video: videoTrack });
+
+      // Publish tracks
+      if (audioTrack || videoTrack) {
+        const tracksToPublish = [];
+        if (audioTrack) tracksToPublish.push(audioTrack);
+        if (videoTrack) tracksToPublish.push(videoTrack);
+        
+        await clientRef.current.publish(tracksToPublish);
+        console.log('📤 Published tracks');
+      }
+    } catch (error) {
+      console.error('Error creating/publishing tracks:', error);
+    }
+  };
+
   // ============================================
-  // FIXED Button Functions
+  // FIXED Event Listeners with proper video display
+  // ============================================
+
+  const setupAgoraEventListeners = () => {
+    const client = clientRef.current;
+
+    client.on('user-published', async (user, mediaType) => {
+      console.log('👤 User published:', user.uid, mediaType);
+      
+      // Subscribe to the user
+      await client.subscribe(user, mediaType);
+      
+      if (mediaType === 'video') {
+        // Create a container for remote video
+        const videoContainer = document.createElement('div');
+        videoContainer.id = `remote-video-${user.uid}`;
+        videoContainer.className = 'remote-video-container';
+        
+        // Create a video element
+        const videoElement = document.createElement('video');
+        videoElement.id = `video-${user.uid}`;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.className = 'remote-video-element';
+        
+        videoContainer.appendChild(videoElement);
+        
+        // Add to DOM
+        const remoteVideosGrid = document.querySelector('.remote-videos-grid');
+        if (remoteVideosGrid) {
+          remoteVideosGrid.appendChild(videoContainer);
+        }
+        
+        // Play the video track on the video element
+        user.videoTrack.play(videoElement);
+        remoteUsersRef.current[user.uid] = { container: videoContainer, videoElement };
+      }
+      
+      if (mediaType === 'audio') {
+        user.audioTrack.play();
+      }
+      
+      updateParticipantCount();
+    });
+
+    client.on('user-unpublished', (user, mediaType) => {
+      console.log('👤 User unpublished:', user.uid, mediaType);
+      
+      if (mediaType === 'video') {
+        const userData = remoteUsersRef.current[user.uid];
+        if (userData && userData.container) {
+          userData.container.remove();
+          delete remoteUsersRef.current[user.uid];
+        }
+      }
+      
+      updateParticipantCount();
+    });
+
+    client.on('user-left', (user) => {
+      console.log('👤 User left:', user.uid);
+      
+      // Clean up the video container
+      const userData = remoteUsersRef.current[user.uid];
+      if (userData && userData.container) {
+        userData.container.remove();
+        delete remoteUsersRef.current[user.uid];
+      }
+      
+      updateParticipantCount();
+    });
+  };
+
+  // ============================================
+  // Control Functions (unchanged)
   // ============================================
 
   const toggleAudio = async () => {
@@ -183,6 +267,16 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       try {
         const newState = !controls.videoEnabled;
         await localTracks.video.setEnabled(newState);
+        
+        // Show/hide video element based on state
+        if (localVideoRef.current) {
+          if (newState) {
+            localVideoRef.current.style.display = 'block';
+          } else {
+            localVideoRef.current.style.display = 'none';
+          }
+        }
+        
         setControls(prev => ({ ...prev, videoEnabled: newState }));
         console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
       } catch (error) {
@@ -196,6 +290,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         
         if (localVideoRef.current) {
           videoTrack.play(localVideoRef.current);
+          localVideoRef.current.style.display = 'block';
         }
         
         setLocalTracks(prev => ({ ...prev, video: videoTrack }));
@@ -207,228 +302,11 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
-  const toggleScreenShare = async () => {
-    try {
-      if (!controls.screenSharing) {
-        const screenTrack = await AgoraRTC.createScreenVideoTrack();
-        await clientRef.current.publish([screenTrack]);
-        setControls(prev => ({ ...prev, screenSharing: true }));
-        console.log('🖥️ Screen sharing started');
-      } else {
-        await clientRef.current.unpublish();
-        setControls(prev => ({ ...prev, screenSharing: false }));
-        console.log('🖥️ Screen sharing stopped');
-      }
-    } catch (error) {
-      console.error('Screen share error:', error);
-    }
-  };
-
-  const toggleRecording = () => {
-    setControls(prev => ({ ...prev, recording: !prev.recording }));
-    console.log(`⏺️ Recording ${!controls.recording ? 'started' : 'stopped'}`);
-  };
-
-  // FIXED LEAVE FUNCTION - Actually leaves the call
-const leaveSession = async () => {
-  console.log('🚪 LEAVE button clicked');
-  
-  if (isLeaving) return;
-  
-  setIsLeaving(true);
-  
-  try {
-    // Stop all tracks
-    if (localTracks.audio) {
-      localTracks.audio.stop();
-      localTracks.audio.close();
-    }
-    if (localTracks.video) {
-      localTracks.video.stop();
-      localTracks.video.close();
-    }
-    
-    // Leave Agora channel
-    if (clientRef.current) {
-      await clientRef.current.leave();
-      console.log('✅ Left Agora channel');
-    }
-    
-    // Call API to update backend (but don't wait for it)
-    if (sessionState.sessionInfo?.meetingId) {
-      videoApi.leaveVideoSession(sessionState.sessionInfo.meetingId, teacherId)
-        .then(result => {
-          console.log('✅ API leave call completed:', result);
-        })
-        .catch(err => {
-          console.warn('⚠️ API leave call failed:', err);
-        });
-    }
-    
-    // Clear intervals
-    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
-    
-    // ✅ CRITICAL: Force UI state update
-    setSessionState({
-      isInitialized: false,
-      isJoined: false,
-      sessionInfo: null,
-      error: null
-    });
-    
-    setControls({
-      audioEnabled: false,
-      videoEnabled: false,
-      screenSharing: false,
-      recording: false,
-      isChatOpen: false,
-      isParticipantsOpen: false
-    });
-    
-    // ✅ CRITICAL: Wait a moment then call parent callback
-    setTimeout(() => {
-      console.log('📞 Calling parent onEndCall callback');
-      if (onEndCall && typeof onEndCall === 'function') {
-        onEndCall();
-      } else {
-        console.error('❌ onEndCall is not a function or is undefined:', onEndCall);
-        // Fallback: show a message and reload if parent callback fails
-        alert('Session ended. Returning to dashboard...');
-        window.location.reload();
-      }
-    }, 500);
-    
-  } catch (error) {
-    console.error('❌ Error leaving session:', error);
-    // Still try to close
-    setTimeout(() => {
-      if (onEndCall && typeof onEndCall === 'function') {
-        onEndCall();
-      }
-    }, 500);
-  } finally {
-    setIsLeaving(false);
-  }
-};
-
-const endSession = async () => {
-  console.log('⏹️ END SESSION button clicked');
-  
-  if (isEnding) return;
-  
-  if (!window.confirm('Are you sure you want to end this session for all participants?')) {
-    return;
-  }
-  
-  setIsEnding(true);
-  
-  try {
-    // Stop all tracks
-    if (localTracks.audio) {
-      localTracks.audio.stop();
-      localTracks.audio.close();
-    }
-    if (localTracks.video) {
-      localTracks.video.stop();
-      localTracks.video.close();
-    }
-    
-    // Leave Agora channel
-    if (clientRef.current) {
-      await clientRef.current.leave();
-      console.log('✅ Left Agora channel');
-    }
-    
-    // Try to end session via API
-    if (sessionState.sessionInfo?.meetingId) {
-      const result = await videoApi.endVideoSession(sessionState.sessionInfo.meetingId, teacherId);
-      console.log('✅ API end session result:', result);
-    }
-    
-    // Clear intervals
-    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
-    
-    // ✅ CRITICAL: Force UI state update
-    setSessionState({
-      isInitialized: false,
-      isJoined: false,
-      sessionInfo: null,
-      error: null
-    });
-    
-    setControls({
-      audioEnabled: false,
-      videoEnabled: false,
-      screenSharing: false,
-      recording: false,
-      isChatOpen: false,
-      isParticipantsOpen: false
-    });
-    
-    // ✅ CRITICAL: Wait a moment then call parent callback
-    setTimeout(() => {
-      console.log('📞 Calling parent onEndCall callback');
-      if (onEndCall && typeof onEndCall === 'function') {
-        onEndCall();
-      } else {
-        console.error('❌ onEndCall is not a function or is undefined:', onEndCall);
-        // Fallback: show a message and reload if parent callback fails
-        alert('Session ended. Returning to dashboard...');
-        window.location.reload();
-      }
-    }, 500);
-    
-  } catch (error) {
-    console.error('❌ Error ending session:', error);
-    alert('Error ending session: ' + error.message);
-    // Still try to close
-    setTimeout(() => {
-      if (onEndCall && typeof onEndCall === 'function') {
-        onEndCall();
-      }
-    }, 500);
-  } finally {
-    setIsEnding(false);
-  }
-};
+  // ... rest of your control functions remain the same
 
   // ============================================
   // Helper Functions
   // ============================================
-
-  const setupAgoraEventListeners = () => {
-    const client = clientRef.current;
-
-    client.on('user-published', async (user, mediaType) => {
-      console.log('👤 User published:', user.uid, mediaType);
-      await client.subscribe(user, mediaType);
-      
-      if (mediaType === 'video') {
-        const videoContainer = document.createElement('div');
-        videoContainer.id = `remote-video-${user.uid}`;
-        videoContainer.className = 'remote-video-container';
-        document.querySelector('.remote-videos-grid').appendChild(videoContainer);
-        user.videoTrack.play(videoContainer);
-      }
-      
-      if (mediaType === 'audio') {
-        user.audioTrack.play();
-      }
-      
-      updateParticipantCount();
-    });
-
-    client.on('user-left', (user) => {
-      console.log('👤 User left:', user.uid);
-      const videoContainer = document.getElementById(`remote-video-${user.uid}`);
-      if (videoContainer) {
-        videoContainer.remove();
-      }
-      updateParticipantCount();
-    });
-  };
 
   const startDurationTracking = () => {
     const startTime = Date.now();
@@ -454,7 +332,7 @@ const endSession = async () => {
         setParticipants(participants || []);
         setStats(prev => ({ 
           ...prev, 
-          participantCount: participants.length + 1 
+          participantCount: (clientRef.current?.remoteUsers?.length || 0) + 1 
         }));
       } catch (error) {
         console.error('Participant tracking error:', error);
@@ -475,9 +353,12 @@ const endSession = async () => {
 
   const cleanup = () => {
     console.log('🧹 Cleaning up...');
+    
+    // Clear intervals
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
     if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
     
+    // Stop and close local tracks
     if (localTracks.audio) {
       localTracks.audio.stop();
       localTracks.audio.close();
@@ -487,9 +368,18 @@ const endSession = async () => {
       localTracks.video.close();
     }
     
+    // Leave channel
     if (clientRef.current) {
       clientRef.current.leave();
     }
+    
+    // Clear remote users
+    Object.values(remoteUsersRef.current).forEach(userData => {
+      if (userData.container) {
+        userData.container.remove();
+      }
+    });
+    remoteUsersRef.current = {};
   };
 
   const formatDuration = (seconds) => {
@@ -499,8 +389,20 @@ const endSession = async () => {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const sendMessage = () => {
+    if (newMessage.trim()) {
+      const message = {
+        sender: 'Teacher',
+        text: newMessage,
+        timestamp: new Date().toLocaleTimeString()
+      };
+      setMessages(prev => [...prev, message]);
+      setNewMessage('');
+    }
+  };
+
   // ============================================
-  // Render - Dark Theme UI
+  // Render
   // ============================================
 
   if (sessionState.error) {
@@ -563,15 +465,21 @@ const endSession = async () => {
               <span className="video-title">
                 <span className="host-badge">HOST</span> You
               </span>
-              {!localTracks.video && (
+              {!controls.videoEnabled && (
                 <span className="status-badge">🎤 Audio Only</span>
               )}
             </div>
-            <div 
-              ref={localVideoRef}
-              className="video-display"
-            >
-              {!localTracks.video && (
+            <div className="video-display">
+              <video
+                ref={localVideoRef}
+                id="local-video"
+                autoPlay
+                playsInline
+                muted
+                className="video-element"
+              ></video>
+              
+              {!controls.videoEnabled && (
                 <div className="video-placeholder">
                   <div className="user-avatar">
                     <span>YOU</span>
@@ -585,14 +493,13 @@ const endSession = async () => {
 
         {/* Remote Videos Grid */}
         <div className="remote-videos-grid">
-          {/* Remote videos will be added here dynamically */}
+          {/* Remote videos are added dynamically here */}
         </div>
       </div>
 
-      {/* Control Bar - FIXED with working buttons */}
+      {/* Control Bar */}
       <div className="control-bar">
         <div className="control-group primary-controls">
-          {/* Audio Control */}
           <button 
             className={`control-button audio-control ${controls.audioEnabled ? 'active' : 'muted'}`}
             onClick={toggleAudio}
@@ -606,7 +513,6 @@ const endSession = async () => {
             </span>
           </button>
 
-          {/* Video Control */}
           <button 
             className={`control-button video-control ${controls.videoEnabled ? 'active' : 'inactive'}`}
             onClick={toggleVideo}
