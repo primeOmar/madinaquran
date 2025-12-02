@@ -468,39 +468,113 @@ const getUserInitials = () => {
     }));
   };
 
-const startParticipantTracking = (sessionId) => {
+const startParticipantTracking = useCallback((sessionId) => {
   // Clear any existing interval first
   if (participantUpdateIntervalRef.current) {
     clearInterval(participantUpdateIntervalRef.current);
   }
   
-  // Check if we have valid session data
-  if (!sessionState.sessionInfo?.meetingId && !sessionId) {
-    console.warn('No meetingId available for participant tracking');
+  console.log('🔍 Starting participant tracking with:', {
+    sessionId,
+    currentMeetingId: sessionState.sessionInfo?.meetingId,
+    sessionInfoExists: !!sessionState.sessionInfo
+  });
+
+  // Create a stable reference to the meetingId that doesn't depend on stale state
+  let meetingIdToUse = null;
+  
+  const getMeetingId = () => {
+    // First, try to get from the argument (passed from joinChannel)
+    if (sessionId && typeof sessionId === 'string') {
+      // Check if it looks like a meetingId (not a numeric database ID)
+      if (sessionId.includes('-') || sessionId.length > 10) {
+        return sessionId;
+      }
+    }
+    
+    // Try from current state
+    if (sessionState.sessionInfo?.meetingId) {
+      return sessionState.sessionInfo.meetingId;
+    }
+    
+    // Try from session object
+    if (sessionState.sessionInfo?.session?.meeting_id) {
+      return sessionState.sessionInfo.session.meeting_id;
+    }
+    
+    return null;
+  };
+
+  meetingIdToUse = getMeetingId();
+
+  if (!meetingIdToUse) {
+    console.warn('⚠️ No meetingId available yet, will retry in 2 seconds');
+    
+    // Retry after state settles
+    const retryTimeout = setTimeout(() => {
+      const retryMeetingId = getMeetingId();
+      if (retryMeetingId) {
+        console.log('✅ Found meetingId on retry:', retryMeetingId);
+        startParticipantTracking(retryMeetingId);
+      } else {
+        console.error('❌ Still no meetingId after retry');
+      }
+    }, 2000);
+
+    // Store timeout reference for cleanup
+    participantUpdateIntervalRef.current = {
+      type: 'timeout',
+      id: retryTimeout
+    };
+    
     return;
   }
-  
-  participantUpdateIntervalRef.current = setInterval(async () => {
+
+  console.log('✅ Starting participant tracking with meetingId:', meetingIdToUse);
+
+  // Store meetingId in a ref so the interval callback has access to it
+  const meetingIdRef = useRef(meetingIdToUse);
+  meetingIdRef.current = meetingIdToUse;
+
+  // Start the interval
+  const intervalId = setInterval(async () => {
     try {
-      const meetingId = sessionState.sessionInfo?.meetingId;
+      console.log('📊 Fetching participants for meeting:', meetingIdRef.current);
       
-      if (!meetingId) {
-        console.warn('No meetingId found for participant tracking');
-        return;
-      }
+      const participants = await videoApi.getSessionParticipants(meetingIdRef.current);
       
-      const participants = await videoApi.getSessionParticipants(meetingId);
-      setParticipants(participants || []); // Safely handle null
+      console.log('📊 Participants received:', {
+        count: participants?.length || 0
+      });
       
-      // Update participant count
+      setParticipants(participants || []);
+      
+      // Update participant count from Agora
       updateParticipantCount();
       
     } catch (error) {
-      console.error('Participant tracking error:', error);
-      // Don't throw, just log and continue
+      console.error('❌ Participant tracking error:', error);
+      // Don't stop tracking on error, just log
     }
   }, 5000);
-};
+
+  // Store the interval ID for cleanup
+  participantUpdateIntervalRef.current = {
+    type: 'interval',
+    id: intervalId
+  };
+
+  // Initial fetch
+  setTimeout(() => {
+    videoApi.getSessionParticipants(meetingIdRef.current)
+      .then(participants => {
+        setParticipants(participants || []);
+        updateParticipantCount();
+      })
+      .catch(console.error);
+  }, 1000);
+
+}, [sessionState.sessionInfo]); 
 
   // ============================================
   // Duration Tracking
@@ -638,13 +712,15 @@ const loadMessages = async (sessionId) => {
   // Cleanup
   // ============================================
 
- const cleanup = async () => {
-  // Clear intervals
-  if (durationIntervalRef.current) {
-    clearInterval(durationIntervalRef.current);
-  }
+const cleanup = async () => {
+  // Clear intervals and timeouts
   if (participantUpdateIntervalRef.current) {
-    clearInterval(participantUpdateIntervalRef.current);
+    if (participantUpdateIntervalRef.current.type === 'interval') {
+      clearInterval(participantUpdateIntervalRef.current.id);
+    } else if (participantUpdateIntervalRef.current.type === 'timeout') {
+      clearTimeout(participantUpdateIntervalRef.current.id);
+    }
+    participantUpdateIntervalRef.current = null;
   }
 
   // Stop local tracks if they exist
