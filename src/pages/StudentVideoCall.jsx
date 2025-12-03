@@ -54,7 +54,15 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const initializeSession = async () => {
     try {
       // First, validate the session and check permissions
-      const validation = await videoApi.validateSession(meetingId, studentId);
+      const sessionInfo = await videoApi.getSessionInfo(meetingId);
+if (!sessionInfo.exists || !sessionInfo.isActive) {
+  setSessionState({
+    isInitialized: false,
+    isJoined: false,
+    error: 'Session not found or inactive'
+  });
+  return;
+}
 
       if (!validation.valid) {
         setSessionState({

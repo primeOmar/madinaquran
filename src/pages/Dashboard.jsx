@@ -443,104 +443,118 @@ const StudentVideoCall = ({ classItem, isOpen, onClose }) => {
       debugLog('✅ Remote handlers configured');
     }, [debugLog, debugError, setupRemoteVideo, removeRemoteVideo]);
 
-    // JOIN CHANNEL - FIXED: Use meeting_id from video_session
-    const joinChannel = useCallback(async () => {
-      if (!isOpen || !classItem?.video_session?.meeting_id || isConnecting || isConnected) {
-        debugLog('⚠️ Cannot join');
-        return;
-      }
+ // ============================================
+// UPDATED JOIN CHANNEL FUNCTION FOR STUDENT
+// ============================================
+const joinChannel = useCallback(async () => {
+  if (!isOpen || !classItem?.video_session?.meeting_id || isConnecting || isConnected) {
+    debugLog('⚠️ Cannot join');
+    return;
+  }
 
-      debugLog('🚀 STARTING JOIN');
-      setIsConnecting(true);
-      setError('');
+  debugLog('🚀 STARTING JOIN');
+  setIsConnecting(true);
+  setError('');
 
-      try {
-        // STEP 1: Get meeting_id from classItem
-        const meetingId = classItem.video_session.meeting_id;
-        debugLog(`🔑 Joining with meeting_id: ${meetingId}`);
+  try {
+    // STEP 1: Get meeting_id from classItem
+    const meetingId = classItem.video_session.meeting_id;
+    debugLog(`🔑 Joining with meeting_id: ${meetingId}`);
 
-        // STEP 2: Get credentials - FIXED: Use meeting_id, not class_id
-        const joinResult = await studentApi.joinVideoSession(meetingId);
+    // STEP 2: Get credentials - IMPORTANT: Must use same API as teacher
+    const joinResult = await studentApi.joinVideoSession(meetingId);
 
-        if (!joinResult.success) {
-          throw new Error(joinResult.error || 'Failed to join session');
-        }
+    if (!joinResult.success) {
+      throw new Error(joinResult.error || 'Failed to join session');
+    }
 
-        const { appId, channel, token, uid } = joinResult;
+    const { appId, channel, token, uid } = joinResult;
 
-        debugLog('🎯 CREDENTIALS:', {
-          channel,
-          uid,
-          meetingId,
-          channelMatch: channel === meetingId ? '✅' : '❌'
-        });
+    debugLog('🎯 CREDENTIALS:', {
+      channel,
+      uid,
+      meetingId,
+      channelMatch: channel === meetingId ? '✅' : '❌'
+    });
 
-        // STEP 3: Create tracks
-        await createLocalTracks();
+    // STEP 3: Validate teacher is in same channel
+    // Check if teacher session exists
+    const sessionStatus = await videoApi.getSessionStatus(meetingId);
+    debugLog('📊 Session Status:', sessionStatus);
 
-        // STEP 4: Play local video
-        await playLocalVideo();
+    if (!sessionStatus.active) {
+      throw new Error('Teacher has not started the session yet');
+    }
 
-        // STEP 5: Initialize Agora
-        debugLog('🔧 Creating Agora client...');
-        const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-        agoraClientRef.current = client;
+    // STEP 4: Create tracks
+    await createLocalTracks();
 
-        // STEP 6: Setup handlers
-        setupRemoteUserHandling(client);
+    // STEP 5: Play local video
+    await playLocalVideo();
 
-        // STEP 7: Join
-        debugLog(`🚪 Joining channel: ${channel}`);
-        await client.join(appId, channel, token || null, uid || null);
-        debugLog('✅ Joined channel');
+    // STEP 6: Initialize Agora
+    debugLog('🔧 Creating Agora client...');
+    const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+    agoraClientRef.current = client;
 
-        // STEP 8: Publish - TRACKS ARE ENABLED BY DEFAULT
-        debugLog('📤 Publishing tracks...');
-        const tracks = [localTracksRef.current.audio, localTracksRef.current.video].filter(Boolean);
-        if (tracks.length > 0) {
-          await client.publish(tracks);
-          debugLog(`✅ Published ${tracks.length} tracks`);
-        }
+    // STEP 7: Setup handlers
+    setupRemoteUserHandling(client);
 
-        // STEP 9: Connection successful
-        setIsConnected(true);
-        setIsConnecting(false);
+    // STEP 8: Join
+    debugLog(`🚪 Joining channel: ${channel}`);
+    await client.join(appId, channel, token || null, uid || null);
+    debugLog('✅ Joined channel');
 
-        // STEP 10: Start timer
-        timerRef.current = setInterval(() => {
-          setCallDuration(prev => prev + 1);
-        }, 1000);
+    // STEP 9: Publish tracks
+    debugLog('📤 Publishing tracks...');
+    const tracks = [localTracksRef.current.audio, localTracksRef.current.video].filter(Boolean);
+    if (tracks.length > 0) {
+      await client.publish(tracks);
+      debugLog(`✅ Published ${tracks.length} tracks`);
+    }
 
-        debugLog('🎉 STUDENT READY!');
+    // STEP 10: Connection successful
+    setIsConnected(true);
+    setIsConnecting(false);
 
-      } catch (error) {
-        debugError('❌ JOIN FAILED:', error);
+    // STEP 11: Start timer
+    timerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
 
-        let errorMessage = 'Failed to join session';
+    // STEP 12: Update participant status in database
+    await updateParticipantStatus('joined');
+
+    debugLog('🎉 STUDENT READY! Connected to teacher session');
+
+  } catch (error) {
+    debugError('❌ JOIN FAILED:', error);
+
+    let errorMessage = 'Failed to join session';
     if (error.message?.includes('No active video session')) {
       errorMessage = 'No active session. Teacher needs to start the class first.';
     } else if (error.message?.includes('permission')) {
       errorMessage = 'Camera/microphone permission required';
     } else if (error.message?.includes('network')) {
-      errorMessage = 'Network error';
+      errorMessage = 'Network error. Please check your connection.';
     }
 
     setError(errorMessage);
     setIsConnecting(false);
     await performCompleteCleanup();
-      }
-    }, [
-      isOpen,
-      classItem,
-      isConnecting,
-      isConnected,
-      createLocalTracks,
-      playLocalVideo,
-      setupRemoteUserHandling,
-      performCompleteCleanup,
-      debugLog,
-      debugError
-    ]);
+  }
+}, [
+  isOpen,
+  classItem,
+  isConnecting,
+  isConnected,
+  createLocalTracks,
+  playLocalVideo,
+  setupRemoteUserHandling,
+  performCompleteCleanup,
+  debugLog,
+  debugError
+]);
 
     // CONTROLS - FIXED LOGIC
     const toggleAudio = useCallback(async () => {
