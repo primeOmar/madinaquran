@@ -2,6 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import videoApi from '../lib/agora/videoApi';
 import './TeacherVideoCall.css';
+import { 
+  Mic, MicOff, 
+  Video, VideoOff, 
+  Share2, X, 
+  Circle, Square, 
+  MessageCircle, Users, 
+  LogOut, PhoneOff, 
+  Send, MessageSquare 
+} from 'lucide-react';
 
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // State Management
@@ -863,135 +872,238 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       {/* Floating Controls */}
       <div className={`floating-controls ${showControls ? 'visible' : 'hidden'}`}>
         <div className="control-center">
-          <div className="primary-controls">
-            <button 
-              className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
-              onClick={toggleAudio}
-              title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
-            >
-              <span className="orb-icon">
-                {controls.audioEnabled ? '🎤' : '🔇'}
-              </span>
-            </button>
+          {/* Primary Controls - Compact Circle */}
+<div className="primary-controls">
+  <button 
+    className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
+    onClick={toggleAudio}
+    title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+  >
+    {/* CHANGE: Mic icon */}
+    <span className="orb-icon">
+      {controls.audioEnabled ? (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" x2="12" y1="19" y2="22"/>
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="2" x2="22" y1="2" y2="22"/>
+          <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/>
+          <path d="M5 10v2a7 7 0 0 0 12 5"/>
+          <path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/>
+          <path d="M9 9v3a3 3 0 0 0 5.12 2.12"/>
+          <line x1="12" x2="12" y1="19" y2="22"/>
+        </svg>
+      )}
+    </span>
+  </button>
 
-            <button 
-              className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
-              onClick={toggleVideo}
-              title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-            >
-              <span className="orb-icon">
-                {controls.videoEnabled ? '📹' : '📷'}
-              </span>
-            </button>
+  <button 
+    className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
+    onClick={toggleVideo}
+    title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+  >
+    {/* CHANGE: Video camera icon */}
+    <span className="orb-icon">
+      {controls.videoEnabled ? (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+          <circle cx="12" cy="13" r="3"/>
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/>
+          <line x1="1" x2="23" y1="1" y2="23"/>
+        </svg>
+      )}
+    </span>
+  </button>
 
-            <button 
-              className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
-              onClick={toggleScreenShare}
-              title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
-            >
-              <span className="orb-icon">
-                {controls.screenSharing ? '🖥️' : '📱'}
-              </span>
-            </button>
+  {/* Screen Share */}
+  <button 
+    className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
+    onClick={toggleScreenShare}
+    title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
+  >
+    {/* CHANGE: Screen share icon */}
+    <span className="orb-icon">
+      {controls.screenSharing ? (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3"/>
+          <path d="M8 21h8"/>
+          <path d="M12 17v4"/>
+          <path d="m17 8 5-5"/>
+          <path d="M17 3h5v5"/>
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3"/>
+          <path d="M8 21h8"/>
+          <path d="M12 17v4"/>
+          <path d="m22 3-5 5"/>
+          <path d="m17 3 5 5"/>
+        </svg>
+      )}
+    </span>
+  </button>
 
-            <button 
-              className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
-              onClick={toggleRecording}
-              title={controls.recording ? 'Stop recording' : 'Start recording'}
-            >
-              <span className="orb-icon">⏺️</span>
-            </button>
-          </div>
+  {/* Recording */}
+  <button 
+    className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
+    onClick={toggleRecording}
+    title={controls.recording ? 'Stop recording' : 'Start recording'}
+  >
+    {/* CHANGE: Record icon */}
+    <span className="orb-icon">
+      {controls.recording ? (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <rect x="9" y="9" width="6" height="6"/>
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+        </svg>
+      )}
+    </span>
+  </button>
+</div>
 
-          <div className="secondary-controls">
-            <button 
-              className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
-              onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
-              title="Toggle chat"
-            >
-              <span className="btn-icon">💬</span>
-            </button>
+        {/* Secondary Controls - Bottom Row */}
+<div className="secondary-controls">
+  {/* Chat */}
+  <button 
+    className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
+    onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
+    title="Toggle chat"
+  >
+    {/* CHANGE: Message circle icon */}
+    <span className="btn-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+      </svg>
+    </span>
+  </button>
 
-            <button 
-              className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
-              onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
-              title="Show participants"
-            >
-              <span className="btn-icon">👥</span>
-              <span className="participant-count">{participants.length}</span>
-            </button>
+  {/* Participants */}
+  <button 
+    className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
+    onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
+    title="Show participants"
+  >
+    {/* CHANGE: Users icon */}
+    <span className="btn-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </span>
+  </button>
 
-            <div className="action-buttons">
-              <button 
-                className="control-button leave-btn"
-                onClick={leaveSession}
-                disabled={isLeaving}
-                title="Leave the call"
-              >
-                <span className="btn-icon">🚪</span>
-                <span className="btn-text">{isLeaving ? '...' : 'Leave'}</span>
-              </button>
+  {/* Leave & End Buttons */}
+  <div className="action-buttons">
+    <button 
+      className="control-button leave-btn"
+      onClick={leaveSession}
+      disabled={isLeaving}
+      title="Leave the call (others can continue)"
+    >
+      {/* CHANGE: Log out icon */}
+      <span className="btn-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" x2="9" y1="12" y2="12"/>
+        </svg>
+      </span>
+      <span className="btn-text">{isLeaving ? '...' : 'Leave'}</span>
+    </button>
 
-              <button 
-                className="control-button end-btn"
-                onClick={endSession}
-                disabled={isEnding}
-                title="End call for everyone"
-              >
-                <span className="btn-icon">⏹️</span>
-                <span className="btn-text">{isEnding ? '...' : 'End'}</span>
-              </button>
-            </div>
-          </div>
+    <button 
+      className="control-button end-btn"
+      onClick={endSession}
+      disabled={isEnding}
+      title="End call for everyone"
+    >
+      {/* CHANGE: Phone off icon */}
+      <span className="btn-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/>
+          <line x1="23" x2="1" y1="1" y2="23"/>
+        </svg>
+      </span>
+      <span className="btn-text">{isEnding ? '...' : 'End'}</span>
+    </button>
+  </div>
+</div>
         </div>
       </div>
 
       {/* Chat Panel */}
-      {controls.isChatOpen && (
-        <div className="minimal-chat-panel">
-          <div className="chat-header">
-            <h3>Chat</h3>
-            <button 
-              className="close-chat"
-              onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
-            >
-              ✕
-            </button>
+     {/* Minimal Chat Panel */}
+{controls.isChatOpen && (
+  <div className="minimal-chat-panel">
+    <div className="chat-header">
+      <h3>Chat ({messages.length})</h3>
+      <button 
+        className="close-chat"
+        onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
+      >
+        {/* CHANGE: X icon */}
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" x2="6" y1="6" y2="18"/>
+          <line x1="6" x2="18" y1="6" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    
+    <div className="chat-messages" ref={chatContainerRef}>
+      {messages.length === 0 ? (
+        <div className="empty-chat">
+          {/* CHANGE: Message square icon */}
+          <div className="empty-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
           </div>
-          
-          <div className="chat-messages" ref={chatContainerRef}>
-            {messages.length === 0 ? (
-              <div className="empty-chat">
-                <p>No messages yet</p>
-              </div>
-            ) : (
-              messages.map(renderMessage)
-            )}
-          </div>
-          
-          <div className="chat-input-compact">
-            <input
-              type="text"
-              placeholder="Type a message..."
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
-            />
-            <button 
-              onClick={sendMessage}
-              disabled={!newMessage.trim()}
-              className="send-btn-mini"
-            >
-              ↑
-            </button>
-          </div>
+          <p>No messages yet</p>
         </div>
+      ) : (
+        messages.map(renderMessage)
       )}
+    </div>
+    
+    <div className="chat-input-compact">
+      <input
+        type="text"
+        placeholder="Type a message..."
+        value={newMessage}
+        onChange={(e) => setNewMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+          }
+        }}
+      />
+      <button 
+        onClick={sendMessage}
+        disabled={!newMessage.trim()}
+        className="send-btn-mini"
+      >
+        {/* CHANGE: Send icon */}
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+)}
       
       {/* Autoplay Hint */}
       {!initialInteraction && (
