@@ -48,13 +48,13 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const [initialInteraction, setInitialInteraction] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Refs
+  // Refs - ADDED localVideoRef
   const clientRef = useRef(null);
   const screenClientRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const participantUpdateIntervalRef = useRef(null);
   const chatContainerRef = useRef(null);
-  const localContainerRef = useRef(null); // Container div for local video
+  const localVideoRef = useRef(null); // ADDED: Direct reference to video element
   const remoteUsersRef = useRef({});
   const controlsTimeoutRef = useRef(null);
   const connectionTimeoutRef = useRef(null);
@@ -233,7 +233,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
-  // OPTIMIZED: Create and publish tracks
+  // UPDATED: Create and publish tracks with proper video element handling
   const createAndPublishTracks = async () => {
     try {
       console.log('[Agora] Creating local tracks...');
@@ -245,7 +245,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           return null;
         }),
         AgoraRTC.createCameraVideoTrack({
-          encoderConfig: '480p', // Lower resolution for faster initialization
+          encoderConfig: '480p',
           optimizationMode: 'motion'
         }).catch(error => {
           console.warn('[Agora] Could not create video track:', error);
@@ -255,28 +255,11 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
       setLocalTracks({ audio: audioTrack, video: videoTrack });
 
-      // Play video immediately if we have a track and container
-      if (videoTrack && localContainerRef.current) {
-        try {
-          await videoTrack.play(localContainerRef.current);
-          console.log('[Agora] ✅ Video track playing');
-          
-          // Apply mirror effect
-          const innerVideoEl = localContainerRef.current.querySelector('video');
-          if (innerVideoEl) {
-            innerVideoEl.style.transform = 'scaleX(-1)';
-            innerVideoEl.style.objectFit = 'cover';
-          }
-
-          videoTrack.on('track-ended', (evt) => {
-            console.warn('[Agora] Video track ended:', evt);
-            recreateVideoTrack();
-          });
-
-        } catch (playError) {
-          console.error('[Agora] ❌ Video play error:', playError);
-          // Don't throw - continue with audio only
-        }
+      // Play video immediately if we have a track and video element
+      if (videoTrack && localVideoRef.current) {
+        setTimeout(() => {
+          playLocalVideo(videoTrack);
+        }, 100); // Small delay to ensure DOM is ready
       }
 
       // Publish available tracks
@@ -295,39 +278,65 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
-  // Handle video playback after user interaction
-  useEffect(() => {
-    if (initialInteraction && localTracks.video && localContainerRef.current && !localTracks.video.isPlaying) {
-      console.log('[Agora] User interacted, attempting to play video...');
-      localTracks.video.play(localContainerRef.current).catch(e => {
-        console.error('[Agora] Failed to play video after interaction:', e);
-      });
+  // NEW: Helper function to play local video
+  const playLocalVideo = async (track) => {
+    if (!track || !localVideoRef.current) return;
+    
+    try {
+      await track.play(localVideoRef.current);
+      console.log('[Agora] ✅ Video track playing successfully');
+      
+      // Apply mirror effect and styling
+      if (localVideoRef.current) {
+        localVideoRef.current.style.transform = 'scaleX(-1)';
+        localVideoRef.current.style.objectFit = 'cover';
+        localVideoRef.current.style.width = '100%';
+        localVideoRef.current.style.height = '100%';
+        localVideoRef.current.style.borderRadius = '8px';
+      }
+    } catch (playError) {
+      console.error('[Agora] ❌ Video play error:', playError);
+      // Retry with user interaction
+      if (playError.name === 'NotAllowedError') {
+        console.log('[Agora] Waiting for user interaction...');
+      }
     }
-  }, [initialInteraction, localTracks.video]);
+  };
 
-  // Handle video toggle - OPTIMIZED
+  // UPDATED: Handle video toggle with proper state management
   useEffect(() => {
     const track = localTracks.video;
-    const container = localContainerRef.current;
-    if (!track || !container) return;
+    const videoElement = localVideoRef.current;
+
+    if (!track || !videoElement) return;
 
     if (controls.videoEnabled) {
-      container.style.display = 'block';
-      container.style.visibility = 'visible';
-      container.style.opacity = '1';
+      // Enable video track
+      track.setEnabled(true).catch(e => 
+        console.warn('[Agora] Video enable failed:', e)
+      );
       
+      // Play if not already playing
       if (!track.isPlaying) {
-        console.log('[Agora] Attempting to play video...');
-        track.play(container).catch((e) => {
-          console.warn('[Agora] Play on toggle failed:', e);
-        });
+        setTimeout(() => {
+          playLocalVideo(track);
+        }, 50);
       }
-      track.setEnabled(true).catch((e) => console.warn('[Agora] setEnabled failed:', e));
     } else {
-      track.setEnabled(false).catch((e) => console.warn('[Agora] setEnabled failed:', e));
-      container.style.display = 'none';
+      // Disable video track
+      track.setEnabled(false).catch(e => 
+        console.warn('[Agora] Video disable failed:', e)
+      );
     }
-  }, [controls.videoEnabled, localTracks.video, initialInteraction]);
+  }, [controls.videoEnabled, localTracks.video]);
+
+  // UPDATED: Handle video playback after user interaction
+  useEffect(() => {
+    if (initialInteraction && localTracks.video && !localTracks.video.isPlaying) {
+      console.log('[Agora] User interacted, playing video...');
+      playLocalVideo(localTracks.video);
+    }
+  }, [initialInteraction, localTracks.video]);
 
   // Handle audio toggle
   useEffect(() => {
@@ -338,7 +347,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     );
   }, [controls.audioEnabled, localTracks.audio]);
 
-  // Recreate video track function
+  // UPDATED: Recreate video track function
   const recreateVideoTrack = async () => {
     try {
       console.log('[Agora] Recreating camera video track...');
@@ -352,8 +361,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       
       setLocalTracks(prev => ({ ...prev, video: newTrack }));
       
-      if (localContainerRef.current) {
-        await newTrack.play(localContainerRef.current);
+      if (localVideoRef.current) {
+        await newTrack.play(localVideoRef.current);
         await clientRef.current.publish([newTrack]);
         console.log('[Agora] Recreated and published video track');
       }
@@ -459,8 +468,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         const videoTrack = await AgoraRTC.createCameraVideoTrack();
         await clientRef.current.publish([videoTrack]);
         
-        if (localContainerRef.current) {
-          videoTrack.play(localContainerRef.current);
+        if (localVideoRef.current) {
+          videoTrack.play(localVideoRef.current);
         }
         
         setLocalTracks(prev => ({ ...prev, video: videoTrack }));
@@ -472,11 +481,12 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
+  // UPDATED: toggleScreenShare to use localVideoRef
   const toggleScreenShare = async () => {
     try {
       if (!controls.screenSharing) {
         const screenTrack = await AgoraRTC.createScreenVideoTrack({
-          encoderConfig: '720p', // Lower resolution for faster sharing
+          encoderConfig: '720p',
           optimizationMode: 'detail'
         });
         
@@ -493,8 +503,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           video: screenTrack 
         }));
         
-        if (localContainerRef.current) {
-          screenTrack.play(localContainerRef.current);
+        if (localVideoRef.current) {
+          screenTrack.play(localVideoRef.current);
         }
         
         setControls(prev => ({ ...prev, screenSharing: true }));
@@ -513,8 +523,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           const cameraTrack = await AgoraRTC.createCameraVideoTrack();
           await clientRef.current.publish([cameraTrack]);
           
-          if (localContainerRef.current) {
-            cameraTrack.play(localContainerRef.current);
+          if (localVideoRef.current) {
+            cameraTrack.play(localVideoRef.current);
           }
           
           setLocalTracks(prev => ({ 
@@ -777,7 +787,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   );
 
   // ============================================
-  // Render
+  // Render - UPDATED Local Video Section
   // ============================================
 
   if (sessionState.error) {
@@ -835,30 +845,120 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
       {/* Main Video Area */}
       <div className="video-main-area">
-        {/* Local Video */}
+        {/* Local Video - UPDATED SECTION */}
         <div className="local-video-container floating-video">
           <div className="video-wrapper">
-            <div
-              ref={localContainerRef}
-              id="local-video-container"
-              className="video-container"
-              style={{ display: controls.videoEnabled ? 'block' : 'none' }}
-              aria-label="Local video container"
-            />
-            
-            {!controls.videoEnabled && (
-              <div className="video-placeholder">
-                <div className="user-avatar">
-                  <span>YOU</span>
+            {/* Video Container - Always rendered */}
+            <div className="video-container" style={{
+              display: 'block',
+              position: 'relative',
+              width: '100%',
+              height: '100%',
+              backgroundColor: controls.videoEnabled ? 'transparent' : '#1a1a2e',
+              borderRadius: '8px',
+              overflow: 'hidden'
+            }}>
+              {/* Video Element - Always present */}
+              <video
+                ref={localVideoRef}
+                id="local-video"
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  display: controls.videoEnabled ? 'block' : 'none',
+                  transform: 'scaleX(-1)', // Mirror effect
+                  borderRadius: '8px'
+                }}
+              />
+              
+              {/* Placeholder when video is disabled */}
+              {!controls.videoEnabled && (
+                <div className="video-placeholder" style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#1a1a2e',
+                  borderRadius: '8px'
+                }}>
+                  <div className="user-avatar" style={{
+                    width: '80px',
+                    height: '80px',
+                    borderRadius: '50%',
+                    backgroundColor: '#4f46e5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: '24px',
+                    fontWeight: 'bold'
+                  }}>
+                    <span>YOU</span>
+                  </div>
                 </div>
+              )}
+              
+              {/* Status Overlay */}
+              <div className="video-status-overlay" style={{
+                position: 'absolute',
+                bottom: '10px',
+                left: '10px',
+                right: '10px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                pointerEvents: 'none'
+              }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {!controls.videoEnabled && (
+                    <span className="status-tag" style={{
+                      background: 'rgba(0, 0, 0, 0.7)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <VideoOff size={12} />
+                      Camera Off
+                    </span>
+                  )}
+                  {controls.screenSharing && (
+                    <span className="status-tag" style={{
+                      background: 'rgba(59, 130, 246, 0.8)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <Share2 size={12} />
+                      Screen Sharing
+                    </span>
+                  )}
+                </div>
+                <span className="name-tag" style={{
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  color: 'white',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}>
+                  Host (You)
+                </span>
               </div>
-            )}
-            
-            {/* Video Status Overlay */}
-            <div className="video-status-overlay">
-              {!controls.videoEnabled && <span className="status-tag">🎤 Audio Only</span>}
-              {controls.screenSharing && <span className="status-tag">🖥️ Screen Sharing</span>}
-              <span className="name-tag">Host</span>
             </div>
           </div>
         </div>
@@ -873,160 +973,157 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       <div className={`floating-controls ${showControls ? 'visible' : 'hidden'}`}>
         <div className="control-center">
           {/* Primary Controls - Compact Circle */}
-<div className="primary-controls">
-  <button 
-    className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
-    onClick={toggleAudio}
-    title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
-  >
-    {/* CHANGE: Mic icon */}
-    <span className="orb-icon">
-     {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-    </span>
-  </button>
+          <div className="primary-controls">
+            <button 
+              className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
+              onClick={toggleAudio}
+              title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            >
+              <span className="orb-icon">
+                {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+              </span>
+            </button>
 
-  <button 
-    className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
-    onClick={toggleVideo}
-    title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-  >
-    {/* CHANGE: Video camera icon */}
-    <span className="orb-icon">
-     {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-    </span>
-  </button>
+            <button 
+              className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
+              onClick={toggleVideo}
+              title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+            >
+              <span className="orb-icon">
+                {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+              </span>
+            </button>
 
-  {/* Screen Share */}
-  <button 
-  className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
-  onClick={toggleScreenShare}
-  title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
->
-  <span className="orb-icon">
-    <Share2 size={20} />
-  </span>
-</button>
+            {/* Screen Share */}
+            <button 
+              className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
+              onClick={toggleScreenShare}
+              title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
+            >
+              <span className="orb-icon">
+                <Share2 size={20} />
+              </span>
+            </button>
 
-  {/* Recording */}
- <button 
-  className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
-  onClick={toggleRecording}
-  title={controls.recording ? 'Stop recording' : 'Start recording'}
->
-  <span className="orb-icon">
-    {controls.recording ? (
-      <Circle size={20} fill="currentColor" />
-    ) : (
-      <Circle size={20} />
-    )}
-  </span>
-</button>
-</div>
+            {/* Recording */}
+            <button 
+              className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
+              onClick={toggleRecording}
+              title={controls.recording ? 'Stop recording' : 'Start recording'}
+            >
+              <span className="orb-icon">
+                {controls.recording ? (
+                  <Circle size={20} fill="currentColor" />
+                ) : (
+                  <Circle size={20} />
+                )}
+              </span>
+            </button>
+          </div>
 
-        {/* Secondary Controls - Bottom Row */}
-<div className="secondary-controls">
-  {/* Chat */}
- <button 
-  className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
-  onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
-  title="Toggle chat"
->
-  <span className="btn-icon">
-    <MessageCircle size={18} />
-  </span>
-</button>
+          {/* Secondary Controls - Bottom Row */}
+          <div className="secondary-controls">
+            {/* Chat */}
+            <button 
+              className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
+              onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
+              title="Toggle chat"
+            >
+              <span className="btn-icon">
+                <MessageCircle size={18} />
+              </span>
+            </button>
 
-  {/* Participants */}
- <button 
-  className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
-  onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
-  title="Show participants"
->
-  <span className="btn-icon">
-    <Users size={18} />
-  </span>
-</button>
+            {/* Participants */}
+            <button 
+              className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
+              onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
+              title="Show participants"
+            >
+              <span className="btn-icon">
+                <Users size={18} />
+              </span>
+            </button>
 
-  {/* Leave & End Buttons */}
-  <div className="action-buttons">
-    <button 
-  className="control-button leave-btn"
-  onClick={leaveSession}
-  disabled={isLeaving}
-  title="Leave the call (others can continue)"
->
-  <span className="btn-icon">
-    <LogOut size={18} />
-  </span>
-  <span className="btn-text">{isLeaving ? '...' : 'Leave'}</span>
-</button>
+            {/* Leave & End Buttons */}
+            <div className="action-buttons">
+              <button 
+                className="control-button leave-btn"
+                onClick={leaveSession}
+                disabled={isLeaving}
+                title="Leave the call (others can continue)"
+              >
+                <span className="btn-icon">
+                  <LogOut size={18} />
+                </span>
+                <span className="btn-text">{isLeaving ? '...' : 'Leave'}</span>
+              </button>
 
-   <button 
-  className="control-button end-btn"
-  onClick={endSession}
-  disabled={isEnding}
-  title="End call for everyone"
->
-  <span className="btn-icon">
-    <PhoneOff size={18} />
-  </span>
-  <span className="btn-text">{isEnding ? '...' : 'End'}</span>
-</button>
-  </div>
-</div>
+              <button 
+                className="control-button end-btn"
+                onClick={endSession}
+                disabled={isEnding}
+                title="End call for everyone"
+              >
+                <span className="btn-icon">
+                  <PhoneOff size={18} />
+                </span>
+                <span className="btn-text">{isEnding ? '...' : 'End'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Chat Panel */}
-     {/* Minimal Chat Panel */}
-{controls.isChatOpen && (
-  <div className="minimal-chat-panel">
-    <div className="chat-header">
-      <h3>Chat ({messages.length})</h3>
-      <button 
-  className="close-chat"
-  onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
->
-  <X size={18} />
-</button>
-    </div>
-    
-   <div className="chat-messages" ref={chatContainerRef}>
-  {messages.length === 0 ? (
-    <div className="empty-chat">
-      <div className="empty-icon">
-        <MessageSquare size={48} />
-      </div>
-      <p>No messages yet</p>
-    </div>
-  ) : (
-    messages.map(renderMessage)
-  )}
-</div>
-    
-    <div className="chat-input-compact">
-      <input
-        type="text"
-        placeholder="Type a message..."
-        value={newMessage}
-        onChange={(e) => setNewMessage(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-          }
-        }}
-      />
-    <button 
-  onClick={sendMessage}
-  disabled={!newMessage.trim()}
-  className="send-btn-mini"
->
-  <Send size={18} />
-</button>
-    </div>
-  </div>
-)}
+      {controls.isChatOpen && (
+        <div className="minimal-chat-panel">
+          <div className="chat-header">
+            <h3>Chat ({messages.length})</h3>
+            <button 
+              className="close-chat"
+              onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          
+          <div className="chat-messages" ref={chatContainerRef}>
+            {messages.length === 0 ? (
+              <div className="empty-chat">
+                <div className="empty-icon">
+                  <MessageSquare size={48} />
+                </div>
+                <p>No messages yet</p>
+              </div>
+            ) : (
+              messages.map(renderMessage)
+            )}
+          </div>
+          
+          <div className="chat-input-compact">
+            <input
+              type="text"
+              placeholder="Type a message..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+            />
+            <button 
+              onClick={sendMessage}
+              disabled={!newMessage.trim()}
+              className="send-btn-mini"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Autoplay Hint */}
       {!initialInteraction && (
