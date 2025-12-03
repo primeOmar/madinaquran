@@ -36,14 +36,15 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const [isLeaving, setIsLeaving] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [initialInteraction, setInitialInteraction] = useState(false);
 
-  // Refs
+  // Refs - KEY FIX: Use container ref instead of video element ref
   const clientRef = useRef(null);
   const screenClientRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const participantUpdateIntervalRef = useRef(null);
   const chatContainerRef = useRef(null);
-  const localVideoRef = useRef(null);
+  const localContainerRef = useRef(null); // Container div for local video
   const remoteUsersRef = useRef({});
   const controlsTimeoutRef = useRef(null);
 
@@ -71,8 +72,24 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     };
   }, []);
 
+  // Handle initial interaction for autoplay policies
+  useEffect(() => {
+    const onFirstInteraction = () => {
+      console.log('[Agora] Initial user interaction detected');
+      setInitialInteraction(true);
+    };
+    
+    window.addEventListener('click', onFirstInteraction, { once: true });
+    window.addEventListener('keydown', onFirstInteraction, { once: true });
+    
+    return () => {
+      window.removeEventListener('click', onFirstInteraction);
+      window.removeEventListener('keydown', onFirstInteraction);
+    };
+  }, []);
+
   // ============================================
-  // Initialization (same as before)
+  // Initialization
   // ============================================
 
   useEffect(() => {
@@ -86,6 +103,10 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const initializeSession = async () => {
     try {
       console.log('🚀 Initializing video session...');
+      
+      // Enable Agora logging for debugging
+      AgoraRTC.enableLogUpload();
+      AgoraRTC.setLogLevel(1);
       
       clientRef.current = AgoraRTC.createClient({ 
         mode: 'rtc', 
@@ -150,18 +171,36 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
+  // KEY FIX: Updated createAndPublishTracks using container approach
   const createAndPublishTracks = async () => {
     try {
+      // Wait for container to be available
+      if (!localContainerRef.current) {
+        console.log('[Agora] Waiting for local video container...');
+        await new Promise((resolve) => {
+          const checkContainer = () => {
+            if (localContainerRef.current) {
+              resolve();
+            } else {
+              setTimeout(checkContainer, 100);
+            }
+          };
+          checkContainer();
+        });
+      }
+
+      console.log('[Agora] Creating local tracks...');
+
       // Create audio track
       let audioTrack = null;
       try {
         audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-        console.log('🎤 Audio track created');
+        console.log('[Agora] Audio track created');
       } catch (audioError) {
-        console.warn('Could not create audio track:', audioError);
+        console.warn('[Agora] Could not create audio track:', audioError);
       }
 
-      // Create video track - FIXED VERSION
+      // Create video track - FIXED APPROACH
       let videoTrack = null;
       try {
         videoTrack = await AgoraRTC.createCameraVideoTrack({
@@ -169,50 +208,65 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           optimizationMode: 'motion'
         });
         
-        console.log('📹 Video track created');
-        
-        // Wait for video element to be available
-        const waitForVideoElement = () => {
-          return new Promise((resolve) => {
-            const checkElement = () => {
-              if (localVideoRef.current) {
-                resolve(localVideoRef.current);
-              } else {
-                setTimeout(checkElement, 100);
-              }
-            };
-            checkElement();
-          });
-        };
-        
-        const videoElement = await waitForVideoElement();
-        console.log('🎥 Video element found:', videoElement);
-        
-        // Play video with error handling
-        try {
-          await videoTrack.play(videoElement);
-          console.log('✅ Video track playing');
+        console.log('[Agora] Video track created:', {
+          enabled: videoTrack.isEnabled(),
+          isPlaying: videoTrack.isPlaying,
+          hasMediaStreamTrack: !!videoTrack.getMediaStreamTrack(),
+        });
+
+        // Get camera devices for debugging
+        const cameras = await AgoraRTC.getCameras();
+        console.log('[Agora] Available cameras:', cameras.map(d => `${d.label || 'Unlabeled'} (${d.deviceId.substring(0, 8)}...)`));
+
+        // Play video into container div
+        if (localContainerRef.current) {
+          // Ensure container is visible and sized
+          localContainerRef.current.style.display = 'block';
+          localContainerRef.current.style.width = '100%';
+          localContainerRef.current.style.height = '100%';
+          localContainerRef.current.style.visibility = 'visible';
+          localContainerRef.current.style.opacity = '1';
+
+          console.log('[Agora] Playing local video into container...');
           
-          // Force video display
-          videoElement.style.display = 'block';
-          videoElement.style.opacity = '1';
-          videoElement.style.visibility = 'visible';
-          
-          // Log video element state
-          console.log('Video element state:', {
-            width: videoElement.offsetWidth,
-            height: videoElement.offsetHeight,
-            display: videoElement.style.display,
-            opacity: videoElement.style.opacity
-          });
-          
-        } catch (playError) {
-          console.error('❌ Video play error:', playError);
-          throw playError;
+          try {
+            await videoTrack.play(localContainerRef.current);
+            console.log('[Agora] ✅ Video track playing successfully');
+            
+            // Apply mirror effect for self-view
+            const innerVideoEl = localContainerRef.current.querySelector('video');
+            if (innerVideoEl) {
+              innerVideoEl.style.transform = 'scaleX(-1)';
+              innerVideoEl.style.objectFit = 'cover';
+              console.log('[Agora] Applied mirror effect to video element');
+            }
+
+            // Add track event listeners
+            videoTrack.on('track-ended', (evt) => {
+              console.warn('[Agora] Video track ended:', evt);
+              recreateVideoTrack();
+            });
+
+          } catch (playError) {
+            console.error('[Agora] ❌ Video play error:', playError);
+            
+            // Retry after a delay if autoplay policy might be blocking
+            if (!initialInteraction) {
+              console.log('[Agora] Waiting for user interaction to play video...');
+              return; // Will be handled by interaction effect
+            }
+            
+            throw playError;
+          }
         }
         
       } catch (videoError) {
-        console.warn('Could not create video track:', videoError);
+        console.warn('[Agora] Could not create video track:', videoError);
+        
+        // Try alternative approach if main method fails
+        if (!initialInteraction) {
+          console.log('[Agora] Video may need user interaction. Waiting...');
+        }
       }
 
       setLocalTracks({ audio: audioTrack, video: videoTrack });
@@ -224,22 +278,124 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         if (videoTrack) tracksToPublish.push(videoTrack);
         
         await clientRef.current.publish(tracksToPublish);
-        console.log('📤 Published tracks');
+        console.log('[Agora] 📤 Published tracks');
       }
+
+      // Setup device change listeners
+      AgoraRTC.onCameraChanged(async (changedDevice) => {
+        console.log('[Agora] Camera changed:', changedDevice);
+        if (changedDevice.state === 'ACTIVE' && localTracks.video) {
+          try {
+            await localTracks.video.setDevice(changedDevice.device.deviceId);
+            console.log('[Agora] Switched to active camera device');
+          } catch (e) {
+            console.warn('[Agora] Failed to set active camera device:', e);
+            await recreateVideoTrack();
+          }
+        } else {
+          await recreateVideoTrack();
+        }
+      });
+
     } catch (error) {
-      console.error('Error creating/publishing tracks:', error);
+      console.error('[Agora] Error creating/publishing tracks:', error);
+    }
+  };
+
+  // Handle video playback after user interaction
+  useEffect(() => {
+    if (initialInteraction && localTracks.video && localContainerRef.current && !localTracks.video.isPlaying) {
+      console.log('[Agora] User interacted, attempting to play video...');
+      localTracks.video.play(localContainerRef.current).catch(e => {
+        console.error('[Agora] Failed to play video after interaction:', e);
+      });
+    }
+  }, [initialInteraction, localTracks.video]);
+
+  // Handle video toggle with container approach
+  useEffect(() => {
+    const track = localTracks.video;
+    const container = localContainerRef.current;
+    if (!track || !container) return;
+
+    if (controls.videoEnabled) {
+      // Ensure container visible and play if not already
+      container.style.display = 'block';
+      container.style.visibility = 'visible';
+      container.style.opacity = '1';
+      
+      if (!track.isPlaying) {
+        console.log('[Agora] Re-playing local video due to toggle...');
+        track.play(container).catch((e) => {
+          console.warn('[Agora] Play on toggle failed:', e);
+          if (!initialInteraction) {
+            console.log('[Agora] Waiting for user interaction...');
+          }
+        });
+      }
+      track.setEnabled(true).catch((e) => console.warn('[Agora] setEnabled(true) failed:', e));
+    } else {
+      // Pause visually but keep track alive
+      track.setEnabled(false).catch((e) => console.warn('[Agora] setEnabled(false) failed:', e));
+      container.style.display = 'none';
+    }
+  }, [controls.videoEnabled, localTracks.video, initialInteraction]);
+
+  // Handle audio toggle
+  useEffect(() => {
+    const track = localTracks.audio;
+    if (!track) return;
+    if (controls.audioEnabled) {
+      track.setEnabled(true).catch((e) => console.warn('[Agora] Audio enable failed:', e));
+    } else {
+      track.setEnabled(false).catch((e) => console.warn('[Agora] Audio disable failed:', e));
+    }
+  }, [controls.audioEnabled, localTracks.audio]);
+
+  // Recreate video track function
+  const recreateVideoTrack = async () => {
+    try {
+      console.log('[Agora] Recreating camera video track...');
+      const newTrack = await AgoraRTC.createCameraVideoTrack();
+      
+      // Replace published track
+      if (localTracks.video) {
+        await clientRef.current.unpublish([localTracks.video]).catch(() => {});
+        localTracks.video.stop();
+        localTracks.video.close();
+      }
+      
+      // Update state
+      setLocalTracks(prev => ({ ...prev, video: newTrack }));
+      
+      // Play in container
+      if (localContainerRef.current) {
+        await newTrack.play(localContainerRef.current);
+        
+        // Apply mirror effect
+        const innerVideoEl = localContainerRef.current.querySelector('video');
+        if (innerVideoEl) {
+          innerVideoEl.style.transform = 'scaleX(-1)';
+          innerVideoEl.style.objectFit = 'cover';
+        }
+        
+        await clientRef.current.publish([newTrack]);
+        console.log('[Agora] Recreated and published camera video track');
+      }
+    } catch (e) {
+      console.error('[Agora] Failed to recreate video track:', e);
     }
   };
 
   // ============================================
-  // Event Listeners (same as before)
+  // Event Listeners
   // ============================================
 
   const setupAgoraEventListeners = () => {
     const client = clientRef.current;
 
     client.on('user-published', async (user, mediaType) => {
-      console.log('👤 User published:', user.uid, mediaType);
+      console.log('[Agora] User published:', user.uid, mediaType);
       
       await client.subscribe(user, mediaType);
       
@@ -294,7 +450,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   // ============================================
-  // Control Functions
+  // Control Functions (updated for container approach)
   // ============================================
 
   const toggleAudio = async () => {
@@ -303,9 +459,9 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         const newState = !controls.audioEnabled;
         await localTracks.audio.setEnabled(newState);
         setControls(prev => ({ ...prev, audioEnabled: newState }));
-        console.log(`🔊 Audio ${newState ? 'enabled' : 'disabled'}`);
+        console.log(`[Agora] Audio ${newState ? 'enabled' : 'disabled'}`);
       } catch (error) {
-        console.error('Toggle audio error:', error);
+        console.error('[Agora] Toggle audio error:', error);
       }
     }
   };
@@ -314,32 +470,36 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     if (localTracks.video) {
       try {
         const newState = !controls.videoEnabled;
-        await localTracks.video.setEnabled(newState);
-        
-        if (localVideoRef.current) {
-          localVideoRef.current.style.display = newState ? 'block' : 'none';
-        }
-        
         setControls(prev => ({ ...prev, videoEnabled: newState }));
-        console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
+        console.log(`[Agora] Video ${newState ? 'enabled' : 'disabled'}`);
+        
+        // The actual toggle is handled by the useEffect above
       } catch (error) {
-        console.error('Toggle video error:', error);
+        console.error('[Agora] Toggle video error:', error);
       }
     } else {
+      // Try to create video track if not available
       try {
         const videoTrack = await AgoraRTC.createCameraVideoTrack();
         await clientRef.current.publish([videoTrack]);
         
-        if (localVideoRef.current) {
-          videoTrack.play(localVideoRef.current);
-          localVideoRef.current.style.display = 'block';
+        // Play in container
+        if (localContainerRef.current) {
+          videoTrack.play(localContainerRef.current);
+          
+          // Apply mirror effect
+          const innerVideoEl = localContainerRef.current.querySelector('video');
+          if (innerVideoEl) {
+            innerVideoEl.style.transform = 'scaleX(-1)';
+            innerVideoEl.style.objectFit = 'cover';
+          }
         }
         
         setLocalTracks(prev => ({ ...prev, video: videoTrack }));
         setControls(prev => ({ ...prev, videoEnabled: true }));
-        console.log('📹 Video enabled');
+        console.log('[Agora] Video enabled');
       } catch (error) {
-        console.error('Cannot access camera:', error);
+        console.error('[Agora] Cannot access camera:', error);
       }
     }
   };
@@ -365,12 +525,12 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           video: screenTrack 
         }));
         
-        if (localVideoRef.current) {
-          screenTrack.play(localVideoRef.current);
+        if (localContainerRef.current) {
+          screenTrack.play(localContainerRef.current);
         }
         
         setControls(prev => ({ ...prev, screenSharing: true }));
-        console.log('🖥️ Screen sharing started');
+        console.log('[Agora] Screen sharing started');
         
       } else {
         const screenTrack = localTracks.video;
@@ -385,8 +545,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           const cameraTrack = await AgoraRTC.createCameraVideoTrack();
           await clientRef.current.publish([cameraTrack]);
           
-          if (localVideoRef.current) {
-            cameraTrack.play(localVideoRef.current);
+          if (localContainerRef.current) {
+            cameraTrack.play(localContainerRef.current);
           }
           
           setLocalTracks(prev => ({ 
@@ -400,9 +560,9 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
             screenSharing: false 
           }));
           
-          console.log('🖥️ Screen sharing stopped, camera restored');
+          console.log('[Agora] Screen sharing stopped, camera restored');
         } catch (cameraError) {
-          console.error('Cannot access camera:', cameraError);
+          console.error('[Agora] Cannot access camera:', cameraError);
           setControls(prev => ({ 
             ...prev, 
             videoEnabled: false,
@@ -411,7 +571,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         }
       }
     } catch (error) {
-      console.error('Screen share error:', error);
+      console.error('[Agora] Screen share error:', error);
       setControls(prev => ({ ...prev, screenSharing: false }));
     }
   };
@@ -421,14 +581,14 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       const newState = !controls.recording; 
       if (newState) { 
         await videoApi.startRecording(sessionState.sessionInfo.meetingId);
-        console.log('⏺️ Recording started');
+        console.log('[Agora] Recording started');
       } else {
         await videoApi.stopRecording(sessionState.sessionInfo.meetingId);
-        console.log('⏹️ Recording stopped');
+        console.log('[Agora] Recording stopped');
       }
       setControls(prev => ({ ...prev, recording: newState }));
     } catch (error) {
-      console.error('Toggle recording error:', error);
+      console.error('[Agora] Toggle recording error:', error);
     } 
   };
 
@@ -439,7 +599,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       setIsLeaving(false);
       if (onEndCall) onEndCall(false); 
     } catch (error) {
-      console.error('Leave session error:', error);
+      console.error('[Agora] Leave session error:', error);
       setIsLeaving(false);
     }
   };
@@ -452,13 +612,13 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       setIsEnding(false);
       if (onEndCall) onEndCall(true); 
     } catch (error) {
-      console.error('End session error:', error);
+      console.error('[Agora] End session error:', error);
       setIsEnding(false);
     }
   };
 
   // ============================================
-  // Chat Functions (same as before)
+  // Chat Functions
   // ============================================
 
   const sendMessage = async () => {
@@ -493,7 +653,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       }, 500);
       
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('[Chat] Failed to send message:', error);
       setMessages(prev => prev.map(msg => 
         msg.id === tempMessage.id 
           ? { ...msg, status: 'failed' }
@@ -539,7 +699,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   const startChatPolling = (meetingId) => {
-    console.log('Polling chat messages...');
+    console.log('[Chat] Polling chat messages...');
     const interval = setInterval(() => {}, 5000);
     return () => clearInterval(interval);
   };
@@ -597,7 +757,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           participantCount: (clientRef.current?.remoteUsers?.length || 0) + 1 
         }));
       } catch (error) {
-        console.error('Participant tracking error:', error);
+        console.error('[Agora] Participant tracking error:', error);
       }
     };
     
@@ -613,31 +773,44 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }));
   };
 
-  const cleanup = () => {
-    console.log('🧹 Cleaning up...');
+  const cleanup = async () => {
+    console.log('[Agora] Cleaning up...');
     
+    // Clear intervals
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
     if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
     
-    if (localTracks.audio) {
-      localTracks.audio.stop();
-      localTracks.audio.close();
-    }
-    if (localTracks.video) {
-      localTracks.video.stop();
-      localTracks.video.close();
+    // Stop and close local tracks
+    try {
+      if (localTracks.audio) {
+        await clientRef.current?.unpublish([localTracks.audio]).catch(() => {});
+        localTracks.audio.stop();
+        localTracks.audio.close();
+      }
+      if (localTracks.video) {
+        await clientRef.current?.unpublish([localTracks.video]).catch(() => {});
+        localTracks.video.stop();
+        localTracks.video.close();
+      }
+    } catch (e) {
+      console.warn('[Agora] Cleanup warning:', e);
     }
     
+    // Leave channel
     if (clientRef.current) {
-      clientRef.current.leave();
+      await clientRef.current.leave();
     }
     
+    // Clear remote users
     Object.values(remoteUsersRef.current).forEach(userData => {
       if (userData.container) {
         userData.container.remove();
       }
     });
     remoteUsersRef.current = {};
+    
+    // Reset state
+    setLocalTracks({ audio: null, video: null });
   };
 
   const formatDuration = (seconds) => {
@@ -684,7 +857,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   );
 
   // ============================================
-  // Render - FUTURISTIC DESIGN
+  // Render - Updated for container approach
   // ============================================
 
   if (sessionState.error) {
@@ -742,18 +915,17 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
       {/* Main Video Area - Full Screen */}
       <div className="video-main-area">
-        {/* Local Video - Centered and Compact */}
+        {/* Local Video - Updated for container approach */}
         <div className="local-video-container floating-video">
           <div className="video-wrapper">
-            <video
-              ref={localVideoRef}
-              id="local-video"
-              autoPlay
-              playsInline
-              muted
-              className="video-element"
+            {/* KEY FIX: Use container div instead of video element */}
+            <div
+              ref={localContainerRef}
+              id="local-video-container"
+              className="video-container"
               style={{ display: controls.videoEnabled ? 'block' : 'none' }}
-            ></video>
+              aria-label="Local video container"
+            />
             
             {!controls.videoEnabled && (
               <div className="video-placeholder">
@@ -938,12 +1110,24 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         </div>
       )}
       
+      {/* Autoplay Hint */}
+      {!initialInteraction && (
+        <div className="autoplay-hint">
+          <p>Click anywhere to allow video playback (browser autoplay policy).</p>
+        </div>
+      )}
+      
       {/* Show Controls Hint */}
-      {!showControls && (
+      {!showControls && !initialInteraction && (
         <div className="controls-hint">
           Move mouse to show controls
         </div>
       )}
+      
+      {/* Debug Info (optional, can be removed in production) */}
+      <div className="debug-info">
+        <small>Video: {controls.videoEnabled ? 'ON' : 'OFF'} | Audio: {controls.audioEnabled ? 'ON' : 'OFF'} | Joined: {sessionState.isJoined ? 'Yes' : 'No'}</small>
+      </div>
     </div>
   );
 };
