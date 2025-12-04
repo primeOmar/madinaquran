@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoApi from '../lib/agora/videoApi';
-import videoApi from '/lib/agora/videoApi';
-import videoApi from '../../../lib/agora/videoApi'; 
-import videoApi from '../../../../lib/agora/videoApi';
-import videoApi from '@/lib/agora/videoApi'; 
+import videoApi from '../lib/agora/studentvideoApi.js';
 import './TeacherVideoCall.css'; 
 
 const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
