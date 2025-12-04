@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import studentvideoApi from '../lib/agora/studentvideoApi.js';
+import studentvideoApi from '../lib/agora/studentvideoApi';
 import './TeacherVideoCall.css'; 
 
 const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
@@ -678,159 +678,354 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // Render - UPDATED
   // ============================================
 
-  if (sessionState.error) {
-    return (
-      <div className="video-error">
-        <h2>Cannot Join Session</h2>
-        <p>{sessionState.error}</p>
-        <button onClick={() => window.history.back()}>Go Back</button>
-      </div>
-    );
-  }
+// ============================================
+// Render - FULL SCREEN MODAL VERSION
+// ============================================
 
-  if (!sessionState.isJoined) {
-    return (
-      <div className="video-loading">
-        <div className="spinner"></div>
-        <p>Joining session...</p>
-        <small>Checking device permissions...</small>
-      </div>
-    );
-  }
-
+if (sessionState.error) {
   return (
-    <div className="student-video-call">
-      {/* Header */}
-      <div className="video-header">
-        <div className="session-info">
-          <h2>{sessionState.sessionInfo?.session?.class_title || 'Class Session'}</h2>
-          <span className="duration">{formatDuration(stats.duration)}</span>
-          <span className={`quality quality-${stats.connectionQuality}`}>
-            {stats.connectionQuality}
-          </span>
-          <span className="participant-count">
-            {stats.participantCount} participant{stats.participantCount !== 1 ? 's' : ''}
-          </span>
-        </div>
+    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+      <div className="bg-gray-800 p-8 rounded-2xl text-white max-w-md text-center">
+        <h2 className="text-2xl font-bold mb-4 text-red-400">Cannot Join Session</h2>
+        <p className="mb-6 text-gray-300">{sessionState.error}</p>
         <button 
-          className="control-btn"
-          onClick={() => setShowChat(!showChat)}
+          onClick={() => onLeaveCall && onLeaveCall()}
+          className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-xl font-semibold transition-all duration-200"
         >
-          💬 Chat {showChat && '(Hide)'}
+          Go Back to Dashboard
         </button>
       </div>
+    </div>
+  );
+}
 
-      {/* Main Video Area */}
-      <div className="video-main">
-        {/* Teacher/Remote Videos (Main View) */}
-        <div className="remote-videos" style={{ gridColumn: '1 / -1' }}>
-          {Array.from(remoteTracks.entries()).map(([uid, tracks]) => (
-            <RemoteVideo key={uid} uid={uid} tracks={tracks} />
-          ))}
-          
-          {remoteTracks.size === 0 && (
-            <div className="waiting-message">
-              <h3>Waiting for teacher...</h3>
-              <p>Teacher will appear here when they start video</p>
-            </div>
-          )}
+if (!sessionState.isJoined) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+      <div className="text-center text-white">
+        <div className="relative">
+          <div className="animate-spin h-20 w-20 border-b-2 border-cyan-500 rounded-full mx-auto mb-6"></div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Video className="text-cyan-400 animate-pulse" size={32} />
+          </div>
         </div>
+        <h3 className="text-2xl font-semibold mb-3">Joining Madina Session...</h3>
+        <p className="text-gray-400">Connecting to video call with teacher</p>
+        <p className="text-cyan-300 text-sm mt-4">Meeting ID: {meetingId}</p>
+      </div>
+    </div>
+  );
+}
 
-        {/* Local Video (Small Preview) - Only if camera exists */}
-        {controls.hasCamera && localTracks.video && (
-          <div className="local-video" style={{ 
-            position: 'fixed',
-            bottom: '120px',
-            right: showChat ? '340px' : '20px',
-            width: '200px',
-            height: '150px',
-            zIndex: 100
-          }}>
-            <div id="student-local-video" className="video-container"></div>
-            <div className="video-label">
-              You {!controls.videoEnabled && '(Camera Off)'}
+return (
+  <div className="fixed inset-0 z-50 bg-black flex flex-col">
+    {/* Header Bar */}
+    <div className="bg-gray-900/90 backdrop-blur-xl border-b border-cyan-500/30 text-white p-4 md:p-6 flex justify-between items-center">
+      <div className="flex items-center gap-4">
+        <div className={`w-3 h-3 rounded-full ${
+          stats.connectionQuality === 'good' || stats.connectionQuality === 'excellent' 
+            ? 'bg-green-500 animate-pulse' 
+            : 'bg-yellow-500'
+        }`} />
+        <div>
+          <h2 className="font-bold text-lg md:text-xl">Madina Quran Class</h2>
+          <div className="flex items-center gap-3 text-sm text-cyan-300">
+            <span className="flex items-center gap-1">
+              <Clock size={14} />
+              {formatDuration(stats.duration)}
+            </span>
+            <span className="hidden md:inline">•</span>
+            <span className="hidden md:flex items-center gap-1">
+              <Users size={14} />
+              {stats.participantCount} participant{stats.participantCount !== 1 ? 's' : ''}
+            </span>
+            <span>•</span>
+            <span className={`px-2 py-1 rounded-full text-xs ${
+              stats.connectionQuality === 'good' || stats.connectionQuality === 'excellent'
+                ? 'bg-green-500/20 text-green-300'
+                : 'bg-yellow-500/20 text-yellow-300'
+            }`}>
+              {stats.connectionQuality}
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={() => setShowChat(!showChat)}
+          className={`p-3 rounded-xl transition-all duration-200 ${
+            showChat 
+              ? 'bg-cyan-600 text-white' 
+              : 'bg-gray-800 hover:bg-gray-700 text-cyan-300'
+          }`}
+          title="Toggle Chat"
+        >
+          <MessageCircle size={20} />
+        </button>
+        <button 
+          onClick={leaveSession}
+          className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 shadow-lg"
+        >
+          <PhoneOff size={18} />
+          <span className="hidden sm:inline">Leave Session</span>
+        </button>
+      </div>
+    </div>
+
+    {/* Main Video Area */}
+    <div className="flex-1 relative p-4 md:p-6">
+      {/* Remote Videos Grid - Full Responsive */}
+      <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+        {Array.from(remoteTracks.entries()).map(([uid, tracks]) => (
+          <div key={uid} className="relative bg-gray-900 rounded-2xl overflow-hidden border border-cyan-500/20 group hover:border-cyan-500/40 transition-all duration-300">
+            {/* Video Container */}
+            <div 
+              ref={el => {
+                if (el && tracks.video) {
+                  try {
+                    tracks.video.play(el);
+                  } catch (error) {
+                    console.warn('Remote video play error:', error);
+                  }
+                }
+              }}
+              className="w-full h-full min-h-[200px] bg-gray-800"
+            />
+            
+            {/* Placeholder if no video */}
+            {!tracks.video && (
+              <div className="w-full h-full min-h-[200px] flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
+                <div className="text-center">
+                  <div className="text-5xl mb-3 opacity-50">👨‍🏫</div>
+                  <p className="text-cyan-300 font-medium">Teacher</p>
+                  <p className="text-gray-400 text-sm mt-1">Audio only</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Overlay Info */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+              <div className="flex justify-between items-center">
+                <div className="text-white">
+                  <div className="font-semibold">Teacher</div>
+                  <div className="text-sm text-cyan-300">Speaking now</div>
+                </div>
+                {tracks.audio && (
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {/* Empty State */}
+        {remoteTracks.size === 0 && (
+          <div className="col-span-full flex items-center justify-center">
+            <div className="text-center text-gray-400 max-w-md">
+              <div className="relative mb-6">
+                <Video className="text-cyan-400 opacity-50 mx-auto" size={80} />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="animate-ping w-16 h-16 bg-cyan-500/30 rounded-full"></div>
+                </div>
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">Waiting for teacher...</h3>
+              <p className="text-lg mb-6">Teacher will appear here when they join the session</p>
+              <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
+                <p className="text-cyan-300 text-sm">Your session is ready. Teacher can join anytime.</p>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      <div className="video-controls">
-        <button 
-          className={`control-btn ${!controls.audioEnabled ? 'disabled' : ''}`}
+      {/* Local Video PIP (Picture-in-Picture) */}
+      {controls.hasCamera && (
+        <div className="absolute bottom-6 right-6 w-64 h-48 md:w-80 md:h-60 bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30 transition-all duration-300 hover:border-cyan-500/50 hover:scale-105">
+          {/* Video Container */}
+          <div 
+            id="student-local-video" 
+            className="w-full h-full bg-gray-900"
+          />
+          
+          {/* Camera Off State */}
+          {!controls.videoEnabled && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+              <div className="text-center">
+                <CameraOff className="text-gray-500 w-12 h-12 mx-auto mb-3" />
+                <p className="text-gray-400 font-medium">Camera Off</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Overlay Info */}
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
+            <div className="flex justify-between items-center">
+              <div className="text-white">
+                <div className="font-semibold flex items-center gap-2">
+                  You
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                </div>
+                <div className="text-sm text-cyan-300">
+                  {controls.videoEnabled ? 'Live' : 'Camera Off'}
+                </div>
+              </div>
+              
+              <div className="flex gap-1">
+                {!controls.audioEnabled && (
+                  <div className="bg-red-500 p-2 rounded-lg">
+                    <MicOff size={14} className="text-white" />
+                  </div>
+                )}
+                {!controls.videoEnabled && (
+                  <div className="bg-red-500 p-2 rounded-lg">
+                    <CameraOff size={14} className="text-white" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Controls Bar */}
+    <div className="bg-gray-900/90 backdrop-blur-xl border-t border-cyan-500/30 p-4 md:p-6">
+      <div className="flex items-center justify-center gap-3 md:gap-6">
+        {/* Audio Toggle */}
+        <button
           onClick={toggleAudio}
           disabled={!controls.hasMicrophone}
-          title={!controls.hasMicrophone ? 'No microphone detected' : controls.audioEnabled ? 'Mute' : 'Unmute'}
+          className={`p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-lg ${
+            controls.audioEnabled 
+              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
+              : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          title={controls.hasMicrophone ? (controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone') : 'No microphone detected'}
         >
-          🎤 {controls.hasMicrophone ? (controls.audioEnabled ? 'Mute' : 'Unmute') : 'No Mic'}
+          {controls.audioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
         </button>
 
-        <button 
-          className={`control-btn ${!controls.videoEnabled ? 'disabled' : ''}`}
+        {/* Video Toggle */}
+        <button
           onClick={toggleVideo}
           disabled={!controls.hasCamera}
-          title={!controls.hasCamera ? 'No camera detected' : controls.videoEnabled ? 'Stop Video' : 'Start Video'}
+          className={`p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-lg ${
+            controls.videoEnabled 
+              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
+              : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          title={controls.hasCamera ? (controls.videoEnabled ? 'Turn off camera' : 'Turn on camera') : 'No camera detected'}
         >
-          📹 {controls.hasCamera ? (controls.videoEnabled ? 'Stop Video' : 'Start Video') : 'No Cam'}
+          {controls.videoEnabled ? <Camera size={24} /> : <CameraOff size={24} />}
         </button>
 
-        <button 
-          className={`control-btn ${controls.handRaised ? 'active' : ''}`}
+        {/* Hand Raise */}
+        <button
           onClick={toggleHandRaise}
+          className={`p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-lg ${
+            controls.handRaised 
+              ? 'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white animate-pulse' 
+              : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
+          }`}
+          title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
         >
-          ✋ {controls.handRaised ? 'Lower Hand' : 'Raise Hand'}
+          <Hand size={24} />
         </button>
 
-        <button 
-          className="control-btn end-call"
-          onClick={leaveSession}
-        >
-          📞 Leave Session
+        {/* More Options */}
+        <button className="p-4 md:p-5 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 shadow-lg">
+          <MoreVertical size={24} />
         </button>
       </div>
+    </div>
 
-      {/* Chat Sidebar */}
-      {showChat && (
-        <div className="chat-sidebar">
-          <div className="chat-header">
-            <h3>Chat</h3>
-            <button onClick={() => setShowChat(false)}>✕</button>
+    {/* Chat Sidebar */}
+    {showChat && (
+      <div className="absolute inset-y-0 right-0 w-full md:w-96 bg-gradient-to-b from-gray-900 to-gray-950 border-l border-cyan-500/30 flex flex-col shadow-2xl">
+        {/* Chat Header */}
+        <div className="p-6 border-b border-cyan-500/30 flex justify-between items-center">
+          <div>
+            <h3 className="font-bold text-xl text-white">Madina Chat</h3>
+            <p className="text-cyan-300 text-sm">Live discussion with teacher</p>
           </div>
-          
-          <div className="chat-messages">
-            {messages.length === 0 ? (
-              <div className="no-messages">
-                <p>No messages yet</p>
-                <small>Be the first to say hello!</small>
-              </div>
-            ) : (
-              messages.map(msg => (
-                <div key={msg.id} className={`chat-message ${msg.message_type}`}>
-                  <strong>{msg.profiles?.full_name || 'Unknown'}:</strong>
-                  <span>{msg.message_text}</span>
-                  <small>{new Date(msg.created_at).toLocaleTimeString()}</small>
+          <button 
+            onClick={() => setShowChat(false)}
+            className="p-3 text-cyan-300 hover:text-white hover:bg-cyan-500/20 rounded-xl transition-all duration-200"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 ? (
+            <div className="text-center text-gray-400 py-12">
+              <MessageCircle className="mx-auto mb-4 opacity-50" size={48} />
+              <p className="text-lg font-semibold">No messages yet</p>
+              <p className="text-sm mt-2">Be the first to say hello!</p>
+            </div>
+          ) : (
+            messages.map(msg => (
+              <div 
+                key={msg.id} 
+                className={`p-4 rounded-2xl ${
+                  msg.message_type === 'system' 
+                    ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-500/20' 
+                    : 'bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700/50'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="font-semibold text-white">
+                        {msg.profiles?.full_name || 'System'}
+                      </div>
+                      {msg.message_type === 'system' && (
+                        <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs">
+                          System
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-cyan-100">{msg.message_text}</p>
+                    <p className="text-cyan-400 text-xs mt-3">
+                      {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </p>
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
-
-          <div className="chat-input">
+              </div>
+            ))
+          )}
+        </div>
+        
+        {/* Message Input */}
+        <div className="p-6 border-t border-cyan-500/30">
+          <div className="flex gap-3">
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Type a message..."
+              placeholder="Type your message here..."
+              className="flex-1 bg-gray-800/50 border border-cyan-500/30 rounded-2xl px-5 py-4 text-white placeholder-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent backdrop-blur-lg"
             />
-            <button onClick={() => sendMessage()}>Send</button>
+            <button 
+              onClick={() => sendMessage()}
+              disabled={!newMessage.trim()}
+              className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-4 rounded-2xl font-semibold text-white transition-all duration-200 shadow-lg"
+            >
+              Send
+            </button>
           </div>
         </div>
-      )}
-    </div>
-  );
-};
+      </div>
+    )}
+  </div>
+);
+}
 
 // Remote Video Component - UPDATED
+
 const RemoteVideo = ({ uid, tracks }) => {
   const videoRef = useRef(null);
 
@@ -855,11 +1050,20 @@ const RemoteVideo = ({ uid, tracks }) => {
   }, [tracks.video]);
 
   return (
-    <div className="remote-video">
-      <div ref={videoRef} className="video-container"></div>
-      <div className="video-label">Teacher</div>
+    <div className="remote-video relative bg-gray-900 rounded-2xl overflow-hidden min-h-[200px]">
+      <div ref={videoRef} className="w-full h-full bg-gray-800"></div>
+      {!tracks.video && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+          <div className="text-center">
+            <div className="text-4xl mb-2 opacity-50">👨‍🏫</div>
+            <p className="text-cyan-300">Teacher</p>
+          </div>
+        </div>
+      )}
+      <div className="absolute bottom-3 left-3 bg-black/70 text-white px-3 py-1 rounded-lg text-sm">
+        Teacher
+      </div>
     </div>
   );
 };
-
 export default StudentVideoCall;
