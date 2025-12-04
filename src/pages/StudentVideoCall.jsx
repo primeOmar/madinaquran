@@ -50,7 +50,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const messagesPollIntervalRef = useRef(null);
 
   // ============================================
-  // Initialization - FIXED
+  // Initialization - 
   // ============================================
 
   useEffect(() => {
@@ -61,188 +61,267 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     };
   }, [meetingId, studentId]);
 
-  const initializeSession = async () => {
-    try {
-      console.log('🎓 STUDENT: Starting initialization...');
+ const initializeSession = async () => {
+  try {
+    console.log('🎓 STUDENT: Starting video session initialization...', {
+      meetingId,
+      studentId,
+      timestamp: new Date().toISOString()
+    });
+
+    // ============================================
+    // STEP 1: VALIDATE SESSION EXISTS AND IS ACTIVE
+    // ============================================
+    console.log('🔍 Checking session status...');
+    const sessionInfo = await studentvideoApi.getSessionInfo(meetingId);
+    
+    if (!sessionInfo.success) {
+      console.error('❌ Failed to fetch session info:', sessionInfo.error);
+      setSessionState({
+        isInitialized: false,
+        isJoined: false,
+        error: sessionInfo.error || 'Unable to verify session status'
+      });
+      return;
+    }
+    
+    if (!sessionInfo.exists) {
+      console.error('❌ Session does not exist:', { meetingId });
+      setSessionState({
+        isInitialized: false,
+        isJoined: false,
+        error: 'Session not found. Please wait for teacher to start the class.'
+      });
+      return;
+    }
+    
+    if (!sessionInfo.isActive) {
+      console.error('❌ Session is not active:', { 
+        status: sessionInfo.session?.status,
+        endedAt: sessionInfo.session?.ended_at 
+      });
+      setSessionState({
+        isInitialized: false,
+        isJoined: false,
+        error: 'Session is not active or has ended. Please check with your teacher.'
+      });
+      return;
+    }
+
+    console.log('✅ Session verified:', {
+      meetingId: sessionInfo.session?.meeting_id,
+      status: sessionInfo.session?.status,
+      startedAt: sessionInfo.session?.started_at,
+      classTitle: sessionInfo.session?.class_title
+    });
+
+    // ============================================
+    // STEP 2: VALIDATE STUDENT ENROLLMENT
+    // ============================================
+    console.log('🔐 Validating student enrollment...');
+    const classId = sessionInfo.session?.class_id;
+    
+    if (classId) {
+      const validationResult = await studentvideoApi.validateStudentJoin(classId, studentId);
       
-      // First, check if session exists
-      const sessionInfo = await studentvideoApi.getSessionInfo(meetingId);
-      
-      if (!sessionInfo.exists || !sessionInfo.isActive) {
+      if (!validationResult.success) {
+        console.error('❌ Student validation failed:', {
+          error: validationResult.error,
+          code: validationResult.code
+        });
+        
+        let errorMessage = 'Unable to join session. ';
+        switch(validationResult.code) {
+          case 'NO_ACTIVE_SESSION':
+            errorMessage += 'No active session found.';
+            break;
+          case 'NOT_ENROLLED':
+            errorMessage += 'You are not enrolled in this class.';
+            break;
+          case 'VALIDATION_FAILED':
+            errorMessage += 'Validation failed. Please contact support.';
+            break;
+          default:
+            errorMessage += validationResult.error || 'Please try again.';
+        }
+        
         setSessionState({
           isInitialized: false,
           isJoined: false,
-          error: 'Session not found or inactive'
+          error: errorMessage
         });
         return;
       }
-
-      // Create Agora client
-      clientRef.current = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: 'vp8' 
+      
+      console.log('✅ Student enrollment verified:', {
+        canJoin: validationResult.canJoin,
+        meetingId: validationResult.meetingId
       });
+    } else {
+      console.warn('⚠️ No class ID found in session, skipping enrollment validation');
+    }
 
-      // Join the session via API
-      const sessionData = await studentvideoApi.joinVideoSession(
-        meetingId, 
-        studentId, 
-        'student'
-      );
+    // ============================================
+    // STEP 3: CREATE AGORA CLIENT
+    // ============================================
+    console.log('🛠️ Creating Agora client...');
+    clientRef.current = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
 
+    // ============================================
+    // STEP 4: JOIN VIDEO SESSION VIA API
+    // ============================================
+    console.log('🚀 Joining video session via API...');
+    const sessionData = await studentvideoApi.joinVideoSession(
+      meetingId, 
+      studentId, 
+      'student'
+    );
+
+    if (!sessionData.success) {
+      console.error('❌ Failed to join session via API:', sessionData.error);
       setSessionState({
-        isInitialized: true,
+        isInitialized: false,
         isJoined: false,
-        sessionInfo: sessionData,
-        error: null
+        error: sessionData.error || 'Failed to join video session. Please try again.'
       });
-
-      // Join Agora channel
-      await joinChannel(sessionData);
-
-    } catch (error) {
-      console.error('❌ Initialization error:', error);
-      setSessionState(prev => ({
-        ...prev,
-        error: error.message || 'Failed to join video session'
-      }));
+      return;
     }
-  };
+
+    // Validate API response
+    if (!sessionData.token || !sessionData.channel || !sessionData.appId) {
+      console.error('❌ Invalid API response:', {
+        hasToken: !!sessionData.token,
+        hasChannel: !!sessionData.channel,
+        hasAppId: !!sessionData.appId,
+        data: sessionData
+      });
+      setSessionState({
+        isInitialized: false,
+        isJoined: false,
+        error: 'Invalid server response. Please refresh and try again.'
+      });
+      return;
+    }
+
+    console.log('✅ Session credentials received:', {
+      channel: sessionData.channel,
+      tokenLength: sessionData.token?.length,
+      appId: sessionData.appId,
+      uid: sessionData.uid,
+      teacherId: sessionData.teacher_id,
+      sessionId: sessionData.session?.id
+    });
+
+    // ============================================
+    // STEP 5: UPDATE SESSION STATE
+    // ============================================
+    setSessionState({
+      isInitialized: true,
+      isJoined: false,
+      sessionInfo: sessionData,
+      error: null
+    });
+
+    // ============================================
+    // STEP 6: JOIN AGORA CHANNEL
+    // ============================================
+    console.log('🔗 Joining Agora channel...');
+    await joinChannel(sessionData);
+
+  } catch (error) {
+    console.error('❌ Initialization error:', {
+      message: error.message,
+      stack: error.stack,
+      meetingId,
+      studentId,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Provide user-friendly error messages
+    let errorMessage = 'Failed to join video session. ';
+    
+    if (error.message.includes('network')) {
+      errorMessage += 'Network error. Please check your internet connection.';
+    } else if (error.message.includes('permission')) {
+      errorMessage += 'Permission denied. Please check your camera/microphone permissions.';
+    } else if (error.message.includes('token')) {
+      errorMessage += 'Authentication error. Please refresh the page.';
+    } else if (error.message.includes('channel')) {
+      errorMessage += 'Session channel error. Please contact support.';
+    } else {
+      errorMessage += error.message || 'Please try again.';
+    }
+
+    setSessionState(prev => ({
+      ...prev,
+      isInitialized: false,
+      error: errorMessage
+    }));
+  }
+};
 
   // ============================================
-  // Join Channel - COMPLETELY REWRITTEN
+  // Join Channel -
   // ============================================
 
-  const joinChannel = async (sessionData) => {
-    try {
-      const { channel, token, uid, appId } = sessionData;
+ const joinChannel = async (sessionData) => {
+  try {
+    const { channel, token, uid, appId } = sessionData;
 
-      console.log('🎓 STUDENT: Joining channel...', {
-        channel,
-        uid,
-        hasAppId: !!appId,
-        hasToken: !!token
-      });
+    console.log('🔗 Joining Agora channel with:', {
+      channel,
+      uid,
+      appId: appId ? '✅' : '❌',
+      token: token ? '✅' : '❌',
+      sessionId: sessionData.session?.id
+    });
 
-      // Setup event listeners FIRST
-      setupAgoraEventListeners();
+    // Setup event listeners FIRST
+    setupAgoraEventListeners();
 
-      // Join channel
-      await clientRef.current.join(appId, channel, token, uid);
+    // Join channel
+    await clientRef.current.join(appId, channel, token, uid);
+    console.log('✅ Successfully joined channel');
 
-      // ========== GRACEFUL TRACK CREATION ==========
-      try {
-        // First, detect available devices
-        await detectAvailableDevices();
-        
-        // Create microphone track (WITH FALLBACK)
-        let audioTrack = null;
-        try {
-          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-            AEC: true,
-            ANS: true,
-            AGC: true,
-            encoderConfig: {
-              sampleRate: 48000,
-              stereo: true
-            }
-          });
-          setControls(prev => ({ ...prev, hasMicrophone: true }));
-          console.log('✅ Microphone track created');
-        } catch (audioError) {
-          console.warn('⚠️ Could not create microphone track:', audioError.message);
-          setControls(prev => ({ ...prev, hasMicrophone: false, audioEnabled: false }));
-          // Student can join without microphone
-        }
+    // Create and publish local tracks
+    await createAndPublishLocalTracks();
 
-        // Create camera track (WITH FALLBACK)
-        let videoTrack = null;
-        try {
-          // Try lower resolution first for better compatibility
-          videoTrack = await AgoraRTC.createCameraVideoTrack({
-            encoderConfig: {
-              width: 640,
-              height: 480,
-              frameRate: 15,
-              bitrateMin: 500,
-              bitrateMax: 1000
-            },
-            optimizationMode: 'motion'
-          });
-          setControls(prev => ({ ...prev, hasCamera: true, videoEnabled: true }));
-          console.log('✅ Camera track created');
-        } catch (videoError) {
-          console.warn('⚠️ Could not create camera track:', videoError.message);
-          setControls(prev => ({ ...prev, hasCamera: false, videoEnabled: false }));
-          // Student can join without camera
-          
-          // Optionally create a placeholder track
-          videoTrack = null;
-        }
+    // Mark as joined
+    setSessionState(prev => ({
+      ...prev,
+      isJoined: true
+    }));
 
-        // Set tracks
-        setLocalTracks({ audio: audioTrack, video: videoTrack });
+    // Start duration tracking
+    startDurationTracking();
+    
+    // Update participant status in database
+    await updateParticipantStatus({ status: 'joined' });
 
-        // Publish available tracks
-        const tracksToPublish = [];
-        if (audioTrack) tracksToPublish.push(audioTrack);
-        if (videoTrack) tracksToPublish.push(videoTrack);
-        
-        if (tracksToPublish.length > 0) {
-          await clientRef.current.publish(tracksToPublish);
-          console.log(`📤 Published ${tracksToPublish.length} track(s)`);
-        } else {
-          console.log('ℹ️ No tracks to publish - student will be audio/video only listener');
-        }
-
-        // Play video if available
-        if (videoTrack) {
-          try {
-            const videoElement = document.getElementById('student-local-video');
-            if (videoElement) {
-              videoTrack.play(videoElement);
-            }
-          } catch (playError) {
-            console.warn('⚠️ Could not play local video:', playError.message);
-          }
-        }
-
-      } catch (trackError) {
-        console.error('❌ Track creation error:', trackError);
-        // Don't fail the join - allow student to join as listener only
-      }
-
-      // Mark as joined
-      setSessionState(prev => ({
-        ...prev,
-        isJoined: true
-      }));
-
-      // Start tracking
-      startDurationTracking();
-      
-      // Start message polling if session has ID
-      if (sessionData.session?.id) {
-        startMessagePolling(sessionData.session.id);
-      }
-
-      // Add join message
-      addSystemMessage('You joined the session');
-
-      console.log('✅ STUDENT: Successfully joined channel!');
-
-    } catch (error) {
-      console.error('❌ Join channel error:', error);
-      
-      // More specific error messages
-      let errorMessage = error.message;
-      if (error.message.includes('DEVICE_NOT_FOUND')) {
-        errorMessage = 'Cannot access camera/microphone. Please check permissions. You can still join as listener.';
-      }
-      
-      throw new Error('Failed to join video channel: ' + errorMessage);
+    // Start message polling if session has ID
+    if (sessionData.session?.id) {
+      startMessagePolling(sessionData.session.id);
     }
-  };
+
+    console.log('🎉 STUDENT: Video session fully initialized and joined');
+
+  } catch (error) {
+    console.error('❌ Join channel error:', {
+      message: error.message,
+      channel: sessionData.channel,
+      uid: sessionData.uid,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Clean up on failure
+    await performCompleteCleanup();
+    
+    throw new Error(`Failed to join video channel: ${error.message}`);
+  }
+};
 
   // ============================================
   // Device Detection
@@ -515,19 +594,123 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // Database Updates
   // ============================================
 
-  const updateParticipantStatus = async (updates) => {
-    try {
-      if (sessionState.sessionInfo?.session?.id) {
-        await studentvideoApi.updateParticipantStatus(
-          sessionState.sessionInfo.session.id,
-          studentId,
-          updates
-        );
-      }
-    } catch (error) {
-      console.error('Update participant error:', error);
+ const updateParticipantStatus = async (updates) => {
+  try {
+    if (!sessionState.sessionInfo?.session?.id) {
+      console.warn('⚠️ No session ID available for status update');
+      return;
     }
-  };
+
+    const statusUpdate = {
+      ...updates,
+      timestamp: new Date().toISOString(),
+      student_id: studentId,
+      session_id: sessionState.sessionInfo.session.id
+    };
+
+    console.log('📊 Updating participant status:', statusUpdate);
+    
+    const result = await studentvideoApi.updateParticipantStatus(
+      sessionState.sessionInfo.session.id,
+      studentId,
+      statusUpdate
+    );
+
+    if (!result.success) {
+      console.warn('⚠️ Participant status update failed:', result.error);
+    }
+
+  } catch (error) {
+    console.warn('⚠️ Participant status update error:', error.message);
+    // Non-critical error, don't interrupt user experience
+  }
+};
+
+const createAndPublishLocalTracks = async () => {
+  try {
+    console.log('🎤 Creating local audio/video tracks...');
+    
+    // Track creation with proper error handling
+    const [audioTrack, videoTrack] = await Promise.allSettled([
+      AgoraRTC.createMicrophoneAudioTrack({
+        AEC: true,
+        ANS: true,
+        AGC: true,
+        encoderConfig: {
+          sampleRate: 48000,
+          stereo: true
+        }
+      }).catch(error => {
+        console.warn('⚠️ Failed to create audio track:', error.message);
+        return null;
+      }),
+      
+      AgoraRTC.createCameraVideoTrack({
+        encoderConfig: {
+          width: 640,
+          height: 480,
+          frameRate: 15,
+          bitrateMin: 500,
+          bitrateMax: 1000
+        },
+        optimizationMode: 'motion'
+      }).catch(error => {
+        console.warn('⚠️ Failed to create video track:', error.message);
+        return null;
+      })
+    ]);
+
+    const audio = audioTrack.status === 'fulfilled' ? audioTrack.value : null;
+    const video = videoTrack.status === 'fulfilled' ? videoTrack.value : null;
+
+    // Update device availability
+    setControls(prev => ({
+      ...prev,
+      hasMicrophone: !!audio,
+      hasCamera: !!video,
+      audioEnabled: !!audio,
+      videoEnabled: !!video
+    }));
+
+    setLocalTracks({ audio, video });
+
+    // Publish available tracks
+    const tracksToPublish = [];
+    if (audio) tracksToPublish.push(audio);
+    if (video) tracksToPublish.push(video);
+    
+    if (tracksToPublish.length > 0) {
+      await clientRef.current.publish(tracksToPublish);
+      console.log(`📤 Published ${tracksToPublish.length} track(s)`);
+    }
+
+    // Play local video if available
+    if (video) {
+      try {
+        const videoElement = document.getElementById('student-local-video');
+        if (videoElement) {
+          await video.play(videoElement);
+        }
+      } catch (playError) {
+        console.warn('⚠️ Could not play local video:', playError.message);
+      }
+    }
+
+    // Update participant status with device info
+    await updateParticipantStatus({
+      audioEnabled: !!audio,
+      videoEnabled: !!video,
+      devices: {
+        hasMicrophone: !!audio,
+        hasCamera: !!video
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Track creation/publishing error:', error);
+    // Don't fail the session - allow student to join as listener
+  }
+};
 
   const updateParticipantCount = () => {
     const remoteUsers = clientRef.current?.remoteUsers || [];
