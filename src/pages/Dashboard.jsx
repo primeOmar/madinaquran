@@ -1,8 +1,6 @@
 // src/pages/Dashboard.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
-import AgoraRTC from 'agora-rtc-sdk-ng';
-import studentApi from '../lib/studentApi';
 import {
   FileText,
   CreditCard,
@@ -25,7 +23,7 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronDown,Move,
+  ChevronDown,
   CheckCircle,
   AlertCircle,
   PlayCircle,
@@ -54,13 +52,18 @@ import {
   Gem,
   Hand,
   Maximize2,
-  Minimize2,Wifi, WifiOff,  MoreVertical,
+  Minimize2,
+  Wifi,
+  WifiOff,
+  MoreVertical,
   ScreenShare,
   Monitor
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
+import StudentVideoCall from '../components/StudentVideoCall'; // Adjust path as needed
+import studentApi from '../lib/studentApi';
 
 // === AI-POWERED UTILITY FUNCTIONS ===
 const useAudioRecorder = () => {
@@ -167,18 +170,18 @@ const uploadAudioToSupabase = async (audioBlob, fileName) => {
     }
 
     const { data, error } = await supabase.storage
-    .from('assignment-audio')
-    .upload(fileName, audioFile, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: 'audio/webm'
-    });
+      .from('assignment-audio')
+      .upload(fileName, audioFile, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: 'audio/webm'
+      });
 
     if (error) throw error;
 
     const { data: urlData } = supabase.storage
-    .from('assignment-audio')
-    .getPublicUrl(fileName);
+      .from('assignment-audio')
+      .getPublicUrl(fileName);
 
     return {
       storagePath: data.path,
@@ -308,35 +311,35 @@ const AudioPlayer = ({ audioUrl, onDelete }) => {
 
   return (
     <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/30 to-blue-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
-    <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={audioUrl} preload="metadata" />
 
-    <button
-    onClick={togglePlay}
-    className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-full transition-all duration-200 shadow-lg"
-    >
-    {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-    </button>
+      <button
+        onClick={togglePlay}
+        className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-full transition-all duration-200 shadow-lg"
+      >
+        {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+      </button>
 
-    <div className="flex-1">
-    <div className="text-sm text-cyan-300 font-medium">AI Recording</div>
-    <div className="flex items-center space-x-3 mt-2">
-    <span className="text-xs text-cyan-400 font-mono">{formatTime(currentTime)}</span>
-    <div className="flex-1 bg-cyan-800/30 rounded-full h-2">
-    <div
-    className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-200"
-    style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
-    />
-    </div>
-    <span className="text-xs text-cyan-400 font-mono">{formatTime(duration)}</span>
-    </div>
-    </div>
+      <div className="flex-1">
+        <div className="text-sm text-cyan-300 font-medium">AI Recording</div>
+        <div className="flex items-center space-x-3 mt-2">
+          <span className="text-xs text-cyan-400 font-mono">{formatTime(currentTime)}</span>
+          <div className="flex-1 bg-cyan-800/30 rounded-full h-2">
+            <div
+              className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-200"
+              style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
+            />
+          </div>
+          <span className="text-xs text-cyan-400 font-mono">{formatTime(duration)}</span>
+        </div>
+      </div>
 
-    <button
-    onClick={onDelete}
-    className="p-2 text-red-300 hover:text-red-200 transition-all duration-200 hover:scale-110"
-    >
-    <Trash2 size={18} />
-    </button>
+      <button
+        onClick={onDelete}
+        className="p-2 text-red-300 hover:text-red-200 transition-all duration-200 hover:scale-110"
+      >
+        <Trash2 size={18} />
+      </button>
     </div>
   );
 };
@@ -388,116 +391,116 @@ const AssignmentSubmissionModal = ({ assignment, isOpen, onClose, onSubmit }) =>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl">
-    <motion.div
-    initial={{ opacity: 0, scale: 0.9, y: 20 }}
-    animate={{ opacity: 1, scale: 1, y: 0 }}
-    exit={{ opacity: 0, scale: 0.9, y: 20 }}
-    className="bg-gradient-to-br from-gray-900 to-gray-800 border border-cyan-500/30 rounded-3xl p-8 w-full max-w-2xl mx-4 shadow-2xl"
-    >
-    <div className="flex justify-between items-center mb-8">
-    <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    Madina Submission
-    </h3>
-    <button onClick={onClose} className="text-cyan-300 hover:text-white transition-all duration-200 p-2 hover:bg-cyan-500/20 rounded-lg">
-    <X size={24} />
-    </button>
-    </div>
-
-    <div className="space-y-6">
-    <div className="bg-gradient-to-r from-cyan-900/30 to-blue-900/30 p-6 rounded-2xl border border-cyan-500/20">
-    <h4 className="font-bold text-cyan-300 mb-3">Mission Details</h4>
-    <p className="text-cyan-100 text-sm">{assignment.description}</p>
-    <div className="mt-3 text-xs text-cyan-400 flex items-center space-x-4">
-    <span>Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
-    <span>•</span>
-    <span>{assignment.max_score} Madina Points</span>
-    </div>
-    </div>
-
-    <div>
-    <h4 className="font-bold text-cyan-300 mb-4 flex items-center">
-    <Mic className="mr-2" size={20} />
-    Neural Recording
-    </h4>
-
-    <div className="space-y-4">
-    {!hasRecording ? (
-      <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-2xl border border-cyan-500/20">
-      <button
-      onClick={isRecording ? stopRecording : startRecording}
-      className={`p-4 rounded-full transition-all duration-200 shadow-lg ${
-        isRecording
-        ? 'bg-gradient-to-r from-red-600 to-pink-600 animate-pulse'
-        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
-      }`}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="bg-gradient-to-br from-gray-900 to-gray-800 border border-cyan-500/30 rounded-3xl p-8 w-full max-w-2xl mx-4 shadow-2xl"
       >
-      {isRecording ? <Square size={24} /> : <Mic size={24} />}
-      </button>
+        <div className="flex justify-between items-center mb-8">
+          <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+            Madina Submission
+          </h3>
+          <button onClick={onClose} className="text-cyan-300 hover:text-white transition-all duration-200 p-2 hover:bg-cyan-500/20 rounded-lg">
+            <X size={24} />
+          </button>
+        </div>
 
-      <div className="flex-1">
-      <div className="text-cyan-300 font-medium">
-      {isRecording ? `Recording... ${recordingTime}` : 'Initiate Recording'}
-      </div>
-      <div className="text-cyan-400 text-sm">
-      {isRecording ? 'AI processing audio quality...' : 'Click to start neural capture'}
-      </div>
-      </div>
-      </div>
-    ) : (
-      <AudioPlayer audioUrl={audioUrl} onDelete={clearRecording} />
-    )}
-    </div>
-    </div>
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-cyan-900/30 to-blue-900/30 p-6 rounded-2xl border border-cyan-500/20">
+            <h4 className="font-bold text-cyan-300 mb-3">Mission Details</h4>
+            <p className="text-cyan-100 text-sm">{assignment.description}</p>
+            <div className="mt-3 text-xs text-cyan-400 flex items-center space-x-4">
+              <span>Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
+              <span>•</span>
+              <span>{assignment.max_score} Madina Points</span>
+            </div>
+          </div>
 
-    <div>
-    <h4 className="font-bold text-cyan-300 mb-4">Madina Notes</h4>
-    <textarea
-    value={submissionText}
-    onChange={(e) => setSubmissionText(e.target.value)}
-    placeholder="Add AI-enhanced notes or observations..."
-    rows="4"
-    className="w-full p-4 rounded-2xl bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border border-cyan-500/30 text-white placeholder-cyan-400 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-200 backdrop-blur-lg"
-    />
-    </div>
+          <div>
+            <h4 className="font-bold text-cyan-300 mb-4 flex items-center">
+              <Mic className="mr-2" size={20} />
+              Neural Recording
+            </h4>
 
-    <div className="bg-gradient-to-r from-blue-900/30 to-green-900/30 p-4 rounded-2xl border border-blue-500/20">
-    <div className="flex items-start space-x-3">
-    <Sparkles size={20} className="text-blue-300 mt-1 flex-shrink-0" />
-    <div className="text-sm text-blue-200">
-    <strong>AI Insight:</strong> Your submission will be analyzed by our Madina learning AI
-    for personalized feedback and improvement suggestions.
-      </div>
-      </div>
-      </div>
+            <div className="space-y-4">
+              {!hasRecording ? (
+                <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-2xl border border-cyan-500/20">
+                  <button
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`p-4 rounded-full transition-all duration-200 shadow-lg ${
+                      isRecording
+                        ? 'bg-gradient-to-r from-red-600 to-pink-600 animate-pulse'
+                        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
+                    }`}
+                  >
+                    {isRecording ? <Square size={24} /> : <Mic size={24} />}
+                  </button>
 
-      <div className="flex justify-end space-x-4 pt-6">
-      <button
-      onClick={onClose}
-      className="px-8 py-3 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-600 hover:from-gray-600 hover:to-gray-500 border border-gray-600 transition-all duration-200 shadow-lg"
-      >
-      Cancel
-      </button>
-      <button
-      onClick={handleSubmit}
-      disabled={submitting || (!hasRecording && !submissionText.trim())}
-      className="px-8 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transition-all duration-200 shadow-lg"
-      >
-      {submitting ? (
-        <>
-        <Loader2 className="animate-spin mr-3" size={20} />
-        Madina Upload...
-        </>
-      ) : (
-        <>
-        <Rocket className="mr-3" size={20} />
-        Launch Submission
-        </>
-      )}
-      </button>
-      </div>
-      </div>
+                  <div className="flex-1">
+                    <div className="text-cyan-300 font-medium">
+                      {isRecording ? `Recording... ${recordingTime}` : 'Initiate Recording'}
+                    </div>
+                    <div className="text-cyan-400 text-sm">
+                      {isRecording ? 'AI processing audio quality...' : 'Click to start neural capture'}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <AudioPlayer audioUrl={audioUrl} onDelete={clearRecording} />
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-bold text-cyan-300 mb-4">Madina Notes</h4>
+            <textarea
+              value={submissionText}
+              onChange={(e) => setSubmissionText(e.target.value)}
+              placeholder="Add AI-enhanced notes or observations..."
+              rows="4"
+              className="w-full p-4 rounded-2xl bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border border-cyan-500/30 text-white placeholder-cyan-400 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-200 backdrop-blur-lg"
+            />
+          </div>
+
+          <div className="bg-gradient-to-r from-blue-900/30 to-green-900/30 p-4 rounded-2xl border border-blue-500/20">
+            <div className="flex items-start space-x-3">
+              <Sparkles size={20} className="text-blue-300 mt-1 flex-shrink-0" />
+              <div className="text-sm text-blue-200">
+                <strong>AI Insight:</strong> Your submission will be analyzed by our Madina learning AI
+                for personalized feedback and improvement suggestions.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-4 pt-6">
+            <button
+              onClick={onClose}
+              className="px-8 py-3 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-600 hover:from-gray-600 hover:to-gray-500 border border-gray-600 transition-all duration-200 shadow-lg"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || (!hasRecording && !submissionText.trim())}
+              className="px-8 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transition-all duration-200 shadow-lg"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="animate-spin mr-3" size={20} />
+                  Madina Upload...
+                </>
+              ) : (
+                <>
+                  <Rocket className="mr-3" size={20} />
+                  Launch Submission
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </motion.div>
-      </div>
+    </div>
   );
 };
 
@@ -505,7 +508,7 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
   const [showSubmissionModal, setShowSubmissionModal] = useState(false);
 
   const isSubmitted = assignment.submissions?.[0]?.status === "submitted" ||
-  assignment.submissions?.[0]?.status === "graded";
+    assignment.submissions?.[0]?.status === "graded";
   const isGraded = assignment.submissions?.[0]?.status === "graded";
   const dueDate = new Date(assignment.due_date);
   const isOverdue = dueDate < new Date() && !isSubmitted;
@@ -513,104 +516,104 @@ const AssignmentItem = ({ assignment, onSubmitAssignment, formatDate }) => {
 
   return (
     <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.3 }}
-    className="group"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="group"
     >
-    <div className="p-6 rounded-2xl bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-cyan-500/20 hover:border-cyan-500/40 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg">
-    <div className="flex justify-between items-start">
-    <div className="flex-1">
-    <div className="flex items-center justify-between">
-    <h4 className="font-bold text-xl flex items-center">
-    <FileText className="mr-3" size={24} />
-    <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    {assignment.title}
-    </span>
-    </h4>
-    <div className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
-      isGraded
-      ? "bg-gradient-to-r from-green-600 to-emerald-600 text-white"
-      : isSubmitted
-      ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white"
-      : isOverdue
-      ? "bg-gradient-to-r from-red-600 to-pink-600 text-white"
-      : "bg-gradient-to-r from-yellow-600 to-orange-600 text-white"
-    }`}>
-    {isGraded
-      ? `AI Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
-      : isSubmitted
-      ? "Madina Review"
-      : isOverdue
-      ? "Priority Mission"
-      : daysUntilDue <= 3 ? `${daysUntilDue}d remaining` : "Active Mission"
-    }
-    </div>
-    </div>
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-cyan-500/20 hover:border-cyan-500/40 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg">
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-xl flex items-center">
+                <FileText className="mr-3" size={24} />
+                <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  {assignment.title}
+                </span>
+              </h4>
+              <div className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
+                isGraded
+                  ? "bg-gradient-to-r from-green-600 to-emerald-600 text-white"
+                  : isSubmitted
+                  ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white"
+                  : isOverdue
+                  ? "bg-gradient-to-r from-red-600 to-pink-600 text-white"
+                  : "bg-gradient-to-r from-yellow-600 to-orange-600 text-white"
+              }`}>
+                {isGraded
+                  ? `AI Graded: ${assignment.submissions?.[0]?.score}/${assignment.max_score}`
+                  : isSubmitted
+                  ? "Madina Review"
+                  : isOverdue
+                  ? "Priority Mission"
+                  : daysUntilDue <= 3 ? `${daysUntilDue}d remaining` : "Active Mission"
+                }
+              </div>
+            </div>
 
-    <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
-    <span className="flex items-center mr-6 mb-3">
-    <BookOpen size={16} className="mr-2" />
-    {assignment.subject || assignment.class?.title}
-    </span>
-    <span className="flex items-center mr-6 mb-3">
-    <Calendar size={16} className="mr-2" />
-    Due: {formatDate(assignment.due_date)}
-    </span>
-    <span className="flex items-center mr-6 mb-3">
-    <Award size={16} className="mr-2" />
-    {assignment.max_score} Madina Points
-    </span>
-    </div>
+            <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
+              <span className="flex items-center mr-6 mb-3">
+                <BookOpen size={16} className="mr-2" />
+                {assignment.subject || assignment.class?.title}
+              </span>
+              <span className="flex items-center mr-6 mb-3">
+                <Calendar size={16} className="mr-2" />
+                Due: {formatDate(assignment.due_date)}
+              </span>
+              <span className="flex items-center mr-6 mb-3">
+                <Award size={16} className="mr-2" />
+                {assignment.max_score} Madina Points
+              </span>
+            </div>
 
-    {assignment.description && (
-      <p className="text-cyan-300 text-sm mt-3">{assignment.description}</p>
-    )}
+            {assignment.description && (
+              <p className="text-cyan-300 text-sm mt-3">{assignment.description}</p>
+            )}
 
-    {isOverdue && (
-      <div className="mt-3 flex items-center text-red-300 text-sm">
-      <AlertCircle size={16} className="mr-2" />
-      AI Priority: {Math.abs(daysUntilDue)} days overdue
+            {isOverdue && (
+              <div className="mt-3 flex items-center text-red-300 text-sm">
+                <AlertCircle size={16} className="mr-2" />
+                AI Priority: {Math.abs(daysUntilDue)} days overdue
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button className="text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+            <Download className="mr-2" size={16} />
+            Madina Materials
+          </button>
+
+          {!isGraded && (
+            <button
+              onClick={() => setShowSubmissionModal(true)}
+              className={`text-sm py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg ${
+                isOverdue
+                  ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500'
+                  : 'bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-500 hover:to-green-500'
+              }`}
+            >
+              <Mic className="mr-2" size={16} />
+              {isSubmitted ? 'Neural Resubmit' : 'Madina Submit'}
+            </button>
+          )}
+
+          {isGraded && assignment.submissions?.[0]?.feedback && (
+            <button className="text-sm bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-500 hover:to-pink-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+              <MessageCircle className="mr-2" size={16} />
+              AI Feedback
+            </button>
+          )}
+        </div>
       </div>
-    )}
-    </div>
-    </div>
 
-    <div className="mt-6 flex flex-wrap gap-3">
-    <button className="text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
-    <Download className="mr-2" size={16} />
-    Madina Materials
-    </button>
-
-    {!isGraded && (
-      <button
-      onClick={() => setShowSubmissionModal(true)}
-      className={`text-sm py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg ${
-        isOverdue
-        ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500'
-        : 'bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-500 hover:to-green-500'
-      }`}
-      >
-      <Mic className="mr-2" size={16} />
-      {isSubmitted ? 'Neural Resubmit' : 'Madina Submit'}
-      </button>
-    )}
-
-    {isGraded && assignment.submissions?.[0]?.feedback && (
-      <button className="text-sm bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-500 hover:to-pink-500 py-3 px-5 rounded-xl flex items-center transition-all duration-200 shadow-lg">
-      <MessageCircle className="mr-2" size={16} />
-      AI Feedback
-      </button>
-    )}
-    </div>
-    </div>
-
-    <AssignmentSubmissionModal
-    assignment={assignment}
-    isOpen={showSubmissionModal}
-    onClose={() => setShowSubmissionModal(false)}
-    onSubmit={onSubmitAssignment}
-    />
+      <AssignmentSubmissionModal
+        assignment={assignment}
+        isOpen={showSubmissionModal}
+        onClose={() => setShowSubmissionModal(false)}
+        onSubmit={onSubmitAssignment}
+      />
     </motion.div>
   );
 };
@@ -625,126 +628,126 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
     if (isClassLive) await onJoinClass(classItem);
   };
 
-    return (
-      <motion.div
+  return (
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="group"
-      >
+    >
       <div className={`p-6 rounded-2xl border-2 transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl backdrop-blur-lg ${
         isClassCompleted
-        ? 'bg-gradient-to-br from-gray-800/30 to-gray-900/30 border-green-500/20'
-        : isClassLive
-        ? 'bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border-cyan-500/50 animate-pulse'
-        : 'bg-gradient-to-br from-gray-800/50 to-gray-900/50 border-cyan-500/20'
+          ? 'bg-gradient-to-br from-gray-800/30 to-gray-900/30 border-green-500/20'
+          : isClassLive
+          ? 'bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border-cyan-500/50 animate-pulse'
+          : 'bg-gradient-to-br from-gray-800/50 to-gray-900/50 border-cyan-500/20'
       }`}>
-      <div className="flex justify-between items-start">
-      <div className="flex-1">
-      <div className="flex items-center justify-between">
-      <h4 className="font-bold text-xl flex items-center">
-      <Video className="mr-3" size={24} />
-      <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-      {classItem.title}
-      </span>
-      {isClassCompleted && (
-        <CheckCircle size={20} className="text-green-400 ml-3" />
-      )}
-      {isClassLive && (
-        <div className="flex items-center ml-3">
-        <div className="w-3 h-3 bg-red-500 rounded-full animate-ping mr-2"></div>
-        <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-        {hasActiveVideoSession && (
-          <span className="text-xs text-red-300 ml-2 font-mono">Madina_ACTIVE</span>
-        )}
-        </div>
-      )}
-      </h4>
-      <span className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
-        isClassCompleted
-        ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white'
-        : isClassLive
-        ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white animate-pulse'
-        : 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white'
-      }`}>
-      {isClassCompleted ? 'AI Reviewed' :
-        isClassLive ? 'Madina Live' :
-        'Scheduled'}
-        </span>
-        </div>
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-xl flex items-center">
+                <Video className="mr-3" size={24} />
+                <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  {classItem.title}
+                </span>
+                {isClassCompleted && (
+                  <CheckCircle size={20} className="text-green-400 ml-3" />
+                )}
+                {isClassLive && (
+                  <div className="flex items-center ml-3">
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-ping mr-2"></div>
+                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                    {hasActiveVideoSession && (
+                      <span className="text-xs text-red-300 ml-2 font-mono">Madina_ACTIVE</span>
+                    )}
+                  </div>
+                )}
+              </h4>
+              <span className={`px-4 py-2 rounded-full text-sm font-bold backdrop-blur-lg ${
+                isClassCompleted
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white'
+                  : isClassLive
+                  ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white animate-pulse'
+                  : 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white'
+              }`}>
+                {isClassCompleted ? 'AI Reviewed' :
+                  isClassLive ? 'Madina Live' :
+                  'Scheduled'}
+              </span>
+            </div>
 
-        <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
-        <span className="flex items-center mr-6 mb-3">
-        <Clock size={16} className="mr-2" />
-        {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
-        </span>
-        <span className="flex items-center mr-6 mb-3">
-        <User size={16} className="mr-2" />
-        {classItem.teacher_name || 'AI Instructor'}
-        {isClassLive && (
-          <div className="w-2 h-2 bg-green-500 rounded-full ml-2 animate-pulse"></div>
-        )}
-        </span>
-        <span className="flex items-center mr-6 mb-3">
-        <Calendar size={16} className="mr-2" />
-        {formatDate(classItem.scheduled_date)}
-        </span>
-        </div>
+            <div className="flex flex-wrap items-center mt-4 text-sm text-cyan-200">
+              <span className="flex items-center mr-6 mb-3">
+                <Clock size={16} className="mr-2" />
+                {formatTime(classItem.scheduled_date)} - {formatTime(classItem.end_date || new Date(new Date(classItem.scheduled_date).getTime() + (2 * 60 * 60 * 1000)))}
+              </span>
+              <span className="flex items-center mr-6 mb-3">
+                <User size={16} className="mr-2" />
+                {classItem.teacher_name || 'AI Instructor'}
+                {isClassLive && (
+                  <div className="w-2 h-2 bg-green-500 rounded-full ml-2 animate-pulse"></div>
+                )}
+              </span>
+              <span className="flex items-center mr-6 mb-3">
+                <Calendar size={16} className="mr-2" />
+                {formatDate(classItem.scheduled_date)}
+              </span>
+            </div>
 
-        <div className={`mt-3 text-sm font-medium ${
-          isClassLive ? 'text-red-300' : 'text-cyan-300'
-        }`}>
-        {timeInfo.text}
-        {hasActiveVideoSession && (
-          <span className="ml-2 text-green-300 font-mono">• TEACHER_ACTIVE</span>
-        )}
-        </div>
+            <div className={`mt-3 text-sm font-medium ${
+              isClassLive ? 'text-red-300' : 'text-cyan-300'
+            }`}>
+              {timeInfo.text}
+              {hasActiveVideoSession && (
+                <span className="ml-2 text-green-300 font-mono">• TEACHER_ACTIVE</span>
+              )}
+            </div>
 
-        {classItem.video_session && (
-          <div className="mt-3 text-xs text-cyan-400 flex items-center">
-          <ShieldCheck size={14} className="mr-2" />
-          <span className="font-mono">ID: {classItem.video_session.meeting_id}</span>
-          {classItem.video_session.status === 'active' && (
-            <span className="ml-3 text-red-400 font-mono">• Madina_ACTIVE</span>
-          )}
+            {classItem.video_session && (
+              <div className="mt-3 text-xs text-cyan-400 flex items-center">
+                <ShieldCheck size={14} className="mr-2" />
+                <span className="font-mono">ID: {classItem.video_session.meeting_id}</span>
+                {classItem.video_session.status === 'active' && (
+                  <span className="ml-3 text-red-400 font-mono">• Madina_ACTIVE</span>
+                )}
+              </div>
+            )}
           </div>
-        )}
-        </div>
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">
-        {isClassLive && (
-          <button
-          className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg"
-          onClick={handleJoinClass}
-          >
-          <Rocket size={18} className="mr-2"/>
-          Join Madina Session
-          </button>
-        )}
+          {isClassLive && (
+            <button
+              className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg"
+              onClick={handleJoinClass}
+            >
+              <Rocket size={18} className="mr-2"/>
+              Join Madina Session
+            </button>
+          )}
 
-        {!isClassLive && !isClassCompleted && (
-          <button className="bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-500 hover:to-green-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
-          <Calendar size={18} className="mr-2"/>
-          Schedule Reminder
-          </button>
-        )}
+          {!isClassLive && !isClassCompleted && (
+            <button className="bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-500 hover:to-green-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+              <Calendar size={18} className="mr-2"/>
+              Schedule Reminder
+            </button>
+          )}
 
-        {isClassCompleted && classItem.video_session && (
-          <button className="bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-500 hover:to-pink-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
-          <Download size={18} className="mr-2"/>
-          AI Recording
-          </button>
-        )}
+          {isClassCompleted && classItem.video_session && (
+            <button className="bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-500 hover:to-pink-500 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+              <Download size={18} className="mr-2"/>
+              AI Recording
+            </button>
+          )}
 
-        <button className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
-        <MessageCircle size={18} className="mr-2"/>
-        Madina Details
-        </button>
+          <button className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 py-3 px-6 rounded-xl flex items-center transition-all duration-200 shadow-lg">
+            <MessageCircle size={18} className="mr-2"/>
+            Madina Details
+          </button>
         </div>
-        </div>
-        </motion.div>
-    );
+      </div>
+    </motion.div>
+  );
 };
 
 // === AI NOTIFICATIONS SYSTEM ===
@@ -774,70 +777,70 @@ const NotificationsDropdown = ({
 
   return (
     <div className="absolute right-0 mt-3 w-96 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
-    <div className="p-6 border-b border-cyan-500/20">
-    <div className="flex items-center justify-between">
-    <h3 className="font-bold text-xl bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-    AI Notifications
-    </h3>
-    <div className="flex space-x-3">
-    <button
-    onClick={onMarkAllAsRead}
-    className="text-sm text-cyan-300 hover:text-cyan-200 transition-all duration-200"
-    >
-    Mark all
-    </button>
-    <button
-    onClick={onClearAll}
-    className="text-sm text-red-300 hover:text-red-200 transition-all duration-200"
-    >
-    Clear all
-    </button>
-    </div>
-    </div>
-    </div>
-
-    <div className="max-h-96 overflow-y-auto">
-    {notifications.length === 0 ? (
-      <div className="p-8 text-center text-cyan-300">
-      <Bell size={48} className="mx-auto mb-4 opacity-50" />
-      <p className="text-lg font-semibold">No notifications</p>
-      <p className="text-cyan-400 text-sm mt-2">AI will notify you of important updates</p>
+      <div className="p-6 border-b border-cyan-500/20">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-xl bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+            AI Notifications
+          </h3>
+          <div className="flex space-x-3">
+            <button
+              onClick={onMarkAllAsRead}
+              className="text-sm text-cyan-300 hover:text-cyan-200 transition-all duration-200"
+            >
+              Mark all
+            </button>
+            <button
+              onClick={onClearAll}
+              className="text-sm text-red-300 hover:text-red-200 transition-all duration-200"
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
       </div>
-    ) : (
-      notifications.map((notification) => (
-        <div
-        key={notification.id}
-        onClick={() => onNotificationClick(notification)}
-        className={`p-5 border-b border-cyan-500/10 cursor-pointer transition-all duration-200 hover:bg-cyan-500/10 ${
-          !notification.read ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10' : ''
-        }`}
-        >
-        <div className="flex justify-between items-start">
-        <div className="flex-1">
-        <p className="text-white font-semibold text-sm">
-        {notification.title || 'AI Notification'}
-        </p>
-        <p className="text-cyan-300 text-sm mt-2">
-        {notification.message || 'Madina update available'}
-        </p>
-        <p className="text-cyan-400 text-xs mt-3 font-mono">
-        {formatNotificationTime(notification.created_at)}
-        </p>
-        </div>
-        <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDeleteNotification(notification.id);
-        }}
-        className="text-red-300 hover:text-red-200 transition-all duration-200 p-2 hover:bg-red-500/20 rounded-lg"
-        >
-        <Trash2 size={16} />
-        </button>
-        </div>
-        </div>
-      ))
-    )}
-    </div>
+
+      <div className="max-h-96 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="p-8 text-center text-cyan-300">
+            <Bell size={48} className="mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-semibold">No notifications</p>
+            <p className="text-cyan-400 text-sm mt-2">AI will notify you of important updates</p>
+          </div>
+        ) : (
+          notifications.map((notification) => (
+            <div
+              key={notification.id}
+              onClick={() => onNotificationClick(notification)}
+              className={`p-5 border-b border-cyan-500/10 cursor-pointer transition-all duration-200 hover:bg-cyan-500/10 ${
+                !notification.read ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10' : ''
+              }`}
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <p className="text-white font-semibold text-sm">
+                    {notification.title || 'AI Notification'}
+                  </p>
+                  <p className="text-cyan-300 text-sm mt-2">
+                    {notification.message || 'Madina update available'}
+                  </p>
+                  <p className="text-cyan-400 text-xs mt-3 font-mono">
+                    {formatNotificationTime(notification.created_at)}
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteNotification(notification.id);
+                  }}
+                  className="text-red-300 hover:text-red-200 transition-all duration-200 p-2 hover:bg-red-500/20 rounded-lg"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 };
@@ -857,6 +860,7 @@ export default function Dashboard() {
     { label: "Madina Score", value: "0%", icon: BarChart3, change: "+0%", color: "from-yellow-500 to-orange-500" },
   ]);
   const [studentName, setStudentName] = useState("Madina Learner");
+  const [studentId, setStudentId] = useState(null); // NEW: Add student ID state
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState("classes");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -881,6 +885,7 @@ export default function Dashboard() {
       const dashboardData = await studentApi.getDashboardData();
 
       setStudentName(dashboardData.student.name);
+      setStudentId(dashboardData.student.id); // Set student ID from API response
       setClasses(sortClasses(dashboardData.classes));
       setAssignments(dashboardData.assignments);
       setNotifications(dashboardData.notifications);
@@ -946,7 +951,16 @@ export default function Dashboard() {
       return;
     }
 
-    setSelectedClassForCall(classItem);
+    if (!studentId) {
+      toast.error('Student ID not available');
+      return;
+    }
+
+    setSelectedClassForCall({
+      classId: classItem.id,
+      meetingId: classItem.video_session.meeting_id,
+      studentId: studentId
+    });
     setShowVideoCall(true);
     toast.success('Initiating Madina connection...');
   };
@@ -965,16 +979,6 @@ export default function Dashboard() {
   const handleLogout = async () => {
     try {
       console.log('🎓 Student logout initiated...');
-
-      // Emergency video call cleanup
-      if (showVideoCall) {
-        try {
-          // Force leave any active call
-          // Note: agoraClient would need to be accessible here or passed as prop
-        } catch (e) {
-          console.warn('Video cleanup warning:', e);
-        }
-      }
 
       // Clear all application data
       localStorage.clear();
@@ -1008,465 +1012,466 @@ export default function Dashboard() {
       if (!mobile) setIsSidebarOpen(false);
     };
 
-      handleResize();
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-green-900 to-violet-900 flex items-center justify-center">
-      <div className="text-center">
-      <div className="relative">
-      <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
-      <Sparkles className="absolute inset-0 text-green-400 animate-pulse" size={64} />
-      </div>
-      <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Madina Dashboard</p>
-      <p className="text-green-300 mt-2">Optimizing your learning matrix</p>
-      </div>
+        <div className="text-center">
+          <div className="relative">
+            <Loader2 className="animate-spin mx-auto text-cyan-400" size={64} />
+            <Sparkles className="absolute inset-0 text-green-400 animate-pulse" size={64} />
+          </div>
+          <p className="text-cyan-200 mt-6 text-xl font-bold">Initializing Madina Dashboard</p>
+          <p className="text-green-300 mt-2">Optimizing your learning matrix</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-green-900 to-violet-900 flex">
-    {/* Madina Video Call */}
-    {showVideoCall && selectedClassForCall && (
-      <StudentVideoCall
-      classItem={selectedClassForCall}
-      isOpen={showVideoCall}
-      onClose={() => {
-        setShowVideoCall(false);
-        setSelectedClassForCall(null);
-      }}
-      />
-    )}
+      {/* Madina Video Call */}
+      {showVideoCall && selectedClassForCall && (
+        <StudentVideoCall
+          classId={selectedClassForCall.classId}
+          studentId={selectedClassForCall.studentId}
+          meetingId={selectedClassForCall.meetingId}
+          onLeaveCall={() => {
+            setShowVideoCall(false);
+            setSelectedClassForCall(null);
+          }}
+        />
+      )}
 
-    {/* Neural Sidebar */}
-    <div className={`
-      fixed inset-y-0 left-0 z-40 w-80 bg-gradient-to-b from-gray-900/95 to-green-900/95 backdrop-blur-xl transform transition-transform duration-300 ease-in-out border-r border-cyan-500/20
-      ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      md:translate-x-0 md:relative
-      `}>
-      <div className="flex flex-col h-full">
-      {/* Madina Header */}
-      <div className="p-8 border-b border-cyan-500/20">
-      <div className="flex items-center space-x-3 mb-4">
-      <Gem className="text-cyan-400" size={32} />
-      <div>
-      <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-      Madina Quran Classes
-      </h1>
-      </div>
-      </div>
-      </div>
+      {/* Neural Sidebar */}
+      <div className={`
+        fixed inset-y-0 left-0 z-40 w-80 bg-gradient-to-b from-gray-900/95 to-green-900/95 backdrop-blur-xl transform transition-transform duration-300 ease-in-out border-r border-cyan-500/20
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0 md:relative
+        `}>
+        <div className="flex flex-col h-full">
+          {/* Madina Header */}
+          <div className="p-8 border-b border-cyan-500/20">
+            <div className="flex items-center space-x-3 mb-4">
+              <Gem className="text-cyan-400" size={32} />
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  Madina Quran Classes
+                </h1>
+              </div>
+            </div>
+          </div>
 
-      {/* Neural Navigation */}
-      <nav className="flex-1 p-6 space-y-2">
-      {[
-        { id: "classes", label: "Madina Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
-        { id: "assignments", label: "Assignments", icon: FileText, color: "from-green-500 to-emerald-500" },
-        { id: "exams", label: "Exams", icon: ClipboardList, color: "from-green-500 to-pink-500" },
-        { id: "payments", label: "Madina Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
-        { id: "progress", label: "Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
-      ].map((item) => (
-        <button
-        key={item.id}
-        onClick={() => {
-          setActiveSection(item.id);
-          if (isMobile) setIsSidebarOpen(false);
-        }}
-        className={`w-full flex items-center px-6 py-4 rounded-2xl transition-all duration-200 group ${
-          activeSection === item.id
-          ? "bg-gradient-to-r shadow-lg shadow-cyan-500/25"
-          : "hover:bg-cyan-500/10 text-cyan-200"
-        } ${activeSection === item.id ? item.color : ''}`}
-        >
-        <item.icon className="mr-4" size={24} />
-        <span className={`font-semibold ${
-          activeSection === item.id ? 'text-white' : 'group-hover:text-white'
-        }`}>
-        {item.label}
-        </span>
-        </button>
-      ))}
-      </nav>
+          {/* Neural Navigation */}
+          <nav className="flex-1 p-6 space-y-2">
+            {[
+              { id: "classes", label: "Madina Sessions", icon: Video, color: "from-cyan-500 to-blue-500" },
+              { id: "assignments", label: "Assignments", icon: FileText, color: "from-green-500 to-emerald-500" },
+              { id: "exams", label: "Exams", icon: ClipboardList, color: "from-green-500 to-pink-500" },
+              { id: "payments", label: "Madina Transactions", icon: CreditCard, color: "from-yellow-500 to-orange-500" },
+              { id: "progress", label: "Analytics", icon: TrendingUp, color: "from-red-500 to-pink-500" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveSection(item.id);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center px-6 py-4 rounded-2xl transition-all duration-200 group ${
+                  activeSection === item.id
+                    ? "bg-gradient-to-r shadow-lg shadow-cyan-500/25"
+                    : "hover:bg-cyan-500/10 text-cyan-200"
+                } ${activeSection === item.id ? item.color : ''}`}
+              >
+                <item.icon className="mr-4" size={24} />
+                <span className={`font-semibold ${
+                  activeSection === item.id ? 'text-white' : 'group-hover:text-white'
+                }`}>
+                  {item.label}
+                </span>
+              </button>
+            ))}
+          </nav>
 
-      {/* Madina Profile */}
-      <div className="p-6 border-t border-cyan-500/20">
-      <div className="flex items-center space-x-4 p-4 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
-      <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
-      <User size={24} className="text-white" />
-      </div>
-      <div className="flex-1 min-w-0">
-      <p className="text-white font-bold text-sm truncate">{studentName}</p>
-      <p className="text-cyan-300 text-xs truncate">Madina Learner</p>
-      </div>
-      </div>
-      </div>
-      </div>
+          {/* Madina Profile */}
+          <div className="p-6 border-t border-cyan-500/20">
+            <div className="flex items-center space-x-4 p-4 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+              <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <User size={24} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-bold text-sm truncate">{studentName}</p>
+                <p className="text-cyan-300 text-xs truncate">Madina Learner</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Main Madina Interface */}
       <div className="flex-1 flex flex-col min-h-screen md:ml-0">
-      {/* Neural Header */}
-      <header className="bg-gradient-to-r from-gray-900/50 to-green-900/50 backdrop-blur-xl border-b border-cyan-500/20 sticky top-0 z-30">
-      <div className="px-8 py-6">
-      <div className="flex items-center justify-between">
-      <div className="flex items-center space-x-6">
-      <button
-      onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-      className="md:hidden p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
-      >
-      {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-      </button>
-      <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent capitalize">
-      {activeSection === 'classes' && 'Madina Sessions'}
-      {activeSection === 'assignments' && 'AI Missions'}
-      {activeSection === 'exams' && 'Neural Assessments'}
-      {activeSection === 'payments' && 'Madina Transactions'}
-      {activeSection === 'progress' && 'AI Analytics'}
-      </h2>
-      </div>
-
-      <div className="flex items-center space-x-4">
-      {/* AI Notifications */}
-      <div className="relative">
-      <button
-      onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-      className="relative p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
-      >
-      <Bell size={20} />
-      {notifications.filter(n => !n.read).length > 0 && (
-        <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-xs rounded-full flex items-center justify-center shadow-lg">
-        {notifications.filter(n => !n.read).length}
-        </span>
-      )}
-      </button>
-      <NotificationsDropdown
-      isOpen={isNotificationsOpen}
-      onClose={() => setIsNotificationsOpen(false)}
-      notifications={notifications}
-      onNotificationClick={() => {}}
-      onMarkAllAsRead={() => {}}
-      onClearAll={() => {}}
-      onDeleteNotification={() => {}}
-      />
-      </div>
-
-      {/* Madina User Menu */}
-      <div className="relative">
-      <button
-      onClick={() => setUserMenuOpen(!userMenuOpen)}
-      className="flex items-center space-x-3 p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
-      >
-      <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
-      <User size={20} className="text-white" />
-      </div>
-      <ChevronDown size={16} className="text-cyan-300" />
-      </button>
-
-      {userMenuOpen && (
-        <div className="absolute right-0 mt-3 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
-        <div className="p-2">
-        <button className="w-full flex items-center px-4 py-3 text-sm text-cyan-200 hover:bg-cyan-500/10 rounded-xl transition-all duration-200">
-        <Settings className="mr-3" size={18} />
-        Madina Settings
-        </button>
-        <button
-        onClick={handleLogout}
-        className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-        >
-        <LogOut size={16} className="mr-2" />
-        Madina Logout
-        </button>
-        </div>
-        </div>
-      )}
-      </div>
-      </div>
-      </div>
-      </div>
-      </header>
-
-      {/* Madina Main Content */}
-      <main className="flex-1 p-8 overflow-auto">
-      {/* AI Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-      {stats.map((stat, index) => (
-        <motion.div
-        key={stat.label}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: index * 0.1 }}
-        className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 hover:scale-105 transition-all duration-300 hover:shadow-2xl"
-        >
-        <div className="flex items-center justify-between">
-        <div>
-        <p className="text-cyan-300 text-sm font-semibold mb-2">{stat.label}</p>
-        <p className="text-white text-2xl font-bold mb-1">{stat.value}</p>
-        <p className="text-cyan-400 text-xs">{stat.change} this week</p>
-        </div>
-        <div className={`p-4 rounded-2xl bg-gradient-to-r ${stat.color} shadow-lg`}>
-        <stat.icon className="text-white" size={24} />
-        </div>
-        </div>
-        </motion.div>
-      ))}
-      </div>
-
-      {/* Madina Progress Matrix */}
-      <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.4 }}
-      className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-8 mb-8"
-      >
-      <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
-      <TrendingUp className="mr-3" size={28} />
-      <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-      Madina Progress Matrix
-      </span>
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-      {[
-        { label: "Completion", value: `${progressStats.completionRate}%`, icon: Target },
-        { label: "Madina Streak", value: `${progressStats.streak} days`, icon: Zap },
-        { label: "Neural Level", value: `Level ${progressStats.level}`, icon: Star },
-        { label: "Experience", value: `${progressStats.points} XP`, icon: Gem },
-      ].map((item, index) => (
-        <div key={index} className="text-center p-6 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-2xl border border-cyan-500/20">
-        <item.icon className="mx-auto text-cyan-400 mb-3" size={32} />
-        <div className="text-2xl font-bold text-white mb-2">{item.value}</div>
-        <div className="text-cyan-300 text-sm">{item.label}</div>
-        </div>
-      ))}
-      </div>
-      </motion.div>
-
-      {/* Madina Content Sections */}
-      <AnimatePresence mode="wait">
-      {activeSection === 'classes' && (
-        <motion.section
-        key="classes"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        className="space-y-8"
-        >
-        {/* Madina Sessions Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-        <div className="flex items-center space-x-4">
-        <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-        Madina Sessions
-        </h3>
-        {(() => {
-          const liveClasses = classes.filter(classItem =>
-          getTimeUntilClass(classItem).status === 'live'
-          );
-          if (liveClasses.length > 0) {
-            return (
-              <div className="flex items-center space-x-3 bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl shadow-lg animate-pulse">
-              <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
-              <span className="text-white font-bold text-sm">
-              {liveClasses.length} LIVE SESSION{liveClasses.length > 1 ? 'S' : ''}
-              </span>
+        {/* Neural Header */}
+        <header className="bg-gradient-to-r from-gray-900/50 to-green-900/50 backdrop-blur-xl border-b border-cyan-500/20 sticky top-0 z-30">
+          <div className="px-8 py-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-6">
+                <button
+                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  className="md:hidden p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
+                >
+                  {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+                </button>
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent capitalize">
+                  {activeSection === 'classes' && 'Madina Sessions'}
+                  {activeSection === 'assignments' && 'AI Missions'}
+                  {activeSection === 'exams' && 'Neural Assessments'}
+                  {activeSection === 'payments' && 'Madina Transactions'}
+                  {activeSection === 'progress' && 'AI Analytics'}
+                </h2>
               </div>
-            );
-          }
-          return null;
-        })()}
-        </div>
 
-        <button
-        onClick={fetchStudentData}
-        className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
-        >
-        <RefreshCw className="mr-3" size={20} />
-        Madina Refresh
-        </button>
-        </div>
-
-        {/* Madina Sessions Content */}
-        {classes.length === 0 ? (
-          <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
-          <Video className="mx-auto text-cyan-400 mb-6" size={80} />
-          <h4 className="text-white text-2xl font-bold mb-4">No Madina Sessions</h4>
-          <p className="text-cyan-300 text-lg">Your AI-optimized learning sessions will appear here</p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-          {/* Live Sessions */}
-          {(() => {
-            const liveClasses = classes.filter(classItem =>
-            getTimeUntilClass(classItem).status === 'live'
-            );
-            if (liveClasses.length > 0) {
-              return (
-                <div className="space-y-4">
-                <div className="flex items-center space-x-4">
-                <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
-                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl">
-                🔴 Madina LIVE ({liveClasses.length})
-                </h4>
-                </div>
-                <div className="grid gap-6">
-                {liveClasses.map((classItem) => (
-                  <ClassItem
-                  key={classItem.id}
-                  classItem={classItem}
-                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
-                    weekday: 'short', month: 'short', day: 'numeric'
-                  })}
-                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
-                    hour: 'numeric', minute: '2-digit', hour12: true
-                  })}
-                  getTimeUntilClass={getTimeUntilClass}
-                  onJoinClass={handleJoinClass}
+              <div className="flex items-center space-x-4">
+                {/* AI Notifications */}
+                <div className="relative">
+                  <button
+                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                    className="relative p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
+                  >
+                    <Bell size={20} />
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-xs rounded-full flex items-center justify-center shadow-lg">
+                        {notifications.filter(n => !n.read).length}
+                      </span>
+                    )}
+                  </button>
+                  <NotificationsDropdown
+                    isOpen={isNotificationsOpen}
+                    onClose={() => setIsNotificationsOpen(false)}
+                    notifications={notifications}
+                    onNotificationClick={() => {}}
+                    onMarkAllAsRead={() => {}}
+                    onClearAll={() => {}}
+                    onDeleteNotification={() => {}}
                   />
-                ))}
                 </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
 
-          {/* Upcoming Sessions */}
-          {(() => {
-            const upcomingClasses = classes.filter(classItem => {
-              const timeInfo = getTimeUntilClass(classItem);
-              return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
-            });
-            if (upcomingClasses.length > 0) {
-              return (
-                <div className="space-y-4">
-                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-2xl">
-                ⏰ Madina SCHEDULED ({upcomingClasses.length})
-                </h4>
-                <div className="grid gap-4">
-                {upcomingClasses.map((classItem) => (
-                  <ClassItem
-                  key={classItem.id}
-                  classItem={classItem}
-                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
-                    weekday: 'short', month: 'short', day: 'numeric'
-                  })}
-                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
-                    hour: 'numeric', minute: '2-digit', hour12: true
-                  })}
-                  getTimeUntilClass={getTimeUntilClass}
-                  onJoinClass={handleJoinClass}
-                  />
-                ))}
-                </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
+                {/* Madina User Menu */}
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center space-x-3 p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200"
+                  >
+                    <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+                      <User size={20} className="text-white" />
+                    </div>
+                    <ChevronDown size={16} className="text-cyan-300" />
+                  </button>
 
-          {/* Completed Sessions */}
-          {(() => {
-            const completedClasses = classes.filter(classItem =>
-            getTimeUntilClass(classItem).status === 'completed'
-            );
-            if (completedClasses.length > 0) {
-              return (
-                <div className="space-y-4">
-                <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-2xl">
-                ✅ Madina ARCHIVE ({completedClasses.length})
-                </h4>
-                <div className="grid gap-4">
-                {completedClasses.map((classItem) => (
-                  <ClassItem
-                  key={classItem.id}
-                  classItem={classItem}
-                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
-                    weekday: 'short', month: 'short', day: 'numeric'
-                  })}
-                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
-                    hour: 'numeric', minute: '2-digit', hour12: true
-                  })}
-                  getTimeUntilClass={getTimeUntilClass}
-                  onJoinClass={handleJoinClass}
-                  />
-                ))}
+                  {userMenuOpen && (
+                    <div className="absolute right-0 mt-3 w-56 bg-gradient-to-br from-gray-800 to-gray-900 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl z-50">
+                      <div className="p-2">
+                        <button className="w-full flex items-center px-4 py-3 text-sm text-cyan-200 hover:bg-cyan-500/10 rounded-xl transition-all duration-200">
+                          <Settings className="mr-3" size={18} />
+                          Madina Settings
+                        </button>
+                        <button
+                          onClick={handleLogout}
+                          className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <LogOut size={16} className="mr-2" />
+                          Madina Logout
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
+              </div>
+            </div>
           </div>
-        )}
-        </motion.section>
-      )}
+        </header>
 
-      {activeSection === 'assignments' && (
-        <motion.section
-        key="assignments"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        className="space-y-8"
-        >
-        <div className="flex justify-between items-center">
-        <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-        AI Missions
-        </h3>
-        <div className="flex space-x-4">
-        <select className="bg-gradient-to-r from-gray-800 to-gray-700 border border-cyan-500/30 rounded-2xl px-4 py-3 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent backdrop-blur-lg">
-        <option>All Missions</option>
-        <option>Active</option>
-        <option>Completed</option>
-        <option>Graded</option>
-        </select>
-        <button
-        onClick={fetchStudentData}
-        className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
-        >
-        <RefreshCw className="mr-3" size={20} />
-        Refresh
-        </button>
-        </div>
-        </div>
-
-        {assignments.length === 0 ? (
-          <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
-          <FileText className="mx-auto text-cyan-400 mb-6" size={80} />
-          <h4 className="text-white text-2xl font-bold mb-4">No Active Assignments</h4>
-          <p className="text-cyan-300 text-lg">Your Assignments will appear here</p>
+        {/* Madina Main Content */}
+        <main className="flex-1 p-8 overflow-auto">
+          {/* AI Stats Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {stats.map((stat, index) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.1 }}
+                className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-6 hover:scale-105 transition-all duration-300 hover:shadow-2xl"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-cyan-300 text-sm font-semibold mb-2">{stat.label}</p>
+                    <p className="text-white text-2xl font-bold mb-1">{stat.value}</p>
+                    <p className="text-cyan-400 text-xs">{stat.change} this week</p>
+                  </div>
+                  <div className={`p-4 rounded-2xl bg-gradient-to-r ${stat.color} shadow-lg`}>
+                    <stat.icon className="text-white" size={24} />
+                  </div>
+                </div>
+              </motion.div>
+            ))}
           </div>
-        ) : (
-          <div className="grid gap-6">
-          {assignments.map((assignment) => (
-            <AssignmentItem
-            key={assignment.id}
-            assignment={assignment}
-            onSubmitAssignment={handleSubmitAssignment}
-            formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
-              weekday: 'short', month: 'short', day: 'numeric'
-            })}
-            />
-          ))}
-          </div>
-        )}
-        </motion.section>
-      )}
 
-      {/* Add other sections similarly with Madina styling */}
-      </AnimatePresence>
-      </main>
+          {/* Madina Progress Matrix */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.4 }}
+            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-lg border border-cyan-500/20 rounded-2xl p-8 mb-8"
+          >
+            <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
+              <TrendingUp className="mr-3" size={28} />
+              <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                Madina Progress Matrix
+              </span>
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {[
+                { label: "Completion", value: `${progressStats.completionRate}%`, icon: Target },
+                { label: "Madina Streak", value: `${progressStats.streak} days`, icon: Zap },
+                { label: "Neural Level", value: `Level ${progressStats.level}`, icon: Star },
+                { label: "Experience", value: `${progressStats.points} XP`, icon: Gem },
+              ].map((item, index) => (
+                <div key={index} className="text-center p-6 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-2xl border border-cyan-500/20">
+                  <item.icon className="mx-auto text-cyan-400 mb-3" size={32} />
+                  <div className="text-2xl font-bold text-white mb-2">{item.value}</div>
+                  <div className="text-cyan-300 text-sm">{item.label}</div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Madina Content Sections */}
+          <AnimatePresence mode="wait">
+            {activeSection === 'classes' && (
+              <motion.section
+                key="classes"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-8"
+              >
+                {/* Madina Sessions Header */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+                  <div className="flex items-center space-x-4">
+                    <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                      Madina Sessions
+                    </h3>
+                    {(() => {
+                      const liveClasses = classes.filter(classItem =>
+                        getTimeUntilClass(classItem).status === 'live'
+                      );
+                      if (liveClasses.length > 0) {
+                        return (
+                          <div className="flex items-center space-x-3 bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl shadow-lg animate-pulse">
+                            <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
+                            <span className="text-white font-bold text-sm">
+                              {liveClasses.length} LIVE SESSION{liveClasses.length > 1 ? 'S' : ''}
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+
+                  <button
+                    onClick={fetchStudentData}
+                    className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
+                  >
+                    <RefreshCw className="mr-3" size={20} />
+                    Madina Refresh
+                  </button>
+                </div>
+
+                {/* Madina Sessions Content */}
+                {classes.length === 0 ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+                    <Video className="mx-auto text-cyan-400 mb-6" size={80} />
+                    <h4 className="text-white text-2xl font-bold mb-4">No Madina Sessions</h4>
+                    <p className="text-cyan-300 text-lg">Your AI-optimized learning sessions will appear here</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Live Sessions */}
+                    {(() => {
+                      const liveClasses = classes.filter(classItem =>
+                        getTimeUntilClass(classItem).status === 'live'
+                      );
+                      if (liveClasses.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
+                              <h4 className="text-xl font-bold text-white bg-gradient-to-r from-red-600 to-pink-600 px-6 py-3 rounded-2xl">
+                                🔴 Madina LIVE ({liveClasses.length})
+                              </h4>
+                            </div>
+                            <div className="grid gap-6">
+                              {liveClasses.map((classItem) => (
+                                <ClassItem
+                                  key={classItem.id}
+                                  classItem={classItem}
+                                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                                    weekday: 'short', month: 'short', day: 'numeric'
+                                  })}
+                                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                                    hour: 'numeric', minute: '2-digit', hour12: true
+                                  })}
+                                  getTimeUntilClass={getTimeUntilClass}
+                                  onJoinClass={handleJoinClass}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
+                    {/* Upcoming Sessions */}
+                    {(() => {
+                      const upcomingClasses = classes.filter(classItem => {
+                        const timeInfo = getTimeUntilClass(classItem);
+                        return timeInfo.status === 'upcoming' || timeInfo.status === 'starting';
+                      });
+                      if (upcomingClasses.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            <h4 className="text-xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-2xl">
+                              ⏰ Madina SCHEDULED ({upcomingClasses.length})
+                            </h4>
+                            <div className="grid gap-4">
+                              {upcomingClasses.map((classItem) => (
+                                <ClassItem
+                                  key={classItem.id}
+                                  classItem={classItem}
+                                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                                    weekday: 'short', month: 'short', day: 'numeric'
+                                  })}
+                                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                                    hour: 'numeric', minute: '2-digit', hour12: true
+                                  })}
+                                  getTimeUntilClass={getTimeUntilClass}
+                                  onJoinClass={handleJoinClass}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
+                    {/* Completed Sessions */}
+                    {(() => {
+                      const completedClasses = classes.filter(classItem =>
+                        getTimeUntilClass(classItem).status === 'completed'
+                      );
+                      if (completedClasses.length > 0) {
+                        return (
+                          <div className="space-y-4">
+                            <h4 className="text-xl font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-2xl">
+                              ✅ Madina ARCHIVE ({completedClasses.length})
+                            </h4>
+                            <div className="grid gap-4">
+                              {completedClasses.map((classItem) => (
+                                <ClassItem
+                                  key={classItem.id}
+                                  classItem={classItem}
+                                  formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                                    weekday: 'short', month: 'short', day: 'numeric'
+                                  })}
+                                  formatTime={(date) => new Date(date).toLocaleTimeString('en-US', {
+                                    hour: 'numeric', minute: '2-digit', hour12: true
+                                  })}
+                                  getTimeUntilClass={getTimeUntilClass}
+                                  onJoinClass={handleJoinClass}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
+              </motion.section>
+            )}
+
+            {activeSection === 'assignments' && (
+              <motion.section
+                key="assignments"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-8"
+              >
+                <div className="flex justify-between items-center">
+                  <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                    AI Missions
+                  </h3>
+                  <div className="flex space-x-4">
+                    <select className="bg-gradient-to-r from-gray-800 to-gray-700 border border-cyan-500/30 rounded-2xl px-4 py-3 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent backdrop-blur-lg">
+                      <option>All Missions</option>
+                      <option>Active</option>
+                      <option>Completed</option>
+                      <option>Graded</option>
+                    </select>
+                    <button
+                      onClick={fetchStudentData}
+                      className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 py-3 px-6 rounded-2xl flex items-center transition-all duration-200 shadow-lg"
+                    >
+                      <RefreshCw className="mr-3" size={20} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {assignments.length === 0 ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-gray-800/30 to-gray-900/30 rounded-2xl border border-cyan-500/20 backdrop-blur-lg">
+                    <FileText className="mx-auto text-cyan-400 mb-6" size={80} />
+                    <h4 className="text-white text-2xl font-bold mb-4">No Active Assignments</h4>
+                    <p className="text-cyan-300 text-lg">Your Assignments will appear here</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-6">
+                    {assignments.map((assignment) => (
+                      <AssignmentItem
+                        key={assignment.id}
+                        assignment={assignment}
+                        onSubmitAssignment={handleSubmitAssignment}
+                        formatDate={(date) => new Date(date).toLocaleDateString('en-US', {
+                          weekday: 'short', month: 'short', day: 'numeric'
+                        })}
+                      />
+                    ))}
+                  </div>
+                )}
+              </motion.section>
+            )}
+
+            {/* Add other sections similarly with Madina styling */}
+          </AnimatePresence>
+        </main>
       </div>
 
       {/* Mobile Overlay */}
       {isSidebarOpen && isMobile && (
         <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
-        onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
         />
       )}
-      </div>
+    </div>
   );
 }
