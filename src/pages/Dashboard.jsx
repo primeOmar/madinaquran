@@ -589,6 +589,48 @@ const joinChannel = useCallback(async () => {
       onClose();
     }, [performCompleteCleanup, onClose, debugLog]);
 
+    // Helper to update participant status in database
+const updateParticipantStatus = async (status) => {
+  try {
+    if (!classItem?.video_session?.meeting_id) return;
+    
+    await videoApi.updateParticipantStatus(
+      classItem.video_session.meeting_id,
+      status,
+      {
+        audioEnabled: !isAudioMuted,
+        videoEnabled: !isVideoOff,
+        joinedAt: new Date().toISOString()
+      }
+    );
+    debugLog('📊 Participant status updated:', status);
+  } catch (error) {
+    debugError('Status update failed:', error);
+  }
+};
+
+// Listen for teacher presence
+const checkTeacherPresence = useCallback(async () => {
+  if (!isConnected || !classItem?.video_session?.meeting_id) return;
+  
+  try {
+    const participants = await videoApi.getSessionParticipants(
+      classItem.video_session.meeting_id
+    );
+    
+    const teacherPresent = participants.some(p => 
+      p.role === 'teacher' && p.status === 'joined'
+    );
+    
+    if (!teacherPresent) {
+      debugLog('⚠️ Teacher left the session');
+      // You can add UI feedback here
+    }
+  } catch (error) {
+    debugError('Presence check failed:', error);
+  }
+}, [isConnected, classItem, debugLog, debugError]);
+
     // EFFECTS
     useEffect(() => {
       isMountedRef.current = true;
