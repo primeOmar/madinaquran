@@ -2,7 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import studentvideoApi from '../lib/agora/studentvideoApi';
 import './TeacherVideoCall.css'; 
-
+import { 
+  Video, 
+  Clock, 
+  Users, 
+  MessageCircle, 
+  PhoneOff, 
+  Mic, 
+  MicOff, 
+  Camera, 
+  CameraOff, 
+  Hand, 
+  MoreVertical, 
+  X 
+} from 'lucide-react';
 const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const [sessionState, setSessionState] = useState({
     isInitialized: false,
