@@ -69,10 +69,7 @@ const initializeSession = async () => {
       timestamp: new Date().toISOString()
     });
 
-    // ============================================
-    // STEP 1: VALIDATE SESSION EXISTS AND IS ACTIVE
-    // ============================================
-    console.log('🔍 Checking session status...');
+    // STEP 1: Validate session exists and is active
     const sessionInfo = await studentvideoApi.getSessionInfo(meetingId);
     
     if (!sessionInfo.success) {
@@ -85,25 +82,16 @@ const initializeSession = async () => {
       return;
     }
     
-    if (!sessionInfo.exists) {
-      console.error('❌ Session does not exist:', { meetingId });
-      setSessionState({
-        isInitialized: false,
-        isJoined: false,
-        error: 'Session not found. Please wait for teacher to start the class.'
-      });
-      return;
-    }
-    
-    if (!sessionInfo.isActive) {
-      console.error('❌ Session is not active:', { 
-        status: sessionInfo.session?.status,
-        endedAt: sessionInfo.session?.ended_at 
+    if (!sessionInfo.exists || !sessionInfo.isActive) {
+      console.error('❌ Session issue:', { 
+        exists: sessionInfo.exists,
+        isActive: sessionInfo.isActive,
+        status: sessionInfo.session?.status 
       });
       setSessionState({
         isInitialized: false,
         isJoined: false,
-        error: 'Session is not active or has ended. Please check with your teacher.'
+        error: 'Session not found or not active. Please wait for teacher to start the class.'
       });
       return;
     }
@@ -112,31 +100,32 @@ const initializeSession = async () => {
       meetingId: sessionInfo.session?.meeting_id,
       status: sessionInfo.session?.status,
       startedAt: sessionInfo.session?.started_at,
-      classTitle: sessionInfo.session?.class_title
+      classTitle: sessionInfo.session?.class_title,
+      channel: sessionInfo.session?.channel_name
     });
 
-   
-    console.log('⚠️ BYPASSING enrollment validation for development/testing');
-    // ============================================
-    // STEP 3: CREATE AGORA CLIENT
-    // ============================================
+    // STEP 2: Create Agora client
     console.log('🛠️ Creating Agora client...');
     clientRef.current = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
     });
 
-    // ============================================
-    // STEP 4: JOIN VIDEO SESSION VIA API WITH BYPASS
-    // ============================================
-    console.log('🚀 Joining video session via API (with bypass)...');
+    // STEP 3: Join video session via API
+    console.log('🚀 Joining video session via API...');
     
-    // IMPORTANT: Use the joinVideoSession with bypassChecks = true
-    const sessionData = await studentvideoApi.joinVideoSession(
-      meetingId, 
-      studentId,
-      true 
-    );
+    // CALL WITHOUT BYPASS (third parameter is user_type, not bypass flag)
+    const sessionData = await studentvideoApi.joinVideoSession(meetingId, studentId, 'student');
+
+    // Debug the response
+    console.log('📥 API Response:', {
+      success: sessionData?.success,
+      hasToken: !!sessionData?.token,
+      hasChannel: !!sessionData?.channel,
+      hasAppId: !!sessionData?.appId,
+      error: sessionData?.error,
+      data: sessionData
+    });
 
     if (!sessionData.success) {
       console.error('❌ Failed to join session via API:', sessionData.error);
@@ -170,13 +159,10 @@ const initializeSession = async () => {
       appId: sessionData.appId,
       uid: sessionData.uid,
       teacherId: sessionData.teacher_id,
-      sessionId: sessionData.session?.id,
-      isDevelopmentMode: sessionData.isDevelopmentMode || false
+      sessionId: sessionData.session?.id
     });
 
-    // ============================================
-    // STEP 5: UPDATE SESSION STATE
-    // ============================================
+    // STEP 4: Update session state
     setSessionState({
       isInitialized: true,
       isJoined: false,
@@ -184,9 +170,7 @@ const initializeSession = async () => {
       error: null
     });
 
-    // ============================================
-    // STEP 6: JOIN AGORA CHANNEL
-    // ============================================
+    // STEP 5: Join Agora channel
     console.log('🔗 Joining Agora channel...');
     await joinChannel(sessionData);
 
@@ -199,17 +183,12 @@ const initializeSession = async () => {
       timestamp: new Date().toISOString()
     });
     
-    // Provide user-friendly error messages
     let errorMessage = 'Failed to join video session. ';
     
-    if (error.message.includes('network')) {
-      errorMessage += 'Network error. Please check your internet connection.';
-    } else if (error.message.includes('permission')) {
-      errorMessage += 'Permission denied. Please check your camera/microphone permissions.';
-    } else if (error.message.includes('token')) {
-      errorMessage += 'Authentication error. Please refresh the page.';
-    } else if (error.message.includes('channel')) {
-      errorMessage += 'Session channel error. Please contact support.';
+    if (error.message.includes('permission') || error.message.includes('403')) {
+      errorMessage = 'Permission denied. Please contact support.';
+    } else if (error.message.includes('network')) {
+      errorMessage = 'Network error. Please check your internet connection.';
     } else {
       errorMessage += error.message || 'Please try again.';
     }
