@@ -62,7 +62,7 @@ import {
 import { supabase } from "../lib/supabaseClient";
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import StudentVideoCall from '../components/StudentVideoCall'; // Adjust path as needed
+import StudentVideoCall from './StudentVideoCall'; 
 import studentApi from '../lib/studentApi';
 
 // === AI-POWERED UTILITY FUNCTIONS ===
