@@ -1,6 +1,6 @@
+// src/pages/TeacherVideoCall.js - UPDATED WITH SAFE LOADING
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoApi from '../lib/agora/videoApi';
 import './TeacherVideoCall.css';
 import { 
   Mic, MicOff, 
@@ -12,8 +12,317 @@ import {
   Send, MessageSquare 
 } from 'lucide-react';
 
+// ============================================
+// VIDEO API LOADER - SAME AS STUDENT
+// ============================================
+
+const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
+
+// Create a direct video API instance (fallback if import fails)
+const createDirectVideoApi = () => {
+  console.log('🔄 Creating direct video API instance');
+  
+  return {
+    // TEACHER-SPECIFIC METHODS
+    startVideoSession: async (classId, userId) => {
+      console.log('📡 TEACHER API: Starting video session for', { classId, userId });
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            class_id: classId,
+            user_id: userId,
+            role: 'teacher'
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error('❌ TEACHER API Error Response:', {
+            status: response.status,
+            data
+          });
+          throw new Error(data.error || `Failed to start video session: ${response.status}`);
+        }
+
+        if (!data.meeting_id || !data.channel || !data.token || !data.app_id) {
+          throw new Error('Invalid response from server: missing required fields');
+        }
+
+        console.log('✅ TEACHER API: Video session started successfully');
+        
+        return {
+          success: true,
+          meetingId: data.meeting_id,
+          channel: data.channel,
+          token: data.token,
+          appId: data.app_id,
+          uid: data.uid || userId,
+          session: data.session,
+          class_title: data.class_title,
+          role: 'teacher'
+        };
+      } catch (error) {
+        console.error('❌ TEACHER API: startVideoSession failed:', error);
+        return {
+          success: false,
+          error: error.message || 'Failed to start video session'
+        };
+      }
+    },
+
+    // SHARED METHODS (same as student)
+    getSessionInfo: async (meetingId) => {
+      console.log('📡 API: getSessionInfo for', meetingId);
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/session-info/${meetingId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        const data = await response.json();
+        
+        if (!response.ok) {
+          return {
+            success: false,
+            error: data.error || 'Session not found',
+            exists: false,
+            isActive: false
+          };
+        }
+
+        const sessionExists = !!data.session;
+        const isActive = data.session?.status === 'active';
+        
+        return {
+          success: true,
+          session: data.session,
+          exists: sessionExists,
+          isActive,
+          channel: data.session?.channel_name,
+          appId: data.session?.app_id
+        };
+      } catch (error) {
+        console.error('❌ API: getSessionInfo failed:', error);
+        return {
+          success: false,
+          error: error.message,
+          exists: false,
+          isActive: false
+        };
+      }
+    },
+
+    getSessionParticipants: async (meetingId) => {
+      console.log('👥 API: Getting session participants for', meetingId);
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/session-participants`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ meeting_id: meetingId })
+        });
+        
+        const data = await response.json();
+        return data.participants || [];
+      } catch (error) {
+        console.error('❌ API: getSessionParticipants failed:', error);
+        return [];
+      }
+    },
+
+    updateParticipantStatus: async (sessionId, userId, updates) => {
+      console.log('📡 API: Updating participant status', { sessionId, userId, updates });
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/update-participant`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            session_id: sessionId,
+            user_id: userId,
+            ...updates
+          })
+        });
+
+        const data = await response.json();
+        return { success: response.ok, data };
+      } catch (error) {
+        console.error('❌ API: updateParticipantStatus failed:', error);
+        return { success: false, error: error.message };
+      }
+    },
+
+    sendMessage: async (sessionId, userId, message, type = 'text') => {
+      console.log('💬 API: sendMessage', { sessionId, userId, message, type });
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/send-message`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            session_id: sessionId,
+            user_id: userId,
+            message_text: message,
+            message_type: type
+          })
+        });
+        const data = await response.json();
+        return data.message || {
+          id: Date.now(),
+          message_text: message,
+          message_type: type,
+          created_at: new Date().toISOString(),
+          user_id: userId
+        };
+      } catch (error) {
+        console.error('❌ API: sendMessage failed:', error);
+        return {
+          id: Date.now(),
+          message_text: message,
+          message_type: type,
+          created_at: new Date().toISOString(),
+          user_id: userId,
+          is_mock: true
+        };
+      }
+    },
+
+    startRecording: async (meetingId) => {
+      console.log('🔴 API: startRecording for', meetingId);
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/start-recording`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ 
+            session_id: meetingId, 
+            user_id: localStorage.getItem('userId') 
+          })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('❌ API: startRecording failed:', error);
+        return { success: false, error: error.message };
+      }
+    },
+
+    stopRecording: async (meetingId) => {
+      console.log('⏹️ API: stopRecording for', meetingId);
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/stop-recording`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ 
+            session_id: meetingId, 
+            user_id: localStorage.getItem('userId') 
+          })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('❌ API: stopRecording failed:', error);
+        return { success: false, error: error.message };
+      }
+    },
+
+    endVideoSession: async (meetingId, userId) => {
+      console.log('🛑 TEACHER API: Ending video session', { meetingId, userId });
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/end-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            meeting_id: meetingId,
+            user_id: userId,
+            role: 'teacher'
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `Failed to end session: ${response.status}`);
+        }
+
+        return {
+          success: true,
+          data
+        };
+      } catch (error) {
+        console.error('❌ TEACHER API: endVideoSession failed:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    },
+
+    generateToken: async (meetingId, userId) => {
+      console.log('🔄 API: generateToken', { meetingId, userId });
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ meeting_id: meetingId, user_id: userId })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('❌ API: generateToken failed:', error);
+        return { token: null, error: error.message };
+      }
+    }
+  };
+};
+
+// Try to load the module, fallback to direct API
+let videoApi = null;
+
+try {
+  // First try to import the module
+  const module = require('../lib/agora/videoApi');
+  videoApi = module.default;
+  console.log('✅ TEACHER: Loaded videoApi from module');
+} catch (importError) {
+  console.log('⚠️ TEACHER: Module import failed, using direct API:', importError.message);
+  videoApi = createDirectVideoApi();
+}
+
+// If still undefined, create a fallback
+if (!videoApi) {
+  console.log('⚠️ TEACHER: videoApi still undefined, creating fallback');
+  videoApi = createDirectVideoApi();
+}
+
+// ============================================
+// MAIN TEACHER VIDEO CALL COMPONENT
+// ============================================
+
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
-  // State Management
+  // State Management (UNCHANGED)
   const [sessionState, setSessionState] = useState({
     isInitialized: false,
     isJoined: false,
@@ -48,18 +357,22 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const [initialInteraction, setInitialInteraction] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Refs - ADDED localVideoRef
+  // Refs
   const clientRef = useRef(null);
   const screenClientRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const participantUpdateIntervalRef = useRef(null);
   const chatContainerRef = useRef(null);
-  const localVideoRef = useRef(null); // ADDED: Direct reference to video element
+  const localVideoRef = useRef(null);
   const remoteUsersRef = useRef({});
   const controlsTimeoutRef = useRef(null);
   const connectionTimeoutRef = useRef(null);
+  const videoApiRef = useRef(videoApi); // Store videoApi in ref
 
-  // Auto-hide controls
+  // ============================================
+  // USE EFFECTS (UNCHANGED)
+  // ============================================
+
   useEffect(() => {
     const handleMouseMove = () => {
       setShowControls(true);
@@ -83,7 +396,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     };
   }, []);
 
-  // Handle initial interaction for autoplay policies
   useEffect(() => {
     const onFirstInteraction = () => {
       console.log('[Agora] Initial user interaction detected');
@@ -100,7 +412,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   }, []);
 
   // ============================================
-  // Initialization - OPTIMIZED VERSION
+  // INITIALIZATION (UPDATED TO USE videoApiRef.current)
   // ============================================
 
   useEffect(() => {
@@ -116,18 +428,15 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     
     try {
       setIsConnecting(true);
-      console.log('🚀 Initializing video session...');
-      
-      // DISABLE AGORA LOG UPLOAD - This is causing timeout delays
-      // AgoraRTC.enableLogUpload(); // REMOVED
-      // AgoraRTC.setLogLevel(1); // REMOVED - Use default level
+      console.log('🚀 TEACHER: Initializing video session...');
       
       clientRef.current = AgoraRTC.createClient({ 
         mode: 'rtc', 
         codec: 'vp8' 
       });
 
-      const sessionData = await videoApi.startVideoSession(classId, teacherId);
+      // USE videoApiRef.current
+      const sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
       
       if (!sessionData.success) {
         throw new Error(sessionData.error || 'Failed to start session');
@@ -140,18 +449,17 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         error: null
       });
 
-      // Set timeout for connection
       connectionTimeoutRef.current = setTimeout(() => {
         if (!sessionState.isJoined) {
           console.warn('[Agora] Connection taking too long, attempting recovery...');
           handleConnectionTimeout();
         }
-      }, 10000); // 10 second timeout
+      }, 10000);
 
       await joinChannel(sessionData);
 
     } catch (error) {
-      console.error('❌ Initialization error:', error);
+      console.error('❌ TEACHER Initialization error:', error);
       setSessionState(prev => ({
         ...prev,
         error: error.message || 'Failed to initialize video session'
@@ -183,12 +491,10 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         throw new Error('Missing required session credentials');
       }
       
-      console.log('[Agora] Joining channel...');
+      console.log('[Agora] TEACHER: Joining channel...');
       
-      // Setup event listeners before joining
       setupAgoraEventListeners();
       
-      // Join with timeout
       const joinPromise = clientRef.current.join(appId, channel, token, uid);
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Join timeout after 8 seconds')), 8000)
@@ -196,9 +502,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       
       await Promise.race([joinPromise, timeoutPromise]);
       
-      console.log('✅ Successfully joined channel');
+      console.log('✅ TEACHER: Successfully joined channel');
 
-      // Create and publish tracks in parallel for faster initialization
       await Promise.all([
         createAndPublishTracks(),
         initializeParticipants(sessionData)
@@ -212,9 +517,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       startDurationTracking();
 
     } catch (error) {
-      console.error('❌ Join channel error:', error);
+      console.error('❌ TEACHER Join channel error:', error);
       
-      // Retry once on timeout
       if (error.message.includes('timeout')) {
         console.log('[Agora] Retrying connection...');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -233,12 +537,14 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
 
-  // UPDATED: Create and publish tracks with proper video element handling
+  // ============================================
+  // TRACK FUNCTIONS (UNCHANGED)
+  // ============================================
+
   const createAndPublishTracks = async () => {
     try {
-      console.log('[Agora] Creating local tracks...');
+      console.log('[Agora] TEACHER: Creating local tracks...');
 
-      // Create audio and video tracks in parallel
       const [audioTrack, videoTrack] = await Promise.all([
         AgoraRTC.createMicrophoneAudioTrack().catch(error => {
           console.warn('[Agora] Could not create audio track:', error);
@@ -255,38 +561,33 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
       setLocalTracks({ audio: audioTrack, video: videoTrack });
 
-      // Play video immediately if we have a track and video element
       if (videoTrack && localVideoRef.current) {
         setTimeout(() => {
           playLocalVideo(videoTrack);
-        }, 100); // Small delay to ensure DOM is ready
+        }, 100);
       }
 
-      // Publish available tracks
       const tracksToPublish = [];
       if (audioTrack) tracksToPublish.push(audioTrack);
       if (videoTrack) tracksToPublish.push(videoTrack);
       
       if (tracksToPublish.length > 0) {
         await clientRef.current.publish(tracksToPublish);
-        console.log('[Agora] 📤 Published tracks');
+        console.log('[Agora] TEACHER: 📤 Published tracks');
       }
 
     } catch (error) {
-      console.error('[Agora] Error creating/publishing tracks:', error);
-      // Don't fail the entire session if tracks fail
+      console.error('[Agora] TEACHER: Error creating/publishing tracks:', error);
     }
   };
 
-  // NEW: Helper function to play local video
   const playLocalVideo = async (track) => {
     if (!track || !localVideoRef.current) return;
     
     try {
       await track.play(localVideoRef.current);
-      console.log('[Agora] ✅ Video track playing successfully');
+      console.log('[Agora] TEACHER: ✅ Video track playing successfully');
       
-      // Apply mirror effect and styling
       if (localVideoRef.current) {
         localVideoRef.current.style.transform = 'scaleX(-1)';
         localVideoRef.current.style.objectFit = 'cover';
@@ -295,15 +596,17 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         localVideoRef.current.style.borderRadius = '8px';
       }
     } catch (playError) {
-      console.error('[Agora] ❌ Video play error:', playError);
-      // Retry with user interaction
+      console.error('[Agora] TEACHER: ❌ Video play error:', playError);
       if (playError.name === 'NotAllowedError') {
-        console.log('[Agora] Waiting for user interaction...');
+        console.log('[Agora] TEACHER: Waiting for user interaction...');
       }
     }
   };
 
-  // UPDATED: Handle video toggle with proper state management
+  // ============================================
+  // USE EFFECTS FOR TRACKS (UNCHANGED)
+  // ============================================
+
   useEffect(() => {
     const track = localTracks.video;
     const videoElement = localVideoRef.current;
@@ -311,26 +614,22 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     if (!track || !videoElement) return;
 
     if (controls.videoEnabled) {
-      // Enable video track
       track.setEnabled(true).catch(e => 
         console.warn('[Agora] Video enable failed:', e)
       );
       
-      // Play if not already playing
       if (!track.isPlaying) {
         setTimeout(() => {
           playLocalVideo(track);
         }, 50);
       }
     } else {
-      // Disable video track
       track.setEnabled(false).catch(e => 
         console.warn('[Agora] Video disable failed:', e)
       );
     }
   }, [controls.videoEnabled, localTracks.video]);
 
-  // UPDATED: Handle video playback after user interaction
   useEffect(() => {
     if (initialInteraction && localTracks.video && !localTracks.video.isPlaying) {
       console.log('[Agora] User interacted, playing video...');
@@ -338,7 +637,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   }, [initialInteraction, localTracks.video]);
 
-  // Handle audio toggle
   useEffect(() => {
     const track = localTracks.audio;
     if (!track) return;
@@ -347,39 +645,328 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     );
   }, [controls.audioEnabled, localTracks.audio]);
 
-  // UPDATED: Recreate video track function
-  const recreateVideoTrack = async () => {
+  // ============================================
+  // CONTROL FUNCTIONS (UPDATED TO USE videoApiRef.current)
+  // ============================================
+
+  const toggleAudio = async () => {
+    if (localTracks.audio) {
+      try {
+        const newState = !controls.audioEnabled;
+        await localTracks.audio.setEnabled(newState);
+        setControls(prev => ({ ...prev, audioEnabled: newState }));
+        console.log(`[Agora] TEACHER: Audio ${newState ? 'enabled' : 'disabled'}`);
+      } catch (error) {
+        console.error('[Agora] TEACHER: Toggle audio error:', error);
+      }
+    }
+  };
+
+  const toggleVideo = async () => {
+    if (localTracks.video) {
+      try {
+        const newState = !controls.videoEnabled;
+        setControls(prev => ({ ...prev, videoEnabled: newState }));
+        console.log(`[Agora] TEACHER: Video ${newState ? 'enabled' : 'disabled'}`);
+      } catch (error) {
+        console.error('[Agora] TEACHER: Toggle video error:', error);
+      }
+    } else {
+      try {
+        const videoTrack = await AgoraRTC.createCameraVideoTrack();
+        await clientRef.current.publish([videoTrack]);
+        
+        if (localVideoRef.current) {
+          videoTrack.play(localVideoRef.current);
+        }
+        
+        setLocalTracks(prev => ({ ...prev, video: videoTrack }));
+        setControls(prev => ({ ...prev, videoEnabled: true }));
+        console.log('[Agora] TEACHER: Video enabled');
+      } catch (error) {
+        console.error('[Agora] TEACHER: Cannot access camera:', error);
+      }
+    }
+  };
+
+  const toggleScreenShare = async () => {
     try {
-      console.log('[Agora] Recreating camera video track...');
-      const newTrack = await AgoraRTC.createCameraVideoTrack();
-      
-      if (localTracks.video) {
-        await clientRef.current.unpublish([localTracks.video]).catch(() => {});
-        localTracks.video.stop();
-        localTracks.video.close();
+      if (!controls.screenSharing) {
+        const screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: '720p',
+          optimizationMode: 'detail'
+        });
+        
+        if (localTracks.video) {
+          await clientRef.current.unpublish([localTracks.video]);
+          localTracks.video.stop();
+          localTracks.video.close();
+        }
+        
+        await clientRef.current.publish([screenTrack]);
+        
+        setLocalTracks(prev => ({ 
+          ...prev, 
+          video: screenTrack 
+        }));
+        
+        if (localVideoRef.current) {
+          screenTrack.play(localVideoRef.current);
+        }
+        
+        setControls(prev => ({ ...prev, screenSharing: true }));
+        console.log('[Agora] TEACHER: Screen sharing started');
+        
+      } else {
+        const screenTrack = localTracks.video;
+        
+        if (screenTrack) {
+          await clientRef.current.unpublish([screenTrack]);
+          screenTrack.stop();
+          screenTrack.close();
+        }
+        
+        try {
+          const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+          await clientRef.current.publish([cameraTrack]);
+          
+          if (localVideoRef.current) {
+            cameraTrack.play(localVideoRef.current);
+          }
+          
+          setLocalTracks(prev => ({ 
+            ...prev, 
+            video: cameraTrack 
+          }));
+          
+          setControls(prev => ({ 
+            ...prev, 
+            videoEnabled: true,
+            screenSharing: false 
+          }));
+          
+          console.log('[Agora] TEACHER: Screen sharing stopped, camera restored');
+        } catch (cameraError) {
+          console.error('[Agora] TEACHER: Cannot access camera:', cameraError);
+          setControls(prev => ({ 
+            ...prev, 
+            videoEnabled: false,
+            screenSharing: false 
+          }));
+        }
       }
-      
-      setLocalTracks(prev => ({ ...prev, video: newTrack }));
-      
-      if (localVideoRef.current) {
-        await newTrack.play(localVideoRef.current);
-        await clientRef.current.publish([newTrack]);
-        console.log('[Agora] Recreated and published video track');
+    } catch (error) {
+      console.error('[Agora] TEACHER: Screen share error:', error);
+      setControls(prev => ({ ...prev, screenSharing: false }));
+    }
+  };
+
+  const toggleRecording = async () => {
+    try {
+      const newState = !controls.recording; 
+      if (newState) { 
+        // USE videoApiRef.current
+        await videoApiRef.current.startRecording(sessionState.sessionInfo.meetingId);
+        console.log('[Agora] TEACHER: Recording started');
+      } else {
+        // USE videoApiRef.current
+        await videoApiRef.current.stopRecording(sessionState.sessionInfo.meetingId);
+        console.log('[Agora] TEACHER: Recording stopped');
       }
-    } catch (e) {
-      console.error('[Agora] Failed to recreate video track:', e);
+      setControls(prev => ({ ...prev, recording: newState }));
+    } catch (error) {
+      console.error('[Agora] TEACHER: Toggle recording error:', error);
+    } 
+  };
+
+  const leaveSession = async () => {
+    try {
+      setIsLeaving(true); 
+      await cleanup();
+      setIsLeaving(false);
+      if (onEndCall) onEndCall(false); 
+    } catch (error) {
+      console.error('[Agora] TEACHER: Leave session error:', error);
+      setIsLeaving(false);
+    }
+  };
+
+  const endSession = async () => {  
+    try {
+      setIsEnding(true); 
+      // USE videoApiRef.current
+      await videoApiRef.current.endVideoSession(sessionState.sessionInfo.meetingId);
+      await cleanup();
+      setIsEnding(false);
+      if (onEndCall) onEndCall(true); 
+    } catch (error) {
+      console.error('[Agora] TEACHER: End session error:', error);
+      setIsEnding(false);
     }
   };
 
   // ============================================
-  // Event Listeners - OPTIMIZED
+  // HELPER FUNCTIONS (UPDATED TO USE videoApiRef.current)
+  // ============================================
+
+  const startParticipantTracking = (meetingId) => {
+    if (participantUpdateIntervalRef.current) {
+      clearInterval(participantUpdateIntervalRef.current);
+    }
+    
+    const fetchParticipants = async () => {
+      try {
+        // USE videoApiRef.current
+        const participants = await videoApiRef.current.getSessionParticipants(meetingId);
+        setParticipants(participants || []);
+        setStats(prev => ({ 
+          ...prev, 
+          participantCount: (clientRef.current?.remoteUsers?.length || 0) + 1 
+        }));
+      } catch (error) {
+        console.error('[Agora] TEACHER: Participant tracking error:', error);
+      }
+    };
+    
+    fetchParticipants();
+    participantUpdateIntervalRef.current = setInterval(fetchParticipants, 10000);
+  };
+
+  const sendMessage = async () => {
+    const messageText = newMessage.trim();
+    if (!messageText) return;
+    
+    const tempMessage = {
+      id: Date.now().toString(),
+      senderId: teacherId,
+      senderName: 'Teacher',
+      text: messageText,
+      timestamp: new Date().toISOString(),
+      isOwn: true,
+      status: 'sent'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    setNewMessage('');
+    scrollToBottom();
+    
+    simulateStudentResponse(messageText);
+  };
+
+  const simulateStudentResponse = (teacherMessage) => {
+    const responses = ["Yes", "Understood", "Thank you", "Got it"];
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    
+    setTimeout(() => {
+      const studentMessage = {
+        id: Date.now().toString(),
+        senderId: 'student',
+        senderName: 'Student',
+        text: randomResponse,
+        timestamp: new Date().toISOString(),
+        isOwn: false
+      };
+      
+      setMessages(prev => [...prev, studentMessage]);
+      scrollToBottom();
+    }, 1000);
+  };
+
+  const startChatPolling = (meetingId) => {
+    const interval = setInterval(() => {}, 10000);
+    return () => clearInterval(interval);
+  };
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      setTimeout(() => {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }, 100);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Just now';
+    }
+  };
+
+  const startDurationTracking = () => {
+    const startTime = Date.now();
+    
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+    
+    durationIntervalRef.current = setInterval(() => {
+      const diff = Math.floor((Date.now() - startTime) / 1000);
+      setStats(prev => ({ ...prev, duration: diff }));
+    }, 1000);
+  };
+
+  const updateParticipantCount = () => {
+    const remoteUsers = clientRef.current?.remoteUsers || [];
+    setStats(prev => ({
+      ...prev,
+      participantCount: remoteUsers.length + 1
+    }));
+  };
+
+  const cleanup = async () => {
+    console.log('[Agora] TEACHER: Cleaning up...');
+    
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
+    if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+    
+    try {
+      if (localTracks.audio) {
+        await clientRef.current?.unpublish([localTracks.audio]).catch(() => {});
+        localTracks.audio.stop();
+        localTracks.audio.close();
+      }
+      if (localTracks.video) {
+        await clientRef.current?.unpublish([localTracks.video]).catch(() => {});
+        localTracks.video.stop();
+        localTracks.video.close();
+      }
+    } catch (e) {
+      console.warn('[Agora] TEACHER: Cleanup warning:', e);
+    }
+    
+    if (clientRef.current) {
+      await clientRef.current.leave();
+    }
+    
+    Object.values(remoteUsersRef.current).forEach(userData => {
+      if (userData.container) {
+        userData.container.remove();
+      }
+    });
+    remoteUsersRef.current = {};
+    
+    setLocalTracks({ audio: null, video: null });
+  };
+
+  const formatDuration = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // ============================================
+  // EVENT LISTENERS (UNCHANGED)
   // ============================================
 
   const setupAgoraEventListeners = () => {
     const client = clientRef.current;
 
     client.on('user-published', async (user, mediaType) => {
-      console.log('[Agora] User published:', user.uid, mediaType);
+      console.log('[Agora] TEACHER: User published:', user.uid, mediaType);
       
       try {
         await client.subscribe(user, mediaType);
@@ -410,7 +997,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
           user.audioTrack.play();
         }
       } catch (error) {
-        console.warn('[Agora] Failed to handle user-published:', error);
+        console.warn('[Agora] TEACHER: Failed to handle user-published:', error);
       }
       
       updateParticipantCount();
@@ -438,327 +1025,9 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   // ============================================
-  // Control Functions
+  // RENDER FUNCTIONS (UNCHANGED)
   // ============================================
 
-  const toggleAudio = async () => {
-    if (localTracks.audio) {
-      try {
-        const newState = !controls.audioEnabled;
-        await localTracks.audio.setEnabled(newState);
-        setControls(prev => ({ ...prev, audioEnabled: newState }));
-        console.log(`[Agora] Audio ${newState ? 'enabled' : 'disabled'}`);
-      } catch (error) {
-        console.error('[Agora] Toggle audio error:', error);
-      }
-    }
-  };
-
-  const toggleVideo = async () => {
-    if (localTracks.video) {
-      try {
-        const newState = !controls.videoEnabled;
-        setControls(prev => ({ ...prev, videoEnabled: newState }));
-        console.log(`[Agora] Video ${newState ? 'enabled' : 'disabled'}`);
-      } catch (error) {
-        console.error('[Agora] Toggle video error:', error);
-      }
-    } else {
-      try {
-        const videoTrack = await AgoraRTC.createCameraVideoTrack();
-        await clientRef.current.publish([videoTrack]);
-        
-        if (localVideoRef.current) {
-          videoTrack.play(localVideoRef.current);
-        }
-        
-        setLocalTracks(prev => ({ ...prev, video: videoTrack }));
-        setControls(prev => ({ ...prev, videoEnabled: true }));
-        console.log('[Agora] Video enabled');
-      } catch (error) {
-        console.error('[Agora] Cannot access camera:', error);
-      }
-    }
-  };
-
-  // UPDATED: toggleScreenShare to use localVideoRef
-  const toggleScreenShare = async () => {
-    try {
-      if (!controls.screenSharing) {
-        const screenTrack = await AgoraRTC.createScreenVideoTrack({
-          encoderConfig: '720p',
-          optimizationMode: 'detail'
-        });
-        
-        if (localTracks.video) {
-          await clientRef.current.unpublish([localTracks.video]);
-          localTracks.video.stop();
-          localTracks.video.close();
-        }
-        
-        await clientRef.current.publish([screenTrack]);
-        
-        setLocalTracks(prev => ({ 
-          ...prev, 
-          video: screenTrack 
-        }));
-        
-        if (localVideoRef.current) {
-          screenTrack.play(localVideoRef.current);
-        }
-        
-        setControls(prev => ({ ...prev, screenSharing: true }));
-        console.log('[Agora] Screen sharing started');
-        
-      } else {
-        const screenTrack = localTracks.video;
-        
-        if (screenTrack) {
-          await clientRef.current.unpublish([screenTrack]);
-          screenTrack.stop();
-          screenTrack.close();
-        }
-        
-        try {
-          const cameraTrack = await AgoraRTC.createCameraVideoTrack();
-          await clientRef.current.publish([cameraTrack]);
-          
-          if (localVideoRef.current) {
-            cameraTrack.play(localVideoRef.current);
-          }
-          
-          setLocalTracks(prev => ({ 
-            ...prev, 
-            video: cameraTrack 
-          }));
-          
-          setControls(prev => ({ 
-            ...prev, 
-            videoEnabled: true,
-            screenSharing: false 
-          }));
-          
-          console.log('[Agora] Screen sharing stopped, camera restored');
-        } catch (cameraError) {
-          console.error('[Agora] Cannot access camera:', cameraError);
-          setControls(prev => ({ 
-            ...prev, 
-            videoEnabled: false,
-            screenSharing: false 
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('[Agora] Screen share error:', error);
-      setControls(prev => ({ ...prev, screenSharing: false }));
-    }
-  };
-
-  const toggleRecording = async () => {
-    try {
-      const newState = !controls.recording; 
-      if (newState) { 
-        await videoApi.startRecording(sessionState.sessionInfo.meetingId);
-        console.log('[Agora] Recording started');
-      } else {
-        await videoApi.stopRecording(sessionState.sessionInfo.meetingId);
-        console.log('[Agora] Recording stopped');
-      }
-      setControls(prev => ({ ...prev, recording: newState }));
-    } catch (error) {
-      console.error('[Agora] Toggle recording error:', error);
-    } 
-  };
-
-  const leaveSession = async () => {
-    try {
-      setIsLeaving(true); 
-      await cleanup();
-      setIsLeaving(false);
-      if (onEndCall) onEndCall(false); 
-    } catch (error) {
-      console.error('[Agora] Leave session error:', error);
-      setIsLeaving(false);
-    }
-  };
-
-  const endSession = async () => {  
-    try {
-      setIsEnding(true); 
-      await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
-      await cleanup();
-      setIsEnding(false);
-      if (onEndCall) onEndCall(true); 
-    } catch (error) {
-      console.error('[Agora] End session error:', error);
-      setIsEnding(false);
-    }
-  };
-
-  // ============================================
-  // Chat Functions (simplified)
-  // ============================================
-
-  const sendMessage = async () => {
-    const messageText = newMessage.trim();
-    if (!messageText) return;
-    
-    const tempMessage = {
-      id: Date.now().toString(),
-      senderId: teacherId,
-      senderName: 'Teacher',
-      text: messageText,
-      timestamp: new Date().toISOString(),
-      isOwn: true,
-      status: 'sent'
-    };
-    
-    setMessages(prev => [...prev, tempMessage]);
-    setNewMessage('');
-    scrollToBottom();
-    
-    // Simulate student response
-    simulateStudentResponse(messageText);
-  };
-
-  const simulateStudentResponse = (teacherMessage) => {
-    const responses = ["Yes", "Understood", "Thank you", "Got it"];
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-    
-    setTimeout(() => {
-      const studentMessage = {
-        id: Date.now().toString(),
-        senderId: 'student',
-        senderName: 'Student',
-        text: randomResponse,
-        timestamp: new Date().toISOString(),
-        isOwn: false
-      };
-      
-      setMessages(prev => [...prev, studentMessage]);
-      scrollToBottom();
-    }, 1000);
-  };
-
-  const startChatPolling = (meetingId) => {
-    // Minimal polling
-    const interval = setInterval(() => {}, 10000); // Poll every 10 seconds
-    return () => clearInterval(interval);
-  };
-
-  const scrollToBottom = () => {
-    if (chatContainerRef.current) {
-      setTimeout(() => {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      }, 100);
-    }
-  };
-
-  const formatTime = (timestamp) => {
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return 'Just now';
-    }
-  };
-
-  // ============================================
-  // Helper Functions
-  // ============================================
-
-  const startDurationTracking = () => {
-    const startTime = Date.now();
-    
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-    }
-    
-    durationIntervalRef.current = setInterval(() => {
-      const diff = Math.floor((Date.now() - startTime) / 1000);
-      setStats(prev => ({ ...prev, duration: diff }));
-    }, 1000);
-  };
-
-  const startParticipantTracking = (meetingId) => {
-    if (participantUpdateIntervalRef.current) {
-      clearInterval(participantUpdateIntervalRef.current);
-    }
-    
-    const fetchParticipants = async () => {
-      try {
-        const participants = await videoApi.getSessionParticipants(meetingId);
-        setParticipants(participants || []);
-        setStats(prev => ({ 
-          ...prev, 
-          participantCount: (clientRef.current?.remoteUsers?.length || 0) + 1 
-        }));
-      } catch (error) {
-        console.error('[Agora] Participant tracking error:', error);
-      }
-    };
-    
-    fetchParticipants();
-    participantUpdateIntervalRef.current = setInterval(fetchParticipants, 10000); // 10 seconds
-  };
-
-  const updateParticipantCount = () => {
-    const remoteUsers = clientRef.current?.remoteUsers || [];
-    setStats(prev => ({
-      ...prev,
-      participantCount: remoteUsers.length + 1
-    }));
-  };
-
-  const cleanup = async () => {
-    console.log('[Agora] Cleaning up...');
-    
-    // Clear intervals and timeouts
-    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
-    if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
-    
-    // Stop tracks
-    try {
-      if (localTracks.audio) {
-        await clientRef.current?.unpublish([localTracks.audio]).catch(() => {});
-        localTracks.audio.stop();
-        localTracks.audio.close();
-      }
-      if (localTracks.video) {
-        await clientRef.current?.unpublish([localTracks.video]).catch(() => {});
-        localTracks.video.stop();
-        localTracks.video.close();
-      }
-    } catch (e) {
-      console.warn('[Agora] Cleanup warning:', e);
-    }
-    
-    // Leave channel
-    if (clientRef.current) {
-      await clientRef.current.leave();
-    }
-    
-    // Clear remote users
-    Object.values(remoteUsersRef.current).forEach(userData => {
-      if (userData.container) {
-        userData.container.remove();
-      }
-    });
-    remoteUsersRef.current = {};
-    
-    // Reset state
-    setLocalTracks({ audio: null, video: null });
-  };
-
-  const formatDuration = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Render chat message
   const renderMessage = (msg) => (
     <div 
       key={msg.id} 
@@ -787,7 +1056,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   );
 
   // ============================================
-  // Render - UPDATED Local Video Section
+  // RENDER COMPONENT (UNCHANGED)
   // ============================================
 
   if (sessionState.error) {
@@ -845,10 +1114,9 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
       {/* Main Video Area */}
       <div className="video-main-area">
-        {/* Local Video - UPDATED SECTION */}
+        {/* Local Video */}
         <div className="local-video-container floating-video">
           <div className="video-wrapper">
-            {/* Video Container - Always rendered */}
             <div className="video-container" style={{
               display: 'block',
               position: 'relative',
@@ -858,7 +1126,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
               borderRadius: '8px',
               overflow: 'hidden'
             }}>
-              {/* Video Element - Always present */}
               <video
                 ref={localVideoRef}
                 id="local-video"
@@ -870,12 +1137,11 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
                   height: '100%',
                   objectFit: 'cover',
                   display: controls.videoEnabled ? 'block' : 'none',
-                  transform: 'scaleX(-1)', // Mirror effect
+                  transform: 'scaleX(-1)',
                   borderRadius: '8px'
                 }}
               />
               
-              {/* Placeholder when video is disabled */}
               {!controls.videoEnabled && (
                 <div className="video-placeholder" style={{
                   position: 'absolute',
@@ -906,7 +1172,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
                 </div>
               )}
               
-              {/* Status Overlay */}
               <div className="video-status-overlay" style={{
                 position: 'absolute',
                 bottom: '10px',
@@ -972,7 +1237,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       {/* Floating Controls */}
       <div className={`floating-controls ${showControls ? 'visible' : 'hidden'}`}>
         <div className="control-center">
-          {/* Primary Controls - Compact Circle */}
           <div className="primary-controls">
             <button 
               className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
@@ -994,7 +1258,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
               </span>
             </button>
 
-            {/* Screen Share */}
             <button 
               className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
               onClick={toggleScreenShare}
@@ -1005,7 +1268,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
               </span>
             </button>
 
-            {/* Recording */}
             <button 
               className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
               onClick={toggleRecording}
@@ -1021,9 +1283,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
             </button>
           </div>
 
-          {/* Secondary Controls - Bottom Row */}
           <div className="secondary-controls">
-            {/* Chat */}
             <button 
               className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
               onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
@@ -1034,7 +1294,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
               </span>
             </button>
 
-            {/* Participants */}
             <button 
               className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
               onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
@@ -1045,7 +1304,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
               </span>
             </button>
 
-            {/* Leave & End Buttons */}
             <div className="action-buttons">
               <button 
                 className="control-button leave-btn"
