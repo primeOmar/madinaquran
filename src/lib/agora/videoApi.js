@@ -295,6 +295,40 @@ const videoApi = {
     }
   },
 
+  // Add this to your videoApi.js (in the shared module)
+async smartTeacherJoin(classId, teacherId) {
+  try {
+    console.log('👨‍🏫 SMART TEACHER JOIN: Finding or creating session for class:', classId);
+    
+    // Step 1: Check if active session exists for this class
+    const sessionInfo = await this.getSessionByClassId(classId);
+    
+    if (sessionInfo.exists && sessionInfo.isActive) {
+      console.log('✅ Found existing active session, joining...', {
+        meetingId: sessionInfo.meetingId,
+        teacher: sessionInfo.session?.teacher_id,
+        status: sessionInfo.session?.status
+      });
+      
+      // Check if this teacher is the session owner
+      if (sessionInfo.session?.teacher_id === teacherId) {
+        console.log('👑 Teacher owns this session, rejoining...');
+        return await this.joinVideoSession(sessionInfo.meetingId, teacherId, 'teacher');
+      } else {
+        console.log('⚠️ Different teacher owns this session, starting new...');
+        return await this.startVideoSession(classId, teacherId);
+      }
+    }
+    
+    // Step 2: No active session, create new one
+    console.log('🆕 No active session found, creating new one...');
+    return await this.startVideoSession(classId, teacherId);
+    
+  } catch (error) {
+    console.error('❌ SMART TEACHER JOIN failed:', error);
+    throw error;
+  }
+},
   /**
    * Get session by class ID - NEW METHOD
    * For students to find active session for their class
@@ -813,6 +847,7 @@ async startRecording(meetingId) {
     return { success: false, error: error.message };
   }
 },
+
 
 // Stop recording  
 async stopRecording(meetingId) {

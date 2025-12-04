@@ -423,54 +423,76 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     };
   }, [classId, teacherId]);
 
-  const initializeSession = async () => {
-    if (isConnecting) return;
+ const initializeSession = async () => {
+  if (isConnecting) return;
+  
+  try {
+    setIsConnecting(true);
+    console.log('🚀 TEACHER: Finding or joining video session...');
     
-    try {
-      setIsConnecting(true);
-      console.log('🚀 TEACHER: Initializing video session...');
-      
-      clientRef.current = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: 'vp8' 
-      });
+    clientRef.current = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
 
-      // USE videoApiRef.current
-      const sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
-      
-      if (!sessionData.success) {
-        throw new Error(sessionData.error || 'Failed to start session');
-      }
+    // ========== CRITICAL CHANGE ==========
+    // Use joinClassSession instead of startVideoSession
+    const sessionData = await videoApiRef.current.smartTeacherJoin(classId, teacherId);
 
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: sessionData,
-        error: null
-      });
+    console.log('📊 TEACHER Session Data Received:', {
+      success: sessionData.success,
+      meetingId: sessionData.meetingId,
+      exists: sessionData.session?.exists,
+      isActive: sessionData.session?.isActive,
+      role: sessionData.role
+    });
 
-      connectionTimeoutRef.current = setTimeout(() => {
-        if (!sessionState.isJoined) {
-          console.warn('[Agora] Connection taking too long, attempting recovery...');
-          handleConnectionTimeout();
+    if (!sessionData.success) {
+      // Check if error is about no active session
+      if (sessionData.code === 'NO_ACTIVE_SESSION' || 
+          sessionData.error?.includes('No active session')) {
+        console.log('⚠️ No active session found, creating new one...');
+        
+        // Create new session
+        const newSessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
+        
+        if (!newSessionData.success) {
+          throw new Error(newSessionData.error);
         }
-      }, 10000);
-
+        
+        await joinChannel(newSessionData);
+      } else {
+        throw new Error(sessionData.error);
+      }
+    } else {
+      // Session found and joined successfully
+      console.log('✅ TEACHER: Successfully joined existing session');
       await joinChannel(sessionData);
+    }
 
-    } catch (error) {
-      console.error('❌ TEACHER Initialization error:', error);
+  } catch (error) {
+    console.error('❌ TEACHER Initialization error:', error);
+    
+    // Handle rate limiting specifically
+    if (error.message.includes('Too many requests') || 
+        error.message.includes('429')) {
+      console.log('⏳ Rate limited, retrying in 5 seconds...');
+      setTimeout(() => {
+        initializeSession();
+      }, 5000);
+    } else {
       setSessionState(prev => ({
         ...prev,
         error: error.message || 'Failed to initialize video session'
       }));
-    } finally {
-      setIsConnecting(false);
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-      }
     }
-  };
+  } finally {
+    setIsConnecting(false);
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+    }
+  }
+};
 
   const handleConnectionTimeout = async () => {
     console.log('[Agora] Connection timeout, attempting recovery...');
@@ -484,58 +506,95 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   };
 
   const joinChannel = async (sessionData) => {
+  try {
+    const { channel, token, uid, appId } = sessionData;
+    
+    console.log('🔗 TEACHER: Joining channel with details:', {
+      channel,
+      tokenLength: token?.length,
+      uid,
+      appId,
+      isTeacher: sessionData.role === 'teacher',
+      meetingId: sessionData.meetingId,
+      teacherId: sessionData.teacher_id || teacherId
+    });
+
+    if (!channel || !token || !appId) {
+      console.error('❌ Missing session credentials:', { channel, token, appId });
+      throw new Error('Missing required session credentials');
+    }
+    
+    console.log('[Agora] TEACHER: Joining channel...');
+    
+    setupAgoraEventListeners();
+    
+    const joinPromise = clientRef.current.join(appId, channel, token, uid);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Join timeout after 8 seconds')), 8000)
+    );
+    
+    await Promise.race([joinPromise, timeoutPromise]);
+    
+    console.log('✅ TEACHER: Successfully joined channel', channel);
+    
+    // Get participants AFTER joining
+    if (sessionData.meetingId) {
+      await initializeParticipants(sessionData);
+    }
+
+    await createAndPublishTracks();
+
+    setSessionState(prev => ({
+      ...prev,
+      isJoined: true
+    }));
+
+    startDurationTracking();
+
+  } catch (error) {
+    console.error('❌ TEACHER Join channel error:', error);
+    
+    if (error.message.includes('timeout')) {
+      console.log('[Agora] Retrying connection...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await joinChannel(sessionData);
+    } else {
+      throw error;
+    }
+  }
+};
+
+ const initializeParticipants = async (sessionData) => {
+  const meetingId = sessionData.meetingId || sessionData.meeting_id;
+  if (meetingId) {
+    console.log('👥 TEACHER: Initializing participants for meeting:', meetingId);
+    
+    // Immediate check for existing participants
     try {
-      const { channel, token, uid, appId } = sessionData;
+      const participants = await videoApiRef.current.getSessionParticipants(meetingId);
+      console.log('📊 Existing participants found:', participants);
       
-      if (!channel || !token || !appId) {
-        throw new Error('Missing required session credentials');
+      if (participants.length > 0) {
+        setParticipants(participants);
+        
+        // Check if any students are already in the session
+        const studentsInSession = participants.filter(p => p.role === 'student');
+        console.log(`🎓 ${studentsInSession.length} students already in session`);
+        
+        if (studentsInSession.length > 0) {
+          // Show notification
+          console.log('📢 Students waiting for teacher:', 
+            studentsInSession.map(s => s.profile?.name || s.user_id));
+        }
       }
-      
-      console.log('[Agora] TEACHER: Joining channel...');
-      
-      setupAgoraEventListeners();
-      
-      const joinPromise = clientRef.current.join(appId, channel, token, uid);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Join timeout after 8 seconds')), 8000)
-      );
-      
-      await Promise.race([joinPromise, timeoutPromise]);
-      
-      console.log('✅ TEACHER: Successfully joined channel');
-
-      await Promise.all([
-        createAndPublishTracks(),
-        initializeParticipants(sessionData)
-      ]);
-
-      setSessionState(prev => ({
-        ...prev,
-        isJoined: true
-      }));
-
-      startDurationTracking();
-
     } catch (error) {
-      console.error('❌ TEACHER Join channel error:', error);
-      
-      if (error.message.includes('timeout')) {
-        console.log('[Agora] Retrying connection...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await joinChannel(sessionData);
-      } else {
-        throw error;
-      }
+      console.warn('⚠️ Could not fetch initial participants:', error);
     }
-  };
-
-  const initializeParticipants = async (sessionData) => {
-    const meetingId = sessionData.meetingId || sessionData.meeting_id;
-    if (meetingId) {
-      startParticipantTracking(meetingId);
-      startChatPolling(meetingId);
-    }
-  };
+    
+    startParticipantTracking(meetingId);
+    startChatPolling(meetingId);
+  }
+};
 
   // ============================================
   // TRACK FUNCTIONS (UNCHANGED)
