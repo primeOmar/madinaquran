@@ -1,7 +1,7 @@
 // lib/agora/videoApi.js - UPDATED FOR TEACHER-STUDENT SYNC
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
-const videoApi = {
+const studentvideoApi = {
   /**
    * Start a video session (for teachers)
    * Creates new session and returns meeting ID for students to join
@@ -853,4 +853,4 @@ async stopRecording(meetingId) {
   }
 };
 
-export default videoApi;
+export default studentvideoApi;

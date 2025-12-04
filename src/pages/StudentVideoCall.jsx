@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import videoApi from '../lib/agora/studentvideoApi.js';
+import studentvideoApi from '../lib/agora/studentvideoApi.js';
 import './TeacherVideoCall.css'; 
 
 const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
@@ -53,7 +53,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       console.log('🎓 STUDENT: Starting initialization...');
       
       // First, check if session exists
-      const sessionInfo = await videoApi.getSessionInfo(meetingId);
+      const sessionInfo = await studentvideoApi.getSessionInfo(meetingId);
       
       if (!sessionInfo.exists || !sessionInfo.isActive) {
         setSessionState({
@@ -71,7 +71,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       });
 
       // Join the session via API
-      const sessionData = await videoApi.joinVideoSession(
+      const sessionData = await studentvideoApi.joinVideoSession(
         meetingId, 
         studentId, 
         'student'
@@ -379,7 +379,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     client.on('token-privilege-will-expire', async () => {
       try {
         console.log('🔄 Token will expire, renewing...');
-        const newToken = await videoApi.generateToken(meetingId, studentId);
+        const newToken = await studentvideoApi.generateToken(meetingId, studentId);
         if (newToken.token) {
           await client.renewToken(newToken.token);
         }
@@ -505,7 +505,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const updateParticipantStatus = async (updates) => {
     try {
       if (sessionState.sessionInfo?.session?.id) {
-        await videoApi.updateParticipantStatus(
+        await studentvideoApi.updateParticipantStatus(
           sessionState.sessionInfo.session.id,
           studentId,
           updates
@@ -565,7 +565,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
   const loadMessages = async (sessionId) => {
     try {
-      const msgs = await videoApi.getSessionMessages(sessionId);
+      const msgs = await studentvideoApi.getSessionMessages(sessionId);
       setMessages(prev => {
         const newIds = new Set(msgs.map(m => m.id));
         const existing = prev.filter(m => !newIds.has(m.id));
@@ -583,7 +583,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     if (!messageText || !sessionState.sessionInfo?.session?.id) return;
 
     try {
-      const message = await videoApi.sendMessage(
+      const message = await studentvideoApi.sendMessage(
         sessionState.sessionInfo.session.id,
         studentId,
         messageText,
