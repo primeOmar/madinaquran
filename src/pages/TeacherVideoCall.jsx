@@ -22,7 +22,7 @@ const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 const createDirectVideoApi = () => {
   console.log('🔄 Creating direct video API instance');
   
-  return {
+  const api = {
     // TEACHER-SPECIFIC METHODS
     startVideoSession: async (classId, userId) => {
       console.log('📡 TEACHER API: Starting video session for', { classId, userId });
@@ -76,6 +76,144 @@ const createDirectVideoApi = () => {
       }
     },
 
+    smartTeacherJoin: async (classId, teacherId) => {
+      try {
+        console.log('👨‍🏫 DIRECT API: SMART TEACHER JOIN:', { classId, teacherId });
+        
+        // First, try to find existing session for this class
+        const sessionInfo = await api.getSessionByClassId(classId);
+        
+        console.log('📊 Session check result:', {
+          exists: sessionInfo.exists,
+          isActive: sessionInfo.isActive,
+          meetingId: sessionInfo.meetingId,
+          teacherId: sessionInfo.session?.teacher_id
+        });
+
+        if (sessionInfo.exists && sessionInfo.isActive) {
+          // Found existing session
+          console.log('✅ Found existing active session');
+          
+          if (sessionInfo.session?.teacher_id === teacherId) {
+            // This teacher owns the session - join it
+            console.log('👑 Teacher owns this session, joining...');
+            return await api.joinVideoSession(sessionInfo.meetingId, teacherId, 'teacher');
+          } else {
+            // Different teacher owns it - create new
+            console.log('⚠️ Different teacher owns this session, starting new...');
+            return await api.startVideoSession(classId, teacherId);
+          }
+        }
+        
+        // No active session found, create new one
+        console.log('🆕 No active session found, creating new...');
+        return await api.startVideoSession(classId, teacherId);
+        
+      } catch (error) {
+        console.error('❌ SMART TEACHER JOIN failed:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    },
+
+    getSessionByClassId: async (classId) => {
+      console.log('🔍 DIRECT API: Getting session by class ID:', { classId });
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/session-by-class/${classId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+
+        const data = await response.json();
+
+        console.log('📊 DIRECT API: Session by class response:', {
+          status: response.status,
+          hasSession: !!data.session,
+          sessionStatus: data.session?.status
+        });
+
+        if (!response.ok || !data.session) {
+          return {
+            success: false,
+            exists: false,
+            isActive: false,
+            error: data.error || 'No active session for this class'
+          };
+        }
+
+        const sessionExists = !!data.session;
+        const isActive = data.session?.status === 'active';
+
+        return {
+          success: true,
+          session: data.session,
+          exists: sessionExists,
+          isActive,
+          meetingId: data.session?.meeting_id,
+          channel: data.session?.channel_name,
+          appId: data.session?.app_id,
+          teacher_id: data.session?.teacher_id
+        };
+
+      } catch (error) {
+        console.error('❌ DIRECT API: getSessionByClassId failed:', error);
+        return {
+          success: false,
+          error: error.message,
+          exists: false,
+          isActive: false
+        };
+      }
+    },
+
+    joinVideoSession: async (meetingId, userId, role = 'student') => {
+      console.log('🎓 DIRECT API: Joining video session:', { meetingId, userId, role });
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            meeting_id: meetingId.toString(),
+            user_id: userId,
+            role: role
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `Failed to join session: ${response.status}`);
+        }
+
+        return {
+          success: true,
+          meetingId: data.meeting_id || meetingId,
+          channel: data.channel,
+          token: data.token,
+          appId: data.appId,
+          uid: data.uid,
+          session: data.session,
+          role: role
+        };
+
+      } catch (error) {
+        console.error('❌ DIRECT API: joinVideoSession failed:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    },
     // SHARED METHODS (same as student)
     getSessionInfo: async (meetingId) => {
       console.log('📡 API: getSessionInfo for', meetingId);
@@ -423,52 +561,87 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     };
   }, [classId, teacherId]);
 
- const initializeSession = async () => {
+const initializeSession = async () => {
   if (isConnecting) return;
   
   try {
     setIsConnecting(true);
-    console.log('🚀 TEACHER: Finding or joining video session...');
+    console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
     
     clientRef.current = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
     });
 
-    // ========== CRITICAL CHANGE ==========
-    // Use joinClassSession instead of startVideoSession
-    const sessionData = await videoApiRef.current.smartTeacherJoin(classId, teacherId);
-
-    console.log('📊 TEACHER Session Data Received:', {
-      success: sessionData.success,
-      meetingId: sessionData.meetingId,
-      exists: sessionData.session?.exists,
-      isActive: sessionData.session?.isActive,
-      role: sessionData.role
+    // ========== SIMPLE LOGIC ==========
+    // First, try to find existing session for this class
+    console.log('🔍 Checking for existing session...');
+    const sessionInfo = await videoApiRef.current.getSessionByClassId(classId);
+    
+    console.log('📊 Session check result:', {
+      exists: sessionInfo.exists,
+      isActive: sessionInfo.isActive,
+      meetingId: sessionInfo.meetingId,
+      teacherId: sessionInfo.session?.teacher_id,
+      currentTeacherId: teacherId
     });
 
+    let sessionData;
+    
+    if (sessionInfo.exists && sessionInfo.isActive) {
+      // Found existing session
+      console.log('✅ Found existing active session');
+      
+      if (sessionInfo.session?.teacher_id === teacherId) {
+        // This teacher owns the session - join it
+        console.log('👑 Teacher owns this session, joining...');
+        sessionData = await videoApiRef.current.joinVideoSession(
+          sessionInfo.meetingId, 
+          teacherId, 
+          'teacher'
+        );
+      } else {
+        // Different teacher owns it - create new
+        console.log('⚠️ Different teacher owns this session, starting new...');
+        sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
+      }
+    } else {
+      // No active session found, create new one
+      console.log('🆕 No active session found, creating new...');
+      sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
+    }
+
     if (!sessionData.success) {
-      // Check if error is about no active session
-      if (sessionData.code === 'NO_ACTIVE_SESSION' || 
-          sessionData.error?.includes('No active session')) {
-        console.log('⚠️ No active session found, creating new one...');
-        
-        // Create new session
-        const newSessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
-        
-        if (!newSessionData.success) {
-          throw new Error(newSessionData.error);
+      // Handle 429 errors specifically
+      if (sessionData.error.includes('Too many requests')) {
+        console.log('⏳ Rate limited, waiting 5 seconds before retry...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Retry once
+        const retryData = await videoApiRef.current.startVideoSession(classId, teacherId);
+        if (!retryData.success) {
+          throw new Error(retryData.error);
         }
-        
-        await joinChannel(newSessionData);
+        sessionData = retryData;
       } else {
         throw new Error(sessionData.error);
       }
-    } else {
-      // Session found and joined successfully
-      console.log('✅ TEACHER: Successfully joined existing session');
-      await joinChannel(sessionData);
     }
+
+    console.log('🎯 Teacher session result:', {
+      success: sessionData.success,
+      meetingId: sessionData.meetingId,
+      role: sessionData.role,
+      exists: sessionInfo.exists
+    });
+
+    setSessionState({
+      isInitialized: true,
+      isJoined: false,
+      sessionInfo: sessionData,
+      error: null
+    });
+
+    await joinChannel(sessionData);
 
   } catch (error) {
     console.error('❌ TEACHER Initialization error:', error);
