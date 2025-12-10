@@ -1,4 +1,4 @@
-// src/pages/TeacherVideoCall.js - UPDATED WITH SAFE LOADING
+// src/pages/TeacherVideoCall.js - FIXED VERSION
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import './TeacherVideoCall.css';
@@ -13,12 +13,12 @@ import {
 } from 'lucide-react';
 
 // ============================================
-// VIDEO API LOADER - SAME AS STUDENT
+// VIDEO API LOADER - FIXED
 // ============================================
 
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
-// Create a direct video API instance (fallback if import fails)
+// Create a direct video API instance
 const createDirectVideoApi = () => {
   console.log('🔄 Creating direct video API instance');
   
@@ -214,7 +214,8 @@ const createDirectVideoApi = () => {
         };
       }
     },
-    // SHARED METHODS (same as student)
+
+    // SHARED METHODS
     getSessionInfo: async (meetingId) => {
       console.log('📡 API: getSessionInfo for', meetingId);
       try {
@@ -434,13 +435,14 @@ const createDirectVideoApi = () => {
       }
     }
   };
+
+  return api;
 };
 
-// Try to load the module, fallback to direct API
-let videoApi = null;
-
+// Initialize video API immediately (outside component)
+let videoApi;
 try {
-  // First try to import the module
+  // Try to import the module
   const module = require('../lib/agora/videoApi');
   videoApi = module.default;
   console.log('✅ TEACHER: Loaded videoApi from module');
@@ -460,7 +462,15 @@ if (!videoApi) {
 // ============================================
 
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
-  // State Management (UNCHANGED)
+  // Debug logging
+  console.log('🔧 TEACHER: Component rendering with:', {
+    classId,
+    teacherId,
+    videoApiAvailable: !!videoApi,
+    hasMethods: videoApi ? Object.keys(videoApi).length : 0
+  });
+
+  // State Management
   const [sessionState, setSessionState] = useState({
     isInitialized: false,
     isJoined: false,
@@ -495,7 +505,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const [initialInteraction, setInitialInteraction] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Refs
+  // Refs - Initialize with the already loaded videoApi
   const clientRef = useRef(null);
   const screenClientRef = useRef(null);
   const durationIntervalRef = useRef(null);
@@ -505,10 +515,10 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const remoteUsersRef = useRef({});
   const controlsTimeoutRef = useRef(null);
   const connectionTimeoutRef = useRef(null);
-  const videoApiRef = useRef(videoApi); // Store videoApi in ref
+  const videoApiRef = useRef(videoApi); // Use the already initialized videoApi
 
   // ============================================
-  // USE EFFECTS (UNCHANGED)
+  // USE EFFECTS
   // ============================================
 
   useEffect(() => {
@@ -549,11 +559,22 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     };
   }, []);
 
-  // ============================================
-  // INITIALIZATION (UPDATED TO USE videoApiRef.current)
-  // ============================================
-
   useEffect(() => {
+    // Check if videoApiRef is initialized
+    if (!videoApiRef.current) {
+      console.error('❌ TEACHER: videoApiRef is not initialized!');
+      setSessionState(prev => ({
+        ...prev,
+        error: 'Video API not initialized. Please refresh the page.'
+      }));
+      return;
+    }
+
+    console.log('✅ TEACHER: Initializing session with videoApiRef:', {
+      hasGetSessionByClassId: !!videoApiRef.current.getSessionByClassId,
+      methods: Object.keys(videoApiRef.current)
+    });
+
     initializeSession();
     
     return () => {
@@ -561,216 +582,217 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     };
   }, [classId, teacherId]);
 
-const initializeSession = async () => {
-  if (isConnecting) return;
-  
-  try {
-    setIsConnecting(true);
-    console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
-    
-    clientRef.current = AgoraRTC.createClient({ 
-      mode: 'rtc', 
-      codec: 'vp8' 
-    });
+  // ============================================
+  // INITIALIZATION - FIXED
+  // ============================================
 
-    // ========== SIMPLE LOGIC ==========
-    // First, try to find existing session for this class
-    console.log('🔍 Checking for existing session...');
-    const sessionInfo = await videoApiRef.current.getSessionByClassId(classId);
+  const initializeSession = async () => {
+    if (isConnecting) return;
     
-    console.log('📊 Session check result:', {
-      exists: sessionInfo.exists,
-      isActive: sessionInfo.isActive,
-      meetingId: sessionInfo.meetingId,
-      teacherId: sessionInfo.session?.teacher_id,
-      currentTeacherId: teacherId
-    });
-
-    let sessionData;
-    
-    if (sessionInfo.exists && sessionInfo.isActive) {
-      // Found existing session
-      console.log('✅ Found existing active session');
+    try {
+      setIsConnecting(true);
+      console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
       
-      if (sessionInfo.session?.teacher_id === teacherId) {
-        // This teacher owns the session - join it
-        console.log('👑 Teacher owns this session, joining...');
-        sessionData = await videoApiRef.current.joinVideoSession(
-          sessionInfo.meetingId, 
-          teacherId, 
-          'teacher'
-        );
+      // Verify videoApiRef is available
+      if (!videoApiRef.current) {
+        throw new Error('Video API not available. Please refresh the page.');
+      }
+      
+      clientRef.current = AgoraRTC.createClient({ 
+        mode: 'rtc', 
+        codec: 'vp8' 
+      });
+
+      // ========== SIMPLE LOGIC ==========
+      // First, try to find existing session for this class
+      console.log('🔍 Checking for existing session...');
+      const sessionInfo = await videoApiRef.current.getSessionByClassId(classId);
+      
+      console.log('📊 Session check result:', {
+        exists: sessionInfo.exists,
+        isActive: sessionInfo.isActive,
+        meetingId: sessionInfo.meetingId,
+        teacherId: sessionInfo.session?.teacher_id,
+        currentTeacherId: teacherId
+      });
+
+      let sessionData;
+      
+      if (sessionInfo.exists && sessionInfo.isActive) {
+        // Found existing session
+        console.log('✅ Found existing active session');
+        
+        if (sessionInfo.session?.teacher_id === teacherId) {
+          // This teacher owns the session - join it
+          console.log('👑 Teacher owns this session, joining...');
+          sessionData = await videoApiRef.current.joinVideoSession(
+            sessionInfo.meetingId, 
+            teacherId, 
+            'teacher'
+          );
+        } else {
+          // Different teacher owns it - create new
+          console.log('⚠️ Different teacher owns this session, starting new...');
+          sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
+        }
       } else {
-        // Different teacher owns it - create new
-        console.log('⚠️ Different teacher owns this session, starting new...');
+        // No active session found, create new one
+        console.log('🆕 No active session found, creating new...');
         sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
       }
-    } else {
-      // No active session found, create new one
-      console.log('🆕 No active session found, creating new...');
-      sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
-    }
 
-    if (!sessionData.success) {
-      // Handle 429 errors specifically
-      if (sessionData.error.includes('Too many requests')) {
-        console.log('⏳ Rate limited, waiting 5 seconds before retry...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        // Retry once
-        const retryData = await videoApiRef.current.startVideoSession(classId, teacherId);
-        if (!retryData.success) {
-          throw new Error(retryData.error);
+      // Check if sessionData exists and has success property
+      if (!sessionData || !sessionData.success) {
+        const errorMsg = sessionData?.error || 'Failed to start or join session';
+        
+        // Handle 429 errors specifically
+        if (errorMsg.includes('Too many requests') || errorMsg.includes('429')) {
+          console.log('⏳ Rate limited, waiting 5 seconds before retry...');
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          // Retry once
+          const retryData = await videoApiRef.current.startVideoSession(classId, teacherId);
+          if (!retryData.success) {
+            throw new Error(retryData.error);
+          }
+          sessionData = retryData;
+        } else {
+          throw new Error(errorMsg);
         }
-        sessionData = retryData;
-      } else {
-        throw new Error(sessionData.error);
       }
-    }
 
-    console.log('🎯 Teacher session result:', {
-      success: sessionData.success,
-      meetingId: sessionData.meetingId,
-      role: sessionData.role,
-      exists: sessionInfo.exists
-    });
+      console.log('🎯 Teacher session result:', {
+        success: sessionData.success,
+        meetingId: sessionData.meetingId,
+        role: sessionData.role,
+        exists: sessionInfo.exists
+      });
 
-    setSessionState({
-      isInitialized: true,
-      isJoined: false,
-      sessionInfo: sessionData,
-      error: null
-    });
+      setSessionState({
+        isInitialized: true,
+        isJoined: false,
+        sessionInfo: sessionData,
+        error: null
+      });
 
-    await joinChannel(sessionData);
+      await joinChannel(sessionData);
 
-  } catch (error) {
-    console.error('❌ TEACHER Initialization error:', error);
-    
-    // Handle rate limiting specifically
-    if (error.message.includes('Too many requests') || 
-        error.message.includes('429')) {
-      console.log('⏳ Rate limited, retrying in 5 seconds...');
-      setTimeout(() => {
-        initializeSession();
-      }, 5000);
-    } else {
-      setSessionState(prev => ({
-        ...prev,
-        error: error.message || 'Failed to initialize video session'
-      }));
-    }
-  } finally {
-    setIsConnecting(false);
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current);
-    }
-  }
-};
-
-  const handleConnectionTimeout = async () => {
-    console.log('[Agora] Connection timeout, attempting recovery...');
-    try {
-      await cleanup();
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await initializeSession();
     } catch (error) {
-      console.error('[Agora] Recovery failed:', error);
+      console.error('❌ TEACHER Initialization error:', error);
+      
+      // Handle rate limiting specifically
+      if (error.message && (error.message.includes('Too many requests') || 
+          error.message.includes('429'))) {
+        console.log('⏳ Rate limited, retrying in 5 seconds...');
+        setTimeout(() => {
+          initializeSession();
+        }, 5000);
+      } else {
+        setSessionState(prev => ({
+          ...prev,
+          error: error.message || 'Failed to initialize video session'
+        }));
+      }
+    } finally {
+      setIsConnecting(false);
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+      }
     }
   };
 
   const joinChannel = async (sessionData) => {
-  try {
-    const { channel, token, uid, appId } = sessionData;
-    
-    console.log('🔗 TEACHER: Joining channel with details:', {
-      channel,
-      tokenLength: token?.length,
-      uid,
-      appId,
-      isTeacher: sessionData.role === 'teacher',
-      meetingId: sessionData.meetingId,
-      teacherId: sessionData.teacher_id || teacherId
-    });
-
-    if (!channel || !token || !appId) {
-      console.error('❌ Missing session credentials:', { channel, token, appId });
-      throw new Error('Missing required session credentials');
-    }
-    
-    console.log('[Agora] TEACHER: Joining channel...');
-    
-    setupAgoraEventListeners();
-    
-    const joinPromise = clientRef.current.join(appId, channel, token, uid);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Join timeout after 8 seconds')), 8000)
-    );
-    
-    await Promise.race([joinPromise, timeoutPromise]);
-    
-    console.log('✅ TEACHER: Successfully joined channel', channel);
-    
-    // Get participants AFTER joining
-    if (sessionData.meetingId) {
-      await initializeParticipants(sessionData);
-    }
-
-    await createAndPublishTracks();
-
-    setSessionState(prev => ({
-      ...prev,
-      isJoined: true
-    }));
-
-    startDurationTracking();
-
-  } catch (error) {
-    console.error('❌ TEACHER Join channel error:', error);
-    
-    if (error.message.includes('timeout')) {
-      console.log('[Agora] Retrying connection...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await joinChannel(sessionData);
-    } else {
-      throw error;
-    }
-  }
-};
-
- const initializeParticipants = async (sessionData) => {
-  const meetingId = sessionData.meetingId || sessionData.meeting_id;
-  if (meetingId) {
-    console.log('👥 TEACHER: Initializing participants for meeting:', meetingId);
-    
-    // Immediate check for existing participants
     try {
-      const participants = await videoApiRef.current.getSessionParticipants(meetingId);
-      console.log('📊 Existing participants found:', participants);
+      const { channel, token, uid, appId } = sessionData;
       
-      if (participants.length > 0) {
-        setParticipants(participants);
-        
-        // Check if any students are already in the session
-        const studentsInSession = participants.filter(p => p.role === 'student');
-        console.log(`🎓 ${studentsInSession.length} students already in session`);
-        
-        if (studentsInSession.length > 0) {
-          // Show notification
-          console.log('📢 Students waiting for teacher:', 
-            studentsInSession.map(s => s.profile?.name || s.user_id));
-        }
+      console.log('🔗 TEACHER: Joining channel with details:', {
+        channel,
+        tokenLength: token?.length,
+        uid,
+        appId,
+        isTeacher: sessionData.role === 'teacher',
+        meetingId: sessionData.meetingId,
+        teacherId: sessionData.teacher_id || teacherId
+      });
+
+      if (!channel || !token || !appId) {
+        console.error('❌ Missing session credentials:', { channel, token, appId });
+        throw new Error('Missing required session credentials');
       }
+      
+      console.log('[Agora] TEACHER: Joining channel...');
+      
+      setupAgoraEventListeners();
+      
+      const joinPromise = clientRef.current.join(appId, channel, token, uid);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Join timeout after 8 seconds')), 8000)
+      );
+      
+      await Promise.race([joinPromise, timeoutPromise]);
+      
+      console.log('✅ TEACHER: Successfully joined channel', channel);
+      
+      // Get participants AFTER joining
+      if (sessionData.meetingId) {
+        await initializeParticipants(sessionData);
+      }
+
+      await createAndPublishTracks();
+
+      setSessionState(prev => ({
+        ...prev,
+        isJoined: true
+      }));
+
+      startDurationTracking();
+
     } catch (error) {
-      console.warn('⚠️ Could not fetch initial participants:', error);
+      console.error('❌ TEACHER Join channel error:', error);
+      
+      if (error.message.includes('timeout')) {
+        console.log('[Agora] Retrying connection...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await joinChannel(sessionData);
+      } else {
+        throw error;
+      }
     }
-    
-    startParticipantTracking(meetingId);
-    startChatPolling(meetingId);
-  }
-};
+  };
+
+  const initializeParticipants = async (sessionData) => {
+    const meetingId = sessionData.meetingId || sessionData.meeting_id;
+    if (meetingId) {
+      console.log('👥 TEACHER: Initializing participants for meeting:', meetingId);
+      
+      // Immediate check for existing participants
+      try {
+        const participants = await videoApiRef.current.getSessionParticipants(meetingId);
+        console.log('📊 Existing participants found:', participants);
+        
+        if (participants.length > 0) {
+          setParticipants(participants);
+          
+          // Check if any students are already in the session
+          const studentsInSession = participants.filter(p => p.role === 'student');
+          console.log(`🎓 ${studentsInSession.length} students already in session`);
+          
+          if (studentsInSession.length > 0) {
+            // Show notification
+            console.log('📢 Students waiting for teacher:', 
+              studentsInSession.map(s => s.profile?.name || s.user_id));
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not fetch initial participants:', error);
+      }
+      
+      startParticipantTracking(meetingId);
+      startChatPolling(meetingId);
+    }
+  };
 
   // ============================================
-  // TRACK FUNCTIONS (UNCHANGED)
+  // TRACK FUNCTIONS
   // ============================================
 
   const createAndPublishTracks = async () => {
@@ -836,7 +858,7 @@ const initializeSession = async () => {
   };
 
   // ============================================
-  // USE EFFECTS FOR TRACKS (UNCHANGED)
+  // USE EFFECTS FOR TRACKS
   // ============================================
 
   useEffect(() => {
@@ -878,7 +900,7 @@ const initializeSession = async () => {
   }, [controls.audioEnabled, localTracks.audio]);
 
   // ============================================
-  // CONTROL FUNCTIONS (UPDATED TO USE videoApiRef.current)
+  // CONTROL FUNCTIONS
   // ============================================
 
   const toggleAudio = async () => {
@@ -997,11 +1019,9 @@ const initializeSession = async () => {
     try {
       const newState = !controls.recording; 
       if (newState) { 
-        // USE videoApiRef.current
         await videoApiRef.current.startRecording(sessionState.sessionInfo.meetingId);
         console.log('[Agora] TEACHER: Recording started');
       } else {
-        // USE videoApiRef.current
         await videoApiRef.current.stopRecording(sessionState.sessionInfo.meetingId);
         console.log('[Agora] TEACHER: Recording stopped');
       }
@@ -1026,7 +1046,6 @@ const initializeSession = async () => {
   const endSession = async () => {  
     try {
       setIsEnding(true); 
-      // USE videoApiRef.current
       await videoApiRef.current.endVideoSession(sessionState.sessionInfo.meetingId);
       await cleanup();
       setIsEnding(false);
@@ -1038,7 +1057,7 @@ const initializeSession = async () => {
   };
 
   // ============================================
-  // HELPER FUNCTIONS (UPDATED TO USE videoApiRef.current)
+  // HELPER FUNCTIONS
   // ============================================
 
   const startParticipantTracking = (meetingId) => {
@@ -1048,7 +1067,6 @@ const initializeSession = async () => {
     
     const fetchParticipants = async () => {
       try {
-        // USE videoApiRef.current
         const participants = await videoApiRef.current.getSessionParticipants(meetingId);
         setParticipants(participants || []);
         setStats(prev => ({ 
@@ -1191,7 +1209,7 @@ const initializeSession = async () => {
   };
 
   // ============================================
-  // EVENT LISTENERS (UNCHANGED)
+  // EVENT LISTENERS
   // ============================================
 
   const setupAgoraEventListeners = () => {
@@ -1257,7 +1275,7 @@ const initializeSession = async () => {
   };
 
   // ============================================
-  // RENDER FUNCTIONS (UNCHANGED)
+  // RENDER FUNCTIONS
   // ============================================
 
   const renderMessage = (msg) => (
@@ -1288,7 +1306,7 @@ const initializeSession = async () => {
   );
 
   // ============================================
-  // RENDER COMPONENT (UNCHANGED)
+  // RENDER COMPONENT
   // ============================================
 
   if (sessionState.error) {
