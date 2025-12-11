@@ -154,7 +154,6 @@ const initializeSession = async () => {
       codec: 'vp8' 
     });
 
-    // Always start a new session as teacher (don't try to join existing)
     console.log('👑 Teacher starting new session...');
     const sessionData = await videoApi.startVideoSession(classId, teacherId);
     
@@ -162,26 +161,47 @@ const initializeSession = async () => {
       throw new Error(sessionData.error || 'Failed to start session');
     }
 
-    // Validate credentials
-    if (!sessionData.channel || !sessionData.token || !sessionData.appId) {
-      throw new Error('Missing credentials from server');
+    // Get FRESH token right before joining
+    console.log('🔄 Getting fresh token...');
+    const freshTokenResponse = await fetch(`${API_BASE_URL}/agora/generate-fresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channelName: sessionData.channel,
+        uid: sessionData.uid || 0,
+        role: 'publisher'
+      })
+    });
+    
+    const freshTokenData = await freshTokenResponse.json();
+    
+    if (!freshTokenData.success) {
+      throw new Error('Failed to get fresh token');
     }
+    
+    // Update session data with fresh token
+    const freshSessionData = {
+      ...sessionData,
+      token: freshTokenData.token,
+      appId: freshTokenData.appId
+    };
 
-    console.log('✅ Teacher session created:', {
-      meetingId: sessionData.meetingId,
-      channel: sessionData.channel|| sessionData.channelName,
-      appId: sessionData.appId || '5c0225ce9a19445f95a2685647258468'
+    console.log('✅ Teacher session with fresh token:', {
+      meetingId: freshSessionData.meetingId,
+      channel: freshSessionData.channel,
+      tokenLength: freshSessionData.token?.length,
+      expiresAt: new Date(freshTokenData.expiresAt).toISOString()
     });
 
     setSessionState({
       isInitialized: true,
       isJoined: false,
-      sessionInfo: sessionData,
+      sessionInfo: freshSessionData,
       error: null
     });
 
-    // Join the channel
-    await joinChannel(sessionData);
+    // Join the channel with FRESH token
+    await joinChannel(freshSessionData);
 
   } catch (error) {
     console.error('❌ TEACHER Initialization error:', error);
