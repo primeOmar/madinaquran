@@ -147,28 +147,46 @@ const initializeSession = async () => {
   
   try {
     setIsConnecting(true);
-    console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
+    console.log('🚀 TEACHER: Starting session initialization for class:', classId);
     
-    // Create Agora client
+    // ✅ STEP 1: Create Agora client FIRST
+    console.log('📡 Creating Agora client...');
     clientRef.current = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
     });
+    console.log('✅ Agora client created successfully');
 
-    // Get session data from backend
+    // ✅ STEP 2: Get session data from backend
+    console.log('🔄 Requesting session from backend...');
     const sessionData = await videoApi.startVideoSession(classId, teacherId);
     
     if (!sessionData.success) {
       throw new Error(sessionData.error || 'Failed to start session');
     }
 
-    // Use the sessionData AS-IS
-    console.log('✅ Using session data:', {
+    console.log('✅ Backend session created:', {
       meetingId: sessionData.meetingId,
       channel: sessionData.channel,
-      hasToken: !!sessionData.token
+      hasToken: !!sessionData.token,
+      tokenLength: sessionData.token?.length,
+      appId: sessionData.appId
     });
 
+    // ✅ STEP 3: Validate session data
+    if (!sessionData.token || sessionData.token === 'demo_token') {
+      throw new Error('Invalid token received from backend');
+    }
+
+    if (!sessionData.appId) {
+      throw new Error('App ID missing from backend response');
+    }
+
+    if (!sessionData.channel) {
+      throw new Error('Channel name missing from backend response');
+    }
+
+    // ✅ STEP 4: Update state
     setSessionState({
       isInitialized: true,
       isJoined: false,
@@ -176,14 +194,27 @@ const initializeSession = async () => {
       error: null
     });
 
-    // Join with the data from backend
+    // ✅ STEP 5: Join the channel
+    console.log('🔗 Joining Agora channel...');
     await joinChannel(sessionData);
 
   } catch (error) {
     console.error('❌ TEACHER Initialization error:', error);
+    
+    // Provide helpful error messages
+    let userMessage = error.message;
+    
+    if (error.message?.includes('token')) {
+      userMessage = 'Token generation failed. Please check your Agora App Certificate configuration in the backend.';
+    } else if (error.message?.includes('App ID')) {
+      userMessage = 'Agora App ID is not configured properly. Contact your administrator.';
+    } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
+      userMessage = 'Cannot connect to Agora servers. Please check your internet connection.';
+    }
+    
     setSessionState(prev => ({
       ...prev,
-      error: error.message || 'Failed to initialize video session'
+      error: userMessage
     }));
   } finally {
     setIsConnecting(false);
@@ -203,25 +234,27 @@ const joinChannel = async (sessionData) => {
       tokenStart: token?.substring(0, 20) + '...'
     });
 
-    // If token is missing or expired, try token-free join
-    if (!token) {
-      console.warn('⚠️ No token provided, trying token-free join...');
-      
-      // Join without token (works if Agora app allows it)
-      await clientRef.current.join(
-        appId || '5c0225ce9a19445f95a2685647258468',
-        channel,
-        null, // No token
-        uid || 0
-      );
-    } else {
-      // Normal join with token
-      await clientRef.current.join(appId, channel, token, uid);
+    // 1. INITIALIZE AGORA CLIENT (MISSING STEP!)
+    await clientRef.current.init(appId);
+    console.log('✅ Agora client initialized');
+
+    // 2. JOIN WITH TOKEN (ALWAYS USE TOKEN)
+    if (!token || token === 'demo_token' || token === 'null') {
+      console.error('❌ No valid token provided!');
+      throw new Error('Invalid token. Check backend token generation.');
     }
+
+    // Always join with token
+    await clientRef.current.join(
+      appId,
+      channel,
+      token, // ALWAYS use token
+      uid || 0
+    );
     
-    console.log('✅ TEACHER: Successfully joined channel:', channel);
+    console.log('✅ TEACHER: Successfully joined channel with token:', channel);
     
-    // Create and publish tracks
+    // 3. Create and publish tracks
     await createAndPublishTracks();
 
     setSessionState(prev => ({
@@ -229,29 +262,49 @@ const joinChannel = async (sessionData) => {
       isJoined: true
     }));
 
-    // Start duration tracking
+    // 4. Start duration tracking
     startDurationTracking();
+
+    // 5. Setup event listeners
+    setupAgoraEventListeners();
 
   } catch (error) {
     console.error('❌ TEACHER Join channel error:', error);
     
-    // If token error, try without token
-    if (error.message.includes('token') || error.message.includes('expired')) {
-      console.log('🔄 Token error detected, retrying without token...');
+    // Check specific error types
+    if (error.message.includes('token') || error.code === 109) {
+      console.error('🔄 Token error - regenerating token...');
       
-      // Try token-free join
-      await clientRef.current.join(
-        sessionData.appId || '5c0225ce9a19445f95a2685647258468',
-        sessionData.channel,
-        null, // No token
-        sessionData.uid || 0
-      );
-      
-      console.log('✅ TEACHER: Successfully joined without token');
-      
-      await createAndPublishTracks();
-      setSessionState(prev => ({ ...prev, isJoined: true }));
-      startDurationTracking();
+      // Try to get fresh token from backend
+      try {
+        const freshToken = await videoApi.generateFreshToken(
+          sessionData.channel,
+          sessionData.uid || 0,
+          'teacher'
+        );
+        
+        if (freshToken) {
+          console.log('🔄 Retrying with fresh token...');
+          // Rejoin with fresh token
+          await clientRef.current.join(
+            sessionData.appId,
+            sessionData.channel,
+            freshToken,
+            sessionData.uid || 0
+          );
+          
+          console.log('✅ TEACHER: Rejoined successfully with fresh token');
+          await createAndPublishTracks();
+          setSessionState(prev => ({ ...prev, isJoined: true }));
+          startDurationTracking();
+          setupAgoraEventListeners();
+        } else {
+          throw new Error('Cannot generate valid token');
+        }
+      } catch (retryError) {
+        console.error('❌ Token regeneration failed:', retryError);
+        throw new Error(`Token error: ${retryError.message}`);
+      }
     } else {
       throw error;
     }
