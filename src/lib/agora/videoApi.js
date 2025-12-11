@@ -221,7 +221,43 @@ const videoApi = {
     }
   },
 
+/**
+ * Generate fresh token for reconnection
+ */
+async generateFreshToken(channelName, uid, role = 'publisher') {
+  try {
+    console.log('🔄 Generating fresh token:', { channelName, uid, role });
+    
+    const response = await fetch(`${API_BASE_URL}/agora/generate-fresh-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        channelName,
+        uid,
+        role
+      })
+    });
 
+    const data = await response.json();
+    
+    if (!response.ok || !data.token) {
+      throw new Error(data.error || 'Failed to generate fresh token');
+    }
+
+    console.log('✅ Fresh token generated successfully');
+    return data.token;
+    
+  } catch (error) {
+    console.error('❌ generateFreshToken failed:', error);
+    return null;
+  }
+}
+,  /**
+   * Find class session by class ID
+   */
   async findClassSession(classId) {
     try {
       const response = await fetch(`${API_BASE}/agora/find-session/${classId}`);
