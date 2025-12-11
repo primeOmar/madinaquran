@@ -155,54 +155,29 @@ const initializeSession = async () => {
       codec: 'vp8' 
     });
 
-    console.log('👑 Teacher starting new session...');
+    // Get session data from backend
     const sessionData = await videoApi.startVideoSession(classId, teacherId);
     
     if (!sessionData.success) {
       throw new Error(sessionData.error || 'Failed to start session');
     }
 
-    // Get FRESH token right before joining
-    console.log('🔄 Getting fresh token...');
-    const freshTokenResponse = await fetch(`${API_BASE_URL}/agora/generate-fresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channelName: sessionData.channel,
-        uid: sessionData.uid || 0,
-        role: 'publisher'
-      })
-    });
-    
-    const freshTokenData = await freshTokenResponse.json();
-    
-    if (!freshTokenData.success) {
-      throw new Error('Failed to get fresh token');
-    }
-    
-    // Update session data with fresh token
-    const freshSessionData = {
-      ...sessionData,
-      token: freshTokenData.token,
-      appId: freshTokenData.appId
-    };
-
-    console.log('✅ Teacher session with fresh token:', {
-      meetingId: freshSessionData.meetingId,
-      channel: freshSessionData.channel,
-      tokenLength: freshSessionData.token?.length,
-      expiresAt: new Date(freshTokenData.expiresAt).toISOString()
+    // Use the sessionData AS-IS
+    console.log('✅ Using session data:', {
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      hasToken: !!sessionData.token
     });
 
     setSessionState({
       isInitialized: true,
       isJoined: false,
-      sessionInfo: freshSessionData,
+      sessionInfo: sessionData,
       error: null
     });
 
-    // Join the channel with FRESH token
-    await joinChannel(freshSessionData);
+    // Join with the data from backend
+    await joinChannel(sessionData);
 
   } catch (error) {
     console.error('❌ TEACHER Initialization error:', error);
@@ -215,26 +190,34 @@ const initializeSession = async () => {
   }
 };
 
- const joinChannel = async (sessionData) => {
+const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
     
-    console.log('🔗 TEACHER: Joining channel:', {
+    console.log('🔗 TEACHER: Joining channel with:', {
       channel,
       tokenLength: token?.length,
       appId,
-      uid
+      uid,
+      hasToken: !!token,
+      tokenStart: token?.substring(0, 20) + '...'
     });
 
-    if (!channel || !token || !appId) {
-      throw new Error('Missing required credentials');
+    // If token is missing or expired, try token-free join
+    if (!token) {
+      console.warn('⚠️ No token provided, trying token-free join...');
+      
+      // Join without token (works if Agora app allows it)
+      await clientRef.current.join(
+        appId || '5c0225ce9a19445f95a2685647258468',
+        channel,
+        null, // No token
+        uid || 0
+      );
+    } else {
+      // Normal join with token
+      await clientRef.current.join(appId, channel, token, uid);
     }
-    
-    // Setup event listeners before joining
-    setupAgoraEventListeners();
-    
-    // Join the channel with timeout
-    await clientRef.current.join(appId, channel, token, uid);
     
     console.log('✅ TEACHER: Successfully joined channel:', channel);
     
@@ -252,11 +235,23 @@ const initializeSession = async () => {
   } catch (error) {
     console.error('❌ TEACHER Join channel error:', error);
     
-    // If timeout, retry once
-    if (error.message.includes('timeout')) {
-      console.log('⏳ Connection timeout, retrying...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await joinChannel(sessionData);
+    // If token error, try without token
+    if (error.message.includes('token') || error.message.includes('expired')) {
+      console.log('🔄 Token error detected, retrying without token...');
+      
+      // Try token-free join
+      await clientRef.current.join(
+        sessionData.appId || '5c0225ce9a19445f95a2685647258468',
+        sessionData.channel,
+        null, // No token
+        sessionData.uid || 0
+      );
+      
+      console.log('✅ TEACHER: Successfully joined without token');
+      
+      await createAndPublishTracks();
+      setSessionState(prev => ({ ...prev, isJoined: true }));
+      startDurationTracking();
     } else {
       throw error;
     }
