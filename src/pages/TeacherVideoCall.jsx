@@ -148,12 +148,6 @@ const initializeSession = async () => {
     setIsConnecting(true);
     console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
     
-    // Check authentication
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('Authentication required. Please log in again.');
-    }
-    
     // Create Agora client
     clientRef.current = AgoraRTC.createClient({ 
       mode: 'rtc', 
@@ -175,13 +169,14 @@ const initializeSession = async () => {
 
     console.log('✅ Teacher session created:', {
       meetingId: sessionData.meetingId,
-      channel: sessionData.channel
+      channel: sessionData.channel|| sessionData.channelName,
+      appId: sessionData.appId || '5c0225ce9a19445f95a2685647258468'
     });
 
     setSessionState({
       isInitialized: true,
       isJoined: false,
-      sessionInfo: sessionData,
+      sessionInfo: fixedSessionData,
       error: null
     });
 
