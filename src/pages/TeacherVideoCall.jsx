@@ -15,6 +15,7 @@ import {
 // ============================================
 // MAIN TEACHER VIDEO CALL COMPONENT
 // ============================================
+const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // Debug logging
