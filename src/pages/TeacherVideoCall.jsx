@@ -176,7 +176,7 @@ const initializeSession = async () => {
     setSessionState({
       isInitialized: true,
       isJoined: false,
-      sessionInfo: fixedSessionData,
+      sessionInfo: sessionData,
       error: null
     });
 
