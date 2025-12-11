@@ -79,124 +79,22 @@ const studentvideoApi = {
    * Join a video session (for students) - UPDATED
    * Student joins using same meeting_id from teacher's session
    */
-  async joinVideoSession(meetingId, userId, bypassChecks = true) {
+async joinVideoSession(meetingId, userId, userType = 'student') {
   try {
-    console.log('🎓 STUDENT API: Joining session (bypass mode:', bypassChecks, ')', {
+    console.log('🎓 STUDENT API: Joining video session:', {
       meetingId,
       userId,
+      userType,
       timestamp: new Date().toISOString()
     });
 
-    // ============================================
-    // BYPASS ALL PERMISSION CHECKS FOR DEVELOPMENT
-    // ============================================
-    if (bypassChecks) {
-      console.log('🔓 DEVELOPMENT MODE: Bypassing all permission checks');
-      
-      // Step 1: Check if session exists (but don't fail if it doesn't)
-      let sessionInfo;
-      try {
-        sessionInfo = await this.getSessionInfo(meetingId);
-      } catch (error) {
-        console.log('⚠️ Session info check failed, continuing anyway:', error.message);
-        sessionInfo = { exists: false };
-      }
-
-      // Step 2: Create mock session if needed
-      const effectiveSession = sessionInfo.session || {
-        id: 'dev-session-' + Date.now(),
-        meeting_id: meetingId,
-        status: 'active',
-        channel_name: meetingId,
-        started_at: new Date().toISOString(),
-        teacher_id: 'dev-teacher-' + Date.now(),
-        class_id: 'dev-class',
-        class_title: 'Development Class'
-      };
-
-      // Step 3: Generate credentials
-      let token = null;
-      let appId = 'YOUR_AGORA_APP_ID'; // Replace with your actual App ID
-      
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            channel_name: meetingId,
-            user_id: userId,
-            role: 'student'
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          token = data.token;
-          appId = data.appId || appId;
-        } else {
-          console.log('⚠️ Token generation failed, using null token');
-        }
-      } catch (tokenError) {
-        console.log('⚠️ Token fetch error, using null token:', tokenError.message);
-      }
-
-      console.log('✅ DEVELOPMENT MODE: Student join successful (bypassed checks)', {
-        meetingId,
-        hasToken: !!token,
-        appId,
-        sessionExists: !!effectiveSession
-      });
-
-      return {
-        success: true,
-        meetingId: meetingId,
-        channel: meetingId,
-        token: token,
-        appId: appId,
-        uid: Date.now() % 1000000,
-        session: effectiveSession,
-        role: 'student',
-        teacher_id: effectiveSession.teacher_id,
-        isDevelopmentMode: true,
-        message: 'Joined in development mode - all checks bypassed'
-      };
-    }
-    // ============================================
-    // END OF BYPASS SECTION - ORIGINAL CODE BELOW
-    // ============================================
-
-    // Original implementation (commented out since we're bypassing)
-    console.log('🔄 Using original join flow (disabled for development)');
-    
-    // First check if session exists
-    const sessionInfo = await this.getSessionInfo(meetingId);
-    
-    if (!sessionInfo.exists) {
-      console.error('❌ STUDENT API: Session does not exist:', {
-        meetingId,
-        sessionInfo
-      });
-      throw new Error('Session not found. Teacher needs to start the session first.');
+    // Validate meeting ID
+    if (!meetingId || meetingId === 'undefined' || meetingId === 'null') {
+      console.error('❌ STUDENT API: Invalid meeting ID:', meetingId);
+      throw new Error(`Invalid meeting ID: "${meetingId}"`);
     }
 
-    if (sessionInfo.session?.status !== 'active') {
-      console.error('❌ STUDENT API: Session not active:', {
-        meetingId,
-        status: sessionInfo.session?.status
-      });
-      throw new Error('Session is not active or has ended.');
-    }
-
-    console.log('✅ STUDENT API: Session verified, joining...', {
-      meetingId,
-      sessionStatus: sessionInfo.session?.status,
-      channel: sessionInfo.session?.channel_name
-    });
-
-    // Join the session
+    // Make real API call to backend
     const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
       method: 'POST',
       headers: {
@@ -206,67 +104,47 @@ const studentvideoApi = {
       body: JSON.stringify({
         meeting_id: meetingId.toString(),
         user_id: userId,
-        role: 'student'
+        role: 'student',
+        user_type: 'student'
       })
     });
 
+    console.log('🔍 STUDENT API: Raw response status:', response.status);
+    
     const data = await response.json();
-
-    console.log('🔍 STUDENT API: Join response details:', {
-      status: response.status,
-      ok: response.ok,
-      data: {
-        hasToken: !!data.token,
-        tokenLength: data.token?.length,
-        channel: data.channel,
-        appId: data.appId,
-        meeting_id: data.meeting_id,
-        uid: data.uid
-      }
-    });
+    console.log('🔍 STUDENT API: Response data:', data);
 
     if (!response.ok) {
-      let errorMessage = data.error || 'Failed to join video session';
-
-      if (response.status === 404) {
-        errorMessage = 'Session not found. Teacher may have ended the session.';
-      } else if (response.status === 400) {
-        errorMessage = 'Invalid meeting ID.';
-      } else if (response.status === 403) {
-        errorMessage = 'You do not have permission to join this session.';
-      } else if (response.status === 409) {
-        errorMessage = 'Session is full.';
-      }
-
-      throw new Error(errorMessage);
+      console.error('❌ STUDENT API: Join failed with status:', response.status);
+      throw new Error(data.error || `Failed to join: ${response.status}`);
     }
 
-    // Validate response data
-    if (!data.token || !data.channel) {
-      console.error('❌ STUDENT API: Invalid response - missing fields:', {
+    // Validate response has required fields
+    if (!data.token || !data.channel || !data.app_id) {
+      console.error('❌ STUDENT API: Missing required fields:', {
         hasToken: !!data.token,
         hasChannel: !!data.channel,
+        hasAppId: !!data.app_id,
         data
       });
-      throw new Error('Invalid server response: missing token or channel');
+      throw new Error('Server response missing required fields');
     }
 
-    console.log('✅ STUDENT API: Join successful, received:', {
-      meetingId: data.meeting_id || meetingId,
+    console.log('✅ STUDENT API: Join successful!', {
+      meetingId: data.meeting_id,
       channel: data.channel,
       tokenLength: data.token?.length,
+      appId: data.app_id,
       uid: data.uid,
-      appId: data.appId,
-      sessionStatus: data.session?.status,
-      teacherInSession: data.session?.teacher_id ? '✅' : '❌'
+      teacherPresent: data.session?.teacher_id ? '✅' : '❌'
     });
 
     return {
       success: true,
-      meetingId: data.meeting_id || meetingId,
+      meetingId: data.meeting_id,
       channel: data.channel,
       token: data.token,
-      appId: data.appId,
+      appId: data.app_id,
       uid: data.uid,
       session: data.session,
       role: 'student',
@@ -281,33 +159,73 @@ const studentvideoApi = {
       timestamp: new Date().toISOString()
     });
     
-    // FALLBACK: Return mock credentials even if everything fails
-    console.log('🔄 Falling back to mock credentials');
-    return {
-      success: true, // Force success for testing
-      meetingId: meetingId,
-      channel: meetingId,
-      token: null,
-      appId: 'YOUR_AGORA_APP_ID', // Replace with your actual App ID
-      uid: Math.floor(Math.random() * 1000000),
-      session: {
-        id: 'fallback-session-' + Date.now(),
-        meeting_id: meetingId,
-        status: 'active',
-        class_title: 'Fallback Class',
-        teacher_id: 'fallback-teacher-' + Date.now(),
-        channel_name: meetingId,
-        started_at: new Date().toISOString()
-      },
-      role: 'student',
-      isFallback: true,
-      error: error.message,
-      message: '⚠️ Using fallback credentials - API failed'
-    };
+    // Re-throw for proper error handling in component
+    throw error;
   }
 },
 
-
+/**
+ * Smart student join - finds and joins the correct session
+ */
+async smartStudentJoin(classId, studentId) {
+  try {
+    console.log('🎓 SMART STUDENT JOIN: Finding session for class:', classId);
+    
+    // Step 1: Try to find active session for this class
+    const sessionInfo = await this.getSessionByClassId(classId);
+    
+    if (sessionInfo.exists && sessionInfo.isActive) {
+      console.log('✅ Found active session:', {
+        meetingId: sessionInfo.meetingId,
+        teacher: sessionInfo.teacher_id,
+        channel: sessionInfo.channel
+      });
+      
+      // Join the found session
+      return await this.joinVideoSession(sessionInfo.meetingId, studentId, 'student');
+    }
+    
+    // Step 2: Try common meeting ID patterns
+    console.log('🔄 No session found, trying common patterns...');
+    
+    const commonPatterns = [
+      `class_${classId}`,                     // Basic: class_123
+      `class_${classId}_${classId}`,          // Duplicate
+      `class_channel_${classId}`,             // Channel pattern
+      `class_${classId}_live`,                // Live suffix
+    ];
+    
+    for (const pattern of commonPatterns) {
+      try {
+        console.log('🔄 Trying pattern:', pattern);
+        const testSession = await this.getSessionInfo(pattern);
+        
+        if (testSession.exists && testSession.isActive) {
+          console.log('✅ Found session with pattern:', pattern);
+          return await this.joinVideoSession(pattern, studentId, 'student');
+        }
+      } catch (error) {
+        console.warn('⚠️ Pattern failed:', pattern, error.message);
+        continue;
+      }
+    }
+    
+    // Step 3: Final fallback - try generic meeting ID
+    const genericMeetingId = `class_${classId}`;
+    console.log('🔄 Trying generic meeting ID:', genericMeetingId);
+    
+    try {
+      return await this.joinVideoSession(genericMeetingId, studentId, 'student');
+    } catch (finalError) {
+      console.error('❌ All join attempts failed');
+      throw new Error('No active session found for this class. Teacher needs to start the session first.');
+    }
+    
+  } catch (error) {
+    console.error('❌ SMART STUDENT JOIN failed:', error);
+    throw error;
+  }
+},
 
   /**
  * Join a video session (for students) - BYPASS ALL PERMISSION CHECKS
@@ -654,51 +572,33 @@ async generateAgoraCredentials(channelName, userId) {
    * Automatically determines if user is teacher or student
    */
   async joinClassSession(classId, userId, userRole = 'student') {
-    try {
-      console.log('🚀 SMART JOIN: User attempting to join class:', {
-        classId,
-        userId,
-        userRole,
-        timestamp: new Date().toISOString()
-      });
+  try {
+    console.log('🚀 SMART JOIN: User attempting to join class:', {
+      classId,
+      userId,
+      userRole,
+      timestamp: new Date().toISOString()
+    });
 
-      if (userRole === 'teacher') {
-        // Teacher starts new session or joins existing one
-        console.log('👨‍🏫 SMART JOIN: Teacher flow');
-        return await this.startVideoSession(classId, userId);
-      } else {
-        // Student joins existing session
-        console.log('🎓 SMART JOIN: Student flow');
-        
-        // Method 1: Try to find active session for this class
-        const sessionInfo = await this.getSessionByClassId(classId);
-        
-        if (sessionInfo.exists && sessionInfo.isActive) {
-          console.log('✅ SMART JOIN: Found active session, joining...', {
-            meetingId: sessionInfo.meetingId
-          });
-          return await this.joinVideoSession(sessionInfo.meetingId, userId);
-        }
-
-        // Method 2: Student cannot join - no active session
-        console.error('❌ SMART JOIN: No active session found for class:', classId);
-        return {
-          success: false,
-          error: 'No active session. Please wait for teacher to start the class.',
-          code: 'NO_ACTIVE_SESSION',
-          userRole: 'student'
-        };
-      }
-
-    } catch (error) {
-      console.error('❌ SMART JOIN: joinClassSession failed:', error);
-      return {
-        success: false,
-        error: error.message,
-        userRole
-      };
+    if (userRole === 'teacher') {
+      // Teacher starts new session or joins existing one
+      console.log('👨‍🏫 SMART JOIN: Teacher flow');
+      return await this.startVideoSession(classId, userId);
+    } else {
+      // Student uses SMART student join
+      console.log('🎓 SMART JOIN: Student flow - using smart join');
+      return await this.smartStudentJoin(classId, userId);
     }
-  },
+
+  } catch (error) {
+    console.error('❌ SMART JOIN: joinClassSession failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      userRole
+    };
+  }
+},
 
   /**
    * Get session participants with role info - ENHANCED

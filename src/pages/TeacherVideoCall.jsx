@@ -16,446 +16,133 @@ import {
 // VIDEO API LOADER - FIXED
 // ============================================
 
+// REPLACE Lines 32-134 with:
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
-// Create a direct video API instance
-const createDirectVideoApi = () => {
-  console.log('🔄 Creating direct video API instance');
-  
-  const api = {
-    // TEACHER-SPECIFIC METHODS
-    startVideoSession: async (classId, userId) => {
-      console.log('📡 TEACHER API: Starting video session for', { classId, userId });
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            class_id: classId,
-            user_id: userId,
-            role: 'teacher'
-          })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          console.error('❌ TEACHER API Error Response:', {
-            status: response.status,
-            data
-          });
-          throw new Error(data.error || `Failed to start video session: ${response.status}`);
-        }
-
-        if (!data.meeting_id || !data.channel || !data.token || !data.app_id) {
-          throw new Error('Invalid response from server: missing required fields');
-        }
-
-        console.log('✅ TEACHER API: Video session started successfully');
-        
-        return {
-          success: true,
-          meetingId: data.meeting_id,
-          channel: data.channel,
-          token: data.token,
-          appId: data.app_id,
-          uid: data.uid || userId,
-          session: data.session,
-          class_title: data.class_title,
-          role: 'teacher'
-        };
-      } catch (error) {
-        console.error('❌ TEACHER API: startVideoSession failed:', error);
-        return {
-          success: false,
-          error: error.message || 'Failed to start video session'
-        };
-      }
-    },
-
-    smartTeacherJoin: async (classId, teacherId) => {
-      try {
-        console.log('👨‍🏫 DIRECT API: SMART TEACHER JOIN:', { classId, teacherId });
-        
-        // First, try to find existing session for this class
-        const sessionInfo = await api.getSessionByClassId(classId);
-        
-        console.log('📊 Session check result:', {
-          exists: sessionInfo.exists,
-          isActive: sessionInfo.isActive,
-          meetingId: sessionInfo.meetingId,
-          teacherId: sessionInfo.session?.teacher_id
-        });
-
-        if (sessionInfo.exists && sessionInfo.isActive) {
-          // Found existing session
-          console.log('✅ Found existing active session');
-          
-          if (sessionInfo.session?.teacher_id === teacherId) {
-            // This teacher owns the session - join it
-            console.log('👑 Teacher owns this session, joining...');
-            return await api.joinVideoSession(sessionInfo.meetingId, teacherId, 'teacher');
-          } else {
-            // Different teacher owns it - create new
-            console.log('⚠️ Different teacher owns this session, starting new...');
-            return await api.startVideoSession(classId, teacherId);
-          }
-        }
-        
-        // No active session found, create new one
-        console.log('🆕 No active session found, creating new...');
-        return await api.startVideoSession(classId, teacherId);
-        
-      } catch (error) {
-        console.error('❌ SMART TEACHER JOIN failed:', error);
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    },
-
-    getSessionByClassId: async (classId) => {
-      console.log('🔍 DIRECT API: Getting session by class ID:', { classId });
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/session-by-class/${classId}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-
-        const data = await response.json();
-
-        console.log('📊 DIRECT API: Session by class response:', {
-          status: response.status,
-          hasSession: !!data.session,
-          sessionStatus: data.session?.status
-        });
-
-        if (!response.ok || !data.session) {
-          return {
-            success: false,
-            exists: false,
-            isActive: false,
-            error: data.error || 'No active session for this class'
-          };
-        }
-
-        const sessionExists = !!data.session;
-        const isActive = data.session?.status === 'active';
-
-        return {
-          success: true,
-          session: data.session,
-          exists: sessionExists,
-          isActive,
-          meetingId: data.session?.meeting_id,
-          channel: data.session?.channel_name,
-          appId: data.session?.app_id,
-          teacher_id: data.session?.teacher_id
-        };
-
-      } catch (error) {
-        console.error('❌ DIRECT API: getSessionByClassId failed:', error);
-        return {
-          success: false,
-          error: error.message,
-          exists: false,
-          isActive: false
-        };
-      }
-    },
-
-    joinVideoSession: async (meetingId, userId, role = 'student') => {
-      console.log('🎓 DIRECT API: Joining video session:', { meetingId, userId, role });
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            meeting_id: meetingId.toString(),
-            user_id: userId,
-            role: role
-          })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || `Failed to join session: ${response.status}`);
-        }
-
-        return {
-          success: true,
-          meetingId: data.meeting_id || meetingId,
-          channel: data.channel,
-          token: data.token,
-          appId: data.appId,
-          uid: data.uid,
-          session: data.session,
-          role: role
-        };
-
-      } catch (error) {
-        console.error('❌ DIRECT API: joinVideoSession failed:', error);
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    },
-
-    // SHARED METHODS
-    getSessionInfo: async (meetingId) => {
-      console.log('📡 API: getSessionInfo for', meetingId);
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/session-info/${meetingId}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        const data = await response.json();
-        
-        if (!response.ok) {
-          return {
-            success: false,
-            error: data.error || 'Session not found',
-            exists: false,
-            isActive: false
-          };
-        }
-
-        const sessionExists = !!data.session;
-        const isActive = data.session?.status === 'active';
-        
-        return {
-          success: true,
-          session: data.session,
-          exists: sessionExists,
-          isActive,
-          channel: data.session?.channel_name,
-          appId: data.session?.app_id
-        };
-      } catch (error) {
-        console.error('❌ API: getSessionInfo failed:', error);
-        return {
-          success: false,
-          error: error.message,
-          exists: false,
-          isActive: false
-        };
-      }
-    },
-
-    getSessionParticipants: async (meetingId) => {
-      console.log('👥 API: Getting session participants for', meetingId);
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/session-participants`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({ meeting_id: meetingId })
-        });
-        
-        const data = await response.json();
-        return data.participants || [];
-      } catch (error) {
-        console.error('❌ API: getSessionParticipants failed:', error);
-        return [];
-      }
-    },
-
-    updateParticipantStatus: async (sessionId, userId, updates) => {
-      console.log('📡 API: Updating participant status', { sessionId, userId, updates });
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/update-participant`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            session_id: sessionId,
-            user_id: userId,
-            ...updates
-          })
-        });
-
-        const data = await response.json();
-        return { success: response.ok, data };
-      } catch (error) {
-        console.error('❌ API: updateParticipantStatus failed:', error);
-        return { success: false, error: error.message };
-      }
-    },
-
-    sendMessage: async (sessionId, userId, message, type = 'text') => {
-      console.log('💬 API: sendMessage', { sessionId, userId, message, type });
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/send-message`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            session_id: sessionId,
-            user_id: userId,
-            message_text: message,
-            message_type: type
-          })
-        });
-        const data = await response.json();
-        return data.message || {
-          id: Date.now(),
-          message_text: message,
-          message_type: type,
-          created_at: new Date().toISOString(),
-          user_id: userId
-        };
-      } catch (error) {
-        console.error('❌ API: sendMessage failed:', error);
-        return {
-          id: Date.now(),
-          message_text: message,
-          message_type: type,
-          created_at: new Date().toISOString(),
+// Direct API implementation - no module loading
+const videoApi = {
+  startVideoSession: async (classId, userId) => {
+    console.log('📡 TEACHER: Starting video session for', { classId, userId });
+    try {
+      const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          class_id: classId,
           user_id: userId,
-          is_mock: true
-        };
+          role: 'teacher'
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to start video session: ${response.status}`);
       }
-    },
 
-    startRecording: async (meetingId) => {
-      console.log('🔴 API: startRecording for', meetingId);
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/start-recording`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({ 
-            session_id: meetingId, 
-            user_id: localStorage.getItem('userId') 
-          })
-        });
-        return await response.json();
-      } catch (error) {
-        console.error('❌ API: startRecording failed:', error);
-        return { success: false, error: error.message };
+      console.log('✅ TEACHER: Video session started successfully:', {
+        meetingId: data.meeting_id,
+        channel: data.channel,
+        hasToken: !!data.token
+      });
+      
+      return {
+        success: true,
+        meetingId: data.meeting_id,
+        channel: data.channel,
+        token: data.token,
+        appId: data.app_id,
+        uid: data.uid || userId
+      };
+    } catch (error) {
+      console.error('❌ TEACHER: startVideoSession failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
+  joinVideoSession: async (meetingId, userId, role = 'teacher') => {
+    console.log('🎓 TEACHER: Joining video session:', { meetingId, userId, role });
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId,
+          user_id: userId,
+          role: role
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to join session: ${response.status}`);
       }
-    },
 
-    stopRecording: async (meetingId) => {
-      console.log('⏹️ API: stopRecording for', meetingId);
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/stop-recording`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({ 
-            session_id: meetingId, 
-            user_id: localStorage.getItem('userId') 
-          })
-        });
-        return await response.json();
-      } catch (error) {
-        console.error('❌ API: stopRecording failed:', error);
-        return { success: false, error: error.message };
-      }
-    },
+      return {
+        success: true,
+        meetingId: data.meeting_id || meetingId,
+        channel: data.channel,
+        token: data.token,
+        appId: data.app_id,
+        uid: data.uid || userId
+      };
+    } catch (error) {
+      console.error('❌ TEACHER: joinVideoSession failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
 
-    endVideoSession: async (meetingId, userId) => {
-      console.log('🛑 TEACHER API: Ending video session', { meetingId, userId });
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/end-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            meeting_id: meetingId,
-            user_id: userId,
-            role: 'teacher'
-          })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || `Failed to end session: ${response.status}`);
+  getSessionByClassId: async (classId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/agora/session-by-class/${classId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
+      });
 
-        return {
-          success: true,
-          data
-        };
-      } catch (error) {
-        console.error('❌ TEACHER API: endVideoSession failed:', error);
+      const data = await response.json();
+      
+      if (!response.ok || !data.session) {
         return {
           success: false,
-          error: error.message
+          exists: false,
+          isActive: false
         };
       }
-    },
 
-    generateToken: async (meetingId, userId) => {
-      console.log('🔄 API: generateToken', { meetingId, userId });
-      try {
-        const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({ meeting_id: meetingId, user_id: userId })
-        });
-        return await response.json();
-      } catch (error) {
-        console.error('❌ API: generateToken failed:', error);
-        return { token: null, error: error.message };
-      }
+      return {
+        success: true,
+        session: data.session,
+        exists: true,
+        isActive: data.session.status === 'active',
+        meetingId: data.session.meeting_id
+      };
+    } catch (error) {
+      console.error('❌ getSessionByClassId failed:', error);
+      return {
+        success: false,
+        exists: false,
+        isActive: false
+      };
     }
-  };
-
-  return api;
+  }
 };
-
-// Initialize video API immediately (outside component)
-let videoApi;
-try {
-  // Try to import the module
-  const module = require('../lib/agora/videoApi');
-  videoApi = module.default;
-  console.log('✅ TEACHER: Loaded videoApi from module');
-} catch (importError) {
-  console.log('⚠️ TEACHER: Module import failed, using direct API:', importError.message);
-  videoApi = createDirectVideoApi();
-}
-
-// If still undefined, create a fallback
-if (!videoApi) {
-  console.log('⚠️ TEACHER: videoApi still undefined, creating fallback');
-  videoApi = createDirectVideoApi();
-}
 
 // ============================================
 // MAIN TEACHER VIDEO CALL COMPONENT
@@ -586,178 +273,111 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // INITIALIZATION - FIXED
   // ============================================
 
-  const initializeSession = async () => {
-    if (isConnecting) return;
+const initializeSession = async () => {
+  if (isConnecting) return;
+  
+  try {
+    setIsConnecting(true);
+    console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
     
-    try {
-      setIsConnecting(true);
-      console.log('🚀 TEACHER: Finding or joining video session for class:', classId);
-      
-      // Verify videoApiRef is available
-      if (!videoApiRef.current) {
-        throw new Error('Video API not available. Please refresh the page.');
-      }
-      
-      clientRef.current = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: 'vp8' 
-      });
+    // Check authentication
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('Authentication required. Please log in again.');
+    }
+    
+    // Create Agora client
+    clientRef.current = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
 
-      // ========== SIMPLE LOGIC ==========
-      // First, try to find existing session for this class
-      console.log('🔍 Checking for existing session...');
-      const sessionInfo = await videoApiRef.current.getSessionByClassId(classId);
-      
-      console.log('📊 Session check result:', {
-        exists: sessionInfo.exists,
-        isActive: sessionInfo.isActive,
-        meetingId: sessionInfo.meetingId,
-        teacherId: sessionInfo.session?.teacher_id,
-        currentTeacherId: teacherId
-      });
+    // Always start a new session as teacher (don't try to join existing)
+    console.log('👑 Teacher starting new session...');
+    const sessionData = await videoApi.startVideoSession(classId, teacherId);
+    
+    if (!sessionData.success) {
+      throw new Error(sessionData.error || 'Failed to start session');
+    }
 
-      let sessionData;
-      
-      if (sessionInfo.exists && sessionInfo.isActive) {
-        // Found existing session
-        console.log('✅ Found existing active session');
-        
-        if (sessionInfo.session?.teacher_id === teacherId) {
-          // This teacher owns the session - join it
-          console.log('👑 Teacher owns this session, joining...');
-          sessionData = await videoApiRef.current.joinVideoSession(
-            sessionInfo.meetingId, 
-            teacherId, 
-            'teacher'
-          );
-        } else {
-          // Different teacher owns it - create new
-          console.log('⚠️ Different teacher owns this session, starting new...');
-          sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
-        }
-      } else {
-        // No active session found, create new one
-        console.log('🆕 No active session found, creating new...');
-        sessionData = await videoApiRef.current.startVideoSession(classId, teacherId);
-      }
+    // Validate credentials
+    if (!sessionData.channel || !sessionData.token || !sessionData.appId) {
+      throw new Error('Missing credentials from server');
+    }
 
-      // Check if sessionData exists and has success property
-      if (!sessionData || !sessionData.success) {
-        const errorMsg = sessionData?.error || 'Failed to start or join session';
-        
-        // Handle 429 errors specifically
-        if (errorMsg.includes('Too many requests') || errorMsg.includes('429')) {
-          console.log('⏳ Rate limited, waiting 5 seconds before retry...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          // Retry once
-          const retryData = await videoApiRef.current.startVideoSession(classId, teacherId);
-          if (!retryData.success) {
-            throw new Error(retryData.error);
-          }
-          sessionData = retryData;
-        } else {
-          throw new Error(errorMsg);
-        }
-      }
+    console.log('✅ Teacher session created:', {
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel
+    });
 
-      console.log('🎯 Teacher session result:', {
-        success: sessionData.success,
-        meetingId: sessionData.meetingId,
-        role: sessionData.role,
-        exists: sessionInfo.exists
-      });
+    setSessionState({
+      isInitialized: true,
+      isJoined: false,
+      sessionInfo: sessionData,
+      error: null
+    });
 
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: sessionData,
-        error: null
-      });
+    // Join the channel
+    await joinChannel(sessionData);
 
+  } catch (error) {
+    console.error('❌ TEACHER Initialization error:', error);
+    setSessionState(prev => ({
+      ...prev,
+      error: error.message || 'Failed to initialize video session'
+    }));
+  } finally {
+    setIsConnecting(false);
+  }
+};
+
+ const joinChannel = async (sessionData) => {
+  try {
+    const { channel, token, uid, appId } = sessionData;
+    
+    console.log('🔗 TEACHER: Joining channel:', {
+      channel,
+      tokenLength: token?.length,
+      appId,
+      uid
+    });
+
+    if (!channel || !token || !appId) {
+      throw new Error('Missing required credentials');
+    }
+    
+    // Setup event listeners before joining
+    setupAgoraEventListeners();
+    
+    // Join the channel with timeout
+    await clientRef.current.join(appId, channel, token, uid);
+    
+    console.log('✅ TEACHER: Successfully joined channel:', channel);
+    
+    // Create and publish tracks
+    await createAndPublishTracks();
+
+    setSessionState(prev => ({
+      ...prev,
+      isJoined: true
+    }));
+
+    // Start duration tracking
+    startDurationTracking();
+
+  } catch (error) {
+    console.error('❌ TEACHER Join channel error:', error);
+    
+    // If timeout, retry once
+    if (error.message.includes('timeout')) {
+      console.log('⏳ Connection timeout, retrying...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await joinChannel(sessionData);
-
-    } catch (error) {
-      console.error('❌ TEACHER Initialization error:', error);
-      
-      // Handle rate limiting specifically
-      if (error.message && (error.message.includes('Too many requests') || 
-          error.message.includes('429'))) {
-        console.log('⏳ Rate limited, retrying in 5 seconds...');
-        setTimeout(() => {
-          initializeSession();
-        }, 5000);
-      } else {
-        setSessionState(prev => ({
-          ...prev,
-          error: error.message || 'Failed to initialize video session'
-        }));
-      }
-    } finally {
-      setIsConnecting(false);
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-      }
+    } else {
+      throw error;
     }
-  };
-
-  const joinChannel = async (sessionData) => {
-    try {
-      const { channel, token, uid, appId } = sessionData;
-      
-      console.log('🔗 TEACHER: Joining channel with details:', {
-        channel,
-        tokenLength: token?.length,
-        uid,
-        appId,
-        isTeacher: sessionData.role === 'teacher',
-        meetingId: sessionData.meetingId,
-        teacherId: sessionData.teacher_id || teacherId
-      });
-
-      if (!channel || !token || !appId) {
-        console.error('❌ Missing session credentials:', { channel, token, appId });
-        throw new Error('Missing required session credentials');
-      }
-      
-      console.log('[Agora] TEACHER: Joining channel...');
-      
-      setupAgoraEventListeners();
-      
-      const joinPromise = clientRef.current.join(appId, channel, token, uid);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Join timeout after 8 seconds')), 8000)
-      );
-      
-      await Promise.race([joinPromise, timeoutPromise]);
-      
-      console.log('✅ TEACHER: Successfully joined channel', channel);
-      
-      // Get participants AFTER joining
-      if (sessionData.meetingId) {
-        await initializeParticipants(sessionData);
-      }
-
-      await createAndPublishTracks();
-
-      setSessionState(prev => ({
-        ...prev,
-        isJoined: true
-      }));
-
-      startDurationTracking();
-
-    } catch (error) {
-      console.error('❌ TEACHER Join channel error:', error);
-      
-      if (error.message.includes('timeout')) {
-        console.log('[Agora] Retrying connection...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await joinChannel(sessionData);
-      } else {
-        throw error;
-      }
-    }
-  };
+  }
+};
 
   const initializeParticipants = async (sessionData) => {
     const meetingId = sessionData.meetingId || sessionData.meeting_id;
@@ -795,45 +415,62 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // TRACK FUNCTIONS
   // ============================================
 
-  const createAndPublishTracks = async () => {
+ const createAndPublishTracks = async () => {
+  try {
+    console.log('[Agora] TEACHER: Creating local tracks...');
+
+    // Create tracks with better error handling
+    let audioTrack, videoTrack;
+    
     try {
-      console.log('[Agora] TEACHER: Creating local tracks...');
-
-      const [audioTrack, videoTrack] = await Promise.all([
-        AgoraRTC.createMicrophoneAudioTrack().catch(error => {
-          console.warn('[Agora] Could not create audio track:', error);
-          return null;
-        }),
-        AgoraRTC.createCameraVideoTrack({
-          encoderConfig: '480p',
-          optimizationMode: 'motion'
-        }).catch(error => {
-          console.warn('[Agora] Could not create video track:', error);
-          return null;
-        })
-      ]);
-
-      setLocalTracks({ audio: audioTrack, video: videoTrack });
-
-      if (videoTrack && localVideoRef.current) {
-        setTimeout(() => {
-          playLocalVideo(videoTrack);
-        }, 100);
-      }
-
-      const tracksToPublish = [];
-      if (audioTrack) tracksToPublish.push(audioTrack);
-      if (videoTrack) tracksToPublish.push(videoTrack);
-      
-      if (tracksToPublish.length > 0) {
-        await clientRef.current.publish(tracksToPublish);
-        console.log('[Agora] TEACHER: 📤 Published tracks');
-      }
-
-    } catch (error) {
-      console.error('[Agora] TEACHER: Error creating/publishing tracks:', error);
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      console.log('✅ Audio track created');
+    } catch (audioError) {
+      console.warn('⚠️ Could not create audio track:', audioError);
+      audioTrack = null;
     }
-  };
+    
+    try {
+      videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: '480p',
+        optimizationMode: 'motion'
+      });
+      console.log('✅ Video track created');
+    } catch (videoError) {
+      console.warn('⚠️ Could not create video track:', videoError);
+      videoTrack = null;
+    }
+
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
+
+    // Publish tracks
+    const tracksToPublish = [];
+    if (audioTrack) tracksToPublish.push(audioTrack);
+    if (videoTrack) tracksToPublish.push(videoTrack);
+    
+    if (tracksToPublish.length > 0) {
+      await clientRef.current.publish(tracksToPublish);
+      console.log(`✅ Published ${tracksToPublish.length} track(s)`);
+    }
+
+    // Setup local video playback
+    if (videoTrack && localVideoRef.current) {
+      try {
+        await videoTrack.play(localVideoRef.current);
+        if (localVideoRef.current) {
+          localVideoRef.current.style.transform = 'scaleX(-1)';
+        }
+      } catch (playError) {
+        console.warn('⚠️ Video playback requires user interaction');
+      }
+    }
+
+  } catch (error) {
+    console.error('[Agora] TEACHER: Error creating/publishing tracks:', error);
+  }
+};
+
+
 
   const playLocalVideo = async (track) => {
     if (!track || !localVideoRef.current) return;

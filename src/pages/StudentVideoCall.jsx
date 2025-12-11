@@ -63,14 +63,64 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
 const initializeSession = async () => {
   try {
-    console.log('🎓 STUDENT: Starting video session initialization...', {
-      meetingId,
+    console.log('🎓 SMART STUDENT: Finding video session for class:', {
+      classId,
       studentId,
+      providedMeetingId: meetingId,
       timestamp: new Date().toISOString()
     });
 
-    // STEP 1: Validate session exists and is active
-    const sessionInfo = await studentvideoApi.getSessionInfo(meetingId);
+    // ========== STEP 1: FIND THE RIGHT MEETING ID ==========
+    let effectiveMeetingId = meetingId;
+    
+    if (!effectiveMeetingId || effectiveMeetingId === 'undefined' || effectiveMeetingId === 'null') {
+      console.log('🔍 No meeting ID provided, finding active session for class:', classId);
+      
+      // Try to find active session for this class
+      const classSession = await studentvideoApi.getSessionByClassId(classId);
+      
+      if (classSession.exists && classSession.isActive) {
+        effectiveMeetingId = classSession.meetingId;
+        console.log('✅ Found active session:', {
+          meetingId: effectiveMeetingId,
+          teacher: classSession.teacher_id,
+          channel: classSession.channel
+        });
+      } else {
+        // Try common meeting ID patterns
+        console.log('🔄 Trying common meeting ID patterns...');
+        const commonPatterns = [
+          `class_${classId}`, 
+          `class_${classId}_${classId}`, 
+          `class_channel_${classId}`, 
+        ];
+        
+        // Try each pattern
+        for (const pattern of commonPatterns) {
+          try {
+            const sessionInfo = await studentvideoApi.getSessionInfo(pattern);
+            if (sessionInfo.exists && sessionInfo.isActive) {
+              effectiveMeetingId = pattern;
+              console.log('✅ Found session with pattern:', pattern);
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+        
+        if (!effectiveMeetingId) {
+          // Fallback to generic pattern
+          effectiveMeetingId = `class_${classId}`;
+          console.log('⚠️ Using fallback meeting ID:', effectiveMeetingId);
+        }
+      }
+    }
+
+    console.log('🎯 STUDENT: Using meeting ID:', effectiveMeetingId);
+
+    // ========== STEP 2: VALIDATE SESSION ==========
+    const sessionInfo = await studentvideoApi.getSessionInfo(effectiveMeetingId);
     
     if (!sessionInfo.success) {
       console.error('❌ Failed to fetch session info:', sessionInfo.error);
@@ -88,12 +138,32 @@ const initializeSession = async () => {
         isActive: sessionInfo.isActive,
         status: sessionInfo.session?.status 
       });
-      setSessionState({
-        isInitialized: false,
-        isJoined: false,
-        error: 'Session not found or not active. Please wait for teacher to start the class.'
-      });
-      return;
+      
+      // Try one more time with generic ID
+      if (effectiveMeetingId !== `class_${classId}`) {
+        console.log('🔄 Trying generic meeting ID as fallback...');
+        const fallbackMeetingId = `class_${classId}`;
+        const fallbackSession = await studentvideoApi.getSessionInfo(fallbackMeetingId);
+        
+        if (fallbackSession.exists && fallbackSession.isActive) {
+          effectiveMeetingId = fallbackMeetingId;
+          console.log('✅ Found session with fallback ID');
+        } else {
+          setSessionState({
+            isInitialized: false,
+            isJoined: false,
+            error: 'Session not found or not active. Please wait for teacher to start the class.'
+          });
+          return;
+        }
+      } else {
+        setSessionState({
+          isInitialized: false,
+          isJoined: false,
+          error: 'Session not found or not active. Please wait for teacher to start the class.'
+        });
+        return;
+      }
     }
 
     console.log('✅ Session verified:', {
@@ -101,21 +171,22 @@ const initializeSession = async () => {
       status: sessionInfo.session?.status,
       startedAt: sessionInfo.session?.started_at,
       classTitle: sessionInfo.session?.class_title,
-      channel: sessionInfo.session?.channel_name
+      channel: sessionInfo.session?.channel_name,
+      teacherId: sessionInfo.session?.teacher_id
     });
 
-    // STEP 2: Create Agora client
+    // ========== STEP 3: CREATE AGORA CLIENT ==========
     console.log('🛠️ Creating Agora client...');
     clientRef.current = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
     });
 
-    // STEP 3: Join video session via API
+    // ========== STEP 4: JOIN VIDEO SESSION ==========
     console.log('🚀 Joining video session via API...');
     
-    // CALL WITHOUT BYPASS (third parameter is user_type, not bypass flag)
-    const sessionData = await studentvideoApi.joinVideoSession(meetingId, studentId, 'student');
+    // Use the SMART join method that handles discovery
+    const sessionData = await studentvideoApi.joinClassSession(classId, studentId, 'student');
 
     // Debug the response
     console.log('📥 API Response:', {
@@ -162,7 +233,7 @@ const initializeSession = async () => {
       sessionId: sessionData.session?.id
     });
 
-    // STEP 4: Update session state
+    // ========== STEP 5: UPDATE STATE AND JOIN CHANNEL ==========
     setSessionState({
       isInitialized: true,
       isJoined: false,
@@ -170,7 +241,6 @@ const initializeSession = async () => {
       error: null
     });
 
-    // STEP 5: Join Agora channel
     console.log('🔗 Joining Agora channel...');
     await joinChannel(sessionData);
 
@@ -178,7 +248,7 @@ const initializeSession = async () => {
     console.error('❌ Initialization error:', {
       message: error.message,
       stack: error.stack,
-      meetingId,
+      classId,
       studentId,
       timestamp: new Date().toISOString()
     });
@@ -189,6 +259,8 @@ const initializeSession = async () => {
       errorMessage = 'Permission denied. Please contact support.';
     } else if (error.message.includes('network')) {
       errorMessage = 'Network error. Please check your internet connection.';
+    } else if (error.message.includes('No active session')) {
+      errorMessage = 'No active session found. Teacher needs to start the session first.';
     } else {
       errorMessage += error.message || 'Please try again.';
     }
