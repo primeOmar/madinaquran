@@ -225,91 +225,100 @@ const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
     
-    console.log('🔗 TEACHER: Joining channel with:', {
+    console.log('🔗 TEACHER: Joining channel with params:', {
+      appId: appId?.substring(0, 8) + '...',
       channel,
-      tokenLength: token?.length,
-      appId,
       uid,
-      hasToken: !!token,
-      tokenStart: token?.substring(0, 20) + '...'
+      tokenPresent: !!token,
+      tokenLength: token?.length,
+      tokenPrefix: token?.substring(0, 20) + '...'
     });
 
-    // 1. INITIALIZE AGORA CLIENT (MISSING STEP!)
-    await clientRef.current.init(appId);
-    console.log('✅ Agora client initialized');
-
-    // 2. JOIN WITH TOKEN (ALWAYS USE TOKEN)
+    // ✅ VALIDATE: Ensure we have all required params
+    if (!appId) {
+      throw new Error('Missing App ID');
+    }
+    
+    if (!channel) {
+      throw new Error('Missing channel name');
+    }
+    
     if (!token || token === 'demo_token' || token === 'null') {
-      console.error('❌ No valid token provided!');
-      throw new Error('Invalid token. Check backend token generation.');
+      throw new Error('Invalid or missing token');
     }
 
-    // Always join with token
-    await clientRef.current.join(
+    // ✅ CRITICAL FIX: DO NOT call client.init()
+    // Agora SDK NG (v4.x+) doesn't have init() method
+    // The client auto-initializes when you create it
+    
+    console.log('📞 Calling client.join()...');
+    
+    // Join the channel - let Agora assign UID if not provided
+    const assignedUid = await clientRef.current.join(
       appId,
       channel,
-      token, // ALWAYS use token
-      uid || 0
+      token,
+      uid || null  // null lets Agora auto-assign
     );
     
-    console.log('✅ TEACHER: Successfully joined channel with token:', channel);
+    console.log('✅ TEACHER: Successfully joined channel:', {
+      channel,
+      requestedUid: uid,
+      assignedUid,
+      match: uid === assignedUid
+    });
     
-    // 3. Create and publish tracks
+    // Create and publish local tracks
     await createAndPublishTracks();
 
+    // Update state
     setSessionState(prev => ({
       ...prev,
       isJoined: true
     }));
 
-    // 4. Start duration tracking
+    // Start tracking
     startDurationTracking();
-
-    // 5. Setup event listeners
+    
+    // Setup listeners
     setupAgoraEventListeners();
+    
+    console.log('🎉 TEACHER: Session fully initialized and ready');
 
   } catch (error) {
-    console.error('❌ TEACHER Join channel error:', error);
+    console.error('❌ TEACHER Join channel error:', {
+      error: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack
+    });
     
-    // Check specific error types
-    if (error.message.includes('token') || error.code === 109) {
-      console.error('🔄 Token error - regenerating token...');
-      
-      // Try to get fresh token from backend
-      try {
-        const freshToken = await videoApi.generateFreshToken(
-          sessionData.channel,
-          sessionData.uid || 0,
-          'teacher'
-        );
-        
-        if (freshToken) {
-          console.log('🔄 Retrying with fresh token...');
-          // Rejoin with fresh token
-          await clientRef.current.join(
-            sessionData.appId,
-            sessionData.channel,
-            freshToken,
-            sessionData.uid || 0
-          );
-          
-          console.log('✅ TEACHER: Rejoined successfully with fresh token');
-          await createAndPublishTracks();
-          setSessionState(prev => ({ ...prev, isJoined: true }));
-          startDurationTracking();
-          setupAgoraEventListeners();
-        } else {
-          throw new Error('Cannot generate valid token');
-        }
-      } catch (retryError) {
-        console.error('❌ Token regeneration failed:', retryError);
-        throw new Error(`Token error: ${retryError.message}`);
-      }
-    } else {
-      throw error;
+    // Detailed error handling
+    let errorMessage = 'Failed to join video channel';
+    
+    if (error.code === 'INVALID_PARAMS') {
+      errorMessage = 'Invalid parameters. Check App ID format.';
+    } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER' || error.code === 4096) {
+      errorMessage = 'Cannot reach Agora servers. Check:\n' +
+                    '1. Internet connection\n' +
+                    '2. Firewall settings (allow UDP 3478-3500, TCP 80/443)\n' +
+                    '3. VPN or proxy blocking WebRTC\n' +
+                    '4. App ID is valid (32 characters)';
+    } else if (error.code === 'INVALID_TOKEN' || error.message?.includes('token')) {
+      errorMessage = 'Token authentication failed. The token may be:\n' +
+                    '1. Expired (check backend time)\n' +
+                    '2. Generated for wrong channel\n' +
+                    '3. App Certificate mismatch';
+    } else if (error.code === 'UID_CONFLICT') {
+      errorMessage = 'Another user is already using this UID. Refreshing...';
+      // Could retry here with a different UID
     }
+    
+    throw new Error(errorMessage);
   }
 };
+
+
 
   const initializeParticipants = async (sessionData) => {
     const meetingId = sessionData.meetingId || sessionData.meeting_id;
@@ -349,58 +358,67 @@ const joinChannel = async (sessionData) => {
 
  const createAndPublishTracks = async () => {
   try {
-    console.log('[Agora] TEACHER: Creating local tracks...');
+    console.log('🎥 TEACHER: Creating local tracks...');
 
-    // Create tracks with better error handling
-    let audioTrack, videoTrack;
+    // Create tracks with error handling
+    let audioTrack = null;
+    let videoTrack = null;
     
     try {
-      audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: 'music_standard',
+      });
       console.log('✅ Audio track created');
     } catch (audioError) {
       console.warn('⚠️ Could not create audio track:', audioError);
-      audioTrack = null;
     }
     
     try {
       videoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: '480p',
+        encoderConfig: '480p_1',
         optimizationMode: 'motion'
       });
       console.log('✅ Video track created');
     } catch (videoError) {
       console.warn('⚠️ Could not create video track:', videoError);
-      videoTrack = null;
     }
 
+    // Update state
     setLocalTracks({ audio: audioTrack, video: videoTrack });
 
-    // Publish tracks
+    // Publish tracks to channel
     const tracksToPublish = [];
     if (audioTrack) tracksToPublish.push(audioTrack);
     if (videoTrack) tracksToPublish.push(videoTrack);
     
     if (tracksToPublish.length > 0) {
+      console.log(`📤 Publishing ${tracksToPublish.length} track(s)...`);
       await clientRef.current.publish(tracksToPublish);
-      console.log(`✅ Published ${tracksToPublish.length} track(s)`);
+      console.log('✅ Tracks published successfully');
+    } else {
+      console.warn('⚠️ No tracks to publish');
     }
 
-    // Setup local video playback
+    // Play video locally
     if (videoTrack && localVideoRef.current) {
       try {
         await videoTrack.play(localVideoRef.current);
         if (localVideoRef.current) {
           localVideoRef.current.style.transform = 'scaleX(-1)';
         }
+        console.log('✅ Local video playing');
       } catch (playError) {
         console.warn('⚠️ Video playback requires user interaction');
       }
     }
 
   } catch (error) {
-    console.error('[Agora] TEACHER: Error creating/publishing tracks:', error);
+    console.error('❌ TEACHER: Error creating/publishing tracks:', error);
+    // Don't throw - partial success is OK
   }
 };
+
+
 
   const playLocalVideo = async (track) => {
     if (!track || !localVideoRef.current) return;
