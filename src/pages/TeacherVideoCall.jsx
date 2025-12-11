@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import './TeacherVideoCall.css';
+import videoApi from '../lib/agora/videoApi'
 import { 
   Mic, MicOff, 
   Video, VideoOff, 
@@ -11,139 +12,6 @@ import {
   LogOut, PhoneOff, 
   Send, MessageSquare 
 } from 'lucide-react';
-
-// ============================================
-// VIDEO API LOADER - FIXED
-// ============================================
-
-// REPLACE Lines 32-134 with:
-const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
-
-// Direct API implementation - no module loading
-const videoApi = {
-  startVideoSession: async (classId, userId) => {
-    console.log('📡 TEACHER: Starting video session for', { classId, userId });
-    try {
-      const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          class_id: classId,
-          user_id: userId,
-          role: 'teacher'
-        })
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || `Failed to start video session: ${response.status}`);
-      }
-
-      console.log('✅ TEACHER: Video session started successfully:', {
-        meetingId: data.meeting_id,
-        channel: data.channel,
-        hasToken: !!data.token
-      });
-      
-      return {
-        success: true,
-        meetingId: data.meeting_id,
-        channel: data.channel,
-        token: data.token,
-        appId: data.app_id,
-        uid: data.uid || userId
-      };
-    } catch (error) {
-      console.error('❌ TEACHER: startVideoSession failed:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  joinVideoSession: async (meetingId, userId, role = 'teacher') => {
-    console.log('🎓 TEACHER: Joining video session:', { meetingId, userId, role });
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/agora/join-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          meeting_id: meetingId,
-          user_id: userId,
-          role: role
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || `Failed to join session: ${response.status}`);
-      }
-
-      return {
-        success: true,
-        meetingId: data.meeting_id || meetingId,
-        channel: data.channel,
-        token: data.token,
-        appId: data.app_id,
-        uid: data.uid || userId
-      };
-    } catch (error) {
-      console.error('❌ TEACHER: joinVideoSession failed:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  getSessionByClassId: async (classId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/agora/session-by-class/${classId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok || !data.session) {
-        return {
-          success: false,
-          exists: false,
-          isActive: false
-        };
-      }
-
-      return {
-        success: true,
-        session: data.session,
-        exists: true,
-        isActive: data.session.status === 'active',
-        meetingId: data.session.meeting_id
-      };
-    } catch (error) {
-      console.error('❌ getSessionByClassId failed:', error);
-      return {
-        success: false,
-        exists: false,
-        isActive: false
-      };
-    }
-  }
-};
-
 // ============================================
 // MAIN TEACHER VIDEO CALL COMPONENT
 // ============================================
@@ -202,7 +70,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const remoteUsersRef = useRef({});
   const controlsTimeoutRef = useRef(null);
   const connectionTimeoutRef = useRef(null);
-  const videoApiRef = useRef(videoApi); // Use the already initialized videoApi
+  const videoApiRef = useRef(videoApi); 
 
   // ============================================
   // USE EFFECTS
@@ -470,8 +338,6 @@ const initializeSession = async () => {
   }
 };
 
-
-
   const playLocalVideo = async (track) => {
     if (!track || !localVideoRef.current) return;
     
@@ -493,6 +359,7 @@ const initializeSession = async () => {
       }
     }
   };
+
 
   // ============================================
   // USE EFFECTS FOR TRACKS
@@ -656,7 +523,7 @@ const initializeSession = async () => {
     try {
       const newState = !controls.recording; 
       if (newState) { 
-        await videoApiRef.current.startRecording(sessionState.sessionInfo.meetingId);
+        await videoApi.startRecording(sessionState.sessionInfo.meetingId);
         console.log('[Agora] TEACHER: Recording started');
       } else {
         await videoApiRef.current.stopRecording(sessionState.sessionInfo.meetingId);
@@ -683,7 +550,7 @@ const initializeSession = async () => {
   const endSession = async () => {  
     try {
       setIsEnding(true); 
-      await videoApiRef.current.endVideoSession(sessionState.sessionInfo.meetingId);
+      await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
       await cleanup();
       setIsEnding(false);
       if (onEndCall) onEndCall(true); 
@@ -782,17 +649,17 @@ const initializeSession = async () => {
   };
 
   const startDurationTracking = () => {
-    const startTime = Date.now();
-    
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-    }
-    
-    durationIntervalRef.current = setInterval(() => {
-      const diff = Math.floor((Date.now() - startTime) / 1000);
-      setStats(prev => ({ ...prev, duration: diff }));
-    }, 1000);
-  };
+  const startTime = Date.now();
+  
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+  }
+  
+  durationIntervalRef.current = setInterval(() => {
+    const diff = Math.floor((Date.now() - startTime) / 1000);
+    setStats(prev => ({ ...prev, duration: diff }));
+  }, 1000);
+};
 
   const updateParticipantCount = () => {
     const remoteUsers = clientRef.current?.remoteUsers || [];
@@ -803,40 +670,52 @@ const initializeSession = async () => {
   };
 
   const cleanup = async () => {
-    console.log('[Agora] TEACHER: Cleaning up...');
-    
-    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-    if (participantUpdateIntervalRef.current) clearInterval(participantUpdateIntervalRef.current);
-    if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
-    
+  console.log('🧹 TEACHER: Cleaning up session...');
+  
+  // Clear intervals
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+    durationIntervalRef.current = null;
+  }
+  
+  if (participantUpdateIntervalRef.current) {
+    clearInterval(participantUpdateIntervalRef.current);
+    participantUpdateIntervalRef.current = null;
+  }
+  
+  // Stop and cleanup local tracks
+  if (localTracks.audio) {
     try {
-      if (localTracks.audio) {
-        await clientRef.current?.unpublish([localTracks.audio]).catch(() => {});
-        localTracks.audio.stop();
-        localTracks.audio.close();
-      }
-      if (localTracks.video) {
-        await clientRef.current?.unpublish([localTracks.video]).catch(() => {});
-        localTracks.video.stop();
-        localTracks.video.close();
-      }
-    } catch (e) {
-      console.warn('[Agora] TEACHER: Cleanup warning:', e);
-    }
-    
-    if (clientRef.current) {
+      await clientRef.current?.unpublish([localTracks.audio]);
+      localTracks.audio.stop();
+      localTracks.audio.close();
+    } catch (e) {}
+  }
+  
+  if (localTracks.video) {
+    try {
+      await clientRef.current?.unpublish([localTracks.video]);
+      localTracks.video.stop();
+      localTracks.video.close();
+    } catch (e) {}
+  }
+  
+  // Leave the channel
+  if (clientRef.current) {
+    try {
       await clientRef.current.leave();
-    }
-    
-    Object.values(remoteUsersRef.current).forEach(userData => {
-      if (userData.container) {
-        userData.container.remove();
-      }
-    });
-    remoteUsersRef.current = {};
-    
-    setLocalTracks({ audio: null, video: null });
-  };
+    } catch (e) {}
+  }
+  
+  // Clear state
+  setLocalTracks({ audio: null, video: null });
+  setSessionState({
+    isInitialized: false,
+    isJoined: false,
+    sessionInfo: null,
+    error: null
+  });
+};
 
   const formatDuration = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -849,67 +728,57 @@ const initializeSession = async () => {
   // EVENT LISTENERS
   // ============================================
 
-  const setupAgoraEventListeners = () => {
-    const client = clientRef.current;
+const setupAgoraEventListeners = () => {
+  const client = clientRef.current;
 
-    client.on('user-published', async (user, mediaType) => {
-      console.log('[Agora] TEACHER: User published:', user.uid, mediaType);
+  client.on('user-published', async (user, mediaType) => {
+    console.log('👤 User joined:', user.uid, mediaType);
+    
+    try {
+      await client.subscribe(user, mediaType);
       
-      try {
-        await client.subscribe(user, mediaType);
-        
-        if (mediaType === 'video') {
-          const videoContainer = document.createElement('div');
-          videoContainer.id = `remote-video-${user.uid}`;
-          videoContainer.className = 'remote-video-container';
-          
-          const videoElement = document.createElement('video');
-          videoElement.id = `video-${user.uid}`;
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.className = 'remote-video-element';
-          
-          videoContainer.appendChild(videoElement);
-          
-          const remoteVideosGrid = document.querySelector('.remote-videos-grid');
-          if (remoteVideosGrid) {
-            remoteVideosGrid.appendChild(videoContainer);
-          }
-          
-          user.videoTrack.play(videoElement);
-          remoteUsersRef.current[user.uid] = { container: videoContainer, videoElement };
-        }
-        
-        if (mediaType === 'audio') {
-          user.audioTrack.play();
-        }
-      } catch (error) {
-        console.warn('[Agora] TEACHER: Failed to handle user-published:', error);
-      }
-      
-      updateParticipantCount();
-    });
-
-    client.on('user-unpublished', (user, mediaType) => {
       if (mediaType === 'video') {
-        const userData = remoteUsersRef.current[user.uid];
-        if (userData && userData.container) {
-          userData.container.remove();
-          delete remoteUsersRef.current[user.uid];
+        // Create video element for remote user
+        const videoContainer = document.createElement('div');
+        videoContainer.id = `remote-${user.uid}`;
+        videoContainer.className = 'remote-video-item';
+        
+        const videoElement = document.createElement('video');
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.style.width = '100%';
+        videoElement.style.height = '100%';
+        videoElement.style.objectFit = 'cover';
+        
+        videoContainer.appendChild(videoElement);
+        
+        // Add to remote videos grid
+        const grid = document.querySelector('.remote-videos-grid');
+        if (grid) {
+          grid.appendChild(videoContainer);
         }
+        
+        // Play the video track
+        user.videoTrack.play(videoElement);
       }
-      updateParticipantCount();
-    });
+      
+      if (mediaType === 'audio') {
+        user.audioTrack.play();
+      }
+    } catch (error) {
+      console.warn('Failed to handle user:', error);
+    }
+  });
 
-    client.on('user-left', (user) => {
-      const userData = remoteUsersRef.current[user.uid];
-      if (userData && userData.container) {
-        userData.container.remove();
-        delete remoteUsersRef.current[user.uid];
-      }
-      updateParticipantCount();
-    });
-  };
+  client.on('user-left', (user) => {
+    console.log('👤 User left:', user.uid);
+    // Remove the video element
+    const videoElement = document.getElementById(`remote-${user.uid}`);
+    if (videoElement) {
+      videoElement.remove();
+    }
+  });
+};
 
   // ============================================
   // RENDER FUNCTIONS

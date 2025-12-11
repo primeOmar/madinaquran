@@ -6,75 +6,39 @@ const videoApi = {
    * Start a video session (for teachers)
    * Creates new session and returns meeting ID for students to join
    */
-  async startVideoSession(classId, userId) {
+ async startVideoSession(classId, userId) {
     try {
-      console.log('📡 TEACHER API: Starting video session via /agora/start-session', {
-        classId,
-        userId,
-        timestamp: new Date().toISOString()
-      });
-
-      const response = await fetch(`${API_BASE_URL}/agora/start-session`, {
+      console.log('🚀 Starting video session...', { classId, userId });
+      
+      const response = await fetch(`${API_BASE}/start-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
           class_id: classId,
-          user_id: userId,
-          role: 'teacher'
+          user_id: userId
         })
       });
 
       const data = await response.json();
-
+      
       if (!response.ok) {
-        console.error('❌ TEACHER API Error Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          data
-        });
-        throw new Error(data.error || `Failed to start video session: ${response.status}`);
+        throw new Error(data.error || `HTTP ${response.status}`);
       }
 
-      // VALIDATE RESPONSE HAS ALL REQUIRED FIELDS
-      if (!data.meeting_id || !data.channel || !data.token || !data.app_id) {
-        console.error('❌ TEACHER API: Incomplete response:', data);
-        throw new Error('Invalid response from server: missing required fields');
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to create session');
       }
 
-      console.log('✅ TEACHER API: Video session started successfully:', {
-        meetingId: data.meeting_id,
-        channel: data.channel,
-        tokenExists: !!data.token,
-        tokenLength: data.token?.length,
-        appId: data.app_id,
-        sessionExists: !!data.session,
-        uid: data.uid
-      });
-
-      return {
-        success: true,
-        meetingId: data.meeting_id,
-        channel: data.channel,
-        token: data.token,
-        appId: data.app_id,
-        uid: data.uid || userId,
-        session: data.session,
-        class_title: data.class_title,
-        role: 'teacher'
-      };
+      console.log('✅ Session created:', data);
+      return data;
 
     } catch (error) {
-      console.error('❌ TEACHER API: startVideoSession failed:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to start video session'
-      };
+      console.error('❌ Failed to start video session:', error);
+      throw new Error(`Failed to start session: ${error.message}`);
     }
   },
-
   /**
    * Join a video session (for students) - UPDATED
    * Student joins using same meeting_id from teacher's session
@@ -212,90 +176,67 @@ const videoApi = {
   /**
    * Get session info without joining - UPDATED
    */
-  async getSessionInfo(meetingId) {
+ // Student: Join session
+  async joinVideoSession(meetingId, userId) {
     try {
-      console.log('🔍 API: Getting session info for:', {
-        meetingId,
-        endpoint: `${API_BASE_URL}/agora/session-info/${meetingId}`
-      });
-
-      const response = await fetch(`${API_BASE_URL}/agora/session-info/${meetingId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
-
-      console.log('📊 API: Session info response:', {
-        status: response.status,
-        ok: response.ok,
-        hasSession: !!data.session,
-        sessionStatus: data.session?.status,
-        meetingIdMatch: data.session?.meeting_id === meetingId
-      });
-
-      if (!response.ok) {
-        console.warn('⚠️ API: getSessionInfo failed:', {
-          status: response.status,
-          error: data.error
-        });
-        return {
-          success: false,
-          error: data.error || 'Session not found',
-          exists: false,
-          isActive: false
-        };
+      console.log('🎓 Joining video session...', { meetingId, userId });
+      
+      // First, get session info
+      const sessionInfo = await this.getSessionInfo(meetingId);
+      
+      if (!sessionInfo.success) {
+        throw new Error('Session not found. Teacher needs to start the session first.');
       }
-
-      if (!data.session) {
-        return {
-          success: true,
-          exists: false,
-          isActive: false,
-          error: 'Session data missing from response'
-        };
-      }
-
-      const sessionExists = !!data.session;
-      const isActive = data.session?.status === 'active';
-
-      console.log('✅ API: Session info retrieved:', {
-        exists: sessionExists,
-        isActive,
-        status: data.session?.status,
-        meetingId: data.session?.meeting_id,
-        channel: data.session?.channel_name,
-        startedAt: data.session?.started_at
-      });
 
       return {
-        success: true,
-        session: data.session,
-        exists: sessionExists,
-        isActive,
-        channel: data.session?.channel_name,
-        appId: data.session?.app_id
+        ...sessionInfo,
+        userId,
+        joinedAt: new Date().toISOString()
       };
 
     } catch (error) {
-      console.error('❌ API: getSessionInfo failed:', {
-        error: error.message,
-        meetingId,
-        endpoint: `${API_BASE_URL}/agora/session-info/${meetingId}`
-      });
+      console.error('❌ Failed to join video session:', error);
+      throw error;
+    }
+  },
+
+
+  async getSessionInfo(meetingId) {
+    try {
+      const response = await fetch(`${API_BASE}/session-info/${meetingId}`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      return data;
+
+    } catch (error) {
+      console.error('❌ Failed to get session info:', error);
       return {
         success: false,
-        error: error.message,
-        exists: false,
-        isActive: false
+        error: error.message
       };
     }
   },
 
-  // Add this to your videoApi.js (in the shared module)
+
+  async findClassSession(classId) {
+    try {
+      const response = await fetch(`${API_BASE}/find-session/${classId}`);
+      const data = await response.json();
+      
+      return data;
+
+    } catch (error) {
+      console.error('❌ Failed to find class session:', error);
+      return {
+        success: false,
+        error: error.message
+      }
+    }
+  },
 async smartTeacherJoin(classId, teacherId) {
   try {
     console.log('👨‍🏫 SMART TEACHER JOIN: Finding or creating session for class:', classId);
