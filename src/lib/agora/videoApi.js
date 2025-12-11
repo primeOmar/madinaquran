@@ -1,6 +1,6 @@
 // lib/agora/videoApi.js - UPDATED FOR TEACHER-STUDENT SYNC
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
-
+const API_BASE = 'https://madina-quran-backend.onrender.com/api';
 const videoApi = {
   /**
    * Start a video session (for teachers)
