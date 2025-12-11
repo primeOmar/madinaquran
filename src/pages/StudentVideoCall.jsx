@@ -63,177 +63,96 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
 const initializeSession = async () => {
   try {
-    console.log('🎓 SMART STUDENT: Finding video session for class:', {
+    console.log('🎓 STUDENT: Starting initialization', {
       classId,
       studentId,
       providedMeetingId: meetingId,
       timestamp: new Date().toISOString()
     });
 
-    // ========== STEP 1: FIND THE RIGHT MEETING ID ==========
-    let effectiveMeetingId = meetingId;
+    // ========== STEP 1: FIND ACTIVE SESSION ==========
+    console.log('🔍 Finding active session for class:', classId);
     
-    if (!effectiveMeetingId || effectiveMeetingId === 'undefined' || effectiveMeetingId === 'null') {
-      console.log('🔍 No meeting ID provided, finding active session for class:', classId);
-      
-      // Try to find active session for this class
-      const classSession = await studentvideoApi.getSessionByClassId(classId);
-      
-      if (classSession.exists && classSession.isActive) {
-        effectiveMeetingId = classSession.meetingId;
-        console.log('✅ Found active session:', {
-          meetingId: effectiveMeetingId,
-          teacher: classSession.teacher_id,
-          channel: classSession.channel
-        });
-      } else {
-        // Try common meeting ID patterns
-        console.log('🔄 Trying common meeting ID patterns...');
-        const commonPatterns = [
-          `class_${classId}`, 
-          `class_${classId}_${classId}`, 
-          `class_channel_${classId}`, 
-        ];
-        
-        // Try each pattern
-        for (const pattern of commonPatterns) {
-          try {
-            const sessionInfo = await studentvideoApi.getSessionInfo(pattern);
-            if (sessionInfo.exists && sessionInfo.isActive) {
-              effectiveMeetingId = pattern;
-              console.log('✅ Found session with pattern:', pattern);
-              break;
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-        
-        if (!effectiveMeetingId) {
-          // Fallback to generic pattern
-          effectiveMeetingId = `class_${classId}`;
-          console.log('⚠️ Using fallback meeting ID:', effectiveMeetingId);
-        }
-      }
-    }
-
-    console.log('🎯 STUDENT: Using meeting ID:', effectiveMeetingId);
-
-    // ========== STEP 2: VALIDATE SESSION ==========
-    const sessionInfo = await studentvideoApi.getSessionInfo(effectiveMeetingId);
+    const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
     
-    if (!sessionInfo.success) {
-      console.error('❌ Failed to fetch session info:', sessionInfo.error);
+    console.log('📊 Session lookup result:', {
+      success: sessionLookup.success,
+      exists: sessionLookup.exists,
+      isActive: sessionLookup.isActive,
+      meetingId: sessionLookup.meetingId,
+      channel: sessionLookup.channel,
+      error: sessionLookup.error
+    });
+
+    if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
+      const errorMsg = sessionLookup.error || 'No active session found for this class. Please wait for teacher to start the session.';
+      console.error('❌ Session not available:', errorMsg);
+      
       setSessionState({
         isInitialized: false,
         isJoined: false,
-        error: sessionInfo.error || 'Unable to verify session status'
+        error: errorMsg
       });
       return;
     }
-    
-    if (!sessionInfo.exists || !sessionInfo.isActive) {
-      console.error('❌ Session issue:', { 
-        exists: sessionInfo.exists,
-        isActive: sessionInfo.isActive,
-        status: sessionInfo.session?.status 
-      });
-      
-      // Try one more time with generic ID
-      if (effectiveMeetingId !== `class_${classId}`) {
-        console.log('🔄 Trying generic meeting ID as fallback...');
-        const fallbackMeetingId = `class_${classId}`;
-        const fallbackSession = await studentvideoApi.getSessionInfo(fallbackMeetingId);
-        
-        if (fallbackSession.exists && fallbackSession.isActive) {
-          effectiveMeetingId = fallbackMeetingId;
-          console.log('✅ Found session with fallback ID');
-        } else {
-          setSessionState({
-            isInitialized: false,
-            isJoined: false,
-            error: 'Session not found or not active. Please wait for teacher to start the class.'
-          });
-          return;
-        }
-      } else {
-        setSessionState({
-          isInitialized: false,
-          isJoined: false,
-          error: 'Session not found or not active. Please wait for teacher to start the class.'
-        });
-        return;
-      }
-    }
 
-    console.log('✅ Session verified:', {
-      meetingId: sessionInfo.session?.meeting_id,
-      status: sessionInfo.session?.status,
-      startedAt: sessionInfo.session?.started_at,
-      classTitle: sessionInfo.session?.class_title,
-      channel: sessionInfo.session?.channel_name,
-      teacherId: sessionInfo.session?.teacher_id
-    });
+    const effectiveMeetingId = sessionLookup.meetingId;
+    console.log('✅ Found active session, meeting ID:', effectiveMeetingId);
 
-    // ========== STEP 3: CREATE AGORA CLIENT ==========
+    // ========== STEP 2: CREATE AGORA CLIENT ==========
     console.log('🛠️ Creating Agora client...');
     clientRef.current = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
     });
+    console.log('✅ Agora client created');
 
-    // ========== STEP 4: JOIN VIDEO SESSION ==========
-    console.log('🚀 Joining video session via API...');
+    // ========== STEP 3: JOIN VIDEO SESSION ==========
+    console.log('🚀 Joining session via API...');
     
-    // Use the SMART join method that handles discovery
-    const sessionData = await studentvideoApi.joinClassSession(classId, studentId, 'student');
+    const sessionData = await studentvideoApi.joinVideoSession(
+      effectiveMeetingId,
+      studentId,
+      'student'
+    );
 
-    // Debug the response
-    console.log('📥 API Response:', {
+    console.log('📥 Join API Response:', {
       success: sessionData?.success,
       hasToken: !!sessionData?.token,
+      tokenLength: sessionData?.token?.length,
       hasChannel: !!sessionData?.channel,
+      channelValue: sessionData?.channel,
       hasAppId: !!sessionData?.appId,
-      error: sessionData?.error,
-      data: sessionData
+      appIdValue: sessionData?.appId,
+      uid: sessionData?.uid,
+      error: sessionData?.error
     });
 
     if (!sessionData.success) {
-      console.error('❌ Failed to join session via API:', sessionData.error);
-      setSessionState({
-        isInitialized: false,
-        isJoined: false,
-        error: sessionData.error || 'Failed to join video session. Please try again.'
-      });
-      return;
+      throw new Error(sessionData.error || 'Failed to join video session');
     }
 
-    // Validate API response
-    if (!sessionData.token || !sessionData.channel || !sessionData.appId) {
-      console.error('❌ Invalid API response:', {
-        hasToken: !!sessionData.token,
-        hasChannel: !!sessionData.channel,
-        hasAppId: !!sessionData.appId,
-        data: sessionData
-      });
-      setSessionState({
-        isInitialized: false,
-        isJoined: false,
-        error: 'Invalid server response. Please refresh and try again.'
-      });
-      return;
+    // ========== STEP 4: VALIDATE RESPONSE ==========
+    if (!sessionData.token || sessionData.token.length < 100) {
+      throw new Error(`Invalid token received: ${sessionData.token?.length || 0} chars`);
     }
 
-    console.log('✅ Session credentials received:', {
+    if (!sessionData.channel) {
+      throw new Error('Channel name missing from response');
+    }
+
+    if (!sessionData.appId || sessionData.appId.length !== 32) {
+      throw new Error(`Invalid App ID: ${sessionData.appId?.length || 0} chars`);
+    }
+
+    console.log('✅ Session credentials validated:', {
       channel: sessionData.channel,
-      tokenLength: sessionData.token?.length,
-      appId: sessionData.appId,
-      uid: sessionData.uid,
-      teacherId: sessionData.teacher_id,
-      sessionId: sessionData.session?.id
+      tokenLength: sessionData.token.length,
+      appId: sessionData.appId.substring(0, 8) + '...',
+      uid: sessionData.uid
     });
 
-    // ========== STEP 5: UPDATE STATE AND JOIN CHANNEL ==========
+    // ========== STEP 5: UPDATE STATE AND JOIN ==========
     setSessionState({
       isInitialized: true,
       isJoined: false,
@@ -245,56 +164,85 @@ const initializeSession = async () => {
     await joinChannel(sessionData);
 
   } catch (error) {
-    console.error('❌ Initialization error:', {
+    console.error('❌ STUDENT Initialization error:', {
       message: error.message,
       stack: error.stack,
       classId,
-      studentId,
-      timestamp: new Date().toISOString()
+      studentId
     });
     
     let errorMessage = 'Failed to join video session. ';
     
-    if (error.message.includes('permission') || error.message.includes('403')) {
-      errorMessage = 'Permission denied. Please contact support.';
-    } else if (error.message.includes('network')) {
-      errorMessage = 'Network error. Please check your internet connection.';
-    } else if (error.message.includes('No active session')) {
-      errorMessage = 'No active session found. Teacher needs to start the session first.';
+    if (error.message.includes('No active session')) {
+      errorMessage = 'Teacher has not started the session yet. Please wait for teacher to start the class.';
+    } else if (error.message.includes('token')) {
+      errorMessage = 'Authentication failed. Please refresh the page and try again.';
+    } else if (error.message.includes('App ID')) {
+      errorMessage = 'Configuration error. Please contact support.';
     } else {
       errorMessage += error.message || 'Please try again.';
     }
 
-    setSessionState(prev => ({
-      ...prev,
+    setSessionState({
       isInitialized: false,
+      isJoined: false,
       error: errorMessage
-    }));
+    });
   }
 };
+
 
   // ============================================
   // Join Channel -
   // ============================================
 
- const joinChannel = async (sessionData) => {
+const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
 
-    console.log('🔗 Joining Agora channel with:', {
+    console.log('🔗 STUDENT: Joining channel with exact params:', {
+      appId: appId?.substring(0, 8) + '...',
+      appIdLength: appId?.length,
       channel,
+      channelLength: channel?.length,
       uid,
-      appId: appId ? '✅' : '❌',
-      token: token ? '✅' : '❌',
-      sessionId: sessionData.session?.id
+      uidType: typeof uid,
+      token: token?.substring(0, 30) + '...',
+      tokenLength: token?.length
     });
+
+    // Validate all params
+    if (!appId || appId.length !== 32) {
+      throw new Error(`Invalid App ID: ${appId?.length || 0} chars, expected 32`);
+    }
+
+    if (!channel) {
+      throw new Error('Channel name is missing');
+    }
+
+    if (!token || token.length < 100) {
+      throw new Error(`Invalid token: ${token?.length || 0} chars, expected 100+`);
+    }
 
     // Setup event listeners FIRST
     setupAgoraEventListeners();
 
-    // Join channel
-    await clientRef.current.join(appId, channel, token, uid);
-    console.log('✅ Successfully joined channel');
+    console.log('📞 Calling client.join()...');
+
+    // Join with exact parameters (don't modify uid!)
+    const joinedUid = await clientRef.current.join(
+      appId,
+      channel,
+      token,
+      uid || null
+    );
+
+    console.log('✅ STUDENT: Successfully joined channel:', {
+      channel,
+      requestedUid: uid,
+      assignedUid: joinedUid,
+      match: uid === joinedUid || uid === null
+    });
 
     // Create and publish local tracks
     await createAndPublishLocalTracks();
@@ -308,30 +256,45 @@ const initializeSession = async () => {
     // Start duration tracking
     startDurationTracking();
     
-    // Update participant status in database
+    // Update participant status
     await updateParticipantStatus({ status: 'joined' });
 
-    // Start message polling if session has ID
+    // Start message polling
     if (sessionData.session?.id) {
       startMessagePolling(sessionData.session.id);
     }
 
-    console.log('🎉 STUDENT: Video session fully initialized and joined');
+    console.log('🎉 STUDENT: Fully joined and ready');
 
   } catch (error) {
-    console.error('❌ Join channel error:', {
+    console.error('❌ STUDENT Join channel error:', {
       message: error.message,
+      code: error.code,
       channel: sessionData.channel,
-      uid: sessionData.uid,
-      timestamp: new Date().toISOString()
+      uid: sessionData.uid
     });
     
-    // Clean up on failure
-    await performCompleteCleanup();
+    // Enhanced error handling
+    if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
+      if (error.message?.includes('invalid token')) {
+        throw new Error(
+          'Token authentication failed. This usually means:\n' +
+          '1. Token expired\n' +
+          '2. Token/channel mismatch\n' +
+          '3. Wrong App Certificate\n\n' +
+          'Please refresh and try again.'
+        );
+      } else {
+        throw new Error('Cannot connect to video servers. Check your internet connection.');
+      }
+    } else if (error.code === 'INVALID_TOKEN') {
+      throw new Error('Session token is invalid. Please refresh and try again.');
+    }
     
-    throw new Error(`Failed to join video channel: ${error.message}`);
+    throw error;
   }
 };
+
 
   // ============================================
   // Device Detection

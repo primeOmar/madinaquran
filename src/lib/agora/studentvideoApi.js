@@ -600,6 +600,71 @@ async generateAgoraCredentials(channelName, userId) {
   }
 },
 
+
+async getSessionByClassId(classId) {
+  try {
+    console.log('🔍 API: Getting session by class ID:', { classId });
+
+    const response = await fetch(`${API_BASE_URL}/agora/session-by-class/${classId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const data = await response.json();
+
+    console.log('📊 API: Session by class response:', {
+      status: response.status,
+      success: data.success,
+      hasSession: !!data.session,
+      exists: data.exists,
+      isActive: data.isActive,
+      meetingId: data.meetingId,
+      channel: data.channel
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        exists: false,
+        isActive: false,
+        error: data.error || 'No active session for this class'
+      };
+    }
+
+    if (!data.session) {
+      return {
+        success: false,
+        exists: false,
+        isActive: false,
+        error: 'Session data missing from response'
+      };
+    }
+
+    return {
+      success: true,
+      session: data.session,
+      exists: data.exists,
+      isActive: data.isActive,
+      meetingId: data.meetingId || data.session.meeting_id,
+      channel: data.channel || data.session.channel_name,
+      appId: data.session?.app_id,
+      teacher_id: data.teacher_id || data.session.teacher_id
+    };
+
+  } catch (error) {
+    console.error('❌ API: getSessionByClassId failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      exists: false,
+      isActive: false
+    };
+  }
+},
+
   /**
    * Get session participants with role info - ENHANCED
    */

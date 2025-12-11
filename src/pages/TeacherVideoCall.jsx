@@ -418,8 +418,6 @@ const joinChannel = async (sessionData) => {
   }
 };
 
-
-
   const playLocalVideo = async (track) => {
     if (!track || !localVideoRef.current) return;
     
