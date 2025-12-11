@@ -10,7 +10,7 @@ const videoApi = {
     try {
       console.log('🚀 Starting video session...', { classId, userId });
       
-      const response = await fetch(`${API_BASE}/start-session`, {
+      const response = await fetch(`${API_BASE}/agora/start-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -203,7 +203,7 @@ const videoApi = {
 
   async getSessionInfo(meetingId) {
     try {
-      const response = await fetch(`${API_BASE}/session-info/${meetingId}`);
+      const response = await fetch(`${API_BASE}/agora/session-info/${meetingId}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -224,7 +224,7 @@ const videoApi = {
 
   async findClassSession(classId) {
     try {
-      const response = await fetch(`${API_BASE}/find-session/${classId}`);
+      const response = await fetch(`${API_BASE}/agora/find-session/${classId}`);
       const data = await response.json();
       
       return data;
