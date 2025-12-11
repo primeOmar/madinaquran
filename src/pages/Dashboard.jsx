@@ -253,7 +253,7 @@ const getTimeUntilClass = (classItem) => {
     const minsLeft = Math.floor(timeLeft / (1000 * 60));
     return { status: 'live', text: `Live Session - ${minsLeft}m left` };
   } else if (isCompleted) {
-    return { status: 'completed', text: 'AI Review Available' };
+    return { status: 'completed', text: 'Review Available' };
   } else {
     const diffMs = classTime - now;
     const diffMins = Math.floor(diffMs / (1000 * 60));
@@ -670,7 +670,7 @@ const ClassItem = ({ classItem, formatDate, formatTime, getTimeUntilClass, onJoi
                   ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white animate-pulse'
                   : 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white'
               }`}>
-                {isClassCompleted ? 'AI Reviewed' :
+                {isClassCompleted ? 'Reviewed' :
                   isClassLive ? 'Madina Live' :
                   'Scheduled'}
               </span>
