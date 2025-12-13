@@ -34,7 +34,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     hasCamera: false, // Track if camera exists
     hasMicrophone: false // Track if mic exists
   });
-
   
 const [userProfiles, setUserProfiles] = useState(new Map()); 
 const [participants, setParticipants] = useState([]); 
@@ -144,135 +143,55 @@ const fetchProfilesByUids = async (uids) => {
 };
 
 
+
 const initializeSession = async () => {
-  try {
-    console.log('🎓 STUDENT: Starting initialization', {
-      classId,
-      studentId,
-      providedMeetingId: meetingId,
-      timestamp: new Date().toISOString()
-    });
+    try {
+      console.log('🎓 STUDENT: Starting initialization', { classId, meetingId });
 
-    // ========== STEP 1: FIND ACTIVE SESSION ==========
-    console.log('🔍 Finding active session for class:', classId);
-    
-    const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
-    
-    console.log('📊 Session lookup result:', {
-      success: sessionLookup.success,
-      exists: sessionLookup.exists,
-      isActive: sessionLookup.isActive,
-      meetingId: sessionLookup.meetingId,
-      channel: sessionLookup.channel,
-      error: sessionLookup.error
-    });
-
-    if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
-      const errorMsg = sessionLookup.error || 'No active session found for this class. Please wait for teacher to start the session.';
-      console.error('❌ Session not available:', errorMsg);
+      // 1. Get Session Info
+      const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
       
+      if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
+        throw new Error(sessionLookup.error || 'No active session found. Waiting for teacher...');
+      }
+
+      const effectiveMeetingId = sessionLookup.meetingId;
+      
+      // 🔥 FIX: Fetch profiles BEFORE joining to map names correctly on first render
+      await fetchProfiles(effectiveMeetingId); 
+      
+      // 2. Create Client
+      clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+      // 3. Join via API
+      const sessionData = await studentvideoApi.joinVideoSession(
+        effectiveMeetingId,
+        studentId,
+        'student'
+      );
+
+      if (!sessionData.success || !sessionData.token) {
+        throw new Error(sessionData.error || 'Failed to join session');
+      }
+
       setSessionState({
-        isInitialized: false,
+        isInitialized: true,
         isJoined: false,
-        error: errorMsg
+        sessionInfo: sessionData,
+        error: null
       });
-      return;
+
+      // 4. Join Channel
+      await joinChannel(sessionData);
+
+    } catch (error) {
+      console.error('❌ Init Error:', error);
+      setSessionState(prev => ({ 
+        ...prev, 
+        error: error.message || 'Failed to connect' 
+      }));
     }
-
-    const effectiveMeetingId = sessionLookup.meetingId;
-    console.log('✅ Found active session, meeting ID:', effectiveMeetingId);
-
-    // ========== STEP 2: CREATE AGORA CLIENT ==========
-    console.log('🛠️ Creating Agora client...');
-    clientRef.current = AgoraRTC.createClient({ 
-      mode: 'rtc', 
-      codec: 'vp8' 
-    });
-    console.log('✅ Agora client created');
-
-    // ========== STEP 3: JOIN VIDEO SESSION ==========
-    console.log('🚀 Joining session via API...');
-    
-    const sessionData = await studentvideoApi.joinVideoSession(
-      effectiveMeetingId,
-      studentId,
-      'student'
-    );
-
-    console.log('📥 Join API Response:', {
-      success: sessionData?.success,
-      hasToken: !!sessionData?.token,
-      tokenLength: sessionData?.token?.length,
-      hasChannel: !!sessionData?.channel,
-      channelValue: sessionData?.channel,
-      hasAppId: !!sessionData?.appId,
-      appIdValue: sessionData?.appId,
-      uid: sessionData?.uid,
-      error: sessionData?.error
-    });
-
-    if (!sessionData.success) {
-      throw new Error(sessionData.error || 'Failed to join video session');
-    }
-
-    // ========== STEP 4: VALIDATE RESPONSE ==========
-    if (!sessionData.token || sessionData.token.length < 100) {
-      throw new Error(`Invalid token received: ${sessionData.token?.length || 0} chars`);
-    }
-
-    if (!sessionData.channel) {
-      throw new Error('Channel name missing from response');
-    }
-
-    if (!sessionData.appId || sessionData.appId.length !== 32) {
-      throw new Error(`Invalid App ID: ${sessionData.appId?.length || 0} chars`);
-    }
-
-    console.log('✅ Session credentials validated:', {
-      channel: sessionData.channel,
-      tokenLength: sessionData.token.length,
-      appId: sessionData.appId.substring(0, 8) + '...',
-      uid: sessionData.uid
-    });
-
-    // ========== STEP 5: UPDATE STATE AND JOIN ==========
-    setSessionState({
-      isInitialized: true,
-      isJoined: false,
-      sessionInfo: sessionData,
-      error: null
-    });
-
-    console.log('🔗 Joining Agora channel...');
-    await joinChannel(sessionData);
-
-  } catch (error) {
-    console.error('❌ STUDENT Initialization error:', {
-      message: error.message,
-      stack: error.stack,
-      classId,
-      studentId
-    });
-    
-    let errorMessage = 'Failed to join video session. ';
-    
-    if (error.message.includes('No active session')) {
-      errorMessage = 'Teacher has not started the session yet. Please wait for teacher to start the class.';
-    } else if (error.message.includes('token')) {
-      errorMessage = 'Authentication failed. Please refresh the page and try again.';
-    } else if (error.message.includes('App ID')) {
-      errorMessage = 'Configuration error. Please contact support.';
-    } else {
-      errorMessage += error.message || 'Please try again.';
-    }
-
-    setSessionState({
-      isInitialized: false,
-      isJoined: false,
-      error: errorMessage
-    });
-  }
-};
+  };
 
 
   // ============================================
@@ -393,6 +312,28 @@ const joinChannel = async (sessionData) => {
   }
 };
 
+const fetchProfiles = async (meetingId) => {
+  const result = await studentvideoApi.getParticipantProfiles(meetingId);
+  
+  if (result.success) {
+    const profileMap = new Map();
+    let teacherUidFound = null;
+    
+    result.participants.forEach(p => {
+      // Ensure the key is a string to match Agora's user.uid type
+      const uidString = String(p.agoraUid); 
+      profileMap.set(uidString, p);
+      if (p.role === 'teacher') {
+        teacherUidFound = uidString;
+      }
+    });
+    
+    setUserProfiles(profileMap);
+    setTeacherUid(teacherUidFound);
+    // Update participant count based on the actual profile list
+    setStats(prev => ({ ...prev, participantCount: profileMap.size }));
+  }
+};
 
   // ============================================
   // Device Detection
@@ -430,142 +371,72 @@ const joinChannel = async (sessionData) => {
   // Agora Event Listeners - FIXED
   // ============================================
 
-  const setupAgoraEventListeners = () => {
+const setupAgoraEventListeners = () => {
     const client = clientRef.current;
-
     if (!client) return;
 
     client.on('user-published', async (user, mediaType) => {
-  console.log('👤 User published:', user.uid, mediaType);
-  
-  try {
-    await client.subscribe(user, mediaType);
-    
-    // Update remote tracks
-    if (mediaType === 'video') {
-      setRemoteTracks(prev => {
-        const updated = new Map(prev);
-        const existing = updated.get(user.uid) || {};
-        updated.set(user.uid, { ...existing, video: user.videoTrack });
-        return updated;
-      });
-      
-      // Auto-play video
-      setTimeout(() => {
-        const videoElement = document.getElementById(`remote-video-${user.uid}`);
-        if (videoElement && user.videoTrack) {
-          try {
-            user.videoTrack.play(videoElement);
-          } catch (playError) {
-            console.warn('Remote video play error:', playError);
-          }
-        }
-      }, 100);
-    }
-    
-    if (mediaType === 'audio') {
-      setRemoteTracks(prev => {
-        const updated = new Map(prev);
-        const existing = updated.get(user.uid) || {};
-        updated.set(user.uid, { ...existing, audio: user.audioTrack });
-        return updated;
-      });
-      
-      if (user.audioTrack) {
-        try {
-          user.audioTrack.play();
-        } catch (playError) {
-          console.warn('Remote audio play error:', playError);
-        }
-      }
-    }
-    
-    // CRITICAL: Fetch profile for this new user
-    if (!userProfiles.has(user.uid.toString())) {
-      fetchProfilesByUids([user.uid]);
-    }
-    
-    updateParticipantCount();
-    
-  } catch (error) {
-    console.error('Subscribe error:', error);
-  }
-});
-    client.on('user-unpublished', (user, mediaType) => {
-      console.log('👤 User unpublished:', user.uid, mediaType);
+      await client.subscribe(user, mediaType);
       
       if (mediaType === 'video') {
         setRemoteTracks(prev => {
-          const updated = new Map(prev);
-          const tracks = updated.get(user.uid);
-          if (tracks) {
-            updated.set(user.uid, { ...tracks, video: null });
-          }
-          return updated;
+          const newMap = new Map(prev);
+          const existing = newMap.get(user.uid) || {};
+          newMap.set(user.uid, { ...existing, video: user.videoTrack });
+          return newMap;
         });
       }
+
+      if (mediaType === 'audio') {
+        user.audioTrack?.play();
+        setRemoteTracks(prev => {
+          const newMap = new Map(prev);
+          const existing = newMap.get(user.uid) || {};
+          newMap.set(user.uid, { ...existing, audio: user.audioTrack });
+          return newMap;
+        });
+      }
+      
+      // 🔥 NEW: Fetch profiles when a user publishes tracks
+      const meetingId = sessionState.sessionInfo?.meetingId; 
+      if (meetingId) {
+        // Use a timeout to avoid spamming the backend during rapid joins
+        clearTimeout(profilePollingRef.current);
+        profilePollingRef.current = setTimeout(() => fetchProfiles(meetingId), 1500); 
+      }
+      
+      updateParticipantCount();
+    });
+
+    client.on('user-unpublished', (user, mediaType) => {
+      if (mediaType === 'video') {
+        setRemoteTracks(prev => {
+          const newMap = new Map(prev);
+          const existing = newMap.get(user.uid);
+          if (existing) newMap.set(user.uid, { ...existing, video: null });
+          return newMap;
+        });
+      }
+      // No need to fetch profiles here, as user is still in call, just track status changed
       updateParticipantCount();
     });
 
     client.on('user-left', (user) => {
-      console.log('👤 User left:', user.uid);
-      
       setRemoteTracks(prev => {
-        const updated = new Map(prev);
-        updated.delete(user.uid);
-        return updated;
+        const newMap = new Map(prev);
+        newMap.delete(user.uid);
+        return newMap;
       });
+      
+      // 🔥 NEW: Fetch profiles when a user leaves to remove their name/role
+      const meetingId = sessionState.sessionInfo?.meetingId; 
+      if (meetingId) {
+        fetchProfiles(meetingId); // Immediate call is fine here
+      }
+      
       updateParticipantCount();
     });
-
-    client.on('connection-state-change', (curState, prevState, reason) => {
-      console.log('🔗 Connection state:', curState, reason);
-      
-      if (curState === 'DISCONNECTED' || curState === 'DISCONNECTING') {
-        handleDisconnection(reason);
-      }
-    });
-
-    client.on('network-quality', (quality) => {
-      const qualityMap = {
-        0: 'unknown',
-        1: 'excellent',
-        2: 'good',
-        3: 'poor',
-        4: 'poor',
-        5: 'poor',
-        6: 'poor'
-      };
-
-      setStats(prev => ({
-        ...prev,
-        connectionQuality: qualityMap[quality.uplinkNetworkQuality] || 'unknown'
-      }));
-    });
-
-    client.on('token-privilege-will-expire', async () => {
-      try {
-        console.log('🔄 Token will expire, renewing...');
-        const newToken = await studentvideoApi.generateToken(meetingId, studentId);
-        if (newToken.token) {
-          await client.renewToken(newToken.token);
-        }
-      } catch (error) {
-        console.error('Token renewal error:', error);
-      }
-    });
-
-    // Listen for stream-message (for teacher controls)
-    client.on('stream-message', (uid, data) => {
-      try {
-        const message = JSON.parse(new TextDecoder().decode(data));
-        handleTeacherCommand(message);
-      } catch (error) {
-        console.error('Stream message error:', error);
-      }
-    });
   };
-
   // ============================================
   // Control Functions - UPDATED
   // ============================================
@@ -1077,214 +948,173 @@ return (
       </div>
     </div>
 
-    {/* Main Video Area */}
-    <div className="flex-1 relative p-4 md:p-6">
-     {/* Remote Videos Grid - WITH CORRECT DATABASE SCHEMA */}
-<div className="w-full h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-  {Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
-    const profile = userProfiles.get(uid.toString());
-    const isTeacher = profile?.is_teacher || uid === teacherUid;
-    const displayName = profile?.name || 
-                       profile?.display_name || 
-                       (isTeacher ? 'Teacher' : `Student ${uid}`);
+
+
+  {/* Main Content Area */}
+  <div className="flex-1 p-4 overflow-y-auto">
     
-    // Determine user type icon and styling
-    const userIcon = isTeacher ? '👨‍🏫' : '🎓';
-    const userRole = isTeacher ? 'Teacher' : 'Student';
-    const borderColor = isTeacher ? 'border-yellow-500/50' : 'border-blue-500/30';
-    const bgGradient = isTeacher 
-      ? 'from-gray-900 to-gray-800' 
-      : 'from-blue-900/20 to-gray-800';
-    
-    return (
-      <div 
-        key={uid} 
-        className={`relative rounded-2xl overflow-hidden border-2 ${borderColor} group hover:border-cyan-500/40 transition-all duration-300`}
-      >
-        {/* Video Container */}
-        <div 
-          ref={el => {
-            if (el && tracks.video) {
-              try {
-                tracks.video.play(el);
-              } catch (error) {
-                console.warn('Remote video play error:', error);
-              }
-            }
-          }}
-          className="w-full h-full min-h-[200px] bg-gray-800"
-        />
+    {/* 🔥🔥🔥 START REPLACEMENT HERE 🔥🔥🔥 */}
+    <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+      
+      {/* REMOTE USERS LOOP (Including Local User for consistency if tracks are in remoteTracks) */}
+      {Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
+        // --- LOGIC MOVED DIRECTLY INTO RENDER LOOP ---
+        // Ensure uid is treated as a string for Map lookup
+        const uidString = uid.toString(); 
+        const profile = userProfiles.get(uidString);
         
-        {/* Placeholder if no video */}
-        {!tracks.video && (
-          <div className={`w-full h-full min-h-[200px] flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
-            <div className="text-center">
-              <div className="text-5xl mb-3 opacity-70">
-                {userIcon}
-              </div>
-              <p className="text-cyan-300 font-medium">{displayName}</p>
-              <div className={`px-2 py-1 rounded-full text-xs mt-2 inline-block ${
-                isTeacher 
-                  ? 'bg-yellow-500/20 text-yellow-300' 
-                  : 'bg-blue-500/20 text-blue-300'
-              }`}>
-                {userRole}
-              </div>
-              <p className="text-gray-400 text-sm mt-2">
-                {tracks.audio ? 'Audio only' : 'Connecting...'}
-              </p>
-            </div>
-          </div>
-        )}
+        // Use 'role' from profile first, fallback to teacherUid check
+        const isTeacher = profile?.role === 'teacher' || uidString === teacherUid;
         
-        {/* Overlay Info */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
-          <div className="flex justify-between items-center">
-            <div className="text-white">
-              <div className="font-semibold flex items-center gap-2">
-                {displayName}
-                {isTeacher && (
-                  <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
-                    Teacher
-                  </span>
-                )}
+        const displayName = profile?.name || 
+                            profile?.display_name || 
+                            (isTeacher ? 'Teacher' : `Student ${uidString.slice(0, 5)}`);
+        
+        // Determine user type icon and styling
+        const userIcon = isTeacher ? '👨‍🏫' : '🎓';
+        const userRole = isTeacher ? 'Teacher' : 'Student';
+        const borderColor = isTeacher ? 'border-yellow-500/50' : 'border-blue-500/30';
+        const bgGradient = isTeacher 
+          ? 'from-gray-900 to-gray-800' 
+          : 'from-blue-900/20 to-gray-800';
+        
+        return (
+          <div 
+            key={uid} 
+            className={`relative rounded-2xl overflow-hidden border-2 ${borderColor} group hover:border-cyan-500/40 transition-all duration-300`}
+          >
+            {/* Video Container - Use ref inline for video playback */}
+            <div 
+              // 🚨 IMPORTANT: This inline ref replaces the need for a separate RemoteVideoItem component
+              ref={el => {
+                if (el && tracks.video) {
+                  try {
+                    tracks.video.play(el);
+                  } catch (error) {
+                    console.warn(`Remote video play error for ${uid}:`, error);
+                  }
+                }
+              }}
+              className="w-full h-full min-h-[200px] bg-gray-800"
+            />
+            
+            {/* Placeholder if no video */}
+            {/* ... (The rest of your provided JSX for the placeholder) ... */}
+            {!tracks.video && (
+              <div className={`absolute inset-0 w-full h-full min-h-[200px] flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
+                <div className="text-center">
+                  <div className="text-5xl mb-3 opacity-70">
+                    {userIcon}
+                  </div>
+                  <p className="text-cyan-300 font-medium">{displayName}</p>
+                  <div className={`px-2 py-1 rounded-full text-xs mt-2 inline-block ${
+                    isTeacher 
+                      ? 'bg-yellow-500/20 text-yellow-300' 
+                      : 'bg-blue-500/20 text-blue-300'
+                  }`}>
+                    {userRole}
+                  </div>
+                  <p className="text-gray-400 text-sm mt-2">
+                    {tracks.audio ? 'Audio only' : 'Connecting...'}
+                  </p>
+                </div>
               </div>
-              <div className="text-sm text-cyan-300 flex items-center gap-2">
-                <span>{userRole}</span>
-                {!tracks.video && (
-                  <span className="text-xs bg-gray-700/50 px-2 py-0.5 rounded">
-                    No Video
-                  </span>
-                )}
+            )}
+            
+            {/* Overlay Info (Bottom bar) */}
+            {/* ... (The rest of your provided JSX for the overlay) ... */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
+              <div className="flex justify-between items-center">
+                <div className="text-white">
+                  <div className="font-semibold flex items-center gap-2">
+                    {displayName}
+                    {isTeacher && (
+                      <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
+                        Teacher
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-cyan-300 flex items-center gap-2">
+                    <span>{userRole}</span>
+                    {!tracks.video && (
+                      <span className="text-xs bg-gray-700/50 px-2 py-0.5 rounded">
+                        No Video
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  {tracks.audio && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-xs text-green-300">Audio</span>
+                    </div>
+                  )}
+                  
+                  {/* Show local user indicator */}
+                  {/* 🚨 Check if the UID matches the local user's UID (which is in sessionState.sessionInfo) */}
+                  {uidString === sessionState.sessionInfo?.uid?.toString() && (
+                    <span className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded text-xs">
+                      You
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              {tracks.audio && (
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs text-green-300">Audio</span>
+            {/* Hover overlay with more info */}
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4">
+              <div className="text-center text-white">
+                <div className="text-4xl mb-3">{userIcon}</div>
+                <h4 className="text-xl font-bold mb-1">{displayName}</h4>
+                <p className="text-cyan-300 mb-2">{userRole}</p>
+                {profile?.role && profile.role !== userRole.toLowerCase() && (
+                  <p className="text-sm text-gray-300">Role: {profile.role}</p>
+                )}
+                <div className="mt-3 flex gap-2 justify-center">
+                  {tracks.video && (
+                    <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Video</span>
+                  )}
+                  {tracks.audio && (
+                    <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Audio</span>
+                  )}
                 </div>
-              )}
-              
-              {/* Show local user indicator */}
-              {uid === sessionState.sessionInfo?.uid?.toString() && (
-                <span className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded text-xs">
-                  You
-                </span>
-              )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      
+      {/* Empty State */}
+      {remoteTracks.size === 0 && (
+        <div className="col-span-full flex items-center justify-center min-h-[400px]">
+          <div className="text-center text-gray-400 max-w-md">
+            <div className="relative mb-6">
+              <Users className="text-cyan-400 opacity-50 mx-auto" size={80} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="animate-ping w-16 h-16 bg-cyan-500/30 rounded-full"></div>
+              </div>
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-3">Waiting for others...</h3>
+            <p className="text-lg mb-6">
+              {teacherUid ? 'Teacher is in the session' : 'Teacher will appear here when they join'}
+            </p>
+            <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
+              <p className="text-cyan-300 text-sm">
+                {teacherUid 
+                  ? 'Other students will appear here when they join' 
+                  : 'Your session is ready. Teacher can join anytime.'}
+              </p>
             </div>
           </div>
         </div>
-        
-        {/* Hover overlay with more info */}
-        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4">
-          <div className="text-center text-white">
-            <div className="text-4xl mb-3">{userIcon}</div>
-            <h4 className="text-xl font-bold mb-1">{displayName}</h4>
-            <p className="text-cyan-300 mb-2">{userRole}</p>
-            {profile?.role && profile.role !== userRole.toLowerCase() && (
-              <p className="text-sm text-gray-300">Role: {profile.role}</p>
-            )}
-            <div className="mt-3 flex gap-2 justify-center">
-              {tracks.video && (
-                <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Video</span>
-              )}
-              {tracks.audio && (
-                <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Audio</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  })}
-  
-  {/* Empty State */}
-  {remoteTracks.size === 0 && (
-    <div className="col-span-full flex items-center justify-center min-h-[400px]">
-      <div className="text-center text-gray-400 max-w-md">
-        <div className="relative mb-6">
-          <Users className="text-cyan-400 opacity-50 mx-auto" size={80} />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="animate-ping w-16 h-16 bg-cyan-500/30 rounded-full"></div>
-          </div>
-        </div>
-        <h3 className="text-2xl font-bold text-white mb-3">Waiting for others...</h3>
-        <p className="text-lg mb-6">
-          {teacherUid ? 'Teacher is in the session' : 'Teacher will appear here when they join'}
-        </p>
-        <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
-          <p className="text-cyan-300 text-sm">
-            {teacherUid 
-              ? 'Other students will appear here when they join' 
-              : 'Your session is ready. Teacher can join anytime.'}
-          </p>
-        </div>
-      </div>
+      )}
     </div>
-  )}
-</div>
+    {/* 🔥🔥🔥 END REPLACEMENT HERE 🔥🔥🔥 */}
 
-     {/* Local Video PIP - */}
-{controls.hasCamera && (
-  <div className="absolute bottom-6 right-6 w-64 h-48 md:w-80 md:h-60 bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30">
-    {/* ACTUAL VIDEO ELEMENT with correct ID */}
-    <video
-      id="local-video-player"
-      className="w-full h-full bg-gray-900"
-      autoPlay
-      playsInline
-      muted
-      style={{
-        display: controls.videoEnabled ? 'block' : 'none',
-        transform: 'scaleX(-1)',
-        objectFit: 'cover'
-      }}
-    />
-    
-    {/* Camera Off State */}
-    {!controls.videoEnabled && (
-      <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-        <div className="text-center">
-          <CameraOff className="text-gray-500 w-12 h-12 mx-auto mb-3" />
-          <p className="text-gray-400 font-medium">Camera Off</p>
-        </div>
-      </div>
-    )}
-    
-    {/* Overlay Info */}
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
-      <div className="flex justify-between items-center">
-        <div className="text-white">
-          <div className="font-semibold flex items-center gap-2">
-            You (Student)
-            <div className={`w-2 h-2 rounded-full ${
-              controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-            }`} />
-          </div>
-          <div className="text-sm text-cyan-300">
-            {controls.videoEnabled ? 'Live' : 'Camera Off'}
-          </div>
-        </div>
-        
-        <div className="flex gap-1">
-          {!controls.audioEnabled && (
-            <div className="bg-red-500 p-2 rounded-lg">
-              <MicOff size={14} className="text-white" />
-            </div>
-          )}
-          {!controls.videoEnabled && (
-            <div className="bg-red-500 p-2 rounded-lg">
-              <CameraOff size={14} className="text-white" />
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
   </div>
-)}
-    </div>
+
 
     {/* Controls Bar */}
     <div className="bg-gray-900/90 backdrop-blur-xl border-t border-cyan-500/30 p-4 md:p-6">
@@ -1426,44 +1256,59 @@ return (
 
 // Remote Video Component - UPDATED
 
-const RemoteVideo = ({ uid, tracks }) => {
-  const videoRef = useRef(null);
+const RemoteVideo = ({ uid, tracks, userProfiles, teacherUid }) => {
+    const vidRef = useRef(null);
 
-  useEffect(() => {
-    if (tracks.video && videoRef.current) {
-      try {
-        tracks.video.play(videoRef.current);
-      } catch (error) {
-        console.warn('Remote video play error:', error);
-      }
-    }
+    // 👇 LOOKUP LOGIC: Get name and role from the map
+    const profile = userProfiles.get(String(uid));
+    const isTeacher = String(uid) === teacherUid || profile?.role === 'teacher';
+    // Fallback to a clean UID if name is not found
+    const displayName = profile?.name || `Classmate ${String(uid).slice(0, 5)}`; 
+    const roleLabel = isTeacher ? 'Teacher' : 'Classmate';
+    const roleIcon = isTeacher ? '👨‍🏫' : '👤';
 
-    return () => {
-      if (tracks.video) {
-        try {
-          tracks.video.stop();
-        } catch (error) {
-          console.warn('Remote video stop error:', error);
+    useEffect(() => {
+        if (tracks.video && vidRef.current) {
+            try {
+                tracks.video.play(vidRef.current);
+            } catch (error) {
+                console.warn('Remote video play error:', error);
+            }
         }
-      }
-    };
-  }, [tracks.video]);
 
-  return (
-    <div className="remote-video relative bg-gray-900 rounded-2xl overflow-hidden min-h-[200px]">
-      <div ref={videoRef} className="w-full h-full bg-gray-800"></div>
-      {!tracks.video && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          <div className="text-center">
-            <div className="text-4xl mb-2 opacity-50">👨‍🏫</div>
-            <p className="text-cyan-300">Teacher</p>
-          </div>
+        return () => {
+            if (tracks.video) {
+                try {
+                    tracks.video.stop();
+                } catch (error) {
+                    console.warn('Remote video stop error:', error);
+                }
+            }
+        };
+    }, [tracks.video]);
+
+    return (
+        <div className="relative bg-gray-900 rounded-2xl overflow-hidden border border-cyan-500/20 w-full h-64 md:h-80">
+            <div ref={vidRef} className="w-full h-full bg-gray-800" />
+            
+            {/* Placeholder if video is off */}
+            {!tracks.video && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-gray-500">
+                    <div className="text-4xl mb-2">{roleIcon}</div>
+                    {/* ✅ UPDATED LABEL */}
+                    <p>{displayName} ({roleLabel})</p> 
+                </div>
+            )}
+
+            {/* Display Name and Role */}
+            <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-2 flex justify-between items-center">
+                {/* ✅ UPDATED LABEL */}
+                <span className={`text-white text-sm font-medium ${isTeacher ? 'text-yellow-400 font-bold' : ''}`}>
+                    {displayName} ({roleLabel})
+                </span>
+                {tracks.audio && <Mic size={14} className="text-green-400" />}
+            </div>
         </div>
-      )}
-      <div className="absolute bottom-3 left-3 bg-black/70 text-white px-3 py-1 rounded-lg text-sm">
-        Teacher
-      </div>
-    </div>
-  );
+    );
 };
 export default StudentVideoCall;

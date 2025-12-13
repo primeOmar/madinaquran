@@ -922,6 +922,38 @@ async getParticipantProfiles(meetingId, agoraUids) {
   },
 
   /**
+   * Fetches the name and role of all participants in the meeting.
+   */
+  async getParticipantProfiles(meetingId) {
+    try {
+      console.log('📡 API: Fetching participant profiles for meeting:', meetingId);
+      
+      const response = await fetch(`${API_BASE_URL}/agora/participants/${meetingId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          // Pass the local user ID to the backend if needed for security/local user identification
+          'x-user-id': localStorage.getItem('userId') 
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Failed to fetch participants: ${response.status}`);
+      }
+
+      return { success: true, participants: data.participants };
+
+    } catch (error) {
+      console.error('❌ Failed to fetch participant profiles:', error);
+      return { success: false, participants: [], error: error.message };
+    }
+  },
+
+
+  /**
    * Leave session with role info
    */
   async leaveVideoSession(meetingId, userId, role = 'student') {
