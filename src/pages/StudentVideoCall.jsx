@@ -26,7 +26,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
   const [remoteTracks, setRemoteTracks] = useState(new Map());
-  
+  const profilePollingRef = useRef();
   const [controls, setControls] = useState({
     audioEnabled: true,
     videoEnabled: true,
@@ -278,7 +278,6 @@ const initializeSession = async () => {
   // ============================================
   // Join Channel -
   // ============================================
-
 const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
@@ -326,16 +325,22 @@ const joinChannel = async (sessionData) => {
       assignedUid: joinedUid,
       match: uid === joinedUid || uid === null
     });
-    // Start profile polling
-const profilePollingInterval = setInterval(() => {
-  if (sessionState.sessionInfo?.meetingId) {
-    fetchParticipants();
-  }
-}, 10000); // Poll every 10 seconds
-
-// Store for cleanup
-const profilePollingRef = useRef();
-profilePollingRef.current = profilePollingInterval;
+    
+    // Start profile polling (using the ref from top level)
+    if (sessionState.sessionInfo?.meetingId) {
+      fetchParticipants(); // Initial fetch
+      
+      // Clear any existing interval first
+      if (profilePollingRef.current) {
+        clearInterval(profilePollingRef.current);
+      }
+      
+      profilePollingRef.current = setInterval(() => {
+        if (sessionState.sessionInfo?.meetingId) {
+          fetchParticipants();
+        }
+      }, 10000); // Poll every 10 seconds
+    }
 
     // Create and publish local tracks
     await createAndPublishLocalTracks();
@@ -612,25 +617,22 @@ profilePollingRef.current = profilePollingInterval;
     }
   };
 
-  const leaveSession = async () => {
-    try {
-      // Update participant status
-      await updateParticipantStatus({ status: 'left' });
-      if (profilePollingRef.current) {
-  clearInterval(profilePollingRef.current);
-}
-      
-      // Cleanup
-      await cleanup();
-      
-      // Callback
-      if (onLeaveCall) {
-        onLeaveCall();
-      }
-    } catch (error) {
-      console.error('Leave session error:', error);
+const leaveSession = async () => {
+  try {
+    // Update participant status
+    await updateParticipantStatus({ status: 'left' });
+    
+    // Cleanup (includes clearing profilePollingRef)
+    await cleanup();
+    
+    // Callback
+    if (onLeaveCall) {
+      onLeaveCall();
     }
-  };
+  } catch (error) {
+    console.error('Leave session error:', error);
+  }
+};
 
   // ============================================
   // Teacher Commands Handler
@@ -932,53 +934,53 @@ const createAndPublishLocalTracks = async () => {
   // Cleanup
   // ============================================
 
-  const cleanup = async () => {
-    console.log('🧹 Cleaning up student session...');
-    
-    // Clear intervals
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-    }
-    if (messagesPollIntervalRef.current) {
-      clearInterval(messagesPollIntervalRef.current);
-    }
+const cleanup = async () => {
+  console.log('🧹 Cleaning up student session...');
+  
+  // Clear intervals
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+  }
+  if (messagesPollIntervalRef.current) {
+    clearInterval(messagesPollIntervalRef.current);
+  }
+  if (profilePollingRef.current) {
+    clearInterval(profilePollingRef.current);
+  }
 
-    // Stop and close tracks
-    if (localTracks.audio) {
-      try {
-        localTracks.audio.stop();
-        localTracks.audio.close();
-      } catch (error) {
-        console.warn('Audio cleanup error:', error);
-      }
+  // Stop and close tracks
+  if (localTracks.audio) {
+    try {
+      localTracks.audio.stop();
+      localTracks.audio.close();
+    } catch (error) {
+      console.warn('Audio cleanup error:', error);
     }
-    if (localTracks.video) {
-      try {
-        localTracks.video.stop();
-        localTracks.video.close();
-      } catch (error) {
-        console.warn('Video cleanup error:', error);
-      }
+  }
+  if (localTracks.video) {
+    try {
+      localTracks.video.stop();
+      localTracks.video.close();
+    } catch (error) {
+      console.warn('Video cleanup error:', error);
     }
+  }
 
-    // Leave channel
-    if (clientRef.current) {
-      try {
-        await clientRef.current.leave();
-      } catch (error) {
-        console.warn('Leave channel error:', error);
-      }
+  // Leave channel
+  if (clientRef.current) {
+    try {
+      await clientRef.current.leave();
+    } catch (error) {
+      console.warn('Leave channel error:', error);
     }
+  }
 
-    // Clear remote tracks
-    setRemoteTracks(new Map());
-    
-    console.log('✅ Cleanup complete');
-  };
+  // Clear remote tracks
+  setRemoteTracks(new Map());
+  
+  console.log('✅ Cleanup complete');
+};
 
-  // ============================================
-  // Render - UPDATED
-  // ============================================
 
 // ============================================
 // Render - FULL SCREEN MODAL VERSION
