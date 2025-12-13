@@ -35,6 +35,10 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     hasMicrophone: false // Track if mic exists
   });
 
+  
+const [userProfiles, setUserProfiles] = useState(new Map()); 
+const [participants, setParticipants] = useState([]); 
+const [teacherUid, setTeacherUid] = useState(null);
   const [stats, setStats] = useState({
     participantCount: 0,
     duration: 0,
@@ -60,6 +64,85 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       cleanup();
     };
   }, [meetingId, studentId]);
+// Fetch all participants with their profiles
+const fetchParticipants = async () => {
+  try {
+    if (!sessionState.sessionInfo?.meetingId) return;
+    
+    const response = await studentvideoApi.getSessionParticipants(
+      sessionState.sessionInfo.meetingId
+    );
+    
+    if (response.success && response.participants) {
+      setParticipants(response.participants);
+      
+      // Update userProfiles map
+      const newProfiles = new Map();
+      response.participants.forEach(participant => {
+        if (participant.agora_uid) {
+          newProfiles.set(participant.agora_uid.toString(), {
+            id: participant.user_id,
+            agora_uid: participant.agora_uid,
+            name: participant.name || 'User',
+            display_name: participant.display_name || participant.name || 'User',
+            role: participant.role,
+            is_teacher: participant.is_teacher
+          });
+          
+          // Store teacher UID
+          if (participant.is_teacher) {
+            setTeacherUid(participant.agora_uid.toString());
+          }
+        }
+      });
+      
+      setUserProfiles(newProfiles);
+      console.log('✅ Updated user profiles:', {
+        count: newProfiles.size,
+        teacherUid: teacherUid
+      });
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch participants:', error);
+  }
+};
+
+// Fetch specific user profiles by Agora UIDs
+const fetchProfilesByUids = async (uids) => {
+  try {
+    if (!sessionState.sessionInfo?.meetingId || !uids.length) return;
+    
+    const response = await studentvideoApi.getParticipantProfiles(
+      sessionState.sessionInfo.meetingId,
+      uids
+    );
+    
+    if (response.success && response.profiles) {
+      setUserProfiles(prev => {
+        const updated = new Map(prev);
+        response.profiles.forEach(profile => {
+          updated.set(profile.agora_uid.toString(), {
+            id: profile.user_id,
+            agora_uid: profile.agora_uid,
+            first_name: profile.first_name || 'User',
+            full_name: profile.full_name || profile.first_name || 'User',
+            role: profile.role,
+            is_teacher: profile.is_teacher,
+            avatar_url: profile.avatar_url
+          });
+          
+          if (profile.is_teacher) {
+            setTeacherUid(profile.agora_uid.toString());
+          }
+        });
+        return updated;
+      });
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch profiles by UIDs:', error);
+  }
+};
+
 
 const initializeSession = async () => {
   try {
@@ -243,6 +326,16 @@ const joinChannel = async (sessionData) => {
       assignedUid: joinedUid,
       match: uid === joinedUid || uid === null
     });
+    // Start profile polling
+const profilePollingInterval = setInterval(() => {
+  if (sessionState.sessionInfo?.meetingId) {
+    fetchParticipants();
+  }
+}, 10000); // Poll every 10 seconds
+
+// Store for cleanup
+const profilePollingRef = useRef();
+profilePollingRef.current = profilePollingInterval;
 
     // Create and publish local tracks
     await createAndPublishLocalTracks();
@@ -338,57 +431,61 @@ const joinChannel = async (sessionData) => {
     if (!client) return;
 
     client.on('user-published', async (user, mediaType) => {
-      console.log('👤 User published:', user.uid, mediaType);
+  console.log('👤 User published:', user.uid, mediaType);
+  
+  try {
+    await client.subscribe(user, mediaType);
+    
+    // Update remote tracks
+    if (mediaType === 'video') {
+      setRemoteTracks(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(user.uid) || {};
+        updated.set(user.uid, { ...existing, video: user.videoTrack });
+        return updated;
+      });
       
-      try {
-        await client.subscribe(user, mediaType);
-        
-        if (mediaType === 'video') {
-          setRemoteTracks(prev => {
-            const updated = new Map(prev);
-            const existing = updated.get(user.uid) || {};
-            updated.set(user.uid, { ...existing, video: user.videoTrack });
-            return updated;
-          });
-          
-          // Auto-play the video
-          setTimeout(() => {
-            const videoContainer = document.getElementById(`remote-video-${user.uid}`);
-            if (videoContainer && user.videoTrack) {
-              try {
-                user.videoTrack.play(videoContainer);
-              } catch (playError) {
-                console.warn('Remote video play error:', playError);
-              }
-            }
-          }, 100);
-        }
-
-        if (mediaType === 'audio') {
-          setRemoteTracks(prev => {
-            const updated = new Map(prev);
-            const existing = updated.get(user.uid) || {};
-            updated.set(user.uid, { ...existing, audio: user.audioTrack });
-            return updated;
-          });
-          
-          // Auto-play audio
-          if (user.audioTrack) {
-            try {
-              user.audioTrack.play();
-            } catch (playError) {
-              console.warn('Remote audio play error:', playError);
-            }
+      // Auto-play video
+      setTimeout(() => {
+        const videoElement = document.getElementById(`remote-video-${user.uid}`);
+        if (videoElement && user.videoTrack) {
+          try {
+            user.videoTrack.play(videoElement);
+          } catch (playError) {
+            console.warn('Remote video play error:', playError);
           }
         }
-
-        updateParticipantCount();
-        
-      } catch (error) {
-        console.error('Subscribe error:', error);
+      }, 100);
+    }
+    
+    if (mediaType === 'audio') {
+      setRemoteTracks(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(user.uid) || {};
+        updated.set(user.uid, { ...existing, audio: user.audioTrack });
+        return updated;
+      });
+      
+      if (user.audioTrack) {
+        try {
+          user.audioTrack.play();
+        } catch (playError) {
+          console.warn('Remote audio play error:', playError);
+        }
       }
-    });
-
+    }
+    
+    // CRITICAL: Fetch profile for this new user
+    if (!userProfiles.has(user.uid.toString())) {
+      fetchProfilesByUids([user.uid]);
+    }
+    
+    updateParticipantCount();
+    
+  } catch (error) {
+    console.error('Subscribe error:', error);
+  }
+});
     client.on('user-unpublished', (user, mediaType) => {
       console.log('👤 User unpublished:', user.uid, mediaType);
       
@@ -519,6 +616,9 @@ const joinChannel = async (sessionData) => {
     try {
       // Update participant status
       await updateParticipantStatus({ status: 'left' });
+      if (profilePollingRef.current) {
+  clearInterval(profilePollingRef.current);
+}
       
       // Cleanup
       await cleanup();
@@ -602,86 +702,119 @@ const joinChannel = async (sessionData) => {
 const createAndPublishLocalTracks = async () => {
   try {
     console.log('🎤 Creating local audio/video tracks...');
-    
-    // Track creation with proper error handling
-    const [audioTrack, videoTrack] = await Promise.allSettled([
-      AgoraRTC.createMicrophoneAudioTrack({
+
+    // 1. Request permissions FIRST
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (permError) {
+      console.warn('⚠️ Permission request failed:', permError);
+    }
+
+    // 2. Create tracks with better error handling
+    let audioTrack = null;
+    let videoTrack = null;
+
+    try {
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
         AEC: true,
         ANS: true,
-        AGC: true,
         encoderConfig: {
           sampleRate: 48000,
-          stereo: true
+          stereo: true,
+          bitrate: 48
         }
-      }).catch(error => {
-        console.warn('⚠️ Failed to create audio track:', error.message);
-        return null;
-      }),
-      
-      AgoraRTC.createCameraVideoTrack({
+      });
+      console.log('✅ Audio track created');
+    } catch (audioError) {
+      console.warn('⚠️ Audio track failed:', audioError.message);
+    }
+
+    try {
+      videoTrack = await AgoraRTC.createCameraVideoTrack({
         encoderConfig: {
-          width: 640,
-          height: 480,
-          frameRate: 15,
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 15 },
           bitrateMin: 500,
           bitrateMax: 1000
         },
-        optimizationMode: 'motion'
-      }).catch(error => {
-        console.warn('⚠️ Failed to create video track:', error.message);
-        return null;
-      })
-    ]);
+        optimizationMode: 'motion',
+        facingMode: 'user'
+      });
+      console.log('✅ Video track created');
+    } catch (videoError) {
+      console.warn('⚠️ Video track failed:', videoError.message);
+    }
 
-    const audio = audioTrack.status === 'fulfilled' ? audioTrack.value : null;
-    const video = videoTrack.status === 'fulfilled' ? videoTrack.value : null;
-
-    // Update device availability
+    // 3. Update device state
     setControls(prev => ({
       ...prev,
-      hasMicrophone: !!audio,
-      hasCamera: !!video,
-      audioEnabled: !!audio,
-      videoEnabled: !!video
+      hasMicrophone: !!audioTrack,
+      hasCamera: !!videoTrack,
+      audioEnabled: !!audioTrack,
+      videoEnabled: !!videoTrack
     }));
 
-    setLocalTracks({ audio, video });
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
 
-    // Publish available tracks
+    // 4. Publish available tracks
     const tracksToPublish = [];
-    if (audio) tracksToPublish.push(audio);
-    if (video) tracksToPublish.push(video);
-    
+    if (audioTrack) tracksToPublish.push(audioTrack);
+    if (videoTrack) tracksToPublish.push(videoTrack);
+
     if (tracksToPublish.length > 0) {
       await clientRef.current.publish(tracksToPublish);
       console.log(`📤 Published ${tracksToPublish.length} track(s)`);
     }
 
-    // Play local video if available
-    if (video) {
-      try {
-        const videoElement = document.getElementById('student-local-video');
+    // 5. CRITICAL FIX: Play local video correctly
+    if (videoTrack) {
+      // Wait for the video element to be rendered
+      setTimeout(() => {
+        const videoElement = document.getElementById('local-video-player');
         if (videoElement) {
-          await video.play(videoElement);
+          try {
+            // Stop any existing playback first
+            if (videoTrack.isPlaying) {
+              videoTrack.stop();
+            }
+            // Play on the actual VIDEO element, not a div
+            videoTrack.play(videoElement);
+            console.log('✅ Local video playing successfully');
+            
+            // Apply mirror effect
+            videoElement.style.transform = 'scaleX(-1)';
+            videoElement.style.objectFit = 'cover';
+          } catch (playError) {
+            console.error('❌ Local video play error:', playError);
+            
+            // Fallback: Try with user interaction
+            const playOnInteraction = () => {
+              try {
+                videoTrack.play(videoElement);
+                document.removeEventListener('click', playOnInteraction);
+              } catch (e) {}
+            };
+            document.addEventListener('click', playOnInteraction);
+          }
+        } else {
+          console.error('❌ Local video element not found');
         }
-      } catch (playError) {
-        console.warn('⚠️ Could not play local video:', playError.message);
-      }
+      }, 500); // Give React time to render
     }
 
-    // Update participant status with device info
+    // 6. Update participant status
     await updateParticipantStatus({
-      audioEnabled: !!audio,
-      videoEnabled: !!video,
+      audioEnabled: !!audioTrack,
+      videoEnabled: !!videoTrack,
       devices: {
-        hasMicrophone: !!audio,
-        hasCamera: !!video
+        hasMicrophone: !!audioTrack,
+        hasCamera: !!videoTrack
       }
     });
 
   } catch (error) {
     console.error('❌ Track creation/publishing error:', error);
-    // Don't fail the session - allow student to join as listener
   }
 };
 
@@ -944,118 +1077,211 @@ return (
 
     {/* Main Video Area */}
     <div className="flex-1 relative p-4 md:p-6">
-      {/* Remote Videos Grid - Full Responsive */}
-      <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-        {Array.from(remoteTracks.entries()).map(([uid, tracks]) => (
-          <div key={uid} className="relative bg-gray-900 rounded-2xl overflow-hidden border border-cyan-500/20 group hover:border-cyan-500/40 transition-all duration-300">
-            {/* Video Container */}
-            <div 
-              ref={el => {
-                if (el && tracks.video) {
-                  try {
-                    tracks.video.play(el);
-                  } catch (error) {
-                    console.warn('Remote video play error:', error);
-                  }
-                }
-              }}
-              className="w-full h-full min-h-[200px] bg-gray-800"
-            />
-            
-            {/* Placeholder if no video */}
-            {!tracks.video && (
-              <div className="w-full h-full min-h-[200px] flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
-                <div className="text-center">
-                  <div className="text-5xl mb-3 opacity-50">👨‍🏫</div>
-                  <p className="text-cyan-300 font-medium">Teacher</p>
-                  <p className="text-gray-400 text-sm mt-1">Audio only</p>
-                </div>
-              </div>
-            )}
-            
-            {/* Overlay Info */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-              <div className="flex justify-between items-center">
-                <div className="text-white">
-                  <div className="font-semibold">Teacher</div>
-                  <div className="text-sm text-cyan-300">Speaking now</div>
-                </div>
-                {tracks.audio && (
-                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
+     {/* Remote Videos Grid - WITH CORRECT DATABASE SCHEMA */}
+<div className="w-full h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+  {Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
+    const profile = userProfiles.get(uid.toString());
+    const isTeacher = profile?.is_teacher || uid === teacherUid;
+    const displayName = profile?.name || 
+                       profile?.display_name || 
+                       (isTeacher ? 'Teacher' : `Student ${uid}`);
+    
+    // Determine user type icon and styling
+    const userIcon = isTeacher ? '👨‍🏫' : '🎓';
+    const userRole = isTeacher ? 'Teacher' : 'Student';
+    const borderColor = isTeacher ? 'border-yellow-500/50' : 'border-blue-500/30';
+    const bgGradient = isTeacher 
+      ? 'from-gray-900 to-gray-800' 
+      : 'from-blue-900/20 to-gray-800';
+    
+    return (
+      <div 
+        key={uid} 
+        className={`relative rounded-2xl overflow-hidden border-2 ${borderColor} group hover:border-cyan-500/40 transition-all duration-300`}
+      >
+        {/* Video Container */}
+        <div 
+          ref={el => {
+            if (el && tracks.video) {
+              try {
+                tracks.video.play(el);
+              } catch (error) {
+                console.warn('Remote video play error:', error);
+              }
+            }
+          }}
+          className="w-full h-full min-h-[200px] bg-gray-800"
+        />
         
-        {/* Empty State */}
-        {remoteTracks.size === 0 && (
-          <div className="col-span-full flex items-center justify-center">
-            <div className="text-center text-gray-400 max-w-md">
-              <div className="relative mb-6">
-                <Video className="text-cyan-400 opacity-50 mx-auto" size={80} />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="animate-ping w-16 h-16 bg-cyan-500/30 rounded-full"></div>
-                </div>
+        {/* Placeholder if no video */}
+        {!tracks.video && (
+          <div className={`w-full h-full min-h-[200px] flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
+            <div className="text-center">
+              <div className="text-5xl mb-3 opacity-70">
+                {userIcon}
               </div>
-              <h3 className="text-2xl font-bold text-white mb-3">Waiting for teacher...</h3>
-              <p className="text-lg mb-6">Teacher will appear here when they join the session</p>
-              <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
-                <p className="text-cyan-300 text-sm">Your session is ready. Teacher can join anytime.</p>
+              <p className="text-cyan-300 font-medium">{displayName}</p>
+              <div className={`px-2 py-1 rounded-full text-xs mt-2 inline-block ${
+                isTeacher 
+                  ? 'bg-yellow-500/20 text-yellow-300' 
+                  : 'bg-blue-500/20 text-blue-300'
+              }`}>
+                {userRole}
               </div>
+              <p className="text-gray-400 text-sm mt-2">
+                {tracks.audio ? 'Audio only' : 'Connecting...'}
+              </p>
             </div>
           </div>
         )}
-      </div>
-
-      {/* Local Video PIP (Picture-in-Picture) */}
-      {controls.hasCamera && (
-        <div className="absolute bottom-6 right-6 w-64 h-48 md:w-80 md:h-60 bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30 transition-all duration-300 hover:border-cyan-500/50 hover:scale-105">
-          {/* Video Container */}
-          <div 
-            id="student-local-video" 
-            className="w-full h-full bg-gray-900"
-          />
-          
-          {/* Camera Off State */}
-          {!controls.videoEnabled && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-              <div className="text-center">
-                <CameraOff className="text-gray-500 w-12 h-12 mx-auto mb-3" />
-                <p className="text-gray-400 font-medium">Camera Off</p>
+        
+        {/* Overlay Info */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
+          <div className="flex justify-between items-center">
+            <div className="text-white">
+              <div className="font-semibold flex items-center gap-2">
+                {displayName}
+                {isTeacher && (
+                  <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
+                    Teacher
+                  </span>
+                )}
+              </div>
+              <div className="text-sm text-cyan-300 flex items-center gap-2">
+                <span>{userRole}</span>
+                {!tracks.video && (
+                  <span className="text-xs bg-gray-700/50 px-2 py-0.5 rounded">
+                    No Video
+                  </span>
+                )}
               </div>
             </div>
-          )}
-          
-          {/* Overlay Info */}
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
-            <div className="flex justify-between items-center">
-              <div className="text-white">
-                <div className="font-semibold flex items-center gap-2">
-                  You
+            
+            <div className="flex items-center gap-2">
+              {tracks.audio && (
+                <div className="flex items-center gap-1">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-xs text-green-300">Audio</span>
                 </div>
-                <div className="text-sm text-cyan-300">
-                  {controls.videoEnabled ? 'Live' : 'Camera Off'}
-                </div>
-              </div>
+              )}
               
-              <div className="flex gap-1">
-                {!controls.audioEnabled && (
-                  <div className="bg-red-500 p-2 rounded-lg">
-                    <MicOff size={14} className="text-white" />
-                  </div>
-                )}
-                {!controls.videoEnabled && (
-                  <div className="bg-red-500 p-2 rounded-lg">
-                    <CameraOff size={14} className="text-white" />
-                  </div>
-                )}
-              </div>
+              {/* Show local user indicator */}
+              {uid === sessionState.sessionInfo?.uid?.toString() && (
+                <span className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded text-xs">
+                  You
+                </span>
+              )}
             </div>
           </div>
         </div>
-      )}
+        
+        {/* Hover overlay with more info */}
+        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4">
+          <div className="text-center text-white">
+            <div className="text-4xl mb-3">{userIcon}</div>
+            <h4 className="text-xl font-bold mb-1">{displayName}</h4>
+            <p className="text-cyan-300 mb-2">{userRole}</p>
+            {profile?.role && profile.role !== userRole.toLowerCase() && (
+              <p className="text-sm text-gray-300">Role: {profile.role}</p>
+            )}
+            <div className="mt-3 flex gap-2 justify-center">
+              {tracks.video && (
+                <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Video</span>
+              )}
+              {tracks.audio && (
+                <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Audio</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  })}
+  
+  {/* Empty State */}
+  {remoteTracks.size === 0 && (
+    <div className="col-span-full flex items-center justify-center min-h-[400px]">
+      <div className="text-center text-gray-400 max-w-md">
+        <div className="relative mb-6">
+          <Users className="text-cyan-400 opacity-50 mx-auto" size={80} />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="animate-ping w-16 h-16 bg-cyan-500/30 rounded-full"></div>
+          </div>
+        </div>
+        <h3 className="text-2xl font-bold text-white mb-3">Waiting for others...</h3>
+        <p className="text-lg mb-6">
+          {teacherUid ? 'Teacher is in the session' : 'Teacher will appear here when they join'}
+        </p>
+        <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
+          <p className="text-cyan-300 text-sm">
+            {teacherUid 
+              ? 'Other students will appear here when they join' 
+              : 'Your session is ready. Teacher can join anytime.'}
+          </p>
+        </div>
+      </div>
+    </div>
+  )}
+</div>
+
+     {/* Local Video PIP - */}
+{controls.hasCamera && (
+  <div className="absolute bottom-6 right-6 w-64 h-48 md:w-80 md:h-60 bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30">
+    {/* ACTUAL VIDEO ELEMENT with correct ID */}
+    <video
+      id="local-video-player"
+      className="w-full h-full bg-gray-900"
+      autoPlay
+      playsInline
+      muted
+      style={{
+        display: controls.videoEnabled ? 'block' : 'none',
+        transform: 'scaleX(-1)',
+        objectFit: 'cover'
+      }}
+    />
+    
+    {/* Camera Off State */}
+    {!controls.videoEnabled && (
+      <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+        <div className="text-center">
+          <CameraOff className="text-gray-500 w-12 h-12 mx-auto mb-3" />
+          <p className="text-gray-400 font-medium">Camera Off</p>
+        </div>
+      </div>
+    )}
+    
+    {/* Overlay Info */}
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
+      <div className="flex justify-between items-center">
+        <div className="text-white">
+          <div className="font-semibold flex items-center gap-2">
+            You (Student)
+            <div className={`w-2 h-2 rounded-full ${
+              controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+            }`} />
+          </div>
+          <div className="text-sm text-cyan-300">
+            {controls.videoEnabled ? 'Live' : 'Camera Off'}
+          </div>
+        </div>
+        
+        <div className="flex gap-1">
+          {!controls.audioEnabled && (
+            <div className="bg-red-500 p-2 rounded-lg">
+              <MicOff size={14} className="text-white" />
+            </div>
+          )}
+          {!controls.videoEnabled && (
+            <div className="bg-red-500 p-2 rounded-lg">
+              <CameraOff size={14} className="text-white" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
     </div>
 
     {/* Controls Bar */}
@@ -1134,37 +1360,40 @@ return (
               <p className="text-lg font-semibold">No messages yet</p>
               <p className="text-sm mt-2">Be the first to say hello!</p>
             </div>
-          ) : (
-            messages.map(msg => (
-              <div 
-                key={msg.id} 
-                className={`p-4 rounded-2xl ${
-                  msg.message_type === 'system' 
-                    ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-500/20' 
-                    : 'bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700/50'
-                }`}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="font-semibold text-white">
-                        {msg.profiles?.full_name || 'System'}
-                      </div>
-                      {msg.message_type === 'system' && (
-                        <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs">
-                          System
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-cyan-100">{msg.message_text}</p>
-                    <p className="text-cyan-400 text-xs mt-3">
-                      {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))
+          ) : (messages.map(msg => (
+  <div 
+    key={msg.id} 
+    className={`p-4 rounded-2xl ${
+      msg.message_type === 'system' 
+        ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-500/20' 
+        : 'bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700/50'
+    }`}
+  >
+    <div className="flex justify-between items-start">
+      <div className="flex-1">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="font-semibold text-white">
+            {msg.profiles?.name || 'Unknown User'}
+          </div>
+          {msg.message_type === 'system' && (
+            <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs">
+              System
+            </span>
           )}
+          {msg.profiles?.role === 'teacher' && (
+            <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
+              Teacher
+            </span>
+          )}
+        </div>
+        <p className="text-cyan-100">{msg.message_text}</p>
+        <p className="text-cyan-400 text-xs mt-3">
+          {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+        </p>
+      </div>
+    </div>
+  </div>
+          )))}
         </div>
         
         {/* Message Input */}
