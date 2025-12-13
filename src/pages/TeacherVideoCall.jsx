@@ -1,12 +1,8 @@
-// ============================================
-// COMPLETE FIXED TeacherVideoCall.js
-// With correct function declaration order
-// ============================================
-
+// src/pages/TeacherVideoCall.js - FIXED VERSION
 import React, { useState, useEffect, useRef } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import './TeacherVideoCall.css';
-import videoApi from '../lib/agora/videoApi';
+import videoApi from '../lib/agora/videoApi'
 import { 
   Mic, MicOff, 
   Video, VideoOff, 
@@ -16,14 +12,151 @@ import {
   LogOut, PhoneOff, 
   Send, MessageSquare 
 } from 'lucide-react';
-
+// ============================================
+// MAIN TEACHER VIDEO CALL COMPONENT
+// ============================================
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
+const RemoteVideoPlayer = ({ user }) => {
+  const videoRef = useRef(null);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!videoRef.current || !user.videoTrack) return;
+
+    const playVideo = async () => {
+      try {
+        // Stop any existing track first to prevent conflicts
+        if (user.videoTrack.isPlaying) {
+          user.videoTrack.stop();
+        }
+        // Play the video track on the DOM element
+        await user.videoTrack.play(videoRef.current);
+        console.log(`✅ RemoteVideoPlayer: Playing video for user ${user.uid}`);
+      } catch (playError) {
+        console.warn(`⚠️ Could not play video for user ${user.uid}:`, playError);
+      }
+    };
+
+    playVideo();
+
+    // Cleanup function
+    return () => {
+      if (user.videoTrack && user.videoTrack.isPlaying) {
+        console.log(`🧹 RemoteVideoPlayer: Cleaning up video for user ${user.uid}`);
+        user.videoTrack.stop();
+      }
+    };
+  }, [user.videoTrack, user.uid]); // Re-run if the track or UID changes
+
+  return (
+    <div 
+      ref={containerRef}
+      className="remote-video-player"
+      style={{ 
+        width: '100%', 
+        height: '100%', 
+        position: 'relative',
+        backgroundColor: '#1a1a2e',
+        borderRadius: '8px', 
+        overflow: 'hidden' 
+      }}
+    >
+      {/* Video Element */}
+      <div
+        ref={videoRef}
+        style={{ width: '100%', height: '100%' }}
+      />
+      
+      {/* Fallback UI when no video track */}
+      {!user.videoTrack && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#a5b4fc'
+        }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            backgroundColor: '#4f46e5',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '12px',
+            fontSize: '24px'
+          }}>
+            🎓
+          </div>
+          <p style={{ fontSize: '14px', fontWeight: '500' }}>Student {user.uid}</p>
+          <p style={{ fontSize: '12px', marginTop: '4px', color: '#64748b' }}>
+            {user.audioTrack ? 'Audio only' : 'No media'}
+          </p>
+        </div>
+      )}
+      
+      {/* Overlay with user info */}
+      <div style={{
+        position: 'absolute',
+        bottom: '8px',
+        left: '8px',
+        background: 'rgba(0, 0, 0, 0.6)',
+        color: 'white',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        fontSize: '12px'
+      }}>
+        Student {user.uid}
+      </div>
+    </div>
+  );
+};
+
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
-  // ============================================
-  // STATE MANAGEMENT
-  // ============================================
-  
+  // Debug logging
+  console.log('🔧 TEACHER: Component rendering with:', {
+    classId,
+    teacherId,
+    videoApiAvailable: !!videoApi,
+    hasMethods: videoApi ? Object.keys(videoApi).length : 0
+  });
+  useEffect(() => {
+  console.log('👥 TEACHER: Remote users state updated:', {
+    count: remoteUsers.size,
+    uids: Array.from(remoteUsers.keys()),
+    details: Array.from(remoteUsers.entries()).map(([uid, user]) => ({
+      uid,
+      hasVideo: !!user.videoTrack,
+      hasAudio: !!user.audioTrack
+    }))
+  });
+}, [remoteUsers]);
+
+useEffect(() => {
+  if (clientRef.current && sessionState.isJoined) {
+    const interval = setInterval(() => {
+      const remoteUsersList = clientRef.current.remoteUsers || [];
+      console.log('🔍 TEACHER: Agora client state check:', {
+        remoteUsersCount: remoteUsersList.length,
+        remoteUIDs: remoteUsersList.map(u => u.uid),
+        localUID: clientRef.current.uid,
+        channelName: clientRef.current.channelName
+      });
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(interval);
+  }
+}, [sessionState.isJoined]);
+
+
+  // State Management
   const [sessionState, setSessionState] = useState({
     isInitialized: false,
     isJoined: false,
@@ -33,8 +166,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
   const [participants, setParticipants] = useState([]);
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
-  
-  // ✅ ADD THIS: Remote users state
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   
   const [controls, setControls] = useState({
@@ -52,6 +183,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     connectionQuality: 'unknown'
   });
 
+  // Enhanced chat state
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLeaving, setIsLeaving] = useState(false);
@@ -60,395 +192,427 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const [initialInteraction, setInitialInteraction] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // ============================================
-  // REFS
-  // ============================================
-  
+  // Refs - Initialize with the already loaded videoApi
   const clientRef = useRef(null);
   const screenClientRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const participantUpdateIntervalRef = useRef(null);
   const chatContainerRef = useRef(null);
   const localVideoRef = useRef(null);
-  const remoteUsersRef = useRef(new Map());
+  const remoteUsersRef = useRef({});
   const controlsTimeoutRef = useRef(null);
   const connectionTimeoutRef = useRef(null);
-  const videoApiRef = useRef(videoApi);
+  const videoApiRef = useRef(videoApi); 
 
   // ============================================
-  // HELPER FUNCTIONS (Declare first!)
+  // USE EFFECTS
   // ============================================
 
-  const updateParticipantCount = () => {
-    const remoteUserCount = clientRef.current?.remoteUsers?.length || 0;
-    const totalCount = remoteUserCount + 1;
+  useEffect(() => {
+    const handleMouseMove = () => {
+      setShowControls(true);
+      
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    };
     
-    console.log('👥 TEACHER: Participant count:', {
-      remote: remoteUserCount,
-      total: totalCount,
-      remoteUIDs: clientRef.current?.remoteUsers?.map(u => u.uid)
-    });
+    handleMouseMove();
     
-    setStats(prev => ({
-      ...prev,
-      participantCount: totalCount
-    }));
-  };
-
-  const formatTime = (timestamp) => {
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return 'Just now';
-    }
-  };
-
-  const formatDuration = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const scrollToBottom = () => {
-    if (chatContainerRef.current) {
-      setTimeout(() => {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      }, 100);
-    }
-  };
-
-  const startDurationTracking = () => {
-    const startTime = Date.now();
+    window.addEventListener('mousemove', handleMouseMove);
     
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onFirstInteraction = () => {
+      console.log('[Agora] Initial user interaction detected');
+      setInitialInteraction(true);
+    };
     
-    durationIntervalRef.current = setInterval(() => {
-      const diff = Math.floor((Date.now() - startTime) / 1000);
-      setStats(prev => ({ ...prev, duration: diff }));
-    }, 1000);
-  };
+    window.addEventListener('click', onFirstInteraction, { once: true });
+    window.addEventListener('keydown', onFirstInteraction, { once: true });
+    
+    return () => {
+      window.removeEventListener('click', onFirstInteraction);
+      window.removeEventListener('keydown', onFirstInteraction);
+    };
+  }, []);
 
-  // ============================================
-  // AGORA EVENT LISTENERS (Declare before use!)
-  // ============================================
-
-  const setupAgoraEventListeners = () => {
-    const client = clientRef.current;
-
-    if (!client) {
-      console.error('❌ Client not initialized');
+  useEffect(() => {
+    // Check if videoApiRef is initialized
+    if (!videoApiRef.current) {
+      console.error('❌ TEACHER: videoApiRef is not initialized!');
+      setSessionState(prev => ({
+        ...prev,
+        error: 'Video API not initialized. Please refresh the page.'
+      }));
       return;
     }
 
-    console.log('👂 TEACHER: Setting up event listeners...');
+    console.log('✅ TEACHER: Initializing session with videoApiRef:', {
+      hasGetSessionByClassId: !!videoApiRef.current.getSessionByClassId,
+      methods: Object.keys(videoApiRef.current)
+    });
 
-    // User Published
-    client.on('user-published', async (user, mediaType) => {
-      console.log('👤 TEACHER: User published:', {
-        uid: user.uid,
-        mediaType,
-        timestamp: new Date().toISOString()
-      });
+    initializeSession();
+    
+    return () => {
+      cleanup();
+    };
+  }, [classId, teacherId]);
+
+  // ============================================
+  // INITIALIZATION - FIXED
+  // ============================================
+
+const initializeSession = async () => {
+  if (isConnecting) return;
+  
+  try {
+    setIsConnecting(true);
+    console.log('🚀 TEACHER: Starting session initialization for class:', classId);
+    
+    // ✅ STEP 1: Create Agora client FIRST
+    console.log('📡 Creating Agora client...');
+    clientRef.current = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
+    console.log('✅ Agora client created successfully');
+
+    // ✅ STEP 2: Get session data from backend
+    console.log('🔄 Requesting session from backend...');
+    const sessionData = await videoApi.startVideoSession(classId, teacherId);
+    
+    if (!sessionData.success) {
+      throw new Error(sessionData.error || 'Failed to start session');
+    }
+
+    console.log('✅ Backend session created:', {
+      meetingId: sessionData.meetingId,
+      channel: sessionData.channel,
+      hasToken: !!sessionData.token,
+      tokenLength: sessionData.token?.length,
+      appId: sessionData.appId
+    });
+
+    // ✅ STEP 3: Validate session data
+    if (!sessionData.token || sessionData.token === 'demo_token') {
+      throw new Error('Invalid token received from backend');
+    }
+
+    if (!sessionData.appId) {
+      throw new Error('App ID missing from backend response');
+    }
+
+    if (!sessionData.channel) {
+      throw new Error('Channel name missing from backend response');
+    }
+
+    // ✅ STEP 4: Update state
+    setSessionState({
+      isInitialized: true,
+      isJoined: false,
+      sessionInfo: sessionData,
+      error: null
+    });
+
+    // ✅ STEP 5: Join the channel
+    console.log('🔗 Joining Agora channel...');
+    await joinChannel(sessionData);
+
+  } catch (error) {
+    console.error('❌ TEACHER Initialization error:', error);
+    
+    // Provide helpful error messages
+    let userMessage = error.message;
+    
+    if (error.message?.includes('token')) {
+      userMessage = 'Token generation failed. Please check your Agora App Certificate configuration in the backend.';
+    } else if (error.message?.includes('App ID')) {
+      userMessage = 'Agora App ID is not configured properly. Contact your administrator.';
+    } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
+      userMessage = 'Cannot connect to Agora servers. Please check your internet connection.';
+    }
+    
+    setSessionState(prev => ({
+      ...prev,
+      error: userMessage
+    }));
+  } finally {
+    setIsConnecting(false);
+  }
+};
+
+const joinChannel = async (sessionData) => {
+  try {
+    const { channel, token, uid, appId } = sessionData;
+    
+    console.log('🔗 TEACHER: Joining channel with params:', {
+      appId: appId?.substring(0, 8) + '...',
+      channel,
+      uid,
+      tokenPresent: !!token,
+      tokenLength: token?.length,
+      tokenPrefix: token?.substring(0, 20) + '...'
+    });
+
+    // ✅ VALIDATE: Ensure we have all required params
+    if (!appId) {
+      throw new Error('Missing App ID');
+    }
+    
+    if (!channel) {
+      throw new Error('Missing channel name');
+    }
+    
+    if (!token || token === 'demo_token' || token === 'null') {
+      throw new Error('Invalid or missing token');
+    }
+
+    // ✅ CRITICAL FIX: DO NOT call client.init()
+    // Agora SDK NG (v4.x+) doesn't have init() method
+    // The client auto-initializes when you create it
+    
+    console.log('📞 Calling client.join()...');
+    
+    // Join the channel - let Agora assign UID if not provided
+    const assignedUid = await clientRef.current.join(
+      appId,
+      channel,
+      token,
+      uid || null  // null lets Agora auto-assign
+    );
+    
+    console.log('✅ TEACHER: Successfully joined channel:', {
+      channel,
+      requestedUid: uid,
+      assignedUid,
+      match: uid === assignedUid
+    });
+    
+    // Create and publish local tracks
+    await createAndPublishTracks();
+
+    // Update state
+    setSessionState(prev => ({
+      ...prev,
+      isJoined: true
+    }));
+
+    // Start tracking
+    startDurationTracking();
+    
+    // Setup listeners
+    setupAgoraEventListeners();
+    
+    console.log('🎉 TEACHER: Session fully initialized and ready');
+
+  } catch (error) {
+    console.error('❌ TEACHER Join channel error:', {
+      error: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack
+    });
+    
+    // Detailed error handling
+    let errorMessage = 'Failed to join video channel';
+    
+    if (error.code === 'INVALID_PARAMS') {
+      errorMessage = 'Invalid parameters. Check App ID format.';
+    } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER' || error.code === 4096) {
+      errorMessage = 'Cannot reach Agora servers. Check:\n' +
+                    '1. Internet connection\n' +
+                    '2. Firewall settings (allow UDP 3478-3500, TCP 80/443)\n' +
+                    '3. VPN or proxy blocking WebRTC\n' +
+                    '4. App ID is valid (32 characters)';
+    } else if (error.code === 'INVALID_TOKEN' || error.message?.includes('token')) {
+      errorMessage = 'Token authentication failed. The token may be:\n' +
+                    '1. Expired (check backend time)\n' +
+                    '2. Generated for wrong channel\n' +
+                    '3. App Certificate mismatch';
+    } else if (error.code === 'UID_CONFLICT') {
+      errorMessage = 'Another user is already using this UID. Refreshing...';
+      // Could retry here with a different UID
+    }
+    
+    throw new Error(errorMessage);
+  }
+};
+
+
+
+  const initializeParticipants = async (sessionData) => {
+    const meetingId = sessionData.meetingId || sessionData.meeting_id;
+    if (meetingId) {
+      console.log('👥 TEACHER: Initializing participants for meeting:', meetingId);
       
+      // Immediate check for existing participants
       try {
-        await client.subscribe(user, mediaType);
-        console.log('✅ TEACHER: Subscribed to user:', user.uid, mediaType);
+        const participants = await videoApiRef.current.getSessionParticipants(meetingId);
+        console.log('📊 Existing participants found:', participants);
         
-        if (mediaType === 'video') {
-          setRemoteUsers(prev => {
-            const updated = new Map(prev);
-            const existing = updated.get(user.uid) || { uid: user.uid };
-            existing.videoTrack = user.videoTrack;
-            updated.set(user.uid, existing);
-            console.log('📊 Remote users count:', updated.size);
-            return updated;
-          });
+        if (participants.length > 0) {
+          setParticipants(participants);
           
-          setTimeout(() => {
-            const videoElement = document.getElementById(`remote-${user.uid}`);
-            if (videoElement && user.videoTrack) {
-              console.log('▶️ Playing video for:', user.uid);
-              user.videoTrack.play(videoElement);
-            }
-          }, 100);
-        }
-        
-        if (mediaType === 'audio') {
-          setRemoteUsers(prev => {
-            const updated = new Map(prev);
-            const existing = updated.get(user.uid) || { uid: user.uid };
-            existing.audioTrack = user.audioTrack;
-            updated.set(user.uid, existing);
-            return updated;
-          });
+          // Check if any students are already in the session
+          const studentsInSession = participants.filter(p => p.role === 'student');
+          console.log(`🎓 ${studentsInSession.length} students already in session`);
           
-          if (user.audioTrack) {
-            user.audioTrack.play();
-            console.log('🔊 Playing audio for:', user.uid);
+          if (studentsInSession.length > 0) {
+            // Show notification
+            console.log('📢 Students waiting for teacher:', 
+              studentsInSession.map(s => s.profile?.name || s.user_id));
           }
         }
-        
-        updateParticipantCount();
-        
       } catch (error) {
-        console.error('❌ Subscribe error:', error);
-      }
-    });
-
-    // User Unpublished
-    client.on('user-unpublished', (user, mediaType) => {
-      console.log('👤 TEACHER: User unpublished:', user.uid, mediaType);
-      
-      if (mediaType === 'video') {
-        setRemoteUsers(prev => {
-          const updated = new Map(prev);
-          const existing = updated.get(user.uid);
-          if (existing) {
-            existing.videoTrack = null;
-            updated.set(user.uid, existing);
-          }
-          return updated;
-        });
+        console.warn('⚠️ Could not fetch initial participants:', error);
       }
       
-      updateParticipantCount();
-    });
-
-    // User Left
-    client.on('user-left', (user) => {
-      console.log('👤 TEACHER: User left:', user.uid);
-      
-      setRemoteUsers(prev => {
-        const updated = new Map(prev);
-        updated.delete(user.uid);
-        console.log('📊 Remaining users:', updated.size);
-        return updated;
-      });
-      
-      updateParticipantCount();
-    });
-
-    // Connection State
-    client.on('connection-state-change', (curState, prevState, reason) => {
-      console.log('🔗 Connection state:', curState, reason);
-    });
-
-    // Network Quality
-    client.on('network-quality', (quality) => {
-      const qualityMap = {
-        0: 'unknown', 1: 'excellent', 2: 'good', 
-        3: 'poor', 4: 'poor', 5: 'poor', 6: 'poor'
-      };
-
-      setStats(prev => ({
-        ...prev,
-        connectionQuality: qualityMap[quality.uplinkNetworkQuality] || 'unknown'
-      }));
-    });
-
-    console.log('✅ TEACHER: Event listeners configured');
+      startParticipantTracking(meetingId);
+      startChatPolling(meetingId);
+    }
   };
 
   // ============================================
   // TRACK FUNCTIONS
   // ============================================
 
-  const createAndPublishTracks = async () => {
+ const createAndPublishTracks = async () => {
+  try {
+    console.log('🎥 TEACHER: Creating local tracks...');
+
+    // Create tracks with error handling
+    let audioTrack = null;
+    let videoTrack = null;
+    
     try {
-      console.log('🎥 TEACHER: Creating tracks...');
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: 'music_standard',
+      });
+      console.log('✅ Audio track created');
+    } catch (audioError) {
+      console.warn('⚠️ Could not create audio track:', audioError);
+    }
+    
+    try {
+      videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: '480p_1',
+        optimizationMode: 'motion'
+      });
+      console.log('✅ Video track created');
+    } catch (videoError) {
+      console.warn('⚠️ Could not create video track:', videoError);
+    }
 
-      let audioTrack = null;
-      let videoTrack = null;
-      
+    // Update state
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
+
+    // Publish tracks to channel
+    const tracksToPublish = [];
+    if (audioTrack) tracksToPublish.push(audioTrack);
+    if (videoTrack) tracksToPublish.push(videoTrack);
+    
+    if (tracksToPublish.length > 0) {
+      console.log(`📤 Publishing ${tracksToPublish.length} track(s)...`);
+      await clientRef.current.publish(tracksToPublish);
+      console.log('✅ Tracks published successfully');
+    } else {
+      console.warn('⚠️ No tracks to publish');
+    }
+
+    // Play video locally
+    if (videoTrack && localVideoRef.current) {
       try {
-        audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-        console.log('✅ Audio track created');
-      } catch (audioError) {
-        console.warn('⚠️ Audio track failed:', audioError);
-      }
-      
-      try {
-        videoTrack = await AgoraRTC.createCameraVideoTrack({
-          encoderConfig: '480p',
-          optimizationMode: 'motion'
-        });
-        console.log('✅ Video track created');
-      } catch (videoError) {
-        console.warn('⚠️ Video track failed:', videoError);
-      }
-
-      setLocalTracks({ audio: audioTrack, video: videoTrack });
-
-      const tracksToPublish = [];
-      if (audioTrack) tracksToPublish.push(audioTrack);
-      if (videoTrack) tracksToPublish.push(videoTrack);
-      
-      if (tracksToPublish.length > 0) {
-        await clientRef.current.publish(tracksToPublish);
-        console.log(`✅ Published ${tracksToPublish.length} track(s)`);
-      }
-
-      if (videoTrack && localVideoRef.current) {
-        try {
-          await videoTrack.play(localVideoRef.current);
-          if (localVideoRef.current) {
-            localVideoRef.current.style.transform = 'scaleX(-1)';
-          }
-        } catch (playError) {
-          console.warn('⚠️ Video play error');
+        await videoTrack.play(localVideoRef.current);
+        if (localVideoRef.current) {
+          localVideoRef.current.style.transform = 'scaleX(-1)';
         }
+        console.log('✅ Local video playing');
+      } catch (playError) {
+        console.warn('⚠️ Video playback requires user interaction');
       }
+    }
 
-    } catch (error) {
-      console.error('❌ Track creation error:', error);
+  } catch (error) {
+    console.error('❌ TEACHER: Error creating/publishing tracks:', error);
+    // Don't throw - partial success is OK
+  }
+};
+
+  const playLocalVideo = async (track) => {
+    if (!track || !localVideoRef.current) return;
+    
+    try {
+      await track.play(localVideoRef.current);
+      console.log('[Agora] TEACHER: ✅ Video track playing successfully');
+      
+      if (localVideoRef.current) {
+        localVideoRef.current.style.transform = 'scaleX(-1)';
+        localVideoRef.current.style.objectFit = 'cover';
+        localVideoRef.current.style.width = '100%';
+        localVideoRef.current.style.height = '100%';
+        localVideoRef.current.style.borderRadius = '8px';
+      }
+    } catch (playError) {
+      console.error('[Agora] TEACHER: ❌ Video play error:', playError);
+      if (playError.name === 'NotAllowedError') {
+        console.log('[Agora] TEACHER: Waiting for user interaction...');
+      }
     }
   };
 
+
   // ============================================
-  // CHANNEL JOIN
+  // USE EFFECTS FOR TRACKS
   // ============================================
 
-  const joinChannel = async (sessionData) => {
-    try {
-      const { channel, token, uid, appId } = sessionData;
-      
-      console.log('🔗 TEACHER: Joining channel:', {
-        channel,
-        uid,
-        appId: appId?.substring(0, 8) + '...',
-        tokenLength: token?.length
-      });
+  useEffect(() => {
+    const track = localTracks.video;
+    const videoElement = localVideoRef.current;
 
-      if (!token || token === 'demo_token' || token === 'null') {
-        throw new Error('Invalid token');
-      }
+    if (!track || !videoElement) return;
 
-      const joinedUid = await clientRef.current.join(
-        appId,
-        channel,
-        token,
-        uid || null
+    if (controls.videoEnabled) {
+      track.setEnabled(true).catch(e => 
+        console.warn('[Agora] Video enable failed:', e)
       );
       
-      console.log('✅ TEACHER: Joined channel:', {
-        channel,
-        assignedUid: joinedUid
-      });
-      
-      await createAndPublishTracks();
-
-      setSessionState(prev => ({
-        ...prev,
-        isJoined: true
-      }));
-
-      startDurationTracking();
-      setupAgoraEventListeners();
-
-    } catch (error) {
-      console.error('❌ Join error:', error);
-      throw error;
-    }
-  };
-
-  // ============================================
-  // INITIALIZATION
-  // ============================================
-
-  const initializeSession = async () => {
-    if (isConnecting) return;
-    
-    try {
-      setIsConnecting(true);
-      console.log('🚀 TEACHER: Starting session');
-      
-      clientRef.current = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: 'vp8' 
-      });
-
-      const sessionData = await videoApi.startVideoSession(classId, teacherId);
-      
-      if (!sessionData.success) {
-        throw new Error(sessionData.error || 'Failed to start session');
+      if (!track.isPlaying) {
+        setTimeout(() => {
+          playLocalVideo(track);
+        }, 50);
       }
-
-      console.log('✅ Session data received:', {
-        meetingId: sessionData.meetingId,
-        channel: sessionData.channel,
-        hasToken: !!sessionData.token
-      });
-
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: sessionData,
-        error: null
-      });
-
-      await joinChannel(sessionData);
-
-    } catch (error) {
-      console.error('❌ Initialization error:', error);
-      setSessionState(prev => ({
-        ...prev,
-        error: error.message
-      }));
-    } finally {
-      setIsConnecting(false);
+    } else {
+      track.setEnabled(false).catch(e => 
+        console.warn('[Agora] Video disable failed:', e)
+      );
     }
-  };
+  }, [controls.videoEnabled, localTracks.video]);
 
-  // ============================================
-  // CLEANUP
-  // ============================================
+  useEffect(() => {
+    if (initialInteraction && localTracks.video && !localTracks.video.isPlaying) {
+      console.log('[Agora] User interacted, playing video...');
+      playLocalVideo(localTracks.video);
+    }
+  }, [initialInteraction, localTracks.video]);
 
-  const cleanup = async () => {
-    console.log('🧹 TEACHER: Cleaning up...');
-    
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-    }
-    
-    if (participantUpdateIntervalRef.current) {
-      clearInterval(participantUpdateIntervalRef.current);
-    }
-    
-    if (localTracks.audio) {
-      try {
-        await clientRef.current?.unpublish([localTracks.audio]);
-        localTracks.audio.stop();
-        localTracks.audio.close();
-      } catch (e) {}
-    }
-    
-    if (localTracks.video) {
-      try {
-        await clientRef.current?.unpublish([localTracks.video]);
-        localTracks.video.stop();
-        localTracks.video.close();
-      } catch (e) {}
-    }
-    
-    if (clientRef.current) {
-      try {
-        await clientRef.current.leave();
-      } catch (e) {}
-    }
-    
-    setLocalTracks({ audio: null, video: null });
-    setRemoteUsers(new Map());
-    setSessionState({
-      isInitialized: false,
-      isJoined: false,
-      sessionInfo: null,
-      error: null
-    });
-  };
+  useEffect(() => {
+    const track = localTracks.audio;
+    if (!track) return;
+    track.setEnabled(controls.audioEnabled).catch((e) => 
+      console.warn('[Agora] Audio toggle failed:', e)
+    );
+  }, [controls.audioEnabled, localTracks.audio]);
 
   // ============================================
   // CONTROL FUNCTIONS
@@ -460,8 +624,9 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         const newState = !controls.audioEnabled;
         await localTracks.audio.setEnabled(newState);
         setControls(prev => ({ ...prev, audioEnabled: newState }));
+        console.log(`[Agora] TEACHER: Audio ${newState ? 'enabled' : 'disabled'}`);
       } catch (error) {
-        console.error('Toggle audio error:', error);
+        console.error('[Agora] TEACHER: Toggle audio error:', error);
       }
     }
   };
@@ -471,43 +636,165 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       try {
         const newState = !controls.videoEnabled;
         setControls(prev => ({ ...prev, videoEnabled: newState }));
+        console.log(`[Agora] TEACHER: Video ${newState ? 'enabled' : 'disabled'}`);
       } catch (error) {
-        console.error('Toggle video error:', error);
+        console.error('[Agora] TEACHER: Toggle video error:', error);
+      }
+    } else {
+      try {
+        const videoTrack = await AgoraRTC.createCameraVideoTrack();
+        await clientRef.current.publish([videoTrack]);
+        
+        if (localVideoRef.current) {
+          videoTrack.play(localVideoRef.current);
+        }
+        
+        setLocalTracks(prev => ({ ...prev, video: videoTrack }));
+        setControls(prev => ({ ...prev, videoEnabled: true }));
+        console.log('[Agora] TEACHER: Video enabled');
+      } catch (error) {
+        console.error('[Agora] TEACHER: Cannot access camera:', error);
       }
     }
   };
 
   const toggleScreenShare = async () => {
-    // Screen share logic here
+    try {
+      if (!controls.screenSharing) {
+        const screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: '720p',
+          optimizationMode: 'detail'
+        });
+        
+        if (localTracks.video) {
+          await clientRef.current.unpublish([localTracks.video]);
+          localTracks.video.stop();
+          localTracks.video.close();
+        }
+        
+        await clientRef.current.publish([screenTrack]);
+        
+        setLocalTracks(prev => ({ 
+          ...prev, 
+          video: screenTrack 
+        }));
+        
+        if (localVideoRef.current) {
+          screenTrack.play(localVideoRef.current);
+        }
+        
+        setControls(prev => ({ ...prev, screenSharing: true }));
+        console.log('[Agora] TEACHER: Screen sharing started');
+        
+      } else {
+        const screenTrack = localTracks.video;
+        
+        if (screenTrack) {
+          await clientRef.current.unpublish([screenTrack]);
+          screenTrack.stop();
+          screenTrack.close();
+        }
+        
+        try {
+          const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+          await clientRef.current.publish([cameraTrack]);
+          
+          if (localVideoRef.current) {
+            cameraTrack.play(localVideoRef.current);
+          }
+          
+          setLocalTracks(prev => ({ 
+            ...prev, 
+            video: cameraTrack 
+          }));
+          
+          setControls(prev => ({ 
+            ...prev, 
+            videoEnabled: true,
+            screenSharing: false 
+          }));
+          
+          console.log('[Agora] TEACHER: Screen sharing stopped, camera restored');
+        } catch (cameraError) {
+          console.error('[Agora] TEACHER: Cannot access camera:', cameraError);
+          setControls(prev => ({ 
+            ...prev, 
+            videoEnabled: false,
+            screenSharing: false 
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('[Agora] TEACHER: Screen share error:', error);
+      setControls(prev => ({ ...prev, screenSharing: false }));
+    }
   };
 
   const toggleRecording = async () => {
-    // Recording logic here
+    try {
+      const newState = !controls.recording; 
+      if (newState) { 
+        await videoApi.startRecording(sessionState.sessionInfo.meetingId);
+        console.log('[Agora] TEACHER: Recording started');
+      } else {
+        await videoApiRef.current.stopRecording(sessionState.sessionInfo.meetingId);
+        console.log('[Agora] TEACHER: Recording stopped');
+      }
+      setControls(prev => ({ ...prev, recording: newState }));
+    } catch (error) {
+      console.error('[Agora] TEACHER: Toggle recording error:', error);
+    } 
   };
 
   const leaveSession = async () => {
     try {
-      setIsLeaving(true);
+      setIsLeaving(true); 
       await cleanup();
       setIsLeaving(false);
-      if (onEndCall) onEndCall(false);
+      if (onEndCall) onEndCall(false); 
     } catch (error) {
-      console.error('Leave error:', error);
+      console.error('[Agora] TEACHER: Leave session error:', error);
       setIsLeaving(false);
     }
   };
 
-  const endSession = async () => {
+  const endSession = async () => {  
     try {
-      setIsEnding(true);
+      setIsEnding(true); 
       await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
       await cleanup();
       setIsEnding(false);
-      if (onEndCall) onEndCall(true);
+      if (onEndCall) onEndCall(true); 
     } catch (error) {
-      console.error('End error:', error);
+      console.error('[Agora] TEACHER: End session error:', error);
       setIsEnding(false);
     }
+  };
+
+  // ============================================
+  // HELPER FUNCTIONS
+  // ============================================
+
+  const startParticipantTracking = (meetingId) => {
+    if (participantUpdateIntervalRef.current) {
+      clearInterval(participantUpdateIntervalRef.current);
+    }
+    
+    const fetchParticipants = async () => {
+      try {
+        const participants = await videoApiRef.current.getSessionParticipants(meetingId);
+        setParticipants(participants || []);
+        setStats(prev => ({ 
+          ...prev, 
+          participantCount: (clientRef.current?.remoteUsers?.length || 0) + 1 
+        }));
+      } catch (error) {
+        console.error('[Agora] TEACHER: Participant tracking error:', error);
+      }
+    };
+    
+    fetchParticipants();
+    participantUpdateIntervalRef.current = setInterval(fetchParticipants, 10000);
   };
 
   const sendMessage = async () => {
@@ -527,46 +814,259 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
     scrollToBottom();
+    
+    simulateStudentResponse(messageText);
+  };
+
+  const simulateStudentResponse = (teacherMessage) => {
+    const responses = ["Yes", "Understood", "Thank you", "Got it"];
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    
+    setTimeout(() => {
+      const studentMessage = {
+        id: Date.now().toString(),
+        senderId: 'student',
+        senderName: 'Student',
+        text: randomResponse,
+        timestamp: new Date().toISOString(),
+        isOwn: false
+      };
+      
+      setMessages(prev => [...prev, studentMessage]);
+      scrollToBottom();
+    }, 1000);
+  };
+
+  const startChatPolling = (meetingId) => {
+    const interval = setInterval(() => {}, 10000);
+    return () => clearInterval(interval);
+  };
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      setTimeout(() => {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }, 100);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Just now';
+    }
+  };
+
+  const startDurationTracking = () => {
+  const startTime = Date.now();
+  
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+  }
+  
+  durationIntervalRef.current = setInterval(() => {
+    const diff = Math.floor((Date.now() - startTime) / 1000);
+    setStats(prev => ({ ...prev, duration: diff }));
+  }, 1000);
+};
+
+ const updateParticipantCount = () => {
+  const remoteUserCount = clientRef.current?.remoteUsers?.length || 0;
+  const totalCount = remoteUserCount + 1; // +1 for teacher
+  
+  console.log('👥 TEACHER: Participant count update:', {
+    remote: remoteUserCount,
+    total: totalCount,
+    remoteUIDs: clientRef.current?.remoteUsers?.map(u => u.uid)
+  });
+  
+  setStats(prev => ({
+    ...prev,
+    participantCount: totalCount
+  }));
+};
+
+  const cleanup = async () => {
+  console.log('🧹 TEACHER: Cleaning up session...');
+  
+  // Clear intervals
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+    durationIntervalRef.current = null;
+  }
+  
+  if (participantUpdateIntervalRef.current) {
+    clearInterval(participantUpdateIntervalRef.current);
+    participantUpdateIntervalRef.current = null;
+  }
+  
+  // Stop and cleanup local tracks
+  if (localTracks.audio) {
+    try {
+      await clientRef.current?.unpublish([localTracks.audio]);
+      localTracks.audio.stop();
+      localTracks.audio.close();
+    } catch (e) {}
+  }
+  
+  if (localTracks.video) {
+    try {
+      await clientRef.current?.unpublish([localTracks.video]);
+      localTracks.video.stop();
+      localTracks.video.close();
+    } catch (e) {}
+  }
+  
+  // Leave the channel
+  if (clientRef.current) {
+    try {
+      await clientRef.current.leave();
+    } catch (e) {}
+  }
+  
+  // Clear state
+  setLocalTracks({ audio: null, video: null });
+  setSessionState({
+    isInitialized: false,
+    isJoined: false,
+    sessionInfo: null,
+    error: null
+  });
+};
+
+  const formatDuration = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   // ============================================
-  // USE EFFECTS (After all functions declared!)
+  // EVENT LISTENERS
   // ============================================
+const setupAgoraEventListeners = () => {
+  const client = clientRef.current;
+  if (!client) {
+    console.error('❌ Client not initialized for event listeners');
+    return;
+  }
 
-  useEffect(() => {
-    initializeSession();
-    return () => {
-      cleanup();
-    };
-  }, [classId, teacherId]);
+  console.log('👂 Setting up Agora event listeners...');
 
-  useEffect(() => {
-    const track = localTracks.video;
-    if (!track) return;
-    
-    if (controls.videoEnabled) {
-      track.setEnabled(true);
-    } else {
-      track.setEnabled(false);
-    }
-  }, [controls.videoEnabled, localTracks.video]);
-
-  useEffect(() => {
-    const track = localTracks.audio;
-    if (!track) return;
-    track.setEnabled(controls.audioEnabled);
-  }, [controls.audioEnabled, localTracks.audio]);
-
-  // Monitor remote users
-  useEffect(() => {
-    console.log('👥 TEACHER: Remote users updated:', {
-      count: remoteUsers.size,
-      uids: Array.from(remoteUsers.keys())
+  // 1. USER PUBLISHED (Student Joins & Publishes Media)
+  client.on('user-published', async (remoteUser, mediaType) => {
+    console.log('👤 TEACHER: User published - Attempting subscription:', {
+      uid: remoteUser.uid,
+      mediaType,
+      hasVideo: !!remoteUser.videoTrack,
+      hasAudio: !!remoteUser.audioTrack
     });
-  }, [remoteUsers]);
+
+    try {
+      // Subscribe to the remote user's media
+      await client.subscribe(remoteUser, mediaType);
+      console.log(`✅ TEACHER: Successfully subscribed to user ${remoteUser.uid} for ${mediaType}`);
+
+      // Update React state using a functional update to ensure consistency
+      setRemoteUsers(prev => {
+        const updated = new Map(prev);
+        const existingUser = updated.get(remoteUser.uid) || { uid: remoteUser.uid };
+
+        if (mediaType === 'video') {
+          existingUser.videoTrack = remoteUser.videoTrack;
+          console.log(`📹 TEACHER: Video track added for user ${remoteUser.uid}`);
+        }
+        if (mediaType === 'audio') {
+          existingUser.audioTrack = remoteUser.audioTrack;
+          console.log(`🎤 TEACHER: Audio track added for user ${remoteUser.uid}`);
+        }
+
+        updated.set(remoteUser.uid, existingUser);
+        return updated;
+      });
+
+      // Play audio track immediately if it exists
+      if (mediaType === 'audio' && remoteUser.audioTrack) {
+        try {
+          remoteUser.audioTrack.play();
+        } catch (audioError) {
+          console.warn(`⚠️ Could not play audio for ${remoteUser.uid}:`, audioError);
+        }
+      }
+
+      updateParticipantCount();
+      
+    } catch (subscribeError) {
+      console.error(`❌ TEACHER: Failed to subscribe to user ${remoteUser.uid}:`, subscribeError);
+    }
+  });
+
+  // 2. USER UNPUBLISHED (Student Stops Sending a Media Track)
+  client.on('user-unpublished', (remoteUser, mediaType) => {
+    console.log('👤 TEACHER: User unpublished:', { uid: remoteUser.uid, mediaType });
+
+    setRemoteUsers(prev => {
+      const updated = new Map(prev);
+      const existingUser = updated.get(remoteUser.uid);
+      
+      if (existingUser) {
+        if (mediaType === 'video') {
+          // Properly clean up the video track before removing
+          if (existingUser.videoTrack) {
+            existingUser.videoTrack.stop();
+          }
+          existingUser.videoTrack = null;
+        }
+        if (mediaType === 'audio') {
+          existingUser.audioTrack = null;
+        }
+        updated.set(remoteUser.uid, existingUser);
+      }
+      
+      return updated;
+    });
+  });
+
+  // 3. USER LEFT (Student Leaves the Channel Entirely)
+  client.on('user-left', (remoteUser) => {
+    console.log('👤 TEACHER: User left channel:', remoteUser.uid);
+    
+    setRemoteUsers(prev => {
+      const updated = new Map(prev);
+      // Clean up tracks before deleting the user
+      const userToRemove = updated.get(remoteUser.uid);
+      if (userToRemove?.videoTrack) {
+        userToRemove.videoTrack.stop();
+      }
+      updated.delete(remoteUser.uid);
+      console.log(`📊 TEACHER: Removed user ${remoteUser.uid}. Remaining: ${updated.size}`);
+      return updated;
+    });
+    
+    updateParticipantCount();
+  });
+
+  // (Keep your existing 'connection-state-change' and 'network-quality' handlers)
+  client.on('connection-state-change', (curState, prevState, reason) => {
+    console.log('🔗 TEACHER: Connection state:', { current: curState, previous: prevState, reason });
+  });
+
+  client.on('network-quality', (quality) => {
+    const qualityMap = { 0: 'unknown', 1: 'excellent', 2: 'good', 3: 'poor', 4: 'poor', 5: 'poor', 6: 'poor' };
+    setStats(prev => ({
+      ...prev,
+      connectionQuality: qualityMap[quality.uplinkNetworkQuality] || 'unknown'
+    }));
+  });
+
+  console.log('✅ TEACHER: Event listeners configured');
+};
+
 
   // ============================================
-  // RENDER
+  // RENDER FUNCTIONS
   // ============================================
 
   const renderMessage = (msg) => (
@@ -576,17 +1076,29 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     >
       <div className="message-content">
         {!msg.isOwn && (
-          <div className="message-sender">{msg.senderName}</div>
+          <div className="message-sender">
+            {msg.senderName}
+          </div>
         )}
+        
         <div className="message-bubble">
-          <div className="message-text">{msg.text}</div>
+          <div className="message-text">
+            {msg.text}
+          </div>
+          
           <div className="message-footer">
-            <span className="message-time">{formatTime(msg.timestamp)}</span>
+            <span className="message-time">
+              {formatTime(msg.timestamp)}
+            </span>
           </div>
         </div>
       </div>
     </div>
   );
+
+  // ============================================
+  // RENDER COMPONENT
+  // ============================================
 
   if (sessionState.error) {
     return (
@@ -607,7 +1119,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       <div className="video-call-loading">
         <div className="loading-container">
           <div className="spinner"></div>
-          <p>Connecting to video session...</p>
+          <p>{isConnecting ? 'Connecting to video session...' : 'Preparing session...'}</p>
+          <small>This may take a moment</small>
         </div>
       </div>
     );
@@ -615,14 +1128,26 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
   return (
     <div className="video-call-container futuristic-theme">
-      {/* Header */}
+      {/* Minimal Header */}
       <div className={`call-header ${showControls ? 'visible' : 'hidden'}`}>
         <div className="header-left">
           <div className="session-info">
-            <h2>{sessionState.sessionInfo?.session?.class_title || 'Video Class'}</h2>
+            <h2 className="class-title">{sessionState.sessionInfo?.session?.class_title || 'Video Class'}</h2>
             <div className="header-stats">
-              <span className="stat-chip">⏱️ {formatDuration(stats.duration)}</span>
-              <span className="stat-chip">👥 {stats.participantCount}</span>
+              <span className="stat-chip">
+                <span className="stat-icon">⏱️</span>
+                {formatDuration(stats.duration)}
+              </span>
+              <span className="stat-chip">
+                <span className="stat-icon">👥</span>
+                {stats.participantCount}
+              </span>
+              {controls.recording && (
+                <span className="recording-indicator">
+                  <span className="recording-dot"></span>
+                  REC
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -632,91 +1157,352 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       <div className="video-main-area">
         {/* Local Video */}
         <div className="local-video-container floating-video">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
+          <div className="video-wrapper">
+            <div className="video-container" style={{
+              display: 'block',
+              position: 'relative',
               width: '100%',
               height: '100%',
-              objectFit: 'cover',
-              display: controls.videoEnabled ? 'block' : 'none',
-              transform: 'scaleX(-1)'
-            }}
-          />
-          {!controls.videoEnabled && (
-            <div className="video-placeholder">
-              <div className="user-avatar">YOU</div>
-            </div>
-          )}
-        </div>
-
-        {/* Remote Videos Grid */}
-        <div className="remote-videos-grid">
-          {Array.from(remoteUsers.entries()).map(([uid, user]) => (
-            <div key={uid} className="remote-video-item">
-              <div 
-                id={`remote-${uid}`}
+              backgroundColor: controls.videoEnabled ? 'transparent' : '#1a1a2e',
+              borderRadius: '8px',
+              overflow: 'hidden'
+            }}>
+              <video
+                ref={localVideoRef}
+                id="local-video"
+                autoPlay
+                playsInline
+                muted
                 style={{
                   width: '100%',
                   height: '100%',
-                  backgroundColor: '#1a1a2e'
+                  objectFit: 'cover',
+                  display: controls.videoEnabled ? 'block' : 'none',
+                  transform: 'scaleX(-1)',
+                  borderRadius: '8px'
                 }}
               />
-              {!user.videoTrack && (
-                <div className="video-placeholder">
-                  <div className="user-avatar">🎓</div>
-                  <p>Student {uid}</p>
+              
+              {!controls.videoEnabled && (
+                <div className="video-placeholder" style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#1a1a2e',
+                  borderRadius: '8px'
+                }}>
+                  <div className="user-avatar" style={{
+                    width: '80px',
+                    height: '80px',
+                    borderRadius: '50%',
+                    backgroundColor: '#4f46e5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: '24px',
+                    fontWeight: 'bold'
+                  }}>
+                    <span>YOU</span>
+                  </div>
                 </div>
               )}
-              <div className="video-status-overlay">
-                <span>Student {uid}</span>
+              
+              <div className="video-status-overlay" style={{
+                position: 'absolute',
+                bottom: '10px',
+                left: '10px',
+                right: '10px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                pointerEvents: 'none'
+              }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {!controls.videoEnabled && (
+                    <span className="status-tag" style={{
+                      background: 'rgba(0, 0, 0, 0.7)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <VideoOff size={12} />
+                      Camera Off
+                    </span>
+                  )}
+                  {controls.screenSharing && (
+                    <span className="status-tag" style={{
+                      background: 'rgba(59, 130, 246, 0.8)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <Share2 size={12} />
+                      Screen Sharing
+                    </span>
+                  )}
+                </div>
+                <span className="name-tag" style={{
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  color: 'white',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}>
+                  Host (You)
+                </span>
               </div>
             </div>
-          ))}
-          
-          {remoteUsers.size === 0 && (
-            <div className="empty-state">
-              <h3>Waiting for students...</h3>
-              <p>Students will appear here when they join</p>
-            </div>
-          )}
+          </div>
         </div>
+
+   {/* Remote Videos Grid */}
+<div className="remote-videos-grid" style={{
+  position: 'absolute',
+  top: '80px',
+  left: '20px',
+  right: '20px',
+  bottom: '120px',
+  display: 'grid',
+  gridTemplateColumns: remoteUsers.size === 0 ? '1fr' : 
+                       remoteUsers.size === 1 ? '1fr' : 
+                       remoteUsers.size === 2 ? 'repeat(2, 1fr)' :
+                       'repeat(auto-fit, minmax(300px, 1fr))',
+  gap: '16px',
+  padding: '20px',
+  overflowY: 'auto'
+}}>
+  {/* Render each remote user using the fixed component */}
+  {Array.from(remoteUsers.values()).map((user) => (
+    <div 
+      key={user.uid}
+      className="remote-video-item"
+      style={{
+        position: 'relative',
+        backgroundColor: '#1a1a2e',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        border: '2px solid rgba(79, 70, 229, 0.3)',
+        minHeight: '200px'
+      }}
+    >
+      <RemoteVideoPlayer user={user} />
+    </div>
+  ))}
+  
+  {/* Empty state when no students have joined */}
+  {remoteUsers.size === 0 && (
+    <div style={{
+      gridColumn: '1 / -1',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      color: '#64748b',
+      textAlign: 'center',
+      padding: '40px'
+    }}>
+      <div style={{ fontSize: '64px', marginBottom: '24px', opacity: 0.5 }}>
+        👥
+      </div>
+      <h3 style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', marginBottom: '12px' }}>
+        Waiting for students to join...
+      </h3>
+      <p style={{ fontSize: '16px', maxWidth: '500px', lineHeight: '1.5' }}>
+        Students will appear here automatically when they join your session. 
+        Make sure you've shared the correct class code or link with them.
+      </p>
+      <div style={{
+        marginTop: '32px',
+        padding: '16px 24px',
+        backgroundColor: 'rgba(79, 70, 229, 0.1)',
+        borderRadius: '12px',
+        border: '1px dashed rgba(79, 70, 229, 0.4)',
+        maxWidth: '400px'
+      }}>
+        <p style={{ color: '#a5b4fc', fontSize: '14px', marginBottom: '8px' }}>
+          <strong>Debug Info:</strong>
+        </p>
+        <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: 'monospace' }}>
+          Channel: {sessionState.sessionInfo?.channel || 'N/A'}<br/>
+          Teacher UID: {clientRef.current?.uid || 'Not joined'}<br/>
+          Connection: {sessionState.isJoined ? 'Active' : 'Inactive'}
+        </p>
+      </div>
+    </div>
+  )}
+</div>
       </div>
 
-      {/* Controls */}
+      {/* Floating Controls */}
       <div className={`floating-controls ${showControls ? 'visible' : 'hidden'}`}>
         <div className="control-center">
           <div className="primary-controls">
             <button 
-              className={`control-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
+              className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
               onClick={toggleAudio}
+              title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
             >
-              {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+              <span className="orb-icon">
+                {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+              </span>
             </button>
 
             <button 
-              className={`control-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
+              className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
               onClick={toggleVideo}
+              title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
             >
-              {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+              <span className="orb-icon">
+                {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+              </span>
+            </button>
+
+            <button 
+              className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
+              onClick={toggleScreenShare}
+              title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
+            >
+              <span className="orb-icon">
+                <Share2 size={20} />
+              </span>
+            </button>
+
+            <button 
+              className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
+              onClick={toggleRecording}
+              title={controls.recording ? 'Stop recording' : 'Start recording'}
+            >
+              <span className="orb-icon">
+                {controls.recording ? (
+                  <Circle size={20} fill="currentColor" />
+                ) : (
+                  <Circle size={20} />
+                )}
+              </span>
             </button>
           </div>
 
           <div className="secondary-controls">
-            <button className="control-button leave-btn" onClick={leaveSession}>
-              <LogOut size={18} />
-              <span>Leave</span>
+            <button 
+              className={`control-button chat-btn ${controls.isChatOpen ? 'active' : ''}`}
+              onClick={() => setControls(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
+              title="Toggle chat"
+            >
+              <span className="btn-icon">
+                <MessageCircle size={18} />
+              </span>
             </button>
 
-            <button className="control-button end-btn" onClick={endSession}>
-              <PhoneOff size={18} />
-              <span>End</span>
+            <button 
+              className={`control-button participants-btn ${controls.isParticipantsOpen ? 'active' : ''}`}
+              onClick={() => setControls(prev => ({ ...prev, isParticipantsOpen: !prev.isParticipantsOpen }))}
+              title="Show participants"
+            >
+              <span className="btn-icon">
+                <Users size={18} />
+              </span>
             </button>
+
+            <div className="action-buttons">
+              <button 
+                className="control-button leave-btn"
+                onClick={leaveSession}
+                disabled={isLeaving}
+                title="Leave the call (others can continue)"
+              >
+                <span className="btn-icon">
+                  <LogOut size={18} />
+                </span>
+                <span className="btn-text">{isLeaving ? '...' : 'Leave'}</span>
+              </button>
+
+              <button 
+                className="control-button end-btn"
+                onClick={endSession}
+                disabled={isEnding}
+                title="End call for everyone"
+              >
+                <span className="btn-icon">
+                  <PhoneOff size={18} />
+                </span>
+                <span className="btn-text">{isEnding ? '...' : 'End'}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Chat Panel */}
+      {controls.isChatOpen && (
+        <div className="minimal-chat-panel">
+          <div className="chat-header">
+            <h3>Chat ({messages.length})</h3>
+            <button 
+              className="close-chat"
+              onClick={() => setControls(prev => ({ ...prev, isChatOpen: false }))}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          
+          <div className="chat-messages" ref={chatContainerRef}>
+            {messages.length === 0 ? (
+              <div className="empty-chat">
+                <div className="empty-icon">
+                  <MessageSquare size={48} />
+                </div>
+                <p>No messages yet</p>
+              </div>
+            ) : (
+              messages.map(renderMessage)
+            )}
+          </div>
+          
+          <div className="chat-input-compact">
+            <input
+              type="text"
+              placeholder="Type a message..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+            />
+            <button 
+              onClick={sendMessage}
+              disabled={!newMessage.trim()}
+              className="send-btn-mini"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Autoplay Hint */}
+      {!initialInteraction && (
+        <div className="autoplay-hint">
+          <p>Click anywhere to allow video playback</p>
+        </div>
+      )}
     </div>
   );
 };
