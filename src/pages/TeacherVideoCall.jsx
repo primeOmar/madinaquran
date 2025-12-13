@@ -422,6 +422,48 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }
   };
   
+const leaveSession = async () => {
+  try {
+    setLoading(prev => ({ ...prev, isLeaving: true }));
+    await cleanup();
+    setLoading(prev => ({ ...prev, isLeaving: false }));
+    if (onEndCall) onEndCall(false);
+  } catch (error) {
+    console.error('Leave session error:', error);
+    setLoading(prev => ({ ...prev, isLeaving: false }));
+  }
+};
+
+const endSession = async () => {
+  try {
+    setLoading(prev => ({ ...prev, isEnding: true }));
+    if (sessionState.sessionInfo?.meetingId) {
+      await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
+    }
+    await cleanup();
+    setLoading(prev => ({ ...prev, isEnding: false }));
+    if (onEndCall) onEndCall(true);
+  } catch (error) {
+    console.error('End session error:', error);
+    setLoading(prev => ({ ...prev, isEnding: false }));
+  }
+};
+
+const toggleRecording = async () => {
+  try {
+    const newState = !controls.recording;
+    if (newState) {
+      await videoApi.startRecording(sessionState.sessionInfo.meetingId);
+    } else {
+      await videoApi.stopRecording(sessionState.sessionInfo.meetingId);
+    }
+    setControls(prev => ({ ...prev, recording: newState }));
+  } catch (error) {
+    console.error('Toggle recording error:', error);
+  }
+};
+
+
   const setupAgoraEventListeners = () => {
     const client = clientRef.current;
     if (!client) return;
