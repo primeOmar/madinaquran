@@ -17,6 +17,31 @@ import {
 // ============================================
 const API_BASE_URL = 'https://madina-quran-backend.onrender.com/api';
 
+const RemoteVideoPlayer = ({ user }) => {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    // When the component mounts, play the video on the div
+    if (user.videoTrack && videoRef.current) {
+      user.videoTrack.play(videoRef.current);
+    }
+    return () => {
+      // Cleanup when user leaves (optional, prevents memory leaks)
+      if (user.videoTrack) {
+        user.videoTrack.stop();
+      }
+    };
+  }, [user.videoTrack]);
+
+  return (
+    <div 
+      ref={videoRef} 
+      className="remote-video-player"
+      style={{ width: '100%', height: '100%', borderRadius: '8px', overflow: 'hidden' }} 
+    />
+  );
+};
+
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // Debug logging
   console.log('🔧 TEACHER: Component rendering with:', {
@@ -25,6 +50,34 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     videoApiAvailable: !!videoApi,
     hasMethods: videoApi ? Object.keys(videoApi).length : 0
   });
+  useEffect(() => {
+  console.log('👥 TEACHER: Remote users state updated:', {
+    count: remoteUsers.size,
+    uids: Array.from(remoteUsers.keys()),
+    details: Array.from(remoteUsers.entries()).map(([uid, user]) => ({
+      uid,
+      hasVideo: !!user.videoTrack,
+      hasAudio: !!user.audioTrack
+    }))
+  });
+}, [remoteUsers]);
+
+useEffect(() => {
+  if (clientRef.current && sessionState.isJoined) {
+    const interval = setInterval(() => {
+      const remoteUsersList = clientRef.current.remoteUsers || [];
+      console.log('🔍 TEACHER: Agora client state check:', {
+        remoteUsersCount: remoteUsersList.length,
+        remoteUIDs: remoteUsersList.map(u => u.uid),
+        localUID: clientRef.current.uid,
+        channelName: clientRef.current.channelName
+      });
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(interval);
+  }
+}, [sessionState.isJoined]);
+
 
   // State Management
   const [sessionState, setSessionState] = useState({
@@ -36,6 +89,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
 
   const [participants, setParticipants] = useState([]);
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
+  const [remoteUsers, setRemoteUsers] = useState(new Map());
   
   const [controls, setControls] = useState({
     audioEnabled: true,
@@ -741,13 +795,21 @@ const joinChannel = async (sessionData) => {
   }, 1000);
 };
 
-  const updateParticipantCount = () => {
-    const remoteUsers = clientRef.current?.remoteUsers || [];
-    setStats(prev => ({
-      ...prev,
-      participantCount: remoteUsers.length + 1
-    }));
-  };
+ const updateParticipantCount = () => {
+  const remoteUserCount = clientRef.current?.remoteUsers?.length || 0;
+  const totalCount = remoteUserCount + 1; // +1 for teacher
+  
+  console.log('👥 TEACHER: Participant count update:', {
+    remote: remoteUserCount,
+    total: totalCount,
+    remoteUIDs: clientRef.current?.remoteUsers?.map(u => u.uid)
+  });
+  
+  setStats(prev => ({
+    ...prev,
+    participantCount: totalCount
+  }));
+};
 
   const cleanup = async () => {
   console.log('🧹 TEACHER: Cleaning up session...');
@@ -807,58 +869,185 @@ const joinChannel = async (sessionData) => {
   // ============================================
   // EVENT LISTENERS
   // ============================================
-
 const setupAgoraEventListeners = () => {
   const client = clientRef.current;
 
+  if (!client) {
+    console.error('❌ Client not initialized for event listeners');
+    return;
+  }
+
+  console.log('👂 Setting up Agora event listeners...');
+
+  // ========== USER PUBLISHED (Student Joins) ==========
   client.on('user-published', async (user, mediaType) => {
-    console.log('👤 User joined:', user.uid, mediaType);
+    console.log('👤 TEACHER: User published:', {
+      uid: user.uid,
+      mediaType,
+      timestamp: new Date().toISOString()
+    });
     
     try {
+      // Subscribe to the user's media
       await client.subscribe(user, mediaType);
+      console.log('✅ TEACHER: Subscribed to user:', user.uid, mediaType);
       
       if (mediaType === 'video') {
-        // Create video element for remote user
-        const videoContainer = document.createElement('div');
-        videoContainer.id = `remote-${user.uid}`;
-        videoContainer.className = 'remote-video-item';
+        console.log('📹 TEACHER: Adding video track for user:', user.uid);
         
-        const videoElement = document.createElement('video');
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-        videoElement.style.width = '100%';
-        videoElement.style.height = '100%';
-        videoElement.style.objectFit = 'cover';
+        // Update remote users map
+        setRemoteUsers(prev => {
+          const updated = new Map(prev);
+          const existing = updated.get(user.uid) || { uid: user.uid };
+          existing.videoTrack = user.videoTrack;
+          updated.set(user.uid, existing);
+          
+          console.log('📊 TEACHER: Remote users count:', updated.size);
+          return updated;
+        });
         
-        videoContainer.appendChild(videoElement);
+        // Also update ref
+        remoteUsersRef.current.set(user.uid, {
+          ...remoteUsersRef.current.get(user.uid),
+          videoTrack: user.videoTrack
+        });
         
-        // Add to remote videos grid
-        const grid = document.querySelector('.remote-videos-grid');
-        if (grid) {
-          grid.appendChild(videoContainer);
-        }
-        
-        // Play the video track
-        user.videoTrack.play(videoElement);
+        // Auto-play video after DOM update
+        setTimeout(() => {
+          const videoElement = document.getElementById(`remote-${user.uid}`);
+          if (videoElement && user.videoTrack) {
+            console.log('▶️ TEACHER: Playing remote video for:', user.uid);
+            try {
+              user.videoTrack.play(videoElement);
+            } catch (playError) {
+              console.warn('⚠️ Video play error:', playError);
+            }
+          } else {
+            console.warn('⚠️ Video element not found for:', user.uid);
+          }
+        }, 100);
       }
       
       if (mediaType === 'audio') {
-        user.audioTrack.play();
+        console.log('🎤 TEACHER: Adding audio track for user:', user.uid);
+        
+        // Update remote users map
+        setRemoteUsers(prev => {
+          const updated = new Map(prev);
+          const existing = updated.get(user.uid) || { uid: user.uid };
+          existing.audioTrack = user.audioTrack;
+          updated.set(user.uid, existing);
+          return updated;
+        });
+        
+        // Auto-play audio
+        if (user.audioTrack) {
+          try {
+            user.audioTrack.play();
+            console.log('🔊 TEACHER: Playing remote audio for:', user.uid);
+          } catch (playError) {
+            console.warn('⚠️ Audio play error:', playError);
+          }
+        }
       }
+      
+      // Update participant count
+      updateParticipantCount();
+      
     } catch (error) {
-      console.warn('Failed to handle user:', error);
+      console.error('❌ TEACHER: Subscribe error:', {
+        uid: user.uid,
+        mediaType,
+        error: error.message
+      });
     }
   });
 
+  // ========== USER UNPUBLISHED ==========
+  client.on('user-unpublished', (user, mediaType) => {
+    console.log('👤 TEACHER: User unpublished:', {
+      uid: user.uid,
+      mediaType
+    });
+    
+    if (mediaType === 'video') {
+      setRemoteUsers(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(user.uid);
+        if (existing) {
+          existing.videoTrack = null;
+          updated.set(user.uid, existing);
+        }
+        return updated;
+      });
+    }
+    
+    if (mediaType === 'audio') {
+      setRemoteUsers(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(user.uid);
+        if (existing) {
+          existing.audioTrack = null;
+          updated.set(user.uid, existing);
+        }
+        return updated;
+      });
+    }
+    
+    updateParticipantCount();
+  });
+
+  // ========== USER LEFT ==========
   client.on('user-left', (user) => {
-    console.log('👤 User left:', user.uid);
-    // Remove the video element
+    console.log('👤 TEACHER: User left:', user.uid);
+    
+    // Remove from remote users
+    setRemoteUsers(prev => {
+      const updated = new Map(prev);
+      updated.delete(user.uid);
+      console.log('📊 TEACHER: Remaining remote users:', updated.size);
+      return updated;
+    });
+    
+    // Remove video element
     const videoElement = document.getElementById(`remote-${user.uid}`);
     if (videoElement) {
       videoElement.remove();
     }
+    
+    updateParticipantCount();
   });
+
+  // ========== CONNECTION STATE ==========
+  client.on('connection-state-change', (curState, prevState, reason) => {
+    console.log('🔗 TEACHER: Connection state:', {
+      current: curState,
+      previous: prevState,
+      reason
+    });
+  });
+
+  // ========== NETWORK QUALITY ==========
+  client.on('network-quality', (quality) => {
+    const qualityMap = {
+      0: 'unknown',
+      1: 'excellent',
+      2: 'good',
+      3: 'poor',
+      4: 'poor',
+      5: 'poor',
+      6: 'poor'
+    };
+
+    setStats(prev => ({
+      ...prev,
+      connectionQuality: qualityMap[quality.uplinkNetworkQuality] || 'unknown'
+    }));
+  });
+
+  console.log('✅ TEACHER: Event listeners configured');
 };
+
 
   // ============================================
   // RENDER FUNCTIONS
@@ -1065,9 +1254,165 @@ const setupAgoraEventListeners = () => {
         </div>
 
         {/* Remote Videos Grid */}
-        <div className="remote-videos-grid">
-          {/* Remote videos are added dynamically here */}
+        <div className="remote-videos-grid" style={{
+  position: 'absolute',
+  top: '80px',
+  left: '20px',
+  right: '20px',
+  bottom: '120px',
+  display: 'grid',
+  gridTemplateColumns: remoteUsers.size === 1 ? '1fr' : 
+                       remoteUsers.size === 2 ? 'repeat(2, 1fr)' :
+                       remoteUsers.size <= 4 ? 'repeat(2, 1fr)' :
+                       'repeat(3, 1fr)',
+  gap: '16px',
+  padding: '20px'
+}}>
+  {Array.from(remoteUsers.entries()).map(([uid, user]) => (
+    <div 
+      key={uid}
+      className="remote-video-item"
+      style={{
+        position: 'relative',
+        backgroundColor: '#1a1a2e',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        border: '2px solid rgba(79, 70, 229, 0.3)',
+        minHeight: '200px'
+      }}
+    >
+      {/* Video Container */}
+      <div 
+        id={`remote-${uid}`}
+        style={{
+          width: '100%',
+          height: '100%',
+          minHeight: '200px',
+          backgroundColor: user.videoTrack ? '#000' : '#1a1a2e'
+        }}
+      />
+      
+      {/* No Video Placeholder */}
+      {!user.videoTrack && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#1a1a2e'
+        }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            borderRadius: '50%',
+            backgroundColor: '#4f46e5',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '12px'
+          }}>
+            <span style={{
+              fontSize: '32px',
+              color: 'white'
+            }}>🎓</span>
+          </div>
+          <p style={{ color: '#a5b4fc', fontSize: '14px' }}>Student {uid}</p>
+          <p style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>
+            {user.audioTrack ? 'Audio only' : 'Connecting...'}
+          </p>
         </div>
+      )}
+      
+      {/* User Info Overlay */}
+      <div style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+        padding: '16px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div>
+          <div style={{
+            color: 'white',
+            fontWeight: '600',
+            fontSize: '14px'
+          }}>
+            Student {uid}
+          </div>
+          <div style={{
+            color: '#a5b4fc',
+            fontSize: '12px',
+            marginTop: '4px'
+          }}>
+            {user.videoTrack ? '📹 Video' : '🔇 Audio only'}
+          </div>
+        </div>
+        
+        {/* Audio Indicator */}
+        {user.audioTrack && (
+          <div style={{
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            backgroundColor: '#22c55e',
+            animation: 'pulse 2s infinite'
+          }} />
+        )}
+      </div>
+    </div>
+  ))}
+  
+  {/* Empty State */}
+  {remoteUsers.size === 0 && (
+    <div style={{
+      gridColumn: '1 / -1',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      color: '#64748b'
+    }}>
+      <div style={{
+        fontSize: '64px',
+        marginBottom: '24px',
+        opacity: 0.5
+      }}>👥</div>
+      <h3 style={{
+        fontSize: '24px',
+        fontWeight: 'bold',
+        color: 'white',
+        marginBottom: '12px'
+      }}>
+        Waiting for students...
+      </h3>
+      <p style={{ fontSize: '16px', textAlign: 'center', maxWidth: '400px' }}>
+        Students will appear here when they join your session
+      </p>
+      <div style={{
+        marginTop: '24px',
+        padding: '12px 24px',
+        backgroundColor: 'rgba(79, 70, 229, 0.1)',
+        borderRadius: '8px',
+        border: '1px solid rgba(79, 70, 229, 0.3)'
+      }}>
+        <p style={{ color: '#a5b4fc', fontSize: '14px' }}>
+          Session is active and ready for students
+        </p>
+      </div>
+    </div>
+  )}
+</div>
+
       </div>
 
       {/* Floating Controls */}
