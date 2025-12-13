@@ -665,6 +665,53 @@ async getSessionByClassId(classId) {
   }
 },
 
+async getParticipantProfiles(meetingId, agoraUids) {
+  try {
+    console.log('📡 API: Getting profiles for UIDs:', {
+      meetingId,
+      uids: agoraUids
+    });
+
+    const response = await fetch(`${API_BASE_URL}/agora/get-participant-profiles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        meeting_id: meetingId,
+        agora_uids: agoraUids
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      console.warn('⚠️ Failed to get profiles:', data.error);
+      return {
+        success: false,
+        profiles: []
+      };
+    }
+
+    console.log('✅ Retrieved profiles:', {
+      count: data.profiles?.length || 0,
+      teacher: data.profiles?.find(p => p.is_teacher)?.name
+    });
+
+    return {
+      success: true,
+      profiles: data.profiles || []
+    };
+
+  } catch (error) {
+    console.error('❌ getParticipantProfiles failed:', error);
+    return {
+      success: false,
+      profiles: []
+    };
+  }
+},
   /**
    * Get session participants with role info - ENHANCED
    */
