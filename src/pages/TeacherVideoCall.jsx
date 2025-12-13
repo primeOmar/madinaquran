@@ -127,33 +127,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     videoApiAvailable: !!videoApi,
     hasMethods: videoApi ? Object.keys(videoApi).length : 0
   });
-  useEffect(() => {
-  console.log('👥 TEACHER: Remote users state updated:', {
-    count: remoteUsers.size,
-    uids: Array.from(remoteUsers.keys()),
-    details: Array.from(remoteUsers.entries()).map(([uid, user]) => ({
-      uid,
-      hasVideo: !!user.videoTrack,
-      hasAudio: !!user.audioTrack
-    }))
-  });
-}, [remoteUsers]);
-
-useEffect(() => {
-  if (clientRef.current && sessionState.isJoined) {
-    const interval = setInterval(() => {
-      const remoteUsersList = clientRef.current.remoteUsers || [];
-      console.log('🔍 TEACHER: Agora client state check:', {
-        remoteUsersCount: remoteUsersList.length,
-        remoteUIDs: remoteUsersList.map(u => u.uid),
-        localUID: clientRef.current.uid,
-        channelName: clientRef.current.channelName
-      });
-    }, 5000); // Check every 5 seconds
-    
-    return () => clearInterval(interval);
-  }
-}, [sessionState.isJoined]);
 
 
   // State Management
@@ -163,7 +136,6 @@ useEffect(() => {
     sessionInfo: null,
     error: null
   });
-
   const [participants, setParticipants] = useState([]);
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
   const [remoteUsers, setRemoteUsers] = useState(new Map());
@@ -207,6 +179,35 @@ useEffect(() => {
   // ============================================
   // USE EFFECTS
   // ============================================
+  useEffect(() => {
+  console.log('👥 TEACHER: Remote users state updated:', {
+    count: remoteUsers.size,
+    uids: Array.from(remoteUsers.keys()),
+    details: Array.from(remoteUsers.entries()).map(([uid, user]) => ({
+      uid,
+      hasVideo: !!user.videoTrack,
+      hasAudio: !!user.audioTrack
+    }))
+  });
+}, [remoteUsers]);
+
+useEffect(() => {
+  if (clientRef.current && sessionState.isJoined) {
+    const interval = setInterval(() => {
+      const remoteUsersList = clientRef.current.remoteUsers || [];
+      console.log('🔍 TEACHER: Agora client state check:', {
+        remoteUsersCount: remoteUsersList.length,
+        remoteUIDs: remoteUsersList.map(u => u.uid),
+        localUID: clientRef.current.uid,
+        channelName: clientRef.current.channelName
+      });
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(interval);
+  }
+}, [sessionState.isJoined]);
+
+
 
   useEffect(() => {
     const handleMouseMove = () => {
