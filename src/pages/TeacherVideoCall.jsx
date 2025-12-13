@@ -1197,174 +1197,104 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       </div>
       
       {/* Main Controls */}
-      <div className={`floating-controls ${uiState.showControls ? 'visible' : 'hidden'}`}
-        style={{
-          position: 'absolute',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(15, 23, 42, 0.8)',
-          backdropFilter: 'blur(10px)',
-          borderRadius: '24px',
-          padding: '12px 24px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          display: 'flex',
-          gap: '16px',
-          alignItems: 'center',
-          zIndex: 100,
-          transition: 'opacity 0.3s'
-        }}
+      {/* Futuristic Floating Controls */}
+<div className={`floating-controls ${uiState.showControls ? 'visible' : 'hidden'}`}>
+  <div className="control-center">
+    <div className="primary-controls">
+      <button 
+        className={`control-orb audio-orb ${controls.audioEnabled ? 'active' : 'muted'}`}
+        onClick={toggleAudio}
+        title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
       >
-        <button 
-          onClick={toggleAudio}
-          style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            background: controls.audioEnabled ? '#4f46e5' : '#ef4444',
-            border: 'none',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s'
-          }}
-        >
+        <span className="orb-icon">
           {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-        </button>
-        
-        <button 
-          onClick={toggleVideo}
-          style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            background: controls.videoEnabled ? '#4f46e5' : '#6b7280',
-            border: 'none',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s'
-          }}
-        >
+        </span>
+      </button>
+
+      <button 
+        className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
+        onClick={toggleVideo}
+        title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+      >
+        <span className="orb-icon">
           {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-        </button>
-        
-        <button 
-          onClick={toggleScreenShare}
-          style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            background: controls.screenSharing ? '#f59e0b' : '#4f46e5',
-            border: 'none',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s'
-          }}
-        >
+        </span>
+      </button>
+
+      <button 
+        className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
+        onClick={toggleScreenShare}
+        title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
+      >
+        <span className="orb-icon">
           <Share2 size={20} />
-        </button>
-        
-        <div style={{ width: '1px', height: '24px', background: 'rgba(255, 255, 255, 0.2)' }} />
-        
+        </span>
+      </button>
+
+      <button 
+        className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
+        onClick={toggleRecording}
+        title={controls.recording ? 'Stop recording' : 'Start recording'}
+      >
+        <span className="orb-icon">
+          {controls.recording ? (
+            <Circle size={20} fill="currentColor" />
+          ) : (
+            <Circle size={20} />
+          )}
+        </span>
+      </button>
+    </div>
+
+    <div className="secondary-controls">
+      <button 
+        className={`control-button chat-btn ${uiState.isChatOpen ? 'active' : ''}`}
+        onClick={() => setUiState(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
+        title="Toggle chat"
+      >
+        <span className="btn-icon">
+          <MessageCircle size={18} />
+        </span>
+      </button>
+
+      <button 
+        className={`control-button participants-btn ${uiState.isParticipantsPanelOpen ? 'active' : ''}`}
+        onClick={() => setUiState(prev => ({ ...prev, isParticipantsPanelOpen: !prev.isParticipantsPanelOpen }))}
+        title="Show participants"
+      >
+        <span className="btn-icon">
+          <Users size={18} />
+        </span>
+      </button>
+
+      <div className="action-buttons">
         <button 
-          onClick={() => setUiState(prev => ({ ...prev, isParticipantsPanelOpen: !prev.isParticipantsPanelOpen }))}
-          style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            background: uiState.isParticipantsPanelOpen ? '#4f46e5' : 'rgba(255, 255, 255, 0.1)',
-            border: 'none',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s'
-          }}
-        >
-          <Users size={20} />
-        </button>
-        
-        <button 
-          onClick={() => setUiState(prev => ({ ...prev, isChatOpen: !prev.isChatOpen }))}
-          style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            background: uiState.isChatOpen ? '#4f46e5' : 'rgba(255, 255, 255, 0.1)',
-            border: 'none',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s'
-          }}
-        >
-          <MessageCircle size={20} />
-        </button>
-        
-        <div style={{ width: '1px', height: '24px', background: 'rgba(255, 255, 255, 0.2)' }} />
-        
-        <button 
-          onClick={async () => {
-            setLoading(prev => ({ ...prev, isLeaving: true }));
-            await cleanup();
-            setLoading(prev => ({ ...prev, isLeaving: false }));
-            if (onEndCall) onEndCall(false);
-          }}
+          className="control-button leave-btn"
+          onClick={leaveSession}
           disabled={loading.isLeaving}
-          style={{
-            padding: '12px 20px',
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: 'none',
-            borderRadius: '24px',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            opacity: loading.isLeaving ? 0.6 : 1
-          }}
+          title="Leave the call (others can continue)"
         >
-          <LogOut size={18} />
-          <span>Leave</span>
+          <span className="btn-icon">
+            <LogOut size={18} />
+          </span>
+          <span className="btn-text">{loading.isLeaving ? '...' : 'Leave'}</span>
         </button>
-        
+
         <button 
-          onClick={async () => {
-            setLoading(prev => ({ ...prev, isEnding: true }));
-            await videoApi.endVideoSession(sessionState.sessionInfo.meetingId);
-            await cleanup();
-            setLoading(prev => ({ ...prev, isEnding: false }));
-            if (onEndCall) onEndCall(true);
-          }}
+          className="control-button end-btn"
+          onClick={endSession}
           disabled={loading.isEnding}
-          style={{
-            padding: '12px 20px',
-            background: '#ef4444',
-            border: 'none',
-            borderRadius: '24px',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            opacity: loading.isEnding ? 0.6 : 1
-          }}
+          title="End call for everyone"
         >
-          <PhoneOff size={18} />
-          <span>End Class</span>
+          <span className="btn-icon">
+            <PhoneOff size={18} />
+          </span>
+          <span className="btn-text">{loading.isEnding ? '...' : 'End'}</span>
         </button>
       </div>
+    </div>
+  </div>
+</div>
       
       {/* Chat Panel */}
       {uiState.isChatOpen && (
