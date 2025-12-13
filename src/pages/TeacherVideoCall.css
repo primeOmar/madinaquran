@@ -185,12 +185,6 @@
   animation: pulse 1.5s infinite;
 }
 
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.3; }
-  100% { opacity: 1; }
-}
-
 /* ============================================
    VIDEO GRID LAYOUT
 ============================================ */
@@ -317,28 +311,6 @@
    CONTROL PANELS
 ============================================ */
 
-/* Floating Controls */
-.floating-controls {
-  position: fixed;
-  bottom: 30px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  z-index: 100;
-  transition: all 0.3s ease;
-}
-
-.floating-controls.hidden {
-  transform: translateY(100px);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.floating-controls.visible {
-  transform: translateY(0);
-  opacity: 1;
-}
 
 .controls-panel {
   background: rgba(20, 20, 30, 0.85);
@@ -353,134 +325,12 @@
   align-items: center;
 }
 
-/* Primary Controls (Big Circular Buttons) */
-.primary-controls {
-  display: flex;
-  gap: 20px;
-  justify-content: center;
-}
-
-.control-orb {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.control-orb::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.control-orb:hover::before {
-  opacity: 1;
-}
-
-.control-orb:hover {
-  transform: translateY(-5px) scale(1.1);
-  box-shadow: 0 10px 30px rgba(0, 114, 255, 0.4);
-}
-
-.control-orb.active {
-  background: var(--gradient-primary);
-}
-
-.control-orb.muted {
-  background: var(--gradient-danger);
-}
-
-.control-orb.recording {
-  background: var(--gradient-danger);
-  animation: glow 2s infinite;
-}
 
 @keyframes glow {
   0%, 100% { box-shadow: 0 0 20px rgba(255, 65, 108, 0.6); }
   50% { box-shadow: 0 0 40px rgba(255, 65, 108, 0.9); }
 }
 
-.orb-icon {
-  position: relative;
-  z-index: 2;
-}
-
-/* Secondary Controls (Smaller Buttons) */
-.secondary-controls {
-  display: flex;
-  gap: 15px;
-  align-items: center;
-}
-
-.control-button {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-light);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 25px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.control-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--border-medium);
-  transform: translateY(-2px);
-}
-
-.control-button.active {
-  background: var(--gradient-primary);
-  border-color: transparent;
-}
-
-/* Action Buttons (Leave/End) */
-.action-buttons {
-  display: flex;
-  gap: 10px;
-  margin-left: 10px;
-}
-
-.leave-btn {
-  background: rgba(255, 255, 255, 0.05);
-  color: #ffa726;
-  border-color: rgba(255, 167, 38, 0.3);
-}
-
-.leave-btn:hover {
-  background: rgba(255, 167, 38, 0.1);
-  border-color: rgba(255, 167, 38, 0.5);
-}
-
-.end-btn {
-  background: rgba(255, 255, 255, 0.05);
-  color: #ff6b6b;
-  border-color: rgba(255, 107, 107, 0.3);
-}
-
-.end-btn:hover {
-  background: rgba(255, 107, 107, 0.1);
-  border-color: rgba(255, 107, 107, 0.5);
-}
 
 /* ============================================
    CHAT PANEL
@@ -929,25 +779,8 @@
     padding: 10px 20px;
     border-radius: 40px;
   }
-  
-  .primary-controls {
-    gap: 10px;
-  }
-  
-  .control-orb {
-    width: 50px;
-    height: 50px;
-    font-size: 20px;
-  }
-  
-  .secondary-controls {
-    gap: 8px;
-  }
-  
-  .control-button {
-    padding: 6px 12px;
-    font-size: 12px;
-  }
+
+
   
   /* Chat & Participants Panels */
   .chat-panel,
@@ -969,16 +802,6 @@
 
 @media (max-width: 480px) {
   /* Extra Small Screens */
-  .control-orb {
-    width: 44px;
-    height: 44px;
-    font-size: 18px;
-  }
-  
-  .control-button {
-    padding: 5px 10px;
-    font-size: 11px;
-  }
   
   .chat-panel {
     height: 250px;
@@ -1054,4 +877,165 @@
 /* Hide local video for students in main grid */
 .student-view .video-container[data-local="true"] {
   display: none;
+}
+/* Floating Controls - Futuristic Theme */
+.floating-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  transition: all 0.3s ease;
+}
+
+.floating-controls.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(20px);
+}
+
+.control-center {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(20px);
+  border-radius: 24px;
+  border: 1px solid rgba(79, 70, 229, 0.3);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+.primary-controls, .secondary-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+/* Control Orbs */
+.control-orb {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.control-orb:hover {
+  transform: scale(1.1);
+  filter: brightness(1.2);
+}
+
+.control-orb.active {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  box-shadow: 0 0 30px rgba(79, 70, 229, 0.5);
+}
+
+.control-orb.muted {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.5);
+}
+
+.control-orb.inactive {
+  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+}
+
+.control-orb.recording {
+  animation: pulse 1.5s infinite;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.orb-icon {
+  color: white;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* Secondary Controls */
+.control-button {
+  padding: 12px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s;
+}
+
+.control-button:hover {
+  background: rgba(79, 70, 229, 0.2);
+  border-color: rgba(79, 70, 229, 0.5);
+  transform: translateY(-2px);
+}
+
+.control-button.active {
+  background: rgba(79, 70, 229, 0.3);
+  border-color: #4f46e5;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+}
+
+.btn-text {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Action Buttons */
+.action-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.leave-btn {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.leave-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: #fbbf24;
+}
+
+.end-btn {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.end-btn:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .control-center {
+    padding: 12px 16px;
+  }
+  
+  .control-orb {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .control-button {
+    padding: 10px 16px;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 15px rgba(239, 68, 68, 0);
+  }
 }
