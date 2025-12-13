@@ -175,6 +175,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const controlsTimeoutRef = useRef(null);
   const connectionTimeoutRef = useRef(null);
   const videoApiRef = useRef(videoApi); 
+  const isMounted = useRef(true);
 
   // ============================================
   // USE EFFECTS
@@ -190,6 +191,24 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     }))
   });
 }, [remoteUsers]);
+
+useEffect(() => {
+    isMounted.current = true;
+
+    // Check if videoApi is ready
+    if (!videoApiRef.current) {
+      setSessionState(prev => ({ ...prev, error: 'Video API not initialized.' }));
+      return;
+    }
+
+    initializeSession();
+    
+    // cleanup
+    return () => {
+      isMounted.current = false;
+      cleanup();
+    };
+  }, [classId, teacherId]);
 
 useEffect(() => {
   if (clientRef.current && sessionState.isJoined) {
@@ -275,180 +294,108 @@ useEffect(() => {
   // ============================================
 
 const initializeSession = async () => {
-  if (isConnecting) return;
-  
-  try {
-    setIsConnecting(true);
-    console.log('🚀 TEACHER: Starting session initialization for class:', classId);
+    // Prevent double-call or call if already connecting
+    if (isConnecting || sessionState.isJoined) return;
     
-    // ✅ STEP 1: Create Agora client FIRST
-    console.log('📡 Creating Agora client...');
-    clientRef.current = AgoraRTC.createClient({ 
-      mode: 'rtc', 
-      codec: 'vp8' 
-    });
-    console.log('✅ Agora client created successfully');
+    try {
+      setIsConnecting(true);
+      console.log('🚀 TEACHER: Starting session initialization...');
+      
+      // Step A: Create Client
+      // IMPORTANT: Create client immediately to ensure it exists
+      if (!clientRef.current) {
+        clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      }
 
-    // ✅ STEP 2: Get session data from backend
-    console.log('🔄 Requesting session from backend...');
-    const sessionData = await videoApi.startVideoSession(classId, teacherId);
-    
-    if (!sessionData.success) {
-      throw new Error(sessionData.error || 'Failed to start session');
+      // Step B: Call Backend (With Timeout Warning)
+      console.log('🔄 Requesting session from backend...');
+      
+      // Show "Waking up server" message if it takes > 3 seconds (Common on Render)
+      const slowServerTimeout = setTimeout(() => {
+        if (isMounted.current) {
+          setSessionState(prev => ({ 
+            ...prev, 
+            error: "Connecting to server... (This might take a minute if the server is waking up)" 
+          }));
+        }
+      }, 3000);
+
+      const sessionData = await videoApi.startVideoSession(classId, teacherId);
+      clearTimeout(slowServerTimeout);
+
+      if (!isMounted.current) return; // Stop if user left
+
+      // Clear the "Waking up" message if it was shown
+      setSessionState(prev => ({ ...prev, error: null }));
+
+      if (!sessionData.success) throw new Error(sessionData.error || 'Failed to start session');
+
+      // Step C: Validate Data
+      if (!sessionData.token || !sessionData.appId || !sessionData.channel) {
+        throw new Error('Invalid session data received from server');
+      }
+
+      // Step D: Update State
+      setSessionState(prev => ({
+        ...prev,
+        isInitialized: true,
+        sessionInfo: sessionData
+      }));
+
+      // Step E: Join Agora
+      await joinChannel(sessionData);
+
+    } catch (error) {
+      console.error('❌ TEACHER Initialization error:', error);
+      if (isMounted.current) {
+        setSessionState(prev => ({
+          ...prev,
+          error: `Connection Failed: ${error.message}`
+        }));
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsConnecting(false);
+      }
     }
-
-    console.log('✅ Backend session created:', {
-      meetingId: sessionData.meetingId,
-      channel: sessionData.channel,
-      hasToken: !!sessionData.token,
-      tokenLength: sessionData.token?.length,
-      appId: sessionData.appId
-    });
-
-    // ✅ STEP 3: Validate session data
-    if (!sessionData.token || sessionData.token === 'demo_token') {
-      throw new Error('Invalid token received from backend');
-    }
-
-    if (!sessionData.appId) {
-      throw new Error('App ID missing from backend response');
-    }
-
-    if (!sessionData.channel) {
-      throw new Error('Channel name missing from backend response');
-    }
-
-    // ✅ STEP 4: Update state
-    setSessionState({
-      isInitialized: true,
-      isJoined: false,
-      sessionInfo: sessionData,
-      error: null
-    });
-
-    // ✅ STEP 5: Join the channel
-    console.log('🔗 Joining Agora channel...');
-    await joinChannel(sessionData);
-
-  } catch (error) {
-    console.error('❌ TEACHER Initialization error:', error);
-    
-    // Provide helpful error messages
-    let userMessage = error.message;
-    
-    if (error.message?.includes('token')) {
-      userMessage = 'Token generation failed. Please check your Agora App Certificate configuration in the backend.';
-    } else if (error.message?.includes('App ID')) {
-      userMessage = 'Agora App ID is not configured properly. Contact your administrator.';
-    } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
-      userMessage = 'Cannot connect to Agora servers. Please check your internet connection.';
-    }
-    
-    setSessionState(prev => ({
-      ...prev,
-      error: userMessage
-    }));
-  } finally {
-    setIsConnecting(false);
-  }
-};
-
+  };
 const joinChannel = async (sessionData) => {
-  try {
-    const { channel, token, uid, appId } = sessionData;
-    
-    console.log('🔗 TEACHER: Joining channel with params:', {
-      appId: appId?.substring(0, 8) + '...',
-      channel,
-      uid,
-      tokenPresent: !!token,
-      tokenLength: token?.length,
-      tokenPrefix: token?.substring(0, 20) + '...'
-    });
+    try {
+      const { channel, token, uid, appId } = sessionData;
+      
+      if (!clientRef.current) return;
 
-    // ✅ VALIDATE: Ensure we have all required params
-    if (!appId) {
-      throw new Error('Missing App ID');
+      console.log('🔗 Joining Agora Channel...');
+
+      // Join Channel
+      const assignedUid = await clientRef.current.join(
+        appId,
+        channel,
+        token,
+        uid || null
+      );
+      
+      if (!isMounted.current) {
+        await clientRef.current.leave();
+        return;
+      }
+
+      console.log('✅ Joined Channel as:', assignedUid);
+      
+      // Create Tracks (With Timeout for Permissions)
+      await createAndPublishTracks();
+
+      if (isMounted.current) {
+        setSessionState(prev => ({ ...prev, isJoined: true }));
+        startDurationTracking();
+        setupAgoraEventListeners();
+      }
+
+    } catch (error) {
+      console.error('❌ Join Error:', error);
+      throw new Error(error.message || 'Failed to join video channel');
     }
-    
-    if (!channel) {
-      throw new Error('Missing channel name');
-    }
-    
-    if (!token || token === 'demo_token' || token === 'null') {
-      throw new Error('Invalid or missing token');
-    }
-
-    // ✅ CRITICAL FIX: DO NOT call client.init()
-    // Agora SDK NG (v4.x+) doesn't have init() method
-    // The client auto-initializes when you create it
-    
-    console.log('📞 Calling client.join()...');
-    
-    // Join the channel - let Agora assign UID if not provided
-    const assignedUid = await clientRef.current.join(
-      appId,
-      channel,
-      token,
-      uid || null  // null lets Agora auto-assign
-    );
-    
-    console.log('✅ TEACHER: Successfully joined channel:', {
-      channel,
-      requestedUid: uid,
-      assignedUid,
-      match: uid === assignedUid
-    });
-    
-    // Create and publish local tracks
-    await createAndPublishTracks();
-
-    // Update state
-    setSessionState(prev => ({
-      ...prev,
-      isJoined: true
-    }));
-
-    // Start tracking
-    startDurationTracking();
-    
-    // Setup listeners
-    setupAgoraEventListeners();
-    
-    console.log('🎉 TEACHER: Session fully initialized and ready');
-
-  } catch (error) {
-    console.error('❌ TEACHER Join channel error:', {
-      error: error.message,
-      code: error.code,
-      name: error.name,
-      stack: error.stack
-    });
-    
-    // Detailed error handling
-    let errorMessage = 'Failed to join video channel';
-    
-    if (error.code === 'INVALID_PARAMS') {
-      errorMessage = 'Invalid parameters. Check App ID format.';
-    } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER' || error.code === 4096) {
-      errorMessage = 'Cannot reach Agora servers. Check:\n' +
-                    '1. Internet connection\n' +
-                    '2. Firewall settings (allow UDP 3478-3500, TCP 80/443)\n' +
-                    '3. VPN or proxy blocking WebRTC\n' +
-                    '4. App ID is valid (32 characters)';
-    } else if (error.code === 'INVALID_TOKEN' || error.message?.includes('token')) {
-      errorMessage = 'Token authentication failed. The token may be:\n' +
-                    '1. Expired (check backend time)\n' +
-                    '2. Generated for wrong channel\n' +
-                    '3. App Certificate mismatch';
-    } else if (error.code === 'UID_CONFLICT') {
-      errorMessage = 'Another user is already using this UID. Refreshing...';
-      // Could retry here with a different UID
-    }
-    
-    throw new Error(errorMessage);
-  }
-};
+  };
 
 
 
