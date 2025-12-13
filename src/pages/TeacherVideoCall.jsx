@@ -1231,11 +1231,11 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
         </span>
       </button>
 
-      <button 
+     {/* <button 
         className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
         onClick={toggleRecording}
         title={controls.recording ? 'Stop recording' : 'Start recording'}
-      >
+      > 
         <span className="orb-icon">
           {controls.recording ? (
             <Circle size={20} fill="currentColor" />
@@ -1243,7 +1243,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
             <Circle size={20} />
           )}
         </span>
-      </button>
+      </button> */}
     </div>
 
     <div className="secondary-controls">
