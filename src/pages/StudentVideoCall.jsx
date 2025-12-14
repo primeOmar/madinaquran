@@ -1332,700 +1332,315 @@ return (
       </div>
     </div>
 
-
-
-  {/* Main Content Area */}
-  <div className="flex-1 p-4 overflow-y-auto">
-    
-   
-  <div className="w-full h-full grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
-      
-      {/* Local Video (Student's own video) */}
-{localTracks.video && (
-<div className="relative rounded-2xl overflow-hidden border-2 border-cyan-500/50 shadow-2xl shadow-cyan-500/20 group">
-  <div className="relative w-full h-full min-h-[300px] bg-gradient-to-br from-gray-900 via-cyan-900/10 to-gray-900">
-    <video
-      ref={(el) => {
-        if (el && localTracks.video) {
-          try {
-            localTracks.video.stop();
-            localTracks.video.play(el);
-          } catch (error) {
-            console.warn('Local video play error:', error);
-          }
-        }
-      }}
-      className="w-full h-full object-cover"
-      style={{ transform: 'scaleX(-1)' }}
-      autoPlay
-      playsInline
-      muted
-    />
-    
-    {/* Video quality indicators */}
-    <div className="absolute top-3 right-3 flex gap-2">
-      <div className="px-2 py-1 bg-black/60 rounded-lg backdrop-blur-sm">
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-xs text-white">HD</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {/* Local user info overlay */}
-  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-4">
-    <div className="flex justify-between items-center">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-          <span className="text-white font-bold">S</span>
-        </div>
-        <div>
-          <div className="font-bold text-white text-lg">You</div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-cyan-300">Student</span>
-            <span className="px-2 py-0.5 bg-cyan-500/30 text-cyan-300 rounded-full text-xs border border-cyan-500/50">
-              Local
-            </span>
-          </div>
-        </div>
-      </div>
-      
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-full ${controls.audioEnabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-          {controls.audioEnabled ? <Mic size={18} /> : <MicOff size={18} />}
-        </div>
-        <div className={`p-2 rounded-full ${controls.videoEnabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-          {controls.videoEnabled ? <Camera size={18} /> : <CameraOff size={18} />}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {/* Connection status */}
-  <div className="absolute top-3 left-3 flex items-center gap-2">
-    <div className="px-2 py-1 bg-black/60 rounded-lg backdrop-blur-sm">
-      <div className="flex items-center gap-1">
-        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-        <span className="text-xs text-white">Live</span>
-      </div>
-    </div>
-  </div>
-</div>
-)}
-
-{/* Show placeholder if no local video */}
-{!localTracks.video && (
-  <div className="relative rounded-2xl overflow-hidden border-2 border-gray-700/50 group">
-    <div className="relative w-full h-full min-h-[200px] bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
-      <div className="text-center">
-        <div className="text-5xl mb-3 opacity-70">📹</div>
-        <p className="text-gray-400 font-medium">Your Camera</p>
-        <div className="px-2 py-1 rounded-full text-xs mt-2 inline-block bg-gray-700/50 text-gray-400">
-          {controls.hasCamera ? 'Camera Off' : 'No Camera Detected'}
-        </div>
-        <p className="text-gray-500 text-sm mt-2">
-          {controls.hasCamera ? 'Click camera button to turn on' : 'Connect a camera to join with video'}
-        </p>
-      </div>
-    </div>
-
-    {/* Overlay Info */}
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
-      <div className="flex justify-between items-center">
-        <div className="text-white">
-          <div className="font-semibold flex items-center gap-2">
-            You (Student)
-            <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded-full text-xs">
-              Local
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {controls.audioEnabled && (
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs text-green-300">Mic</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-      {/* Remote Users */}
-{Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
-  const uidString = uid.toString(); 
-  const profile = userProfiles.get(uidString);
-  const isTeacher = profile?.role === 'teacher' || uidString === teacherUid;
-  const isLocalUser = uidString === sessionState.sessionInfo?.uid?.toString();
-  
-  const displayName = profile?.name || 
-                      profile?.display_name || 
-                      (isTeacher ? 'Teacher' : `Student`);
-  
-  const userRole = isTeacher ? 'Teacher' : 'Student';
-  const borderColor = isTeacher ? 'border-yellow-500/60' : 'border-blue-500/40';
-  const bgGradient = isTeacher 
-    ? 'from-yellow-900/10 via-gray-900 to-yellow-900/10' 
-    : 'from-blue-900/10 via-gray-900 to-blue-900/10';
-  const roleColor = isTeacher ? 'text-yellow-400' : 'text-blue-400';
-  const badgeColor = isTeacher ? 'bg-yellow-500/20 border-yellow-500/40' : 'bg-blue-500/20 border-blue-500/40';
-  
-  return (
-    <div 
-      key={uid} 
-      className={`relative rounded-2xl overflow-hidden border-2 ${borderColor} shadow-xl shadow-${isTeacher ? 'yellow' : 'blue'}-500/10 group transition-all duration-300 hover:scale-[1.02]`}
-    >
-      {/* Video Container */}
-      <div 
-        ref={el => {
-          if (el && tracks.video) {
-            try {
-              tracks.video.play(el);
-            } catch (error) {
-              console.warn(`Remote video play error for ${uid}:`, error);
-            }
-          }
-        }}
-        className="w-full h-full min-h-[300px] bg-gray-900 relative"
-      />
-      
-      {/* Placeholder if no video */}
-      {!tracks.video && (
-        <div className={`absolute inset-0 w-full h-full min-h-[300px] flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
-          <div className="text-center">
-            <div className={`text-6xl mb-4 opacity-80 ${isTeacher ? 'text-yellow-400' : 'text-blue-400'}`}>
-              {isTeacher ? '👨‍🏫' : '🎓'}
-            </div>
-            <p className={`text-xl font-bold mb-2 ${isTeacher ? 'text-yellow-300' : 'text-blue-300'}`}>
-              {displayName}
-            </p>
-            <div className={`px-3 py-1 rounded-full text-sm font-medium ${badgeColor} ${roleColor} border`}>
-              {userRole}
-            </div>
-            <p className="text-gray-400 text-sm mt-3">
-              {tracks.audio ? 'Audio only' : 'Connecting...'}
-            </p>
-          </div>
-        </div>
-      )}
-      
-      {/* User info overlay */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full ${isTeacher ? 'bg-gradient-to-br from-yellow-500 to-orange-500' : 'bg-gradient-to-br from-blue-500 to-cyan-500'} flex items-center justify-center`}>
-              <span className="text-white font-bold">
-                {isTeacher ? 'T' : 'S'}
-              </span>
-            </div>
-            <div>
-              <div className={`font-bold text-lg ${isTeacher ? 'text-yellow-300' : 'text-white'}`}>
-                {displayName}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-sm ${isTeacher ? 'text-yellow-400' : 'text-cyan-400'}`}>
-                  {userRole}
-                </span>
-                <span className={`px-2 py-0.5 rounded-full text-xs border ${badgeColor} ${roleColor}`}>
-                  Remote
-                </span>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {tracks.audio && (
-              <div className="flex items-center gap-1 bg-black/60 p-2 rounded-lg backdrop-blur-sm">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs text-green-300">Audio</span>
-              </div>
-            )}
-            {isLocalUser && (
-              <div className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded-full text-xs border border-cyan-500/30">
-                You
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      
-      {/* Status indicators */}
-      <div className="absolute top-3 right-3 flex gap-2">
-        {tracks.video && (
-          <div className="px-2 py-1 bg-black/60 rounded-lg backdrop-blur-sm">
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-xs text-white">Video</span>
-            </div>
-          </div>
-        )}
-      </div>
-      
-      {/* Teacher badge */}
-      {isTeacher && (
-        <div className="absolute top-3 left-3 px-3 py-1 bg-gradient-to-r from-yellow-600/80 to-orange-600/80 rounded-full backdrop-blur-sm">
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-bold text-white">TEACHER</span>
-            <span className="text-yellow-300">⭐</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-})}
-      
-     {/* Empty State - Teacher-style */}
-{remoteTracks.size === 0 && (
-  <div className="col-span-full flex items-center justify-center min-h-[500px]">
-    <div className="text-center max-w-2xl">
-      <div className="relative mb-8">
-        <div className="relative mx-auto w-32 h-32">
-          <Users className="text-cyan-400 opacity-30 mx-auto" size={128} />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="animate-ping w-24 h-24 bg-cyan-500/20 rounded-full"></div>
-          </div>
-        </div>
-      </div>
-      <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent mb-4">
-        Classroom Ready
-      </h3>
-      <p className="text-lg text-gray-300 mb-6 max-w-md mx-auto">
-        {teacherUid 
-          ? 'Teacher is online. Other students will join soon.' 
-          : 'Your session is active. Waiting for teacher to join...'}
-      </p>
-      
-      <div className="bg-gradient-to-r from-gray-900/50 to-cyan-900/20 p-6 rounded-2xl border border-cyan-500/30 backdrop-blur-sm max-w-lg mx-auto">
-        <div className="flex items-center justify-center gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-sm text-green-400">You're connected</span>
-          </div>
-          <div className="h-4 w-px bg-gray-700"></div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-cyan-500 rounded-full"></div>
-            <span className="text-sm text-cyan-400">Audio ready</span>
-          </div>
-        </div>
-        <p className="text-cyan-300 text-sm">
-          {teacherUid 
-            ? 'Share your screen and engage with the teacher.' 
-            : 'Prepare your questions and materials for the session.'}
-        </p>
-      </div>
-    </div>
-  </div>
-)}
-    </div>
-  
-
-  </div>
-
-
-{/* Controls Bar - Teacher-style */}
-<div className="bg-gray-900/95 backdrop-blur-xl border-t border-cyan-500/30 p-4 md:p-6">
-  <div className="flex flex-col md:flex-row items-center justify-between max-w-6xl mx-auto gap-4">
-    {/* Left side - Connection status */}
-    <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-          <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
-        </div>
-        <span className="text-sm text-green-400 font-medium">Connected</span>
-      </div>
-    </div>
-    
-    {/* Center - Main controls */}
-    {/* Main Content Area - World Class Design */}
-<div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 md:p-6 gap-4 md:gap-6">
-  
-  {/* ========== LEFT PANEL: TEACHER FOCUS AREA ========== */}
-  <div className="flex-1 flex flex-col gap-4 md:gap-6">
-    
-    {/* 🎯 PRIMARY FOCUS: Teacher/Screen Share (Full width) */}
-    <div className="relative flex-1 rounded-3xl overflow-hidden bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800/50 shadow-2xl">
-      {/* Teacher Video/Screen Share */}
-      {Array.from(remoteTracks.entries())
-        .filter(([uid]) => {
-          const uidString = uid.toString();
-          const profile = userProfiles.get(uidString);
-          return uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher';
-        })
-        .map(([uid, tracks]) => (
-          <div key={uid} className="w-full h-full">
-            <div 
-              ref={el => {
-                if (el && tracks.video) {
-                  try {
-                    tracks.video.play(el);
-                  } catch (error) {
-                    console.warn('Teacher video error:', error);
-                  }
-                }
-              }}
-              className="w-full h-full bg-gray-900"
-            />
-            
-            {/* Teacher Info Overlay */}
-            <div className="absolute top-6 left-6 bg-gradient-to-r from-black/80 to-transparent backdrop-blur-sm rounded-2xl p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-lg">
-                  <span className="text-white font-bold text-lg">T</span>
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Teacher</h3>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="text-green-400 text-sm">Live • HD</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* No Video Placeholder */}
-            {!tracks.video && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-                <div className="text-center">
-                  <div className="relative mb-6">
-                    <div className="text-8xl text-yellow-500/50 mb-2">👨‍🏫</div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="animate-ping w-32 h-32 bg-yellow-500/20 rounded-full"></div>
-                    </div>
-                  </div>
-                  <h3 className="text-3xl font-bold text-white mb-2">Teacher's Session</h3>
-                  <p className="text-gray-400 text-lg">Audio only mode</p>
-                  {tracks.audio && (
-                    <div className="mt-4 flex items-center justify-center gap-2">
-                      <div className="relative">
-                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                        <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
-                      </div>
-                      <span className="text-green-400 text-sm">Audio Active</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      
-      {/* No Teacher Online */}
-      {!teacherUid && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <div className="text-center max-w-md">
-            <div className="relative mb-8">
-              <div className="text-9xl text-gray-700/30 mb-2">👨‍🏫</div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="animate-ping w-48 h-48 bg-yellow-500/10 rounded-full"></div>
-              </div>
-            </div>
-            <h3 className="text-3xl font-bold bg-gradient-to-r from-gray-300 to-gray-500 bg-clip-text text-transparent mb-4">
-              Waiting for Teacher
-            </h3>
-            <p className="text-gray-500 text-lg mb-6">
-              The teacher will join shortly. Prepare your questions and materials.
-            </p>
-            <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/30 p-6 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
-              <div className="flex items-center justify-center gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-green-400">You're connected</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-    
-    {/* 📝 QUICK ACTIONS BAR */}
-    <div className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-gray-900/80 to-gray-800/50 border border-gray-700/30 backdrop-blur-sm">
-      <div className="flex items-center gap-4">
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200">
-          <MessageCircle size={18} className="text-cyan-400" />
-          <span className="text-sm text-gray-300">Ask Question</span>
-        </button>
-        <button 
-          onClick={toggleHandRaise}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 ${
-            controls.handRaised 
-              ? 'bg-gradient-to-r from-yellow-600/20 to-orange-600/20 text-yellow-400 border border-yellow-500/30' 
-              : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-300'
-          }`}
-        >
-          <Hand size={18} className={controls.handRaised ? 'text-yellow-400' : 'text-gray-400'} />
-          <span className="text-sm">{controls.handRaised ? 'Hand Raised' : 'Raise Hand'}</span>
-        </button>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200">
-          <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clipRule="evenodd" />
-          </svg>
-          <span className="text-sm text-gray-300">React</span>
-        </button>
-      </div>
-      
-      <div className="flex items-center gap-2 text-gray-500 text-sm">
-        <Clock size={14} />
-        <span>{formatDuration(stats.duration)}</span>
-      </div>
-    </div>
-  </div>
-  
-  {/* ========== RIGHT PANEL: STUDENTS & CONTROLS ========== */}
-  <div className="lg:w-96 flex flex-col gap-4 md:gap-6">
-    
-    {/* 👥 STUDENTS LIST (Collapsible) */}
-    <div className="rounded-2xl bg-gradient-to-b from-gray-900/90 to-gray-950/90 border border-gray-800/50 backdrop-blur-sm overflow-hidden">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-800/50 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-cyan-500/10">
-            <Users size={20} className="text-cyan-400" />
-          </div>
-          <div>
-            <h4 className="font-bold text-white">Classmates</h4>
-            <p className="text-xs text-gray-400">{remoteTracks.size} students online</p>
-          </div>
-        </div>
-        <button className="p-2 rounded-lg hover:bg-gray-800/50 transition-colors">
-          <ChevronUp size={18} className="text-gray-400" />
-        </button>
-      </div>
-      
-      {/* Students List */}
-      <div className="max-h-[400px] overflow-y-auto p-3">
+    {/* Main Content Area - Teacher-Focused Layout */}
+    <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      {/* ========== LEFT: PRIMARY TEACHER AREA ========== */}
+      <div className="flex-1 relative bg-gray-950 overflow-hidden">
+        {/* Teacher Video/Screen Share - PRIMARY */}
         {Array.from(remoteTracks.entries())
           .filter(([uid]) => {
             const uidString = uid.toString();
             const profile = userProfiles.get(uidString);
-            return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+            return uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher';
           })
-          .map(([uid, tracks]) => {
-            const uidString = uid.toString();
-            const profile = userProfiles.get(uidString);
-            const displayName = profile?.name || profile?.display_name || 'Student';
-            
-            return (
-              <div key={uid} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-800/30 transition-all duration-200 group">
-                {/* Student Avatar/Video */}
-                <div className="relative">
-                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
-                    {tracks.video ? (
-                      <div 
-                        ref={el => {
-                          if (el && tracks.video) tracks.video.play(el);
-                        }}
-                        className="w-full h-full"
-                      />
-                    ) : (
-                      <span className="text-2xl">🎓</span>
+          .map(([uid, tracks]) => (
+            <div key={uid} className="absolute inset-0 bg-black">
+              {/* Video container */}
+              <div 
+                ref={el => {
+                  if (el && tracks.video) {
+                    try {
+                      tracks.video.play(el);
+                    } catch (error) {
+                      console.warn('Teacher video error:', error);
+                    }
+                  }
+                }}
+                className="w-full h-full bg-black"
+              />
+              
+              {/* No video placeholder */}
+              {!tracks.video && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+                  <div className="text-center">
+                    <div className="relative mb-6">
+                      <div className="text-8xl text-yellow-500/30 mb-2">👨‍🏫</div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="animate-ping w-32 h-32 bg-yellow-500/10 rounded-full"></div>
+                      </div>
+                    </div>
+                    <h3 className="text-3xl font-bold text-white mb-2">Teacher's Session</h3>
+                    <p className="text-gray-400 text-lg">
+                      {tracks.audio ? 'Audio only' : 'Connecting...'}
+                    </p>
+                    {tracks.audio && (
+                      <div className="mt-4 flex items-center justify-center gap-2">
+                        <div className="relative">
+                          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                          <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
+                        </div>
+                        <span className="text-green-400 text-sm">Audio Active</span>
+                      </div>
                     )}
                   </div>
-                  {tracks.audio && (
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
-                      <Mic size={10} className="text-white" />
-                    </div>
-                  )}
                 </div>
-                
-                {/* Student Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-white truncate">{displayName}</div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-cyan-400">Student</span>
-                    <div className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-xs text-green-400">Online</span>
+              )}
+              
+              {/* Teacher Info Overlay */}
+              <div className="absolute top-6 left-6 bg-gradient-to-r from-black/80 to-transparent backdrop-blur-sm rounded-2xl p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-lg">
+                    <span className="text-white font-bold text-lg">T</span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Teacher</h3>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-green-400 text-sm">Live • Primary View</span>
                     </div>
                   </div>
                 </div>
-                
-                {/* Action Button */}
-                <button className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-gray-700/50 transition-all duration-200">
-                  <MessageCircle size={16} className="text-gray-400" />
-                </button>
               </div>
-            );
-          })}
+            </div>
+          ))}
         
-        {/* Empty State */}
-        {remoteTracks.size === 0 && (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-3 text-gray-700/50">👥</div>
-            <p className="text-gray-500 text-sm">No other students yet</p>
+        {/* No Teacher Online - Show waiting message */}
+        {!teacherUid && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="text-center max-w-md">
+              <div className="relative mb-8">
+                <div className="text-9xl text-gray-700/30 mb-2">👨‍🏫</div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="animate-ping w-48 h-48 bg-yellow-500/10 rounded-full"></div>
+                </div>
+              </div>
+              <h3 className="text-3xl font-bold bg-gradient-to-r from-gray-300 to-gray-500 bg-clip-text text-transparent mb-4">
+                Waiting for Teacher
+              </h3>
+              <p className="text-gray-500 text-lg mb-6">
+                The teacher will join shortly. Prepare your questions and materials.
+              </p>
+              <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/30 p-6 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
+                <div className="flex items-center justify-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-green-400">You're connected</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
-    </div>
-    
-    {/* 🎥 LOCAL VIDEO OVERLAY (Fixed at bottom-right) */}
-    <div className="fixed bottom-24 right-6 z-40">
-      <div className="w-56 rounded-2xl overflow-hidden border-2 border-cyan-500/30 shadow-2xl shadow-cyan-500/20 bg-gradient-to-br from-gray-900 to-gray-950">
-        {/* Header */}
-        <div className="p-3 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-xs text-cyan-300">You</span>
-          </div>
-          <button className="p-1 hover:bg-gray-800/50 rounded">
-            <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
+      
+      {/* ========== RIGHT: STUDENTS & CONTROLS SIDEBAR ========== */}
+      <div className="lg:w-96 flex flex-col border-l border-gray-800/50 bg-gradient-to-b from-gray-900/95 to-gray-950">
         
-        {/* Video */}
-        <div className="relative h-32 bg-gray-900">
-          {localTracks.video ? (
-            <video
-              ref={(el) => {
-                if (el && localTracks.video) {
-                  try {
-                    localTracks.video.stop();
-                    localTracks.video.play(el);
-                  } catch (error) {
-                    console.warn('Local video error:', error);
-                  }
-                }
-              }}
-              className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }}
-              autoPlay
-              playsInline
-              muted
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
-              <div className="text-center">
-                <div className="text-3xl mb-2 opacity-50">📹</div>
-                <p className="text-xs text-gray-500">Camera off</p>
+        {/* 👤 Students List Section */}
+        <div className="p-4 border-b border-gray-800/50">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-cyan-500/10">
+              <Users size={20} className="text-cyan-400" />
+            </div>
+            <div>
+              <h4 className="font-bold text-white">Classmates</h4>
+              <p className="text-xs text-gray-400">
+                {Array.from(remoteTracks.entries()).filter(([uid]) => {
+                  const uidString = uid.toString();
+                  const profile = userProfiles.get(uidString);
+                  return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+                }).length} students online
+              </p>
+            </div>
+          </div>
+          
+          {/* Local Student (You) - Always shown first */}
+          <div className="mb-4">
+            <div className="rounded-xl overflow-hidden border border-cyan-500/30 bg-gradient-to-r from-gray-800/50 to-gray-900/50">
+              <div className="relative h-40 bg-gray-900">
+                {localTracks.video ? (
+                  <video
+                    ref={(el) => {
+                      if (el && localTracks.video) {
+                        try {
+                          localTracks.video.stop();
+                          localTracks.video.play(el);
+                        } catch (error) {
+                          console.warn('Local video error:', error);
+                        }
+                      }
+                    }}
+                    className="w-full h-full object-cover"
+                    style={{ transform: 'scaleX(-1)' }}
+                    autoPlay
+                    playsInline
+                    muted
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="text-4xl text-cyan-400/50 mb-2">📹</div>
+                      <p className="text-sm text-gray-400">Your camera</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Local status indicators */}
+                <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                      <span className="text-white font-bold text-sm">You</span>
+                    </div>
+                    <div>
+                      <div className="text-white text-sm font-medium">You</div>
+                      <div className="text-cyan-400 text-xs">Student</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className={`w-3 h-3 rounded-full ${controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <div className={`w-3 h-3 rounded-full ${controls.videoEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
+          </div>
           
-          {/* Status Indicators */}
-          <div className="absolute bottom-2 left-2 flex gap-2">
-            <div className={`px-2 py-1 rounded-lg backdrop-blur-sm text-xs ${
-              controls.audioEnabled 
-                ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                : 'bg-red-500/20 text-red-400 border border-red-500/30'
-            }`}>
-              {controls.audioEnabled ? 'Mic On' : 'Mic Off'}
+          {/* Other Students List */}
+          <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+            {Array.from(remoteTracks.entries())
+              .filter(([uid]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+              })
+              .map(([uid, tracks]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                const displayName = profile?.name || profile?.display_name || 'Student';
+                
+                return (
+                  <div key={uid} className="flex items-center gap-3 p-3 rounded-xl bg-gray-800/30 hover:bg-gray-700/30 transition-all duration-200">
+                    <div className="relative">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
+                        {tracks.video ? (
+                          <div 
+                            ref={el => {
+                              if (el && tracks.video) tracks.video.play(el);
+                            }}
+                            className="w-full h-full"
+                          />
+                        ) : (
+                          <span className="text-xl">🎓</span>
+                        )}
+                      </div>
+                      {tracks.audio && (
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
+                          <Mic size={8} className="text-white" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-white truncate">{displayName}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-cyan-400">Student</span>
+                        <div className="flex items-center gap-1">
+                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                          <span className="text-xs text-green-400">Online</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            
+            {/* No other students */}
+            {Array.from(remoteTracks.entries()).filter(([uid]) => {
+              const uidString = uid.toString();
+              const profile = userProfiles.get(uidString);
+              return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+            }).length === 0 && (
+              <div className="text-center py-4">
+                <p className="text-gray-500 text-sm">No other students yet</p>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* 🎛️ Quick Actions Bar */}
+        <div className="p-4 border-t border-gray-800/50">
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <button
+              onClick={toggleAudio}
+              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 ${
+                controls.audioEnabled 
+                  ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
+                  : 'bg-gradient-to-r from-red-600/20 to-red-700/20 text-red-400 border border-red-500/30'
+              }`}
+            >
+              {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+              <span className="text-xs mt-1">{controls.audioEnabled ? 'Mute' : 'Unmute'}</span>
+            </button>
+            
+            <button
+              onClick={toggleVideo}
+              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 ${
+                controls.videoEnabled 
+                  ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
+                  : 'bg-gradient-to-r from-red-600/20 to-red-700/20 text-red-400 border border-red-500/30'
+              }`}
+            >
+              {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
+              <span className="text-xs mt-1">{controls.videoEnabled ? 'Video Off' : 'Video On'}</span>
+            </button>
+          </div>
+          
+          <button 
+            onClick={toggleHandRaise}
+            className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl transition-all duration-200 mb-4 ${
+              controls.handRaised 
+                ? 'bg-gradient-to-r from-yellow-600/20 to-orange-600/20 text-yellow-400 border border-yellow-500/30 animate-pulse' 
+                : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-300 border border-gray-700/50'
+            }`}
+          >
+            <Hand size={18} />
+            <span className="font-medium">{controls.handRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+          </button>
+          
+          {/* Session Info */}
+          <div className="bg-gradient-to-r from-gray-800/30 to-gray-900/30 p-3 rounded-xl border border-gray-700/50">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm text-gray-400">Duration</span>
+              <span className="text-white font-medium">{formatDuration(stats.duration)}</span>
             </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-400">Participants</span>
+              <span className="text-white font-medium">{stats.participantCount}</span>
+            </div>
+          </div>
+        </div>
+        
+        {/* 📱 Bottom Controls */}
+        <div className="mt-auto p-4 border-t border-gray-800/50">
+          <div className="flex justify-between items-center">
+            <button 
+              onClick={() => setShowChat(!showChat)}
+              className={`p-3 rounded-xl ${showChat ? 'bg-cyan-600' : 'bg-gray-800'}`}
+            >
+              <MessageSquare size={20} className="text-white" />
+            </button>
+            
+            <button 
+              onClick={leaveSession}
+              className="flex-1 ml-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all duration-200"
+            >
+              <PhoneOff size={18} />
+              <span>Leave Session</span>
+            </button>
           </div>
         </div>
       </div>
     </div>
-    
-    {/* 📊 SESSION INFO */}
-    <div className="rounded-2xl bg-gradient-to-b from-gray-900/80 to-gray-950/80 border border-gray-800/50 p-4 backdrop-blur-sm">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <div className="text-xs text-gray-500">Connection</div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping"></div>
-            </div>
-            <span className="text-sm text-green-400 font-medium">Excellent</span>
-          </div>
-        </div>
-        <div className="space-y-1">
-          <div className="text-xs text-gray-500">Latency</div>
-          <div className="text-sm text-white font-medium">42ms</div>
-        </div>
-        <div className="space-y-1">
-          <div className="text-xs text-gray-500">Bitrate</div>
-          <div className="text-sm text-white font-medium">2.4 Mbps</div>
-        </div>
-        <div className="space-y-1">
-          <div className="text-xs text-gray-500">Resolution</div>
-          <div className="text-sm text-white font-medium">720p HD</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-{/* 🎛️ FLOATING CONTROLS BAR (Bottom Center) */}
-<div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-  <div className="flex items-center gap-2 p-2 rounded-2xl bg-gradient-to-r from-gray-900/95 to-gray-950/95 border border-gray-800/50 shadow-2xl backdrop-blur-xl">
-    
-    {/* Audio Control */}
-    <button
-      onClick={toggleAudio}
-      className={`p-3 rounded-xl transition-all duration-200 hover:scale-105 ${
-        controls.audioEnabled 
-          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30' 
-          : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white'
-      }`}
-      title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
-    >
-      {controls.audioEnabled ? (
-        <div className="relative">
-          <Mic size={22} />
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-        </div>
-      ) : (
-        <MicOff size={22} />
-      )}
-    </button>
-    
-    {/* Video Control */}
-    <button
-      onClick={toggleVideo}
-      className={`p-3 rounded-xl transition-all duration-200 hover:scale-105 ${
-        controls.videoEnabled 
-          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30' 
-          : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white'
-      }`}
-      title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-    >
-      {controls.videoEnabled ? (
-        <div className="relative">
-          <Camera size={22} />
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-        </div>
-      ) : (
-        <CameraOff size={22} />
-      )}
-    </button>
-    
-    {/* Hand Raise */}
-    <button
-      onClick={toggleHandRaise}
-      className={`p-3 rounded-xl transition-all duration-200 hover:scale-105 relative ${
-        controls.handRaised 
-          ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white shadow-lg shadow-yellow-500/30 animate-pulse' 
-          : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white'
-      }`}
-      title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
-    >
-      <Hand size={22} />
-      {controls.handRaised && (
-        <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full animate-bounce"></div>
-      )}
-    </button>
-    
-    {/* Divider */}
-    <div className="h-6 w-px bg-gray-800/50 mx-1"></div>
-    
-    {/* Share Button */}
-    <button className="p-3 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white hover:scale-105 transition-all duration-200">
-      <Share2 size={22} />
-    </button>
-    
-    {/* More Options */}
-    <button className="p-3 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white hover:scale-105 transition-all duration-200">
-      <MoreVertical size={22} />
-    </button>
-  </div>
-</div>
-  </div>
-</div>
 
     {/* Chat Sidebar */}
     {showChat && (
@@ -2034,7 +1649,7 @@ return (
         <div className="p-6 border-b border-cyan-500/30 flex justify-between items-center">
           <div>
             <h3 className="font-bold text-xl text-white">Madina Chat</h3>
-            <p className="text-cyan-300 text-sm">Live discussion with teacher</p>
+            <p className="text-cyan-300 text-sm">Live Class with teacher</p>
           </div>
           <button 
             onClick={() => setShowChat(false)}
@@ -2053,38 +1668,38 @@ return (
               <p className="text-sm mt-2">Be the first to say hello!</p>
             </div>
           ) : (messages.map(msg => (
-  <div 
-    key={msg.id} 
-    className={`p-4 rounded-2xl ${
-      msg.message_type === 'system' 
-        ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-500/20' 
-        : 'bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700/50'
-    }`}
-  >
-    <div className="flex justify-between items-start">
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="font-semibold text-white">
-            {msg.profiles?.name || 'Unknown User'}
-          </div>
-          {msg.message_type === 'system' && (
-            <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs">
-              System
-            </span>
-          )}
-          {msg.profiles?.role === 'teacher' && (
-            <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
-              Teacher
-            </span>
-          )}
-        </div>
-        <p className="text-cyan-100">{msg.message_text}</p>
-        <p className="text-cyan-400 text-xs mt-3">
-          {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-        </p>
-      </div>
-    </div>
-  </div>
+            <div 
+              key={msg.id} 
+              className={`p-4 rounded-2xl ${
+                msg.message_type === 'system' 
+                  ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-500/20' 
+                  : 'bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700/50'
+              }`}
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="font-semibold text-white">
+                      {msg.profiles?.name || 'Unknown User'}
+                    </div>
+                    {msg.message_type === 'system' && (
+                      <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs">
+                        System
+                      </span>
+                    )}
+                    {msg.profiles?.role === 'teacher' && (
+                      <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
+                        Teacher
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-cyan-100">{msg.message_text}</p>
+                  <p className="text-cyan-400 text-xs mt-3">
+                    {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  </p>
+                </div>
+              </div>
+            </div>
           )))}
         </div>
         
@@ -2113,7 +1728,6 @@ return (
   </div>
 );
 }
-
 const RemoteVideo = ({ uid, tracks, userProfiles, teacherUid }) => {
   const vidRef = useRef(null);
 
