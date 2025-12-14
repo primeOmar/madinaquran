@@ -638,74 +638,201 @@ const fetchProfiles = async (meetingId) => {
   // ============================================
   // Agora Event Listeners - FIXED
   // ============================================
-
 const setupAgoraEventListeners = () => {
-    const client = clientRef.current;
-    if (!client) return;
+  const client = clientRef.current;
+  if (!client) return;
 
-    client.on('user-published', async (user, mediaType) => {
-      console.log('👤 User published:', { uid: user.uid, mediaType });
-      
+  console.log('🎧 Setting up Agora event listeners');
+
+  // ============================================
+  // USER JOINED - Initialize track entry
+  // ============================================
+  client.on('user-joined', async (user) => {
+    const uid = String(user.uid); // Convert to string for consistency
+    console.log('👤 USER JOINED:', { uid, hasAudio: user.hasAudio, hasVideo: user.hasVideo });
+    
+    // Initialize tracks map entry for this user (prevents duplicates)
+    setRemoteTracks(prev => {
+      const newMap = new Map(prev);
+      // Only initialize if not already present
+      if (!newMap.has(uid)) {
+        newMap.set(uid, { audio: null, video: null });
+        console.log('✅ Initialized track entry for:', uid);
+      }
+      return newMap;
+    });
+    
+    // Fetch profile for this user immediately
+    if (sessionState.sessionInfo?.meetingId) {
+      try {
+        const response = await studentvideoApi.getSessionParticipants(sessionState.sessionInfo.meetingId);
+        
+        if (response.success && response.participants) {
+          const newUser = response.participants.find(p => String(p.agora_uid) === uid);
+          
+          if (newUser) {
+            const isTeacher = newUser.role === 'teacher' || newUser.is_teacher;
+            
+            setUserProfiles(prev => {
+              const updated = new Map(prev);
+              updated.set(uid, {
+                id: newUser.user_id,
+                agora_uid: newUser.agora_uid,
+                name: newUser.display_name || newUser.name || 'Unknown User',
+                display_name: newUser.display_name || newUser.name || 'Unknown User',
+                role: isTeacher ? 'teacher' : 'student',
+                is_teacher: isTeacher,
+                avatar_url: newUser.avatar_url
+              });
+              
+              console.log('✅ Profile loaded for:', { uid, name: newUser.name, role: isTeacher ? 'teacher' : 'student' });
+              return updated;
+            });
+            
+            if (isTeacher) {
+              setTeacherUid(uid);
+              console.log('👨‍🏫 Teacher joined with UID:', uid);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to fetch profile for joined user:', error);
+      }
+    }
+    
+    updateParticipantCount();
+  });
+
+  // ============================================
+  // USER PUBLISHED - Update existing track entry
+  // ============================================
+  client.on('user-published', async (user, mediaType) => {
+    const uid = String(user.uid); // Convert to string for consistency
+    console.log('📡 USER PUBLISHED:', { uid, mediaType });
+    
+    try {
+      // Subscribe to the media
       await client.subscribe(user, mediaType);
+      console.log('✅ Subscribed to:', { uid, mediaType });
       
-      if (mediaType === 'video') {
-        setRemoteTracks(prev => {
-          const newMap = new Map(prev);
-          const existing = newMap.get(user.uid) || {};
-          newMap.set(user.uid, { ...existing, video: user.videoTrack });
-          return newMap;
-        });
-      }
-
-      if (mediaType === 'audio') {
-        user.audioTrack?.play();
-        setRemoteTracks(prev => {
-          const newMap = new Map(prev);
-          const existing = newMap.get(user.uid) || {};
-          newMap.set(user.uid, { ...existing, audio: user.audioTrack });
-          return newMap;
-        });
-      }
-      
-      // 🔥 CRITICAL: Sync profiles when a user joins
-      setTimeout(() => {
-        syncProfilesWithTracks();
-      }, 1000);
-      
-      updateParticipantCount();
-    });
-
-    client.on('user-unpublished', (user, mediaType) => {
-      if (mediaType === 'video') {
-        setRemoteTracks(prev => {
-          const newMap = new Map(prev);
-          const existing = newMap.get(user.uid);
-          if (existing) newMap.set(user.uid, { ...existing, video: null });
-          return newMap;
-        });
-      }
-      updateParticipantCount();
-    });
-
-    client.on('user-left', (user) => {
-      console.log('👤 User left:', user.uid);
-      
+      // Update the EXISTING track entry (don't create new one)
       setRemoteTracks(prev => {
         const newMap = new Map(prev);
-        newMap.delete(user.uid);
+        const existing = newMap.get(uid) || { audio: null, video: null };
+        
+        if (mediaType === 'video') {
+          existing.video = user.videoTrack;
+          console.log('🎥 Video track added for:', uid);
+        } else if (mediaType === 'audio') {
+          existing.audio = user.audioTrack;
+          user.audioTrack?.play();
+          console.log('🔊 Audio track added for:', uid);
+        }
+        
+        // Set the updated tracks for this user
+        newMap.set(uid, existing);
         return newMap;
       });
       
-      // Remove from userProfiles as well
-      setUserProfiles(prev => {
-        const updated = new Map(prev);
-        updated.delete(String(user.uid));
-        return updated;
-      });
+    } catch (error) {
+      console.error('❌ Subscribe error:', { uid, mediaType, error });
+    }
+    
+    updateParticipantCount();
+  });
+
+  // ============================================
+  // USER UNPUBLISHED - Clear track but keep entry
+  // ============================================
+  client.on('user-unpublished', (user, mediaType) => {
+    const uid = String(user.uid);
+    console.log('📴 USER UNPUBLISHED:', { uid, mediaType });
+    
+    setRemoteTracks(prev => {
+      const newMap = new Map(prev);
+      const existing = newMap.get(uid);
       
-      updateParticipantCount();
+      if (existing) {
+        if (mediaType === 'video') {
+          existing.video?.stop();
+          existing.video = null;
+        } else if (mediaType === 'audio') {
+          existing.audio?.stop();
+          existing.audio = null;
+        }
+        
+        // Keep the entry but with null track
+        newMap.set(uid, existing);
+      }
+      
+      return newMap;
     });
-  };
+    
+    updateParticipantCount();
+  });
+
+  // ============================================
+  // USER LEFT - Remove completely
+  // ============================================
+  client.on('user-left', (user) => {
+    const uid = String(user.uid);
+    console.log('👋 USER LEFT:', uid);
+    
+    // Stop and remove all tracks for this user
+    setRemoteTracks(prev => {
+      const newMap = new Map(prev);
+      const tracks = newMap.get(uid);
+      
+      if (tracks) {
+        tracks.audio?.stop();
+        tracks.video?.stop();
+      }
+      
+      // Delete the entry completely
+      newMap.delete(uid);
+      console.log('🗑️ Removed tracks for:', uid);
+      return newMap;
+    });
+    
+    // Remove profile
+    setUserProfiles(prev => {
+      const updated = new Map(prev);
+      updated.delete(uid);
+      console.log('🗑️ Removed profile for:', uid);
+      return updated;
+    });
+    
+    updateParticipantCount();
+  });
+
+  // ============================================
+  // CONNECTION STATE CHANGES
+  // ============================================
+  client.on('connection-state-change', (curState, prevState) => {
+    console.log('🔌 Connection state changed:', { from: prevState, to: curState });
+    
+    if (curState === 'DISCONNECTED' || curState === 'DISCONNECTING') {
+      setSessionState(prev => ({
+        ...prev,
+        error: 'Connection lost. Trying to reconnect...'
+      }));
+    } else if (curState === 'CONNECTED') {
+      setSessionState(prev => ({
+        ...prev,
+        error: null
+      }));
+      
+      // Re-fetch profiles after reconnecting
+      if (sessionState.sessionInfo?.meetingId) {
+        setTimeout(() => {
+          fetchParticipants(sessionState.sessionInfo.meetingId);
+        }, 1000);
+      }
+    }
+  });
+
+  console.log('✅ Event listeners setup complete');
+};
   // ============================================
   // Control Functions - UPDATED
   // ============================================
