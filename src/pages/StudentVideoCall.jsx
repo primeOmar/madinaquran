@@ -34,6 +34,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     hasCamera: false, // Track if camera exists
     hasMicrophone: false // Track if mic exists
   });
+
   
 const [userProfiles, setUserProfiles] = useState(new Map()); 
 const [participants, setParticipants] = useState([]); 
@@ -103,43 +104,57 @@ const fetchParticipants = async (meetingId) => {
           const uidString = String(participant.agora_uid);
           const isTeacher = participant.role === 'teacher' || participant.is_teacher;
           
+          // Store profile with all necessary data
           newProfiles.set(uidString, {
             id: participant.user_id,
             agora_uid: participant.agora_uid,
-            name: participant.name || participant.display_name || 'User',
-            display_name: participant.display_name || participant.name || 'User',
-            role: participant.role || (isTeacher ? 'teacher' : 'student'),
+            name: participant.display_name || participant.name || 'Unknown User',
+            display_name: participant.display_name || participant.name || 'Unknown User',
+            role: isTeacher ? 'teacher' : 'student',
             is_teacher: isTeacher,
-            avatar_url: participant.avatar_url || participant.profile?.avatar_url
+            avatar_url: participant.avatar_url
           });
           
           if (isTeacher) {
             teacherUidFound = uidString;
-            console.log('👨‍🏫 Teacher identified:', { uid: teacherUidFound, name: participant.name });
+            console.log('👨‍🏫 Teacher identified:', { 
+              uid: teacherUidFound, 
+              name: participant.name 
+            });
           }
         }
       });
       
+      // Update state with new profiles
       setUserProfiles(newProfiles);
-      setTeacherUid(teacherUidFound);
+      if (teacherUidFound) {
+        setTeacherUid(teacherUidFound);
+      }
       
       console.log('✅ Updated user profiles:', {
         count: newProfiles.size,
         teacherUid: teacherUidFound,
-        allUids: Array.from(newProfiles.keys())
+        allUids: Array.from(newProfiles.keys()),
+        profiles: Array.from(newProfiles.entries()).map(([uid, profile]) => ({
+          uid,
+          name: profile.name,
+          role: profile.role
+        }))
       });
       
       // Also update participants list for UI
       setParticipants(response.participants);
       
       return newProfiles;
+    } else {
+      console.warn('⚠️ No participants data in response');
+      return new Map();
     }
   } catch (error) {
     console.error('❌ Failed to fetch participants:', error);
+    return new Map();
   }
-  return new Map();
 };
-
 
 // Add this function to sync profiles with remote tracks
 const syncProfilesWithTracks = () => {
@@ -208,6 +223,9 @@ const fetchProfilesByUids = async (uids) => {
 };
 
 
+// ==================== initializeSession ====================
+
+
 const initializeSession = async () => {
   try {
     console.log('🎓 STUDENT: Starting initialization', { classId, meetingId });
@@ -229,6 +247,175 @@ const initializeSession = async () => {
     // 3. Create Client
     clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
+    // ========== SETUP EVENT HANDLERS BEFORE JOINING ==========
+    
+    // User Joined - Fetch profile immediately
+    clientRef.current.on('user-joined', async (remoteUser) => {
+      const remoteUid = String(remoteUser.uid);
+      console.log('👤 REMOTE USER JOINED:', {
+        uid: remoteUid,
+        hasAudio: remoteUser.hasAudio,
+        hasVideo: remoteUser.hasVideo
+      });
+
+      // Immediately fetch this user's profile
+      try {
+        const response = await studentvideoApi.getSessionParticipants(effectiveMeetingId);
+        
+        if (response.success && response.participants) {
+          const newUser = response.participants.find(p => String(p.agora_uid) === remoteUid);
+          
+          if (newUser) {
+            const isTeacher = newUser.role === 'teacher' || newUser.is_teacher;
+            
+            // Update profiles map
+            setUserProfiles(prev => {
+              const updated = new Map(prev);
+              updated.set(remoteUid, {
+                id: newUser.user_id,
+                agora_uid: newUser.agora_uid,
+                name: newUser.display_name || newUser.name || 'Unknown User',
+                display_name: newUser.display_name || newUser.name || 'Unknown User',
+                role: isTeacher ? 'teacher' : 'student',
+                is_teacher: isTeacher,
+                avatar_url: newUser.avatar_url
+              });
+              
+              console.log('✅ Added profile for user:', {
+                uid: remoteUid,
+                name: newUser.name,
+                role: isTeacher ? 'teacher' : 'student'
+              });
+              
+              return updated;
+            });
+            
+            // Update teacher UID if this is the teacher
+            if (isTeacher) {
+              setTeacherUid(remoteUid);
+              console.log('👨‍🏫 Teacher joined with UID:', remoteUid);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to fetch profile for joined user:', error);
+      }
+
+      // Initialize tracks map for this user
+      setRemoteTracks(prev => {
+        const updated = new Map(prev);
+        updated.set(remoteUid, { audio: null, video: null });
+        return updated;
+      });
+
+      // Update participant count
+      setStats(prev => ({
+        ...prev,
+        participantCount: clientRef.current.remoteUsers.length + 1
+      }));
+    });
+
+    // User Published - Subscribe to tracks
+    clientRef.current.on('user-published', async (remoteUser, mediaType) => {
+      const remoteUid = String(remoteUser.uid);
+      console.log('📡 USER PUBLISHED:', { uid: remoteUid, mediaType });
+
+      try {
+        await clientRef.current.subscribe(remoteUser, mediaType);
+        console.log('✅ Subscribed to:', { uid: remoteUid, mediaType });
+
+        setRemoteTracks(prev => {
+          const updated = new Map(prev);
+          const existing = updated.get(remoteUid) || { audio: null, video: null };
+          
+          if (mediaType === 'audio') {
+            existing.audio = remoteUser.audioTrack;
+            remoteUser.audioTrack?.play();
+          } else if (mediaType === 'video') {
+            existing.video = remoteUser.videoTrack;
+          }
+          
+          updated.set(remoteUid, existing);
+          return updated;
+        });
+      } catch (error) {
+        console.error('❌ Subscribe error:', error);
+      }
+    });
+
+    // User Unpublished - Remove tracks
+    clientRef.current.on('user-unpublished', (remoteUser, mediaType) => {
+      const remoteUid = String(remoteUser.uid);
+      console.log('📴 USER UNPUBLISHED:', { uid: remoteUid, mediaType });
+
+      setRemoteTracks(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(remoteUid);
+        
+        if (existing) {
+          if (mediaType === 'audio') {
+            existing.audio?.stop();
+            existing.audio = null;
+          } else if (mediaType === 'video') {
+            existing.video?.stop();
+            existing.video = null;
+          }
+          updated.set(remoteUid, existing);
+        }
+        
+        return updated;
+      });
+    });
+
+    // User Left - Clean up
+    clientRef.current.on('user-left', (remoteUser) => {
+      const remoteUid = String(remoteUser.uid);
+      console.log('👋 USER LEFT:', remoteUid);
+
+      setRemoteTracks(prev => {
+        const updated = new Map(prev);
+        const tracks = updated.get(remoteUid);
+        
+        if (tracks) {
+          tracks.audio?.stop();
+          tracks.video?.stop();
+        }
+        
+        updated.delete(remoteUid);
+        return updated;
+      });
+
+      // Remove from profiles
+      setUserProfiles(prev => {
+        const updated = new Map(prev);
+        updated.delete(remoteUid);
+        return updated;
+      });
+
+      // Update participant count
+      setStats(prev => ({
+        ...prev,
+        participantCount: clientRef.current.remoteUsers.length + 1
+      }));
+    });
+
+    // Connection State Changed
+    clientRef.current.on('connection-state-change', (curState, prevState) => {
+      console.log('🔌 Connection state:', { from: prevState, to: curState });
+      
+      if (curState === 'DISCONNECTED' || curState === 'DISCONNECTING') {
+        setSessionState(prev => ({
+          ...prev,
+          error: 'Connection lost. Trying to reconnect...'
+        }));
+      } else if (curState === 'CONNECTED') {
+        setSessionState(prev => ({
+          ...prev,
+          error: null
+        }));
+      }
+    });
+
     // 4. Join via API
     const sessionData = await studentvideoApi.joinVideoSession(
       effectiveMeetingId,
@@ -249,7 +436,8 @@ const initializeSession = async () => {
       isJoined: false,
       sessionInfo: {
         ...sessionData,
-        uid: studentAgoraUid 
+        uid: studentAgoraUid,
+        meetingId: effectiveMeetingId // Store for later use
       },
       error: null
     });
@@ -260,6 +448,11 @@ const initializeSession = async () => {
       uid: studentAgoraUid
     });
 
+    // 6. Fetch participants again after joining (to get any users who joined while we were connecting)
+    setTimeout(() => {
+      fetchParticipants(effectiveMeetingId);
+    }, 2000);
+
   } catch (error) {
     console.error('❌ Init Error:', error);
     setSessionState(prev => ({ 
@@ -268,7 +461,6 @@ const initializeSession = async () => {
     }));
   }
 };
-
 
   // ============================================
   // Join Channel -
@@ -1334,58 +1526,97 @@ return (
 // Remote Video Component - UPDATED
 
 const RemoteVideo = ({ uid, tracks, userProfiles, teacherUid }) => {
-    const vidRef = useRef(null);
+  const vidRef = useRef(null);
 
-    // 👇 LOOKUP LOGIC: Get name and role from the map
-    const profile = userProfiles.get(String(uid));
-    const isTeacher = String(uid) === teacherUid || profile?.role === 'teacher';
-    // Fallback to a clean UID if name is not found
-    const displayName = profile?.name || `Classmate ${String(uid).slice(0, 5)}`; 
-    const roleLabel = isTeacher ? 'Teacher' : 'Classmate';
-    const roleIcon = isTeacher ? '👨‍🏫' : '👤';
+  // Get profile from map
+  const profile = userProfiles.get(String(uid));
+  const isTeacher = String(uid) === String(teacherUid) || profile?.is_teacher || profile?.role === 'teacher';
+  
+  // Determine display name with better fallbacks
+  let displayName;
+  if (isTeacher) {
+    displayName = 'Teacher';
+  } else if (profile?.display_name) {
+    displayName = profile.display_name;
+  } else if (profile?.name) {
+    displayName = profile.name;
+  } else {
+    // Clean fallback - just show "Student" without long UID
+    displayName = 'Student';
+  }
+  
+  const roleLabel = isTeacher ? '(Host)' : '';
+  const roleIcon = isTeacher ? '👨‍🏫' : '👤';
 
-    useEffect(() => {
-        if (tracks.video && vidRef.current) {
-            try {
-                tracks.video.play(vidRef.current);
-            } catch (error) {
-                console.warn('Remote video play error:', error);
-            }
+  console.log('🎥 Rendering RemoteVideo:', {
+    uid: String(uid),
+    profile,
+    isTeacher,
+    displayName,
+    hasVideo: !!tracks.video,
+    hasAudio: !!tracks.audio
+  });
+
+  useEffect(() => {
+    if (tracks.video && vidRef.current) {
+      try {
+        tracks.video.play(vidRef.current);
+      } catch (error) {
+        console.warn('Remote video play error:', error);
+      }
+    }
+
+    return () => {
+      if (tracks.video) {
+        try {
+          tracks.video.stop();
+        } catch (error) {
+          console.warn('Remote video stop error:', error);
         }
+      }
+    };
+  }, [tracks.video]);
 
-        return () => {
-            if (tracks.video) {
-                try {
-                    tracks.video.stop();
-                } catch (error) {
-                    console.warn('Remote video stop error:', error);
-                }
-            }
-        };
-    }, [tracks.video]);
-
-    return (
-        <div className="relative bg-gray-900 rounded-2xl overflow-hidden border border-cyan-500/20 w-full h-64 md:h-80">
-            <div ref={vidRef} className="w-full h-full bg-gray-800" />
-            
-            {/* Placeholder if video is off */}
-            {!tracks.video && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-gray-500">
-                    <div className="text-4xl mb-2">{roleIcon}</div>
-                    {/* ✅ UPDATED LABEL */}
-                    <p>{displayName} ({roleLabel})</p> 
-                </div>
-            )}
-
-            {/* Display Name and Role */}
-            <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-2 flex justify-between items-center">
-                {/* ✅ UPDATED LABEL */}
-                <span className={`text-white text-sm font-medium ${isTeacher ? 'text-yellow-400 font-bold' : ''}`}>
-                    {displayName} ({roleLabel})
-                </span>
-                {tracks.audio && <Mic size={14} className="text-green-400" />}
-            </div>
+  return (
+    <div className="relative bg-gray-900 rounded-2xl overflow-hidden border border-cyan-500/20 w-full h-64 md:h-80">
+      <div ref={vidRef} className="w-full h-full bg-gray-800" />
+      
+      {/* Placeholder if video is off */}
+      {!tracks.video && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-gray-400">
+          <div className={`text-6xl mb-3 ${isTeacher ? 'text-yellow-400' : 'text-cyan-400'}`}>
+            {roleIcon}
+          </div>
+          <p className={`text-lg font-semibold ${isTeacher ? 'text-yellow-300' : 'text-white'}`}>
+            {displayName} {roleLabel}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">Camera off</p>
         </div>
-    );
+      )}
+
+      {/* Display Name and Role Overlay */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <span className={`text-sm font-medium ${
+              isTeacher ? 'text-yellow-300 font-bold' : 'text-white'
+            }`}>
+              {displayName} {roleLabel}
+            </span>
+            {isTeacher && (
+              <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded text-xs">
+                Host
+              </span>
+            )}
+          </div>
+          {tracks.audio && (
+            <div className="flex items-center gap-1 text-green-400">
+              <Mic size={14} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
 export default StudentVideoCall;

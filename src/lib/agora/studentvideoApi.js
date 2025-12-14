@@ -665,100 +665,86 @@ async getSessionByClassId(classId) {
   }
 },
 
-async getParticipantProfiles(meetingId, agoraUids) {
+/**
+ * Get all participants in a session with their full profile data
+ */
+async getSessionParticipants(meetingId) {
   try {
-    console.log('📡 API: Getting profiles for UIDs:', {
-      meetingId,
-      uids: agoraUids
-    });
-
-    const response = await fetch(`${API_BASE_URL}/agora/get-participant-profiles`, {
-      method: 'POST',
+    console.log('📡 API: Fetching session participants for:', meetingId);
+    
+    const response = await fetch(`${API_BASE_URL}/agora/participants/${meetingId}`, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        meeting_id: meetingId,
-        agora_uids: agoraUids
-      })
+      }
     });
 
     const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      console.warn('⚠️ Failed to get profiles:', data.error);
-      return {
-        success: false,
-        profiles: []
-      };
+    
+    if (!response.ok) {
+      console.error('❌ API: Failed to fetch participants:', data);
+      throw new Error(data.error || 'Failed to fetch participants');
     }
 
-    console.log('✅ Retrieved profiles:', {
-      count: data.profiles?.length || 0,
-      teacher: data.profiles?.find(p => p.is_teacher)?.name
+    console.log('✅ API: Participants received:', {
+      count: data.participants?.length || 0,
+      participants: data.participants
     });
 
     return {
       success: true,
-      profiles: data.profiles || []
+      participants: data.participants || []
     };
 
   } catch (error) {
-    console.error('❌ getParticipantProfiles failed:', error);
+    console.error('❌ API: getSessionParticipants failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      participants: []
+    };
+  }
+},
+
+/**
+ * Get participant profiles by their Agora UIDs (fallback method)
+ */
+async getParticipantProfiles(meetingId, agoraUids) {
+  try {
+    console.log('📡 API: Fetching profiles by Agora UIDs:', { meetingId, agoraUids });
+    
+    // This uses the main participants endpoint which now returns full profiles
+    const response = await this.getSessionParticipants(meetingId);
+    
+    if (response.success && response.participants) {
+      // Filter to only requested UIDs if provided
+      const filteredProfiles = agoraUids && agoraUids.length > 0
+        ? response.participants.filter(p => 
+            agoraUids.includes(parseInt(p.agora_uid, 10))
+          )
+        : response.participants;
+      
+      return {
+        success: true,
+        profiles: filteredProfiles
+      };
+    }
+    
     return {
       success: false,
       profiles: []
     };
+
+  } catch (error) {
+    console.error('❌ API: getParticipantProfiles failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      profiles: []
+    };
   }
 },
-  /**
-   * Get session participants with role info - ENHANCED
-   */
-  async getSessionParticipants(meetingId) {
-    try {
-      console.log('👥 API: Getting session participants for:', meetingId);
-
-      const response = await fetch(`${API_BASE_URL}/agora/session-participants`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          meeting_id: meetingId
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        console.warn('⚠️ API: getSessionParticipants failed:', data.error);
-        return []; // Return empty array instead of throwing
-      }
-
-      // Log participant details
-      const participants = data.participants || [];
-      console.log('✅ API: Retrieved session participants:', {
-        count: participants.length,
-        teachers: participants.filter(p => p.role === 'teacher').length,
-        students: participants.filter(p => p.role === 'student').length,
-        participants: participants.map(p => ({
-          id: p.user_id,
-          role: p.role,
-          status: p.status,
-          name: p.name
-        }))
-      });
-
-      return participants;
-
-    } catch (error) {
-      console.error('❌ API: getSessionParticipants failed:', error);
-      return [];
-    }
-  },
-
   /**
    * Update participant status with role - ENHANCED
    */
