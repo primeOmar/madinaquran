@@ -1633,16 +1633,6 @@ return (
         </div>
         <span className="text-sm text-green-400 font-medium">Connected</span>
       </div>
-      <div className="hidden md:block h-4 w-px bg-gray-700"></div>
-      <div className="flex items-center gap-2">
-        <Clock size={16} className="text-cyan-400" />
-        <span className="text-sm text-cyan-300">{formatDuration(stats.duration)}</span>
-      </div>
-      <div className="hidden md:block h-4 w-px bg-gray-700"></div>
-      <div className="flex items-center gap-2">
-        <Users size={16} className="text-cyan-400" />
-        <span className="text-sm text-cyan-300">{stats.participantCount} online</span>
-      </div>
     </div>
     
     {/* Center - Main controls */}
@@ -1698,15 +1688,6 @@ return (
         <MoreVertical size={24} />
       </button>
     </div>
-    
-    {/* Right side - Leave button */}
-    <button 
-      onClick={leaveSession}
-      className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-6 py-3 rounded-2xl font-semibold flex items-center gap-3 transition-all duration-200 shadow-xl hover:scale-105 active:scale-95"
-    >
-      <PhoneOff size={20} />
-      <span>Leave Session</span>
-    </button>
   </div>
 </div>
 
