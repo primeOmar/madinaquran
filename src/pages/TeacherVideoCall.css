@@ -1039,3 +1039,60 @@
     box-shadow: 0 0 0 15px rgba(239, 68, 68, 0);
   }
 }
+/* Teacher/Student distinction styles */
+.teacher-badge {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.student-badge {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.teacher-name {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.student-name {
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+/* Video container enhancements */
+.remote-video-container {
+  border: 2px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.remote-video-container.teacher-video {
+  border-color: #f59e0b;
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);
+}
+
+.remote-video-container.student-video {
+  border-color: #3b82f6;
+}
+
+.user-info-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}

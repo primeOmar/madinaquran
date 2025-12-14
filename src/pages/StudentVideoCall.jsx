@@ -63,79 +63,144 @@ const [teacherUid, setTeacherUid] = useState(null);
       cleanup();
     };
   }, [meetingId, studentId]);
-// Fetch all participants with their profiles
-const fetchParticipants = async () => {
+
+useEffect(() => {
+  // Sync profiles whenever remoteTracks change
+  if (remoteTracks.size > 0 && sessionState.isJoined) {
+    console.log('🔄 Triggering profile sync due to remoteTracks change');
+    syncProfilesWithTracks();
+  }
+}, [remoteTracks, sessionState.isJoined]);
+
+// Also sync periodically
+useEffect(() => {
+  if (!sessionState.isJoined) return;
+  
+  const syncInterval = setInterval(() => {
+    if (sessionState.sessionInfo?.meetingId) {
+      fetchParticipants(sessionState.sessionInfo.meetingId);
+    }
+  }, 15000); // Sync every 15 seconds
+  
+  return () => clearInterval(syncInterval);
+}, [sessionState.isJoined, sessionState.sessionInfo?.meetingId]);
+// Enhanced fetchParticipants function
+const fetchParticipants = async (meetingId) => {
   try {
-    if (!sessionState.sessionInfo?.meetingId) return;
+    console.log('🔄 Fetching participants for meeting:', meetingId);
     
-    const response = await studentvideoApi.getSessionParticipants(
-      sessionState.sessionInfo.meetingId
-    );
+    const response = await studentvideoApi.getSessionParticipants(meetingId);
     
     if (response.success && response.participants) {
-      setParticipants(response.participants);
+      console.log('📊 Participants data received:', response.participants);
       
-      // Update userProfiles map
+      // Create a properly formatted profile map
       const newProfiles = new Map();
+      let teacherUidFound = null;
+      
       response.participants.forEach(participant => {
         if (participant.agora_uid) {
-          newProfiles.set(participant.agora_uid.toString(), {
+          const uidString = String(participant.agora_uid);
+          const isTeacher = participant.role === 'teacher' || participant.is_teacher;
+          
+          newProfiles.set(uidString, {
             id: participant.user_id,
             agora_uid: participant.agora_uid,
-            name: participant.name || 'User',
+            name: participant.name || participant.display_name || 'User',
             display_name: participant.display_name || participant.name || 'User',
-            role: participant.role,
-            is_teacher: participant.is_teacher
+            role: participant.role || (isTeacher ? 'teacher' : 'student'),
+            is_teacher: isTeacher,
+            avatar_url: participant.avatar_url || participant.profile?.avatar_url
           });
           
-          // Store teacher UID
-          if (participant.is_teacher) {
-            setTeacherUid(participant.agora_uid.toString());
+          if (isTeacher) {
+            teacherUidFound = uidString;
+            console.log('👨‍🏫 Teacher identified:', { uid: teacherUidFound, name: participant.name });
           }
         }
       });
       
       setUserProfiles(newProfiles);
+      setTeacherUid(teacherUidFound);
+      
       console.log('✅ Updated user profiles:', {
         count: newProfiles.size,
-        teacherUid: teacherUid
+        teacherUid: teacherUidFound,
+        allUids: Array.from(newProfiles.keys())
       });
+      
+      // Also update participants list for UI
+      setParticipants(response.participants);
+      
+      return newProfiles;
     }
   } catch (error) {
-    console.warn('⚠️ Failed to fetch participants:', error);
+    console.error('❌ Failed to fetch participants:', error);
+  }
+  return new Map();
+};
+
+
+// Add this function to sync profiles with remote tracks
+const syncProfilesWithTracks = () => {
+  // Get all Agora UIDs from remote tracks
+  const remoteUids = Array.from(remoteTracks.keys()).map(uid => String(uid));
+  
+  // Get all UIDs from userProfiles
+  const profileUids = Array.from(userProfiles.keys());
+  
+  console.log('🔄 Syncing profiles with tracks:', {
+    remoteUids,
+    profileUids,
+    matches: remoteUids.filter(uid => profileUids.includes(uid)).length
+  });
+  
+  // If we have remote users without profiles, fetch their profiles
+  const missingUids = remoteUids.filter(uid => !profileUids.includes(uid));
+  
+  if (missingUids.length > 0 && sessionState.sessionInfo?.meetingId) {
+    console.log('📥 Missing profiles for UIDs:', missingUids);
+    fetchProfilesByUids(missingUids);
   }
 };
 
-// Fetch specific user profiles by Agora UIDs
+// Update fetchProfilesByUids to handle the new data structure
 const fetchProfilesByUids = async (uids) => {
   try {
     if (!sessionState.sessionInfo?.meetingId || !uids.length) return;
     
+    console.log('📥 Fetching profiles for UIDs:', uids);
+    
     const response = await studentvideoApi.getParticipantProfiles(
       sessionState.sessionInfo.meetingId,
-      uids
+      uids.map(uid => parseInt(uid, 10)).filter(uid => !isNaN(uid))
     );
     
     if (response.success && response.profiles) {
       setUserProfiles(prev => {
         const updated = new Map(prev);
         response.profiles.forEach(profile => {
-          updated.set(profile.agora_uid.toString(), {
+          const uidString = String(profile.agora_uid);
+          const isTeacher = profile.role === 'teacher' || profile.is_teacher;
+          
+          updated.set(uidString, {
             id: profile.user_id,
             agora_uid: profile.agora_uid,
-            first_name: profile.first_name || 'User',
-            full_name: profile.full_name || profile.first_name || 'User',
-            role: profile.role,
-            is_teacher: profile.is_teacher,
+            name: profile.name || profile.full_name || profile.display_name || 'User',
+            display_name: profile.full_name || profile.name || profile.display_name || 'User',
+            role: profile.role || (isTeacher ? 'teacher' : 'student'),
+            is_teacher: isTeacher,
             avatar_url: profile.avatar_url
           });
           
-          if (profile.is_teacher) {
-            setTeacherUid(profile.agora_uid.toString());
+          if (isTeacher) {
+            setTeacherUid(uidString);
           }
         });
         return updated;
       });
+      
+      console.log('✅ Updated profiles from UIDs fetch');
     }
   } catch (error) {
     console.warn('⚠️ Failed to fetch profiles by UIDs:', error);
@@ -143,55 +208,66 @@ const fetchProfilesByUids = async (uids) => {
 };
 
 
-
 const initializeSession = async () => {
-    try {
-      console.log('🎓 STUDENT: Starting initialization', { classId, meetingId });
+  try {
+    console.log('🎓 STUDENT: Starting initialization', { classId, meetingId });
 
-      // 1. Get Session Info
-      const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
-      
-      if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
-        throw new Error(sessionLookup.error || 'No active session found. Waiting for teacher...');
-      }
-
-      const effectiveMeetingId = sessionLookup.meetingId;
-      
-      // 🔥 FIX: Fetch profiles BEFORE joining to map names correctly on first render
-      await fetchProfiles(effectiveMeetingId); 
-      
-      // 2. Create Client
-      clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-
-      // 3. Join via API
-      const sessionData = await studentvideoApi.joinVideoSession(
-        effectiveMeetingId,
-        studentId,
-        'student'
-      );
-
-      if (!sessionData.success || !sessionData.token) {
-        throw new Error(sessionData.error || 'Failed to join session');
-      }
-
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: sessionData,
-        error: null
-      });
-
-      // 4. Join Channel
-      await joinChannel(sessionData);
-
-    } catch (error) {
-      console.error('❌ Init Error:', error);
-      setSessionState(prev => ({ 
-        ...prev, 
-        error: error.message || 'Failed to connect' 
-      }));
+    // 1. Get Session Info
+    const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
+    
+    if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
+      throw new Error(sessionLookup.error || 'No active session found. Waiting for teacher...');
     }
-  };
+
+    const effectiveMeetingId = sessionLookup.meetingId;
+    
+    console.log('📥 Loading initial profiles for meeting:', effectiveMeetingId);
+    
+    // 2. Load initial profiles BEFORE joining channel
+    await fetchParticipants(effectiveMeetingId);
+    
+    // 3. Create Client
+    clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+    // 4. Join via API
+    const sessionData = await studentvideoApi.joinVideoSession(
+      effectiveMeetingId,
+      studentId,
+      'student'
+    );
+
+    if (!sessionData.success || !sessionData.token) {
+      throw new Error(sessionData.error || 'Failed to join session');
+    }
+
+    // Store the Agora UID from join response
+    const studentAgoraUid = sessionData.uid;
+    console.log('🎓 Student assigned Agora UID:', studentAgoraUid);
+
+    setSessionState({
+      isInitialized: true,
+      isJoined: false,
+      sessionInfo: {
+        ...sessionData,
+        uid: studentAgoraUid 
+      },
+      error: null
+    });
+
+    // 5. Join Channel
+    await joinChannel({
+      ...sessionData,
+      uid: studentAgoraUid
+    });
+
+  } catch (error) {
+    console.error('❌ Init Error:', error);
+    setSessionState(prev => ({ 
+      ...prev, 
+      error: error.message || 'Failed to connect' 
+    }));
+  }
+};
 
 
   // ============================================
@@ -376,6 +452,8 @@ const setupAgoraEventListeners = () => {
     if (!client) return;
 
     client.on('user-published', async (user, mediaType) => {
+      console.log('👤 User published:', { uid: user.uid, mediaType });
+      
       await client.subscribe(user, mediaType);
       
       if (mediaType === 'video') {
@@ -397,13 +475,10 @@ const setupAgoraEventListeners = () => {
         });
       }
       
-      // 🔥 NEW: Fetch profiles when a user publishes tracks
-      const meetingId = sessionState.sessionInfo?.meetingId; 
-      if (meetingId) {
-        // Use a timeout to avoid spamming the backend during rapid joins
-        clearTimeout(profilePollingRef.current);
-        profilePollingRef.current = setTimeout(() => fetchProfiles(meetingId), 1500); 
-      }
+      // 🔥 CRITICAL: Sync profiles when a user joins
+      setTimeout(() => {
+        syncProfilesWithTracks();
+      }, 1000);
       
       updateParticipantCount();
     });
@@ -417,22 +492,24 @@ const setupAgoraEventListeners = () => {
           return newMap;
         });
       }
-      // No need to fetch profiles here, as user is still in call, just track status changed
       updateParticipantCount();
     });
 
     client.on('user-left', (user) => {
+      console.log('👤 User left:', user.uid);
+      
       setRemoteTracks(prev => {
         const newMap = new Map(prev);
         newMap.delete(user.uid);
         return newMap;
       });
       
-      // 🔥 NEW: Fetch profiles when a user leaves to remove their name/role
-      const meetingId = sessionState.sessionInfo?.meetingId; 
-      if (meetingId) {
-        fetchProfiles(meetingId); // Immediate call is fine here
-      }
+      // Remove from userProfiles as well
+      setUserProfiles(prev => {
+        const updated = new Map(prev);
+        updated.delete(String(user.uid));
+        return updated;
+      });
       
       updateParticipantCount();
     });
