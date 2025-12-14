@@ -837,39 +837,55 @@ const setupAgoraEventListeners = () => {
   // Control Functions - UPDATED
   // ============================================
 
-  const toggleAudio = async () => {
-    if (localTracks.audio && controls.hasMicrophone) {
-      try {
-        const newState = !controls.audioEnabled;
-        await localTracks.audio.setEnabled(newState);
-        setControls(prev => ({ ...prev, audioEnabled: newState }));
-        
-        // Update in database
-        updateParticipantStatus({ audioEnabled: newState });
-      } catch (error) {
-        console.warn('Toggle audio error:', error);
-      }
-    } else {
-      setControls(prev => ({ ...prev, audioEnabled: false }));
-    }
-  };
+const toggleAudio = async () => {
+  if (!localTracks.audio || !controls.hasMicrophone) {
+    console.warn('⚠️ No audio track available');
+    setControls(prev => ({ ...prev, audioEnabled: false }));
+    return;
+  }
 
-  const toggleVideo = async () => {
-    if (localTracks.video && controls.hasCamera) {
-      try {
-        const newState = !controls.videoEnabled;
-        await localTracks.video.setEnabled(newState);
-        setControls(prev => ({ ...prev, videoEnabled: newState }));
-        
-        // Update in database
-        updateParticipantStatus({ videoEnabled: newState });
-      } catch (error) {
-        console.warn('Toggle video error:', error);
-      }
-    } else {
-      setControls(prev => ({ ...prev, videoEnabled: false }));
-    }
-  };
+  try {
+    const newState = !controls.audioEnabled;
+    
+    // ✅ DON'T stop/close the track, just enable/disable it
+    await localTracks.audio.setEnabled(newState);
+    
+    setControls(prev => ({ ...prev, audioEnabled: newState }));
+    
+    console.log(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
+    
+    // Update in database
+    await updateParticipantStatus({ audioEnabled: newState });
+    
+  } catch (error) {
+    console.error('❌ Toggle audio error:', error);
+  }
+};
+
+const toggleVideo = async () => {
+  if (!localTracks.video || !controls.hasCamera) {
+    console.warn('⚠️ No video track available');
+    setControls(prev => ({ ...prev, videoEnabled: false }));
+    return;
+  }
+
+  try {
+    const newState = !controls.videoEnabled;
+    
+    // ✅ DON'T stop/close the track, just enable/disable it
+    await localTracks.video.setEnabled(newState);
+    
+    setControls(prev => ({ ...prev, videoEnabled: newState }));
+    
+    console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
+    
+    // Update in database
+    await updateParticipantStatus({ videoEnabled: newState });
+    
+  } catch (error) {
+    console.error('❌ Toggle video error:', error);
+  }
+};
 
   const toggleHandRaise = () => {
     const newState = !controls.handRaised;
@@ -972,50 +988,54 @@ const createAndPublishLocalTracks = async () => {
   try {
     console.log('🎤 Creating local audio/video tracks...');
 
-    // 1. Request permissions FIRST
-    try {
-      await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch (permError) {
-      console.warn('⚠️ Permission request failed:', permError);
-    }
+    // Detect available devices first
+    const deviceInfo = await detectAvailableDevices();
 
-    // 2. Create tracks with better error handling
+    // 1. Create tracks with better error handling
     let audioTrack = null;
     let videoTrack = null;
 
-    try {
-      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        AEC: true,
-        ANS: true,
-        encoderConfig: {
-          sampleRate: 48000,
-          stereo: true,
-          bitrate: 48
-        }
-      });
-      console.log('✅ Audio track created');
-    } catch (audioError) {
-      console.warn('⚠️ Audio track failed:', audioError.message);
+    // Only create audio if microphone exists
+    if (deviceInfo.hasMicrophone) {
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+          AEC: true, // Acoustic Echo Cancellation
+          ANS: true, // Automatic Noise Suppression
+          encoderConfig: {
+            sampleRate: 48000,
+            stereo: false,
+            bitrate: 48
+          }
+        });
+        console.log('✅ Audio track created');
+      } catch (audioError) {
+        console.warn('⚠️ Audio track failed:', audioError.message);
+      }
     }
 
-    try {
-      videoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { ideal: 15 },
-          bitrateMin: 500,
-          bitrateMax: 1000
-        },
-        optimizationMode: 'motion',
-        facingMode: 'user'
-      });
-      console.log('✅ Video track created');
-    } catch (videoError) {
-      console.warn('⚠️ Video track failed:', videoError.message);
+    // Only create video if camera exists
+    if (deviceInfo.hasCamera) {
+      try {
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: 640,
+            height: 480,
+            frameRate: 15,
+            bitrateMin: 400,
+            bitrateMax: 1000
+          },
+          optimizationMode: 'detail' // Changed from 'motion' for stability
+        });
+        console.log('✅ Video track created');
+      } catch (videoError) {
+        console.warn('⚠️ Video track failed:', videoError.message);
+      }
     }
 
-    // 3. Update device state
+    // 2. Store tracks locally FIRST (before publishing)
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
+
+    // 3. Update control state
     setControls(prev => ({
       ...prev,
       hasMicrophone: !!audioTrack,
@@ -1024,55 +1044,17 @@ const createAndPublishLocalTracks = async () => {
       videoEnabled: !!videoTrack
     }));
 
-    setLocalTracks({ audio: audioTrack, video: videoTrack });
-
-    // 4. Publish available tracks
+    // 4. Publish available tracks to other users
     const tracksToPublish = [];
     if (audioTrack) tracksToPublish.push(audioTrack);
     if (videoTrack) tracksToPublish.push(videoTrack);
 
-    if (tracksToPublish.length > 0) {
+    if (tracksToPublish.length > 0 && clientRef.current) {
       await clientRef.current.publish(tracksToPublish);
-      console.log(`📤 Published ${tracksToPublish.length} track(s)`);
+      console.log(`📤 Published ${tracksToPublish.length} track(s) to channel`);
     }
 
-    // 5. CRITICAL FIX: Play local video correctly
-    if (videoTrack) {
-      // Wait for the video element to be rendered
-      setTimeout(() => {
-        const videoElement = document.getElementById('local-video-player');
-        if (videoElement) {
-          try {
-            // Stop any existing playback first
-            if (videoTrack.isPlaying) {
-              videoTrack.stop();
-            }
-            // Play on the actual VIDEO element, not a div
-            videoTrack.play(videoElement);
-            console.log('✅ Local video playing successfully');
-            
-            // Apply mirror effect
-            videoElement.style.transform = 'scaleX(-1)';
-            videoElement.style.objectFit = 'cover';
-          } catch (playError) {
-            console.error('❌ Local video play error:', playError);
-            
-            // Fallback: Try with user interaction
-            const playOnInteraction = () => {
-              try {
-                videoTrack.play(videoElement);
-                document.removeEventListener('click', playOnInteraction);
-              } catch (e) {}
-            };
-            document.addEventListener('click', playOnInteraction);
-          }
-        } else {
-          console.error('❌ Local video element not found');
-        }
-      }, 500); // Give React time to render
-    }
-
-    // 6. Update participant status
+    // 5. Update participant status
     await updateParticipantStatus({
       audioEnabled: !!audioTrack,
       videoEnabled: !!videoTrack,
@@ -1082,8 +1064,11 @@ const createAndPublishLocalTracks = async () => {
       }
     });
 
+    console.log('✅ Local tracks created and published successfully');
+
   } catch (error) {
     console.error('❌ Track creation/publishing error:', error);
+    // Don't throw - allow user to continue without media
   }
 };
 
@@ -1349,219 +1334,381 @@ return (
   {/* Main Content Area */}
   <div className="flex-1 p-4 overflow-y-auto">
     
-    {/* 🔥🔥🔥 START REPLACEMENT HERE 🔥🔥🔥 */}
-    <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+   
+  <div className="w-full h-full grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
       
-      {/* REMOTE USERS LOOP (Including Local User for consistency if tracks are in remoteTracks) */}
-      {Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
-        // --- LOGIC MOVED DIRECTLY INTO RENDER LOOP ---
-        // Ensure uid is treated as a string for Map lookup
-        const uidString = uid.toString(); 
-        const profile = userProfiles.get(uidString);
-        
-        // Use 'role' from profile first, fallback to teacherUid check
-        const isTeacher = profile?.role === 'teacher' || uidString === teacherUid;
-        
-        const displayName = profile?.name || 
-                            profile?.display_name || 
-                            (isTeacher ? 'Teacher' : `Student ${uidString.slice(0, 5)}`);
-        
-        // Determine user type icon and styling
-        const userIcon = isTeacher ? '👨‍🏫' : '🎓';
-        const userRole = isTeacher ? 'Teacher' : 'Student';
-        const borderColor = isTeacher ? 'border-yellow-500/50' : 'border-blue-500/30';
-        const bgGradient = isTeacher 
-          ? 'from-gray-900 to-gray-800' 
-          : 'from-blue-900/20 to-gray-800';
-        
-        return (
-          <div 
-            key={uid} 
-            className={`relative rounded-2xl overflow-hidden border-2 ${borderColor} group hover:border-cyan-500/40 transition-all duration-300`}
-          >
-            {/* Video Container - Use ref inline for video playback */}
-            <div 
-              // 🚨 IMPORTANT: This inline ref replaces the need for a separate RemoteVideoItem component
-              ref={el => {
-                if (el && tracks.video) {
-                  try {
-                    tracks.video.play(el);
-                  } catch (error) {
-                    console.warn(`Remote video play error for ${uid}:`, error);
-                  }
-                }
-              }}
-              className="w-full h-full min-h-[200px] bg-gray-800"
-            />
-            
-            {/* Placeholder if no video */}
-            {/* ... (The rest of your provided JSX for the placeholder) ... */}
-            {!tracks.video && (
-              <div className={`absolute inset-0 w-full h-full min-h-[200px] flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
-                <div className="text-center">
-                  <div className="text-5xl mb-3 opacity-70">
-                    {userIcon}
-                  </div>
-                  <p className="text-cyan-300 font-medium">{displayName}</p>
-                  <div className={`px-2 py-1 rounded-full text-xs mt-2 inline-block ${
-                    isTeacher 
-                      ? 'bg-yellow-500/20 text-yellow-300' 
-                      : 'bg-blue-500/20 text-blue-300'
-                  }`}>
-                    {userRole}
-                  </div>
-                  <p className="text-gray-400 text-sm mt-2">
-                    {tracks.audio ? 'Audio only' : 'Connecting...'}
-                  </p>
-                </div>
-              </div>
-            )}
-            
-            {/* Overlay Info (Bottom bar) */}
-            {/* ... (The rest of your provided JSX for the overlay) ... */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
-              <div className="flex justify-between items-center">
-                <div className="text-white">
-                  <div className="font-semibold flex items-center gap-2">
-                    {displayName}
-                    {isTeacher && (
-                      <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
-                        Teacher
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-sm text-cyan-300 flex items-center gap-2">
-                    <span>{userRole}</span>
-                    {!tracks.video && (
-                      <span className="text-xs bg-gray-700/50 px-2 py-0.5 rounded">
-                        No Video
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  {tracks.audio && (
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-xs text-green-300">Audio</span>
-                    </div>
-                  )}
-                  
-                  {/* Show local user indicator */}
-                  {/* 🚨 Check if the UID matches the local user's UID (which is in sessionState.sessionInfo) */}
-                  {uidString === sessionState.sessionInfo?.uid?.toString() && (
-                    <span className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded text-xs">
-                      You
-                    </span>
-                  )}
-                </div>
-              </div>
+      {/* Local Video (Student's own video) */}
+{localTracks.video && (
+<div className="relative rounded-2xl overflow-hidden border-2 border-cyan-500/50 shadow-2xl shadow-cyan-500/20 group">
+  <div className="relative w-full h-full min-h-[300px] bg-gradient-to-br from-gray-900 via-cyan-900/10 to-gray-900">
+    <video
+      ref={(el) => {
+        if (el && localTracks.video) {
+          try {
+            localTracks.video.stop();
+            localTracks.video.play(el);
+          } catch (error) {
+            console.warn('Local video play error:', error);
+          }
+        }
+      }}
+      className="w-full h-full object-cover"
+      style={{ transform: 'scaleX(-1)' }}
+      autoPlay
+      playsInline
+      muted
+    />
+    
+    {/* Video quality indicators */}
+    <div className="absolute top-3 right-3 flex gap-2">
+      <div className="px-2 py-1 bg-black/60 rounded-lg backdrop-blur-sm">
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          <span className="text-xs text-white">HD</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {/* Local user info overlay */}
+  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-4">
+    <div className="flex justify-between items-center">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+          <span className="text-white font-bold">S</span>
+        </div>
+        <div>
+          <div className="font-bold text-white text-lg">You</div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-cyan-300">Student</span>
+            <span className="px-2 py-0.5 bg-cyan-500/30 text-cyan-300 rounded-full text-xs border border-cyan-500/50">
+              Local
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-3">
+        <div className={`p-2 rounded-full ${controls.audioEnabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+          {controls.audioEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+        </div>
+        <div className={`p-2 rounded-full ${controls.videoEnabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+          {controls.videoEnabled ? <Camera size={18} /> : <CameraOff size={18} />}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {/* Connection status */}
+  <div className="absolute top-3 left-3 flex items-center gap-2">
+    <div className="px-2 py-1 bg-black/60 rounded-lg backdrop-blur-sm">
+      <div className="flex items-center gap-1">
+        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+        <span className="text-xs text-white">Live</span>
+      </div>
+    </div>
+  </div>
+</div>
+)}
+
+{/* Show placeholder if no local video */}
+{!localTracks.video && (
+  <div className="relative rounded-2xl overflow-hidden border-2 border-gray-700/50 group">
+    <div className="relative w-full h-full min-h-[200px] bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+      <div className="text-center">
+        <div className="text-5xl mb-3 opacity-70">📹</div>
+        <p className="text-gray-400 font-medium">Your Camera</p>
+        <div className="px-2 py-1 rounded-full text-xs mt-2 inline-block bg-gray-700/50 text-gray-400">
+          {controls.hasCamera ? 'Camera Off' : 'No Camera Detected'}
+        </div>
+        <p className="text-gray-500 text-sm mt-2">
+          {controls.hasCamera ? 'Click camera button to turn on' : 'Connect a camera to join with video'}
+        </p>
+      </div>
+    </div>
+
+    {/* Overlay Info */}
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
+      <div className="flex justify-between items-center">
+        <div className="text-white">
+          <div className="font-semibold flex items-center gap-2">
+            You (Student)
+            <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded-full text-xs">
+              Local
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {controls.audioEnabled && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-xs text-green-300">Mic</span>
             </div>
-            
-            {/* Hover overlay with more info */}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4">
-              <div className="text-center text-white">
-                <div className="text-4xl mb-3">{userIcon}</div>
-                <h4 className="text-xl font-bold mb-1">{displayName}</h4>
-                <p className="text-cyan-300 mb-2">{userRole}</p>
-                {profile?.role && profile.role !== userRole.toLowerCase() && (
-                  <p className="text-sm text-gray-300">Role: {profile.role}</p>
-                )}
-                <div className="mt-3 flex gap-2 justify-center">
-                  {tracks.video && (
-                    <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Video</span>
-                  )}
-                  {tracks.audio && (
-                    <span className="px-2 py-1 bg-green-500/20 rounded text-xs">Audio</span>
-                  )}
-                </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+      {/* Remote Users */}
+{Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
+  const uidString = uid.toString(); 
+  const profile = userProfiles.get(uidString);
+  const isTeacher = profile?.role === 'teacher' || uidString === teacherUid;
+  const isLocalUser = uidString === sessionState.sessionInfo?.uid?.toString();
+  
+  const displayName = profile?.name || 
+                      profile?.display_name || 
+                      (isTeacher ? 'Teacher' : `Student`);
+  
+  const userRole = isTeacher ? 'Teacher' : 'Student';
+  const borderColor = isTeacher ? 'border-yellow-500/60' : 'border-blue-500/40';
+  const bgGradient = isTeacher 
+    ? 'from-yellow-900/10 via-gray-900 to-yellow-900/10' 
+    : 'from-blue-900/10 via-gray-900 to-blue-900/10';
+  const roleColor = isTeacher ? 'text-yellow-400' : 'text-blue-400';
+  const badgeColor = isTeacher ? 'bg-yellow-500/20 border-yellow-500/40' : 'bg-blue-500/20 border-blue-500/40';
+  
+  return (
+    <div 
+      key={uid} 
+      className={`relative rounded-2xl overflow-hidden border-2 ${borderColor} shadow-xl shadow-${isTeacher ? 'yellow' : 'blue'}-500/10 group transition-all duration-300 hover:scale-[1.02]`}
+    >
+      {/* Video Container */}
+      <div 
+        ref={el => {
+          if (el && tracks.video) {
+            try {
+              tracks.video.play(el);
+            } catch (error) {
+              console.warn(`Remote video play error for ${uid}:`, error);
+            }
+          }
+        }}
+        className="w-full h-full min-h-[300px] bg-gray-900 relative"
+      />
+      
+      {/* Placeholder if no video */}
+      {!tracks.video && (
+        <div className={`absolute inset-0 w-full h-full min-h-[300px] flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
+          <div className="text-center">
+            <div className={`text-6xl mb-4 opacity-80 ${isTeacher ? 'text-yellow-400' : 'text-blue-400'}`}>
+              {isTeacher ? '👨‍🏫' : '🎓'}
+            </div>
+            <p className={`text-xl font-bold mb-2 ${isTeacher ? 'text-yellow-300' : 'text-blue-300'}`}>
+              {displayName}
+            </p>
+            <div className={`px-3 py-1 rounded-full text-sm font-medium ${badgeColor} ${roleColor} border`}>
+              {userRole}
+            </div>
+            <p className="text-gray-400 text-sm mt-3">
+              {tracks.audio ? 'Audio only' : 'Connecting...'}
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {/* User info overlay */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full ${isTeacher ? 'bg-gradient-to-br from-yellow-500 to-orange-500' : 'bg-gradient-to-br from-blue-500 to-cyan-500'} flex items-center justify-center`}>
+              <span className="text-white font-bold">
+                {isTeacher ? 'T' : 'S'}
+              </span>
+            </div>
+            <div>
+              <div className={`font-bold text-lg ${isTeacher ? 'text-yellow-300' : 'text-white'}`}>
+                {displayName}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm ${isTeacher ? 'text-yellow-400' : 'text-cyan-400'}`}>
+                  {userRole}
+                </span>
+                <span className={`px-2 py-0.5 rounded-full text-xs border ${badgeColor} ${roleColor}`}>
+                  Remote
+                </span>
               </div>
             </div>
           </div>
-        );
-      })}
-      
-      {/* Empty State */}
-      {remoteTracks.size === 0 && (
-        <div className="col-span-full flex items-center justify-center min-h-[400px]">
-          <div className="text-center text-gray-400 max-w-md">
-            <div className="relative mb-6">
-              <Users className="text-cyan-400 opacity-50 mx-auto" size={80} />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="animate-ping w-16 h-16 bg-cyan-500/30 rounded-full"></div>
+          
+          <div className="flex items-center gap-2">
+            {tracks.audio && (
+              <div className="flex items-center gap-1 bg-black/60 p-2 rounded-lg backdrop-blur-sm">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-xs text-green-300">Audio</span>
               </div>
+            )}
+            {isLocalUser && (
+              <div className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded-full text-xs border border-cyan-500/30">
+                You
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* Status indicators */}
+      <div className="absolute top-3 right-3 flex gap-2">
+        {tracks.video && (
+          <div className="px-2 py-1 bg-black/60 rounded-lg backdrop-blur-sm">
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span className="text-xs text-white">Video</span>
             </div>
-            <h3 className="text-2xl font-bold text-white mb-3">Waiting for others...</h3>
-            <p className="text-lg mb-6">
-              {teacherUid ? 'Teacher is in the session' : 'Teacher will appear here when they join'}
-            </p>
-            <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
-              <p className="text-cyan-300 text-sm">
-                {teacherUid 
-                  ? 'Other students will appear here when they join' 
-                  : 'Your session is ready. Teacher can join anytime.'}
-              </p>
-            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Teacher badge */}
+      {isTeacher && (
+        <div className="absolute top-3 left-3 px-3 py-1 bg-gradient-to-r from-yellow-600/80 to-orange-600/80 rounded-full backdrop-blur-sm">
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-bold text-white">TEACHER</span>
+            <span className="text-yellow-300">⭐</span>
           </div>
         </div>
       )}
     </div>
-    {/* 🔥🔥🔥 END REPLACEMENT HERE 🔥🔥🔥 */}
+  );
+})}
+      
+     {/* Empty State - Teacher-style */}
+{remoteTracks.size === 0 && (
+  <div className="col-span-full flex items-center justify-center min-h-[500px]">
+    <div className="text-center max-w-2xl">
+      <div className="relative mb-8">
+        <div className="relative mx-auto w-32 h-32">
+          <Users className="text-cyan-400 opacity-30 mx-auto" size={128} />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="animate-ping w-24 h-24 bg-cyan-500/20 rounded-full"></div>
+          </div>
+        </div>
+      </div>
+      <h3 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent mb-4">
+        Classroom Ready
+      </h3>
+      <p className="text-lg text-gray-300 mb-6 max-w-md mx-auto">
+        {teacherUid 
+          ? 'Teacher is online. Other students will join soon.' 
+          : 'Your session is active. Waiting for teacher to join...'}
+      </p>
+      
+      <div className="bg-gradient-to-r from-gray-900/50 to-cyan-900/20 p-6 rounded-2xl border border-cyan-500/30 backdrop-blur-sm max-w-lg mx-auto">
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-sm text-green-400">You're connected</span>
+          </div>
+          <div className="h-4 w-px bg-gray-700"></div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-cyan-500 rounded-full"></div>
+            <span className="text-sm text-cyan-400">Audio ready</span>
+          </div>
+        </div>
+        <p className="text-cyan-300 text-sm">
+          {teacherUid 
+            ? 'Share your screen and engage with the teacher.' 
+            : 'Prepare your questions and materials for the session.'}
+        </p>
+      </div>
+    </div>
+  </div>
+)}
+    </div>
+  
 
   </div>
 
 
-    {/* Controls Bar */}
-    <div className="bg-gray-900/90 backdrop-blur-xl border-t border-cyan-500/30 p-4 md:p-6">
-      <div className="flex items-center justify-center gap-3 md:gap-6">
-        {/* Audio Toggle */}
-        <button
-          onClick={toggleAudio}
-          disabled={!controls.hasMicrophone}
-          className={`p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-lg ${
-            controls.audioEnabled 
-              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
-              : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-          title={controls.hasMicrophone ? (controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone') : 'No microphone detected'}
-        >
-          {controls.audioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-        </button>
-
-        {/* Video Toggle */}
-        <button
-          onClick={toggleVideo}
-          disabled={!controls.hasCamera}
-          className={`p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-lg ${
-            controls.videoEnabled 
-              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
-              : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-          title={controls.hasCamera ? (controls.videoEnabled ? 'Turn off camera' : 'Turn on camera') : 'No camera detected'}
-        >
-          {controls.videoEnabled ? <Camera size={24} /> : <CameraOff size={24} />}
-        </button>
-
-        {/* Hand Raise */}
-        <button
-          onClick={toggleHandRaise}
-          className={`p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-lg ${
-            controls.handRaised 
-              ? 'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white animate-pulse' 
-              : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
-          }`}
-          title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
-        >
-          <Hand size={24} />
-        </button>
-
-        {/* More Options */}
-        <button className="p-4 md:p-5 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 shadow-lg">
-          <MoreVertical size={24} />
-        </button>
+{/* Controls Bar - Teacher-style */}
+<div className="bg-gray-900/95 backdrop-blur-xl border-t border-cyan-500/30 p-4 md:p-6">
+  <div className="flex flex-col md:flex-row items-center justify-between max-w-6xl mx-auto gap-4">
+    {/* Left side - Connection status */}
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+          <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
+        </div>
+        <span className="text-sm text-green-400 font-medium">Connected</span>
+      </div>
+      <div className="hidden md:block h-4 w-px bg-gray-700"></div>
+      <div className="flex items-center gap-2">
+        <Clock size={16} className="text-cyan-400" />
+        <span className="text-sm text-cyan-300">{formatDuration(stats.duration)}</span>
+      </div>
+      <div className="hidden md:block h-4 w-px bg-gray-700"></div>
+      <div className="flex items-center gap-2">
+        <Users size={16} className="text-cyan-400" />
+        <span className="text-sm text-cyan-300">{stats.participantCount} online</span>
       </div>
     </div>
+    
+    {/* Center - Main controls */}
+    <div className="flex items-center gap-3 md:gap-6">
+      <button
+        onClick={toggleAudio}
+        disabled={!controls.hasMicrophone}
+        className={`relative p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-xl ${
+          controls.audioEnabled 
+            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-cyan-500/30' 
+            : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-red-500/30'
+        } disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}
+        title={controls.hasMicrophone ? (controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone') : 'No microphone detected'}
+      >
+        {controls.audioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
+        {controls.hasMicrophone && (
+          <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+        )}
+      </button>
+
+      <button
+        onClick={toggleVideo}
+        disabled={!controls.hasCamera}
+        className={`relative p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-xl ${
+          controls.videoEnabled 
+            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-cyan-500/30' 
+            : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-red-500/30'
+        } disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}
+        title={controls.hasCamera ? (controls.videoEnabled ? 'Turn off camera' : 'Turn on camera') : 'No camera detected'}
+      >
+        {controls.videoEnabled ? <Camera size={24} /> : <CameraOff size={24} />}
+        {controls.hasCamera && (
+          <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${controls.videoEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+        )}
+      </button>
+
+      <button
+        onClick={toggleHandRaise}
+        className={`relative p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-xl hover:scale-105 active:scale-95 ${
+          controls.handRaised 
+            ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white shadow-yellow-500/30 animate-pulse' 
+            : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
+        }`}
+        title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
+      >
+        <Hand size={24} />
+        {controls.handRaised && (
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full animate-ping"></div>
+        )}
+      </button>
+
+      <button className="p-4 md:p-5 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 shadow-xl hover:scale-105 active:scale-95">
+        <MoreVertical size={24} />
+      </button>
+    </div>
+    
+    {/* Right side - Leave button */}
+    <button 
+      onClick={leaveSession}
+      className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-6 py-3 rounded-2xl font-semibold flex items-center gap-3 transition-all duration-200 shadow-xl hover:scale-105 active:scale-95"
+    >
+      <PhoneOff size={20} />
+      <span>Leave Session</span>
+    </button>
+  </div>
+</div>
 
     {/* Chat Sidebar */}
     {showChat && (
