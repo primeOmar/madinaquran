@@ -14,7 +14,10 @@ import {
   CameraOff, 
   Hand, 
   MoreVertical, 
-  X 
+  X,
+  Share2,
+  ChevronUp,
+  MessageSquare
 } from 'lucide-react';
 const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const [sessionState, setSessionState] = useState({
@@ -1636,58 +1639,391 @@ return (
     </div>
     
     {/* Center - Main controls */}
-    <div className="flex items-center gap-3 md:gap-6">
-      <button
-        onClick={toggleAudio}
-        disabled={!controls.hasMicrophone}
-        className={`relative p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-xl ${
-          controls.audioEnabled 
-            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-cyan-500/30' 
-            : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-red-500/30'
-        } disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}
-        title={controls.hasMicrophone ? (controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone') : 'No microphone detected'}
-      >
-        {controls.audioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-        {controls.hasMicrophone && (
-          <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
-        )}
-      </button>
-
-      <button
-        onClick={toggleVideo}
-        disabled={!controls.hasCamera}
-        className={`relative p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-xl ${
-          controls.videoEnabled 
-            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-cyan-500/30' 
-            : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-red-500/30'
-        } disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}
-        title={controls.hasCamera ? (controls.videoEnabled ? 'Turn off camera' : 'Turn on camera') : 'No camera detected'}
-      >
-        {controls.videoEnabled ? <Camera size={24} /> : <CameraOff size={24} />}
-        {controls.hasCamera && (
-          <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${controls.videoEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
-        )}
-      </button>
-
-      <button
-        onClick={toggleHandRaise}
-        className={`relative p-4 md:p-5 rounded-2xl transition-all duration-200 shadow-xl hover:scale-105 active:scale-95 ${
-          controls.handRaised 
-            ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white shadow-yellow-500/30 animate-pulse' 
-            : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
-        }`}
-        title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
-      >
-        <Hand size={24} />
-        {controls.handRaised && (
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full animate-ping"></div>
-        )}
-      </button>
-
-      <button className="p-4 md:p-5 rounded-2xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 shadow-xl hover:scale-105 active:scale-95">
-        <MoreVertical size={24} />
-      </button>
+    {/* Main Content Area - World Class Design */}
+<div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 md:p-6 gap-4 md:gap-6">
+  
+  {/* ========== LEFT PANEL: TEACHER FOCUS AREA ========== */}
+  <div className="flex-1 flex flex-col gap-4 md:gap-6">
+    
+    {/* 🎯 PRIMARY FOCUS: Teacher/Screen Share (Full width) */}
+    <div className="relative flex-1 rounded-3xl overflow-hidden bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800/50 shadow-2xl">
+      {/* Teacher Video/Screen Share */}
+      {Array.from(remoteTracks.entries())
+        .filter(([uid]) => {
+          const uidString = uid.toString();
+          const profile = userProfiles.get(uidString);
+          return uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher';
+        })
+        .map(([uid, tracks]) => (
+          <div key={uid} className="w-full h-full">
+            <div 
+              ref={el => {
+                if (el && tracks.video) {
+                  try {
+                    tracks.video.play(el);
+                  } catch (error) {
+                    console.warn('Teacher video error:', error);
+                  }
+                }
+              }}
+              className="w-full h-full bg-gray-900"
+            />
+            
+            {/* Teacher Info Overlay */}
+            <div className="absolute top-6 left-6 bg-gradient-to-r from-black/80 to-transparent backdrop-blur-sm rounded-2xl p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-lg">
+                  <span className="text-white font-bold text-lg">T</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Teacher</h3>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-green-400 text-sm">Live • HD</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* No Video Placeholder */}
+            {!tracks.video && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+                <div className="text-center">
+                  <div className="relative mb-6">
+                    <div className="text-8xl text-yellow-500/50 mb-2">👨‍🏫</div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="animate-ping w-32 h-32 bg-yellow-500/20 rounded-full"></div>
+                    </div>
+                  </div>
+                  <h3 className="text-3xl font-bold text-white mb-2">Teacher's Session</h3>
+                  <p className="text-gray-400 text-lg">Audio only mode</p>
+                  {tracks.audio && (
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                      <div className="relative">
+                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                        <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
+                      </div>
+                      <span className="text-green-400 text-sm">Audio Active</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      
+      {/* No Teacher Online */}
+      {!teacherUid && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-center max-w-md">
+            <div className="relative mb-8">
+              <div className="text-9xl text-gray-700/30 mb-2">👨‍🏫</div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="animate-ping w-48 h-48 bg-yellow-500/10 rounded-full"></div>
+              </div>
+            </div>
+            <h3 className="text-3xl font-bold bg-gradient-to-r from-gray-300 to-gray-500 bg-clip-text text-transparent mb-4">
+              Waiting for Teacher
+            </h3>
+            <p className="text-gray-500 text-lg mb-6">
+              The teacher will join shortly. Prepare your questions and materials.
+            </p>
+            <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/30 p-6 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-green-400">You're connected</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+    
+    {/* 📝 QUICK ACTIONS BAR */}
+    <div className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-gray-900/80 to-gray-800/50 border border-gray-700/30 backdrop-blur-sm">
+      <div className="flex items-center gap-4">
+        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200">
+          <MessageCircle size={18} className="text-cyan-400" />
+          <span className="text-sm text-gray-300">Ask Question</span>
+        </button>
+        <button 
+          onClick={toggleHandRaise}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200 ${
+            controls.handRaised 
+              ? 'bg-gradient-to-r from-yellow-600/20 to-orange-600/20 text-yellow-400 border border-yellow-500/30' 
+              : 'bg-gray-800/50 hover:bg-gray-700/50 text-gray-300'
+          }`}
+        >
+          <Hand size={18} className={controls.handRaised ? 'text-yellow-400' : 'text-gray-400'} />
+          <span className="text-sm">{controls.handRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+        </button>
+        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200">
+          <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clipRule="evenodd" />
+          </svg>
+          <span className="text-sm text-gray-300">React</span>
+        </button>
+      </div>
+      
+      <div className="flex items-center gap-2 text-gray-500 text-sm">
+        <Clock size={14} />
+        <span>{formatDuration(stats.duration)}</span>
+      </div>
+    </div>
+  </div>
+  
+  {/* ========== RIGHT PANEL: STUDENTS & CONTROLS ========== */}
+  <div className="lg:w-96 flex flex-col gap-4 md:gap-6">
+    
+    {/* 👥 STUDENTS LIST (Collapsible) */}
+    <div className="rounded-2xl bg-gradient-to-b from-gray-900/90 to-gray-950/90 border border-gray-800/50 backdrop-blur-sm overflow-hidden">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-800/50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-cyan-500/10">
+            <Users size={20} className="text-cyan-400" />
+          </div>
+          <div>
+            <h4 className="font-bold text-white">Classmates</h4>
+            <p className="text-xs text-gray-400">{remoteTracks.size} students online</p>
+          </div>
+        </div>
+        <button className="p-2 rounded-lg hover:bg-gray-800/50 transition-colors">
+          <ChevronUp size={18} className="text-gray-400" />
+        </button>
+      </div>
+      
+      {/* Students List */}
+      <div className="max-h-[400px] overflow-y-auto p-3">
+        {Array.from(remoteTracks.entries())
+          .filter(([uid]) => {
+            const uidString = uid.toString();
+            const profile = userProfiles.get(uidString);
+            return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+          })
+          .map(([uid, tracks]) => {
+            const uidString = uid.toString();
+            const profile = userProfiles.get(uidString);
+            const displayName = profile?.name || profile?.display_name || 'Student';
+            
+            return (
+              <div key={uid} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-800/30 transition-all duration-200 group">
+                {/* Student Avatar/Video */}
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
+                    {tracks.video ? (
+                      <div 
+                        ref={el => {
+                          if (el && tracks.video) tracks.video.play(el);
+                        }}
+                        className="w-full h-full"
+                      />
+                    ) : (
+                      <span className="text-2xl">🎓</span>
+                    )}
+                  </div>
+                  {tracks.audio && (
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
+                      <Mic size={10} className="text-white" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Student Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-white truncate">{displayName}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-cyan-400">Student</span>
+                    <div className="flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-xs text-green-400">Online</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Action Button */}
+                <button className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-gray-700/50 transition-all duration-200">
+                  <MessageCircle size={16} className="text-gray-400" />
+                </button>
+              </div>
+            );
+          })}
+        
+        {/* Empty State */}
+        {remoteTracks.size === 0 && (
+          <div className="text-center py-8">
+            <div className="text-4xl mb-3 text-gray-700/50">👥</div>
+            <p className="text-gray-500 text-sm">No other students yet</p>
+          </div>
+        )}
+      </div>
+    </div>
+    
+    {/* 🎥 LOCAL VIDEO OVERLAY (Fixed at bottom-right) */}
+    <div className="fixed bottom-24 right-6 z-40">
+      <div className="w-56 rounded-2xl overflow-hidden border-2 border-cyan-500/30 shadow-2xl shadow-cyan-500/20 bg-gradient-to-br from-gray-900 to-gray-950">
+        {/* Header */}
+        <div className="p-3 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-xs text-cyan-300">You</span>
+          </div>
+          <button className="p-1 hover:bg-gray-800/50 rounded">
+            <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+        
+        {/* Video */}
+        <div className="relative h-32 bg-gray-900">
+          {localTracks.video ? (
+            <video
+              ref={(el) => {
+                if (el && localTracks.video) {
+                  try {
+                    localTracks.video.stop();
+                    localTracks.video.play(el);
+                  } catch (error) {
+                    console.warn('Local video error:', error);
+                  }
+                }
+              }}
+              className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
+              autoPlay
+              playsInline
+              muted
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+              <div className="text-center">
+                <div className="text-3xl mb-2 opacity-50">📹</div>
+                <p className="text-xs text-gray-500">Camera off</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Status Indicators */}
+          <div className="absolute bottom-2 left-2 flex gap-2">
+            <div className={`px-2 py-1 rounded-lg backdrop-blur-sm text-xs ${
+              controls.audioEnabled 
+                ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                : 'bg-red-500/20 text-red-400 border border-red-500/30'
+            }`}>
+              {controls.audioEnabled ? 'Mic On' : 'Mic Off'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    {/* 📊 SESSION INFO */}
+    <div className="rounded-2xl bg-gradient-to-b from-gray-900/80 to-gray-950/80 border border-gray-800/50 p-4 backdrop-blur-sm">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <div className="text-xs text-gray-500">Connection</div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping"></div>
+            </div>
+            <span className="text-sm text-green-400 font-medium">Excellent</span>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs text-gray-500">Latency</div>
+          <div className="text-sm text-white font-medium">42ms</div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs text-gray-500">Bitrate</div>
+          <div className="text-sm text-white font-medium">2.4 Mbps</div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs text-gray-500">Resolution</div>
+          <div className="text-sm text-white font-medium">720p HD</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{/* 🎛️ FLOATING CONTROLS BAR (Bottom Center) */}
+<div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+  <div className="flex items-center gap-2 p-2 rounded-2xl bg-gradient-to-r from-gray-900/95 to-gray-950/95 border border-gray-800/50 shadow-2xl backdrop-blur-xl">
+    
+    {/* Audio Control */}
+    <button
+      onClick={toggleAudio}
+      className={`p-3 rounded-xl transition-all duration-200 hover:scale-105 ${
+        controls.audioEnabled 
+          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30' 
+          : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white'
+      }`}
+      title={controls.audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+    >
+      {controls.audioEnabled ? (
+        <div className="relative">
+          <Mic size={22} />
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+        </div>
+      ) : (
+        <MicOff size={22} />
+      )}
+    </button>
+    
+    {/* Video Control */}
+    <button
+      onClick={toggleVideo}
+      className={`p-3 rounded-xl transition-all duration-200 hover:scale-105 ${
+        controls.videoEnabled 
+          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30' 
+          : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white'
+      }`}
+      title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+    >
+      {controls.videoEnabled ? (
+        <div className="relative">
+          <Camera size={22} />
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
+        </div>
+      ) : (
+        <CameraOff size={22} />
+      )}
+    </button>
+    
+    {/* Hand Raise */}
+    <button
+      onClick={toggleHandRaise}
+      className={`p-3 rounded-xl transition-all duration-200 hover:scale-105 relative ${
+        controls.handRaised 
+          ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white shadow-lg shadow-yellow-500/30 animate-pulse' 
+          : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white'
+      }`}
+      title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
+    >
+      <Hand size={22} />
+      {controls.handRaised && (
+        <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full animate-bounce"></div>
+      )}
+    </button>
+    
+    {/* Divider */}
+    <div className="h-6 w-px bg-gray-800/50 mx-1"></div>
+    
+    {/* Share Button */}
+    <button className="p-3 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white hover:scale-105 transition-all duration-200">
+      <Share2 size={22} />
+    </button>
+    
+    {/* More Options */}
+    <button className="p-3 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-gray-400 hover:text-white hover:scale-105 transition-all duration-200">
+      <MoreVertical size={22} />
+    </button>
+  </div>
+</div>
   </div>
 </div>
 
@@ -1777,8 +2113,6 @@ return (
   </div>
 );
 }
-
-// Remote Video Component - UPDATED
 
 const RemoteVideo = ({ uid, tracks, userProfiles, teacherUid }) => {
   const vidRef = useRef(null);
