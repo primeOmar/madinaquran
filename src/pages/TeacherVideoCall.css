@@ -1096,3 +1096,50 @@
   justify-content: space-between;
   align-items: center;
 }
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .floating-controls {
+    gap: 8px !important;
+    padding: 8px 16px !important;
+  }
+  
+  .call-header {
+    padding: 0 10px !important;
+  }
+}
+
+/* Fullscreen styles */
+:fullscreen .student-video-call-container {
+  background: #000;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .student-video-call-container {
+    background: #0a0a0a;
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
