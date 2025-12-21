@@ -160,8 +160,6 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     error: null
   });
 
-const initializationLockRef = useRef(false);
-const sessionStartLockRef = useRef(false);
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   

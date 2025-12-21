@@ -26,8 +26,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     sessionInfo: null,
     error: null
   });
-const initializationLockRef = useRef(false);
-const sessionStartLockRef = useRef(false);
+
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
   const [remoteTracks, setRemoteTracks] = useState(new Map());
   const profilePollingRef = useRef();
