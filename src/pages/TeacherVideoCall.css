@@ -1415,3 +1415,104 @@ video {
     margin-bottom: env(safe-area-inset-bottom);
   }
 }
+/* PIP Container - Enhanced for all screen sizes */
+.local-video-pip {
+  position: fixed !important;
+  z-index: 2147483647 !important; /* Maximum z-index */
+  pointer-events: auto !important;
+  contain: layout paint !important;
+  will-change: transform !important;
+  backface-visibility: hidden !important;
+  -webkit-backface-visibility: hidden !important;
+  transform: translateZ(0) !important;
+  -webkit-transform: translateZ(0) !important;
+  isolation: isolate !important;
+}
+
+/* Ensure PIP is always above chat and other overlays */
+[class*="Chat"], 
+[class*="chat"],
+[class*="Sidebar"],
+[class*="sidebar"] {
+  z-index: 9999 !important;
+}
+
+.local-video-pip * {
+  pointer-events: none;
+}
+
+.local-video-pip > div {
+  pointer-events: auto;
+}
+
+/* Responsive PIP sizing */
+@media (max-width: 640px) {
+  .local-video-pip {
+    width: 160px !important;
+    height: 90px !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .local-video-pip {
+    width: 240px !important;
+    height: 135px !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .local-video-pip {
+    width: 320px !important;
+    height: 180px !important;
+  }
+}
+
+@media (min-width: 1440px) {
+  .local-video-pip {
+    width: 360px !important;
+    height: 202.5px !important;
+  }
+}
+
+/* Ensure video element fits container */
+.local-video-pip video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  transform: scaleX(-1) !important;
+  -webkit-transform: scaleX(-1) !important;
+}
+
+/* Dragging state */
+.local-video-pip-dragging {
+  opacity: 0.9 !important;
+  filter: brightness(1.1) !important;
+  box-shadow: 
+    0 0 0 3px rgba(59, 130, 246, 0.8),
+    0 25px 50px -12px rgba(0, 255, 255, 0.5) !important;
+}
+
+/* Fix for iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  .local-video-pip {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+  }
+}
+
+/* Fix for Firefox */
+@-moz-document url-prefix() {
+  .local-video-pip {
+    transform: translateZ(0) scale(1) !important;
+  }
+}
+
+/* Ensure main container doesn't hide PIP */
+.fixed.inset-0.z-50.bg-black {
+  position: fixed !important;
+  overflow: visible !important;
+}
+
+.fixed.inset-0.z-50.bg-black > *:not(.local-video-pip) {
+  overflow: hidden !important;
+}
