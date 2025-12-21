@@ -1346,3 +1346,72 @@ video {
     box-shadow: 0 20px 60px rgba(6, 182, 212, 0.3);
   }
 }
+/* PIP Container Styles */
+.local-video-pip {
+  position: fixed !important;
+  z-index: 99999 !important;
+  pointer-events: auto !important;
+  contain: layout paint !important;
+  will-change: transform !important;
+  backface-visibility: hidden !important;
+  transform: translateZ(0) !important;
+}
+
+/* Ensure PIP is above all other content */
+.local-video-pip * {
+  pointer-events: none;
+}
+
+.local-video-pip > div {
+  pointer-events: auto;
+}
+
+/* Prevent PIP from being hidden by other elements */
+.video-call-container {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Responsive PIP sizing */
+@media (max-width: 640px) {
+  .local-video-pip {
+    width: 160px !important;
+    height: 90px !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .local-video-pip {
+    width: 240px !important;
+    height: 135px !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .local-video-pip {
+    width: 280px !important;
+    height: 157.5px !important;
+  }
+}
+
+/* Ensure video element fits container */
+.local-video-pip video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  transform: scaleX(-1) !important;
+}
+
+/* Dragging state */
+.local-video-pip-dragging {
+  opacity: 0.8;
+  box-shadow: 0 0 30px rgba(0, 255, 255, 0.5) !important;
+}
+
+/* Safe area adjustments for mobile */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .local-video-pip {
+    margin-top: env(safe-area-inset-top);
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+}

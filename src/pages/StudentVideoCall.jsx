@@ -23,10 +23,16 @@ import {
 
 const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
   const [position, setPosition] = useState(() => {
-    const isMobile = window.innerWidth < 768;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const isMobile = viewportWidth < 768;
+    
+    const pipWidth = isMobile ? 160 : 280;
+    const pipHeight = isMobile ? 120 : 210;
+    
     return {
-      x: isMobile ? window.innerWidth - 180 : window.innerWidth - 340,
-      y: isMobile ? window.innerHeight - 160 : window.innerHeight - 260
+      x: Math.max(20, Math.min(viewportWidth - pipWidth - 20, viewportWidth - pipWidth - 20)),
+      y: Math.max(20, Math.min(viewportHeight - pipHeight - 20, viewportHeight - pipHeight - 20))
     };
   });
   
@@ -34,6 +40,26 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
   const dragStart = useRef({ x: 0, y: 0 });
   const dragRef = useRef(null);
   const lastTapRef = useRef(0);
+  const pipSizeRef = useRef({ width: 280, height: 210 });
+
+  // Update pip size based on viewport
+useEffect(() => {
+  const handleResize = () => {
+    // Keep PIP within bounds on resize
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const pipWidth = window.innerWidth < 768 ? 160 : 280;
+    const pipHeight = window.innerWidth < 768 ? 120 : 210;
+    
+    setPosition(prev => ({
+      x: Math.max(20, Math.min(prev.x, viewportWidth - pipWidth - 20)),
+      y: Math.max(20, Math.min(prev.y, viewportHeight - pipHeight - 20))
+    }));
+  };
+  
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, []);
 
   const handleStart = useCallback((clientX, clientY) => {
     setIsDragging(true);
@@ -45,8 +71,9 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
 
   const handleMouseDown = useCallback((e) => {
     if (e.target.closest('.no-drag')) return;
-    handleStart(e.clientX, e.clientY);
     e.preventDefault();
+    e.stopPropagation();
+    handleStart(e.clientX, e.clientY);
   }, [handleStart]);
 
   const handleTouchStart = useCallback((e) => {
@@ -62,37 +89,72 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
     lastTapRef.current = currentTime;
     
     const touch = e.touches[0];
+    e.preventDefault();
     handleStart(touch.clientX, touch.clientY);
   }, [handleStart]);
 
-  // Add responsive constraints
+  // Enhanced move handler with proper boundaries
   useEffect(() => {
     const handleMove = (clientX, clientY) => {
       if (!isDragging) return;
       
-      const newX = clientX - dragStart.current.x;
-      const newY = clientY - dragStart.current.y;
+      let newX = clientX - dragStart.current.x;
+      let newY = clientY - dragStart.current.y;
       
-      // Responsive constraints
-      const pipWidth = window.innerWidth < 640 ? 160 : 280;
-      const pipHeight = window.innerWidth < 640 ? 120 : 210;
+      // Apply boundaries
+      const maxX = window.innerWidth - pipSizeRef.current.width;
+      const maxY = window.innerHeight - pipSizeRef.current.height;
       
-      const maxX = window.innerWidth - pipWidth;
-      const maxY = window.innerHeight - pipHeight;
+      // Ensure PIP stays within viewport with safe margins
+      newX = Math.max(10, Math.min(newX, maxX - 10));
+      newY = Math.max(10, Math.min(newY, maxY - 10));
       
-      setPosition({
-        x: Math.max(10, Math.min(newX, maxX - 10)),
-        y: Math.max(10, Math.min(newY, maxY - 10))
-      });
+      setPosition({ x: newX, y: newY });
     };
 
-    const handleMouseMove = (e) => handleMove(e.clientX, e.clientY);
+    const handleMouseMove = (e) => {
+      e.preventDefault();
+      handleMove(e.clientX, e.clientY);
+    };
+    
     const handleTouchMove = (e) => {
+      e.preventDefault();
       const touch = e.touches[0];
       handleMove(touch.clientX, touch.clientY);
     };
     
-    const handleEnd = () => setIsDragging(false);
+    const handleEnd = () => {
+      setIsDragging(false);
+      // Snap to edges if close
+      const snapThreshold = 20;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      
+      setPosition(prev => {
+        let { x, y } = prev;
+        const pipWidth = pipSizeRef.current.width;
+        const pipHeight = pipSizeRef.current.height;
+        
+        // Snap to right edge
+        if (x > viewportWidth - pipWidth - snapThreshold) {
+          x = viewportWidth - pipWidth - 20;
+        }
+        // Snap to left edge
+        if (x < snapThreshold) {
+          x = 20;
+        }
+        // Snap to bottom edge
+        if (y > viewportHeight - pipHeight - snapThreshold) {
+          y = viewportHeight - pipHeight - 20;
+        }
+        // Snap to top edge
+        if (y < snapThreshold) {
+          y = 20;
+        }
+        
+        return { x, y };
+      });
+    };
 
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
@@ -1475,47 +1537,115 @@ return (
     {/* ============================================
      Draggable Local Video PIP
     ============================================ */}
-{controls.hasCamera && (
+
+{(controls.hasCamera || controls.hasMicrophone) && (
   <div 
+    ref={dragRef}
     style={{
       position: 'fixed',
       left: `${position.x}px`,
       top: `${position.y}px`,
-      width: 'clamp(160px, 30vw, 280px)',
+      width: 'clamp(160px, 18vw, 280px)',
+      height: 'auto',
       aspectRatio: '16/9',
-      zIndex: 1000,
+      zIndex: 99999,
       cursor: isDragging ? 'grabbing' : 'grab',
-      transition: isDragging ? 'none' : 'all 0.2s ease-out',
+      transition: isDragging ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
       touchAction: 'none',
+      filter: isDragging ? 'brightness(1.1)' : 'none',
+      transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+      boxShadow: isDragging 
+        ? '0 25px 50px -12px rgba(0, 255, 255, 0.5), 0 0 0 2px rgba(59, 130, 246, 0.8)' 
+        : '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(59, 130, 246, 0.5)',
     }}
     onMouseDown={handleMouseDown}
     onTouchStart={handleTouchStart}
-    className="local-video-pip"
+    className={`local-video-pip ${isDragging ? 'local-video-pip-dragging' : ''}`}
+    data-testid="local-video-pip"
   >
-    <div className="relative w-full h-full bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border-2 border-cyan-500/50">
+    <div className="relative w-full h-full bg-gray-900 rounded-xl overflow-hidden border-2 border-cyan-500/70 backdrop-blur-sm">
       
-      {/* AGORA CONTAINER */}
-      <div 
-        ref={localVideoRef}
-        className="w-full h-full bg-black"
-        style={{ 
-          display: controls.videoEnabled ? 'block' : 'none',
-          transform: 'scaleX(-1)' // Mirror effect
-        }}
-      />
-      
-      {/* Camera Off Overlay */}
-      {!controls.videoEnabled && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-          <CameraOff className="text-gray-500 w-8 h-8" />
-        </div>
-      )}
-
-      {/* Label Overlay */}
-      <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/50 px-2 py-1 rounded-lg backdrop-blur-sm pointer-events-none">
-        <div className={`w-2 h-2 rounded-full ${controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'}`} />
-        <span className="text-white text-[10px] font-bold">You</span>
+      {/* Video Container with Error Boundary */}
+      <div className="w-full h-full bg-black relative">
+        <div 
+          ref={localVideoRef}
+          className="w-full h-full"
+          style={{ 
+            display: controls.videoEnabled ? 'block' : 'none',
+            transform: 'scaleX(-1)',
+            opacity: controls.videoEnabled ? 1 : 0
+          }}
+        />
+        
+        {/* Fallback when video is disabled or unavailable */}
+        {(!controls.videoEnabled || !localTracks.video) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+            <div className="relative">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-r from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4">
+                {controls.hasCamera ? (
+                  <CameraOff className="text-gray-400 w-8 h-8" />
+                ) : (
+                  <Video className="text-gray-400 w-8 h-8" />
+                )}
+              </div>
+              <div className="absolute inset-0 animate-ping rounded-full bg-cyan-500/20"></div>
+            </div>
+            <span className="text-gray-400 text-sm font-medium mt-2">
+              {controls.hasCamera ? 'Camera Off' : 'No Camera'}
+            </span>
+          </div>
+        )}
       </div>
+      
+      {/* Status Overlay */}
+      <div className="absolute inset-0 pointer-events-none">
+        {/* Connection Status Dot */}
+        <div className="absolute top-2 left-2 flex items-center gap-1">
+          <div className={`w-2 h-2 rounded-full animate-pulse ${
+            sessionState.isJoined ? 'bg-green-500' : 'bg-yellow-500'
+          }`} />
+          <span className="text-white text-[10px] font-bold bg-black/50 px-1.5 py-0.5 rounded">
+            {sessionState.isJoined ? 'LIVE' : 'CONN'}
+          </span>
+        </div>
+        
+        {/* Audio Status */}
+        <div className="absolute top-2 right-2">
+          <div className={`p-1 rounded-full ${
+            controls.audioEnabled ? 'bg-green-500/80' : 'bg-red-500/80'
+          }`}>
+            {controls.audioEnabled ? (
+              <Mic className="w-3 h-3 text-white" />
+            ) : (
+              <MicOff className="w-3 h-3 text-white" />
+            )}
+          </div>
+        </div>
+        
+        {/* Drag Handle */}
+        <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-center pb-1">
+          <div className="w-12 h-1 bg-gray-400/50 rounded-full"></div>
+        </div>
+        
+        {/* Label */}
+        <div className="absolute bottom-2 left-2">
+          <div className="flex items-center gap-1.5 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-lg border border-cyan-500/30">
+            <div className={`w-1.5 h-1.5 rounded-full ${
+              controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+            }`} />
+            <span className="text-white text-[10px] font-bold">YOU</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Click-through shield (prevents event bubbling when not dragging) */}
+      {!isDragging && (
+        <div 
+          className="absolute inset-0"
+          onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        />
+      )}
     </div>
   </div>
 )}
