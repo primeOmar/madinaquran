@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import studentvideoApi from '../lib/agora/studentvideoApi';
-import './StudentVideoCall.css';
+import './TeacherVideoCall.css';
 import { 
   Video, 
   Clock, 
