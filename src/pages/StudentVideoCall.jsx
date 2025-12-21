@@ -38,28 +38,13 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const lastTapRef = useRef(0);
-  
-  // CRITICAL FIX: Define pipSizeRef inside the hook
-  const pipSizeRef = useRef(() => {
+
+  const getPipSize = useCallback(() => {
     const isMobile = window.innerWidth < 768;
     return {
       width: isMobile ? 160 : 280,
       height: isMobile ? 120 : 210
     };
-  });
-
-  // Update pip size based on viewport
-  useEffect(() => {
-    const updatePipSize = () => {
-      const isMobile = window.innerWidth < 768;
-      pipSizeRef.current = {
-        width: isMobile ? 160 : 280,
-        height: isMobile ? 120 : 210
-      };
-    };
-    
-    window.addEventListener('resize', updatePipSize);
-    return () => window.removeEventListener('resize', updatePipSize);
   }, []);
 
   const handleStart = useCallback((clientX, clientY) => {
@@ -100,9 +85,9 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
       let newX = clientX - dragStart.current.x;
       let newY = clientY - dragStart.current.y;
       
-      // Use pipSizeRef.current (not pipSizeRef which is the ref object)
-      const maxX = window.innerWidth - pipSizeRef.current.width;
-      const maxY = window.innerHeight - pipSizeRef.current.height;
+      const pipSize = getPipSize();
+      const maxX = window.innerWidth - pipSize.width;
+      const maxY = window.innerHeight - pipSize.height;
       
       newX = Math.max(10, Math.min(newX, maxX - 10));
       newY = Math.max(10, Math.min(newY, maxY - 10));
@@ -126,20 +111,19 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
       const snapThreshold = 20;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
+      const pipSize = getPipSize();
       
       setPosition(prev => {
         let { x, y } = prev;
-        const pipWidth = pipSizeRef.current.width;
-        const pipHeight = pipSizeRef.current.height;
         
-        if (x > viewportWidth - pipWidth - snapThreshold) {
-          x = viewportWidth - pipWidth - 20;
+        if (x > viewportWidth - pipSize.width - snapThreshold) {
+          x = viewportWidth - pipSize.width - 20;
         }
         if (x < snapThreshold) {
           x = 20;
         }
-        if (y > viewportHeight - pipHeight - snapThreshold) {
-          y = viewportHeight - pipHeight - 20;
+        if (y > viewportHeight - pipSize.height - snapThreshold) {
+          y = viewportHeight - pipSize.height - 20;
         }
         if (y < snapThreshold) {
           y = 20;
@@ -164,7 +148,7 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
         document.removeEventListener('touchcancel', handleEnd);
       };
     }
-  }, [isDragging]);
+  }, [isDragging, getPipSize]);
 
   return {
     position,
