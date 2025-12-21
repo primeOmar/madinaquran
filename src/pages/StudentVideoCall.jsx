@@ -153,6 +153,7 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
   return {
     position,
     isDragging,
+    setPosition,
     handleMouseDown,
     handleTouchStart
   };
@@ -200,7 +201,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 // ============================================
 // PART 2: Add Drag State - FIXED VERSION
 // ============================================
-const { position, isDragging, handleMouseDown, handleTouchStart } = useDraggable({
+const { position, setPosition, isDragging, handleMouseDown, handleTouchStart } = useDraggable({
   x: window.innerWidth - 340,
   y: window.innerHeight - 260
 });
@@ -209,14 +210,16 @@ const { position, isDragging, handleMouseDown, handleTouchStart } = useDraggable
   // Initialization
   // ============================================
 
-  // Add this useEffect to your component, near the other useEffects
 useEffect(() => {
   const handleWindowResize = () => {
     // Keep PIP within viewport bounds on resize
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const pipWidth = window.innerWidth < 768 ? 160 : 280;
-    const pipHeight = window.innerWidth < 768 ? 120 : 210;
+    
+    // Use the same logic as getPipSize in useDraggable
+    const isMobile = window.innerWidth < 768;
+    const pipWidth = isMobile ? 160 : 280;
+    const pipHeight = isMobile ? 120 : 210;
     
     setPosition(prev => ({
       x: Math.max(20, Math.min(prev.x, viewportWidth - pipWidth - 20)),
@@ -229,7 +232,7 @@ useEffect(() => {
   return () => {
     window.removeEventListener('resize', handleWindowResize);
   };
-}, []);
+}, [setPosition]);
 
   useEffect(() => {
     initializeSession();
