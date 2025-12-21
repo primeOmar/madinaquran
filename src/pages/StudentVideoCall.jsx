@@ -149,7 +149,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
   const [remoteTracks, setRemoteTracks] = useState(new Map());
   
-  // FIXED: Added initialization flags to prevent multiple setups
   const initializationRef = useRef({
     clientCreated: false,
     listenersSet: false,
@@ -217,21 +216,17 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       try {
         remoteTracks.forEach((tracks, uid) => {
           const container = remoteVideoRefs.current.get(String(uid));
-          // FIXED: Added null checks and optional chaining
           if (container && tracks?.video && typeof tracks.video.play === 'function' && !tracks.video.isPlaying) {
-            // FIXED: Safely call play with error handling
             const playPromise = tracks.video.play(container);
             if (playPromise && typeof playPromise.catch === 'function') {
               playPromise.catch(err => {
                 console.warn(`Failed to play video for ${uid}:`, err);
-                // Don't throw, just log
               });
             }
           }
         });
       } catch (error) {
         console.error('Error playing remote videos:', error);
-        // Don't crash the app on video playback errors
       }
     };
     
@@ -242,7 +237,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // FIXED: Initialization - Run Once
   // ============================================
   useEffect(() => {
-    // Prevent multiple initializations
     if (initializationRef.current.joined) {
       return;
     }
@@ -257,7 +251,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
     init();
 
-    // Cleanup only on unmount
     return () => {
       if (initializationRef.current.joined) {
         cleanup();
@@ -385,7 +378,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // ============================================
   const initializeSession = async () => {
     try {
-      // Prevent re-initialization
       if (initializationRef.current.clientCreated) {
         console.log('Client already created, skipping initialization');
         return;
@@ -401,13 +393,11 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       
       await fetchParticipants(effectiveMeetingId);
       
-      // Create client only once
       if (!clientRef.current) {
         clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
         initializationRef.current.clientCreated = true;
       }
 
-      // Set up event listeners only once
       if (!initializationRef.current.listenersSet) {
         setupAgoraEventListeners();
         initializationRef.current.listenersSet = true;
@@ -441,7 +431,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
         uid: studentAgoraUid
       });
 
-      // Delay participant fetch to ensure we're connected
       setTimeout(() => {
         fetchParticipants(effectiveMeetingId);
       }, 2000);
@@ -468,7 +457,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       console.log(`User joined: ${user.uid}`);
       const uid = String(user.uid);
       
-      // Skip if this is the current user
       if (sessionState.sessionInfo && String(sessionState.sessionInfo.uid) === uid) {
         console.log('Skipping own user join event');
         return;
@@ -600,7 +588,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
       console.log('Joining channel:', channel);
 
-      // Check if already joined
       if (initializationRef.current.joined) {
         console.log('Already joined channel, skipping');
         return;
@@ -616,7 +603,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       console.log('Joined channel with UID:', joinedUid);
       initializationRef.current.joined = true;
 
-      // Start profile polling
       if (profilePollingRef.current) {
         clearInterval(profilePollingRef.current);
       }
@@ -638,6 +624,9 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       
       await updateParticipantStatus({ status: 'joined' });
 
+      // ============================================
+      // CRITICAL FIX: Added back startMessagePolling call
+      // ============================================
       if (sessionData.session?.id) {
         startMessagePolling(sessionData.session.id);
       }
@@ -729,7 +718,127 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   };
 
   // ============================================
-  // Other Helper Functions (unchanged but included for completeness)
+  // CRITICAL: Added back missing chat functions
+  // ============================================
+  const startMessagePolling = (sessionId) => {
+    if (!sessionId) {
+      console.warn('No session ID provided for message polling');
+      return;
+    }
+
+    // Initial load
+    loadMessages(sessionId);
+
+    // Clear any existing interval
+    if (messagesPollIntervalRef.current) {
+      clearInterval(messagesPollIntervalRef.current);
+    }
+
+    // Set up polling
+    messagesPollIntervalRef.current = setInterval(() => {
+      loadMessages(sessionId);
+    }, 3000);
+  };
+
+  const loadMessages = async (sessionId) => {
+    try {
+      if (!sessionId) return;
+      
+      const msgs = await studentvideoApi.getSessionMessages(sessionId);
+      setMessages(prev => {
+        const newIds = new Set(msgs.map(m => m.id));
+        const existing = prev.filter(m => !newIds.has(m.id));
+        return [...existing, ...msgs].sort((a, b) => 
+          new Date(a.created_at) - new Date(b.created_at)
+        );
+      });
+    } catch (error) {
+      console.error('Load messages error:', error);
+    }
+  };
+
+  const sendMessage = async (text = null, type = 'text') => {
+    const messageText = text || newMessage.trim();
+    if (!messageText || !sessionState.sessionInfo?.session?.id) return;
+
+    try {
+      const message = await studentvideoApi.sendMessage(
+        sessionState.sessionInfo.session.id,
+        studentId,
+        messageText,
+        type
+      );
+
+      setMessages(prev => [...prev, message]);
+      if (!text) setNewMessage('');
+    } catch (error) {
+      console.error('Send message error:', error);
+    }
+  };
+
+  const addSystemMessage = (text) => {
+    setMessages(prev => [...prev, {
+      id: Date.now(),
+      message_text: text,
+      message_type: 'system',
+      created_at: new Date().toISOString(),
+      profiles: { full_name: 'System' }
+    }]);
+  };
+
+  const handleTeacherCommand = (command) => {
+    switch (command.type) {
+      case 'mute_all':
+        if (localTracks.audio && controls.audioEnabled && controls.hasMicrophone) {
+          toggleAudio();
+          addSystemMessage('You have been muted by the host');
+        }
+        break;
+      
+      case 'end_session':
+        addSystemMessage('Session ended by host');
+        setTimeout(() => {
+          leaveSession();
+        }, 2000);
+        break;
+      
+      case 'message':
+        addSystemMessage(command.text);
+        break;
+      
+      default:
+        console.log('Unknown command:', command);
+    }
+  };
+
+  const toggleHandRaise = () => {
+    const newState = !controls.handRaised;
+    setControls(prev => ({ ...prev, handRaised: newState }));
+    
+    if (sessionState.sessionInfo?.session?.id) {
+      sendMessage(
+        newState ? '✋ Raised hand' : 'Lowered hand',
+        'system'
+      );
+    }
+  };
+
+  const handleDisconnection = async (reason) => {
+    console.warn('Disconnected:', reason);
+    
+    await updateParticipantStatus({ status: 'disconnected' });
+
+    if (reason === 'NETWORK_ERROR') {
+      setTimeout(() => {
+        if (sessionState.sessionInfo) {
+          joinChannel(sessionState.sessionInfo);
+        }
+      }, 3000);
+    }
+  };
+
+  // ============================================
+  // Other Helper Functions
   // ============================================
   const toggleAudio = async () => {
     if (!localTracks.audio || !controls.hasMicrophone) {
@@ -814,7 +923,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   };
 
   // ============================================
-  // FIXED: Cleanup Function
+  // FIXED: Cleanup Function with message polling cleanup
   // ============================================
   const cleanup = async () => {
     console.log('Cleaning up student session...');
@@ -1046,7 +1155,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
         </div>
       </div>
 
-      {/* Mobile Controls */}
+      {/* Mobile Controls with Hand Raise Button */}
       <div className="lg:hidden bg-gray-900/95 border-t border-cyan-500/20 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1073,9 +1182,94 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
             >
               {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
             </button>
+            
+            <button 
+              onClick={toggleHandRaise}
+              className={`p-3 rounded-xl ${
+                controls.handRaised 
+                  ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
+                  : 'bg-gradient-to-r from-gray-700 to-gray-800 text-white'
+              }`}
+            >
+              <Hand size={20} />
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Chat Sidebar - Added back with proper functionality */}
+      {showChat && (
+        <div className="absolute inset-0 lg:inset-y-0 lg:left-auto lg:right-0 lg:w-96 bg-gradient-to-b from-gray-900 to-gray-950 border-l border-cyan-500/20 flex flex-col shadow-2xl">
+          {/* Chat Header */}
+          <div className="p-4 border-b border-cyan-500/20 flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-white">Chat</h3>
+              <p className="text-cyan-300 text-xs">Live Class</p>
+            </div>
+            <button 
+              onClick={() => setShowChat(false)}
+              className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 rounded-xl transition-all duration-200"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {messages.length === 0 ? (
+              <div className="text-center text-gray-400 py-12">
+                <MessageCircle className="mx-auto mb-4 opacity-50" size={48} />
+                <p className="text-lg font-semibold">No messages yet</p>
+                <p className="text-sm mt-2">Be the first to say hello!</p>
+              </div>
+            ) : (
+              messages.map(msg => (
+                <div key={msg.id} className="p-3 rounded-xl bg-gray-800/50">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="font-semibold text-white text-sm">
+                          {msg.profiles?.name || msg.profiles?.full_name || 'Unknown User'}
+                        </div>
+                        {msg.message_type === 'system' && (
+                          <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full text-xs">
+                            System
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-cyan-100 text-sm">{msg.message_text}</p>
+                      <p className="text-cyan-400 text-xs mt-2">
+                        {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          
+          {/* Message Input */}
+          <div className="p-4 border-t border-cyan-500/20">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                placeholder="Type a message..."
+                className="flex-1 bg-gray-800/50 border border-cyan-500/30 rounded-xl px-4 py-3 text-white placeholder-cyan-400/50 focus:outline-none focus:ring-1 focus:ring-cyan-500 text-sm"
+              />
+              <button 
+                onClick={() => sendMessage()}
+                disabled={!newMessage.trim()}
+                className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 rounded-xl font-semibold text-white transition-all duration-200 text-sm"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PIP - Fixed with proper error handling */}
       {(controls.hasCamera || controls.hasMicrophone) && (
