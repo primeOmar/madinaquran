@@ -1160,3 +1160,30 @@
 .draggable-local-video:hover {
   box-shadow: 0 15px 30px rgba(79, 70, 229, 0.3);
 }
+
+/*
+PART 7: Add CSS for safe areas and smooth transitions
+*/
+
+.safe-area-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.local-video-pip video {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+@media (max-width: 640px) {
+  .local-video-pip {
+    width: 200px !important;
+    height: 150px !important;
+  }
+}
+
+@supports (-webkit-touch-callout: none) {
+  .local-video-pip {
+    -webkit-transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0);
+  }
+}
