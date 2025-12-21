@@ -38,8 +38,29 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const lastTapRef = useRef(0);
-  const pipSizeRef = useRef({ width: 280, height: 210 });
+  
+  // CRITICAL FIX: Define pipSizeRef inside the hook
+  const pipSizeRef = useRef(() => {
+    const isMobile = window.innerWidth < 768;
+    return {
+      width: isMobile ? 160 : 280,
+      height: isMobile ? 120 : 210
+    };
+  });
 
+  // Update pip size based on viewport
+  useEffect(() => {
+    const updatePipSize = () => {
+      const isMobile = window.innerWidth < 768;
+      pipSizeRef.current = {
+        width: isMobile ? 160 : 280,
+        height: isMobile ? 120 : 210
+      };
+    };
+    
+    window.addEventListener('resize', updatePipSize);
+    return () => window.removeEventListener('resize', updatePipSize);
+  }, []);
 
   const handleStart = useCallback((clientX, clientY) => {
     setIsDragging(true);
@@ -79,6 +100,7 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
       let newX = clientX - dragStart.current.x;
       let newY = clientY - dragStart.current.y;
       
+      // Use pipSizeRef.current (not pipSizeRef which is the ref object)
       const maxX = window.innerWidth - pipSizeRef.current.width;
       const maxY = window.innerHeight - pipSizeRef.current.height;
       
