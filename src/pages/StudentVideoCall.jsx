@@ -209,21 +209,6 @@ const { position, isDragging, handleMouseDown, handleTouchStart } = useDraggable
   // Initialization
   // ============================================
 
-    // Update pip size based on viewport
-  useEffect(() => {
-    const updatePipSize = () => {
-      const isMobile = window.innerWidth < 768;
-      pipSizeRef.current = {
-        width: isMobile ? 160 : 280,
-        height: isMobile ? 120 : 210
-      };
-    };
-    
-    updatePipSize();
-    window.addEventListener('resize', updatePipSize);
-    return () => window.removeEventListener('resize', updatePipSize);
-  }, []);
-
   // Add this useEffect to your component, near the other useEffects
 useEffect(() => {
   const handleWindowResize = () => {
