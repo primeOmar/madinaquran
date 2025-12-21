@@ -1187,3 +1187,162 @@ PART 7: Add CSS for safe areas and smooth transitions
     transform: translate3d(0, 0, 0);
   }
 }
+
+/* ============================================
+WORLD-CLASS RESPONSIVE STYLES
+============================================ */
+
+/* Safe areas for modern devices */
+.safe-area-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 1rem));
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Optimize for touch devices */
+@media (hover: none) and (pointer: coarse) {
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .local-video-pip {
+    width: clamp(140px, 35vw, 220px) !important;
+  }
+  
+  /* Prevent text selection on tap */
+  * {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Optimize video rendering */
+video {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  image-rendering: crisp-edges;
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(6, 182, 212, 0.3);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.5);
+}
+
+/* Responsive typography */
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+/* Prevent zoom on input focus on mobile */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px; /* Prevent iOS zoom */
+  }
+}
+
+/* Optimize for foldable and large screens */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .local-video-pip {
+    width: 240px !important;
+  }
+}
+
+/* High DPI screens */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .local-video-pip {
+    border-width: 1.5px;
+  }
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .animate-pulse, .animate-ping, .animate-spin {
+    animation: none;
+  }
+}
+
+/* Portrait mode optimization */
+@media (orientation: portrait) {
+  .flex-col {
+    flex-direction: column;
+  }
+  
+  .local-video-pip {
+    bottom: 100px !important;
+    right: 20px !important;
+    left: auto !important;
+    top: auto !important;
+  }
+}
+
+/* Landscape mode optimization */
+@media (orientation: landscape) and (max-height: 500px) {
+  .header-bar {
+    padding: 0.5rem;
+  }
+  
+  .controls-bar {
+    padding: 0.5rem;
+  }
+  
+  .local-video-pip {
+    width: 200px !important;
+  }
+}
+
+/* Touch manipulation */
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* Hardware acceleration */
+.transform-gpu {
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+}
+
+/* Selection prevention */
+.select-none {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Smooth transitions */
+.local-video-pip {
+  will-change: transform, left, top;
+}
+
+/* Mobile hover fixes */
+@media (hover: hover) {
+  .local-video-pip:hover {
+    box-shadow: 0 20px 60px rgba(6, 182, 212, 0.3);
+  }
+}

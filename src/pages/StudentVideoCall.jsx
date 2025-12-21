@@ -20,36 +20,52 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-// ============================================
-// PART 1: Draggable Hook
-// ============================================
 
 const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
-  const [position, setPosition] = useState(initialPosition);
+  const [position, setPosition] = useState(() => {
+    const isMobile = window.innerWidth < 768;
+    return {
+      x: isMobile ? window.innerWidth - 180 : window.innerWidth - 340,
+      y: isMobile ? window.innerHeight - 160 : window.innerHeight - 260
+    };
+  });
+  
   const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef(null);
   const dragStart = useRef({ x: 0, y: 0 });
+  const dragRef = useRef(null);
+  const lastTapRef = useRef(0);
+
+  const handleStart = useCallback((clientX, clientY) => {
+    setIsDragging(true);
+    dragStart.current = {
+      x: clientX - position.x,
+      y: clientY - position.y
+    };
+  }, [position]);
 
   const handleMouseDown = useCallback((e) => {
     if (e.target.closest('.no-drag')) return;
-    setIsDragging(true);
-    dragStart.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y
-    };
+    handleStart(e.clientX, e.clientY);
     e.preventDefault();
-  }, [position]);
+  }, [handleStart]);
 
   const handleTouchStart = useCallback((e) => {
     if (e.target.closest('.no-drag')) return;
-    setIsDragging(true);
+    
+    // Double tap prevention
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTapRef.current;
+    if (tapLength < 300 && tapLength > 0) {
+      e.preventDefault();
+      return;
+    }
+    lastTapRef.current = currentTime;
+    
     const touch = e.touches[0];
-    dragStart.current = {
-      x: touch.clientX - position.x,
-      y: touch.clientY - position.y
-    };
-  }, [position]);
+    handleStart(touch.clientX, touch.clientY);
+  }, [handleStart]);
 
+  // Add responsive constraints
   useEffect(() => {
     const handleMove = (clientX, clientY) => {
       if (!isDragging) return;
@@ -57,12 +73,16 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
       const newX = clientX - dragStart.current.x;
       const newY = clientY - dragStart.current.y;
       
-      const maxX = window.innerWidth - 320;
-      const maxY = window.innerHeight - 240;
+      // Responsive constraints
+      const pipWidth = window.innerWidth < 640 ? 160 : 280;
+      const pipHeight = window.innerWidth < 640 ? 120 : 210;
+      
+      const maxX = window.innerWidth - pipWidth;
+      const maxY = window.innerHeight - pipHeight;
       
       setPosition({
-        x: Math.max(0, Math.min(newX, maxX)),
-        y: Math.max(0, Math.min(newY, maxY))
+        x: Math.max(10, Math.min(newX, maxX - 10)),
+        y: Math.max(10, Math.min(newY, maxY - 10))
       });
     };
 
@@ -77,14 +97,16 @@ const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleEnd);
-      document.addEventListener('touchmove', handleTouchMove);
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
       document.addEventListener('touchend', handleEnd);
+      document.addEventListener('touchcancel', handleEnd);
       
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleEnd);
         document.removeEventListener('touchmove', handleTouchMove);
         document.removeEventListener('touchend', handleEnd);
+        document.removeEventListener('touchcancel', handleEnd);
       };
     }
   }, [isDragging]);
@@ -1109,343 +1131,510 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     );
   }
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      {/* Header Bar */}
-      <div className="bg-gray-900/90 backdrop-blur-xl border-b border-cyan-500/30 text-white p-4 md:p-6 flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <div className={`w-3 h-3 rounded-full ${
-            stats.connectionQuality === 'good' || stats.connectionQuality === 'excellent' 
-              ? 'bg-green-500 animate-pulse' 
-              : 'bg-yellow-500'
-          }`} />
-          <div>
-            <h2 className="font-bold text-lg md:text-xl">Madina Quran Class</h2>
-            <div className="flex items-center gap-3 text-sm text-cyan-300">
-              <span className="flex items-center gap-1">
-                <Clock size={14} />
-                {formatDuration(stats.duration)}
-              </span>
-              <span className="hidden md:inline">•</span>
-              <span className="hidden md:flex items-center gap-1">
-                <Users size={14} />
-                {stats.participantCount} participant{stats.participantCount !== 1 ? 's' : ''}
-              </span>
-              <span>•</span>
-              <span className={`px-2 py-1 rounded-full text-xs ${
-                stats.connectionQuality === 'good' || stats.connectionQuality === 'excellent'
-                  ? 'bg-green-500/20 text-green-300'
-                  : 'bg-yellow-500/20 text-yellow-300'
-              }`}>
-                {stats.connectionQuality}
-              </span>
-            </div>
+
+// ============================================
+// WORLD-CLASS RESPONSIVE LAYOUT
+// ============================================
+
+return (
+  <div className="fixed inset-0 z-50 bg-black flex flex-col overflow-hidden">
+    {/* Header - Fixed Top */}
+    <div className="bg-gray-900/95 backdrop-blur-lg border-b border-cyan-500/20 text-white p-3 sm:p-4 md:p-5 flex justify-between items-center shrink-0 safe-area-top">
+      <div className="flex items-center gap-3">
+        <div className={`w-2.5 h-2.5 rounded-full ${
+          stats.connectionQuality === 'good' || stats.connectionQuality === 'excellent'
+            ? 'bg-green-500 animate-pulse' 
+            : 'bg-yellow-500'
+        }`} />
+        <div className="min-w-0">
+          <h2 className="font-bold text-sm sm:text-base md:text-lg truncate">Madina Quran Class</h2>
+          <div className="flex items-center gap-2 text-xs text-cyan-300">
+            <span className="flex items-center gap-1">
+              <Clock size={10} className="sm:w-3 sm:h-3" />
+              {formatDuration(stats.duration)}
+            </span>
+            <span className="hidden sm:inline">•</span>
+            <span className="hidden sm:flex items-center gap-1">
+              <Users size={10} className="sm:w-3 sm:h-3" />
+              {stats.participantCount}
+            </span>
           </div>
         </div>
-        
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setShowChat(!showChat)}
-            className={`p-3 rounded-xl transition-all duration-200 ${
-              showChat 
-                ? 'bg-cyan-600 text-white' 
-                : 'bg-gray-800 hover:bg-gray-700 text-cyan-300'
-            }`}
-            title="Toggle Chat"
-          >
-            <MessageCircle size={20} />
-          </button>
-          <button 
-            onClick={leaveSession}
-            className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 shadow-lg"
-          >
-            <PhoneOff size={18} />
-            <span className="hidden sm:inline">Leave Session</span>
-          </button>
-        </div>
       </div>
+      
+      <div className="flex items-center gap-2">
+        <button 
+          onClick={() => setShowChat(!showChat)}
+          className={`p-2.5 rounded-xl transition-all duration-200 ${
+            showChat 
+              ? 'bg-cyan-600 text-white' 
+              : 'bg-gray-800 hover:bg-gray-700 text-cyan-300'
+          }`}
+          title="Toggle Chat"
+        >
+          <MessageCircle size={16} className="sm:w-5 sm:h-5" />
+        </button>
+        <button 
+          onClick={leaveSession}
+          className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 px-4 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 shadow-lg text-sm"
+        >
+          <PhoneOff size={16} />
+          <span className="hidden xs:inline">Leave</span>
+        </button>
+      </div>
+    </div>
 
-      {/* Main Content Area - Teacher-Focused Layout */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* ========== LEFT: PRIMARY TEACHER AREA ========== */}
-        <div className="flex-1 relative bg-gray-950 overflow-hidden">
-          {/* Teacher Video/Screen Share - PRIMARY */}
-          {Array.from(remoteTracks.entries())
-            .filter(([uid]) => {
-              const uidString = uid.toString();
-              const profile = userProfiles.get(uidString);
-              return uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher';
-            })
-            .map(([uid, tracks]) => (
-              <div key={uid} className="absolute inset-0 bg-black">
-                <div 
-                  ref={el => {
-                    if (el && tracks.video) {
+    {/* Main Content - Responsive Grid */}
+    <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      {/* Primary Video Area - Teacher */}
+      <div className="flex-1 relative bg-gray-950 min-h-[40vh] md:min-h-0">
+        {Array.from(remoteTracks.entries())
+          .filter(([uid]) => {
+            const uidString = uid.toString();
+            const profile = userProfiles.get(uidString);
+            return uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher';
+          })
+          .map(([uid, tracks]) => (
+            <div key={uid} className="absolute inset-0 bg-black">
+              {/* Optimized Video Container */}
+              <div 
+                ref={el => {
+                  if (el && tracks.video) {
+                    requestAnimationFrame(() => {
                       try {
-                        tracks.video.play(el);
+                        if (!tracks.video.isPlaying) {
+                          tracks.video.play(el);
+                        }
+                        el.style.objectFit = 'cover';
+                        el.style.transform = 'translateZ(0)';
                       } catch (error) {
                         console.warn('Teacher video error:', error);
                       }
-                    }
-                  }}
-                  className="w-full h-full bg-black"
-                />
-                
-                {!tracks.video && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-                    <div className="text-center">
-                      <div className="relative mb-6">
-                        <div className="text-8xl text-yellow-500/30 mb-2">👨‍🏫</div>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="animate-ping w-32 h-32 bg-yellow-500/10 rounded-full"></div>
-                        </div>
-                      </div>
-                      <h3 className="text-3xl font-bold text-white mb-2">Teacher's Session</h3>
-                      <p className="text-gray-400 text-lg">
-                        {tracks.audio ? 'Audio only' : 'Connecting...'}
-                      </p>
-                      {tracks.audio && (
-                        <div className="mt-4 flex items-center justify-center gap-2">
-                          <div className="relative">
-                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                            <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
-                          </div>
-                          <span className="text-green-400 text-sm">Audio Active</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                
-                <div className="absolute top-6 left-6 bg-gradient-to-r from-black/80 to-transparent backdrop-blur-sm rounded-2xl p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-lg">
-                      <span className="text-white font-bold text-lg">T</span>
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Teacher</h3>
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span className="text-green-400 text-sm">Live • Primary View</span>
-                      </div>
-                    </div>
+                    });
+                  }
+                }}
+                className="w-full h-full bg-black"
+              />
+              
+              {/* Teacher Overlay - Responsive */}
+              {!tracks.video && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+                  <div className="text-center p-4">
+                    <div className="text-6xl sm:text-8xl text-yellow-500/30 mb-4">👨‍🏫</div>
+                    <h3 className="text-xl sm:text-3xl font-bold text-white mb-2">Teacher's Session</h3>
+                    <p className="text-gray-400 text-sm sm:text-lg mb-4">
+                      {tracks.audio ? 'Audio only' : 'Connecting...'}
+                    </p>
                   </div>
                 </div>
-              </div>
-            ))}
-          
-          {!teacherUid && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="text-center max-w-md">
-                <div className="relative mb-8">
-                  <div className="text-9xl text-gray-700/30 mb-2">👨‍🏫</div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="animate-ping w-48 h-48 bg-yellow-500/10 rounded-full"></div>
+              )}
+              
+              {/* Floating Teacher Badge */}
+              <div className="absolute top-4 left-4 sm:top-6 sm:left-6">
+                <div className="flex items-center gap-3 bg-black/70 backdrop-blur-md rounded-2xl p-3 border border-yellow-500/30">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-lg">
+                    <span className="text-white font-bold text-sm sm:text-base">T</span>
                   </div>
-                </div>
-                <h3 className="text-3xl font-bold bg-gradient-to-r from-gray-300 to-gray-500 bg-clip-text text-transparent mb-4">
-                  Waiting for Teacher
-                </h3>
-                <p className="text-gray-500 text-lg mb-6">
-                  The teacher will join shortly. Prepare your questions and materials.
-                </p>
-                <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/30 p-6 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
-                  <div className="flex items-center justify-center gap-4">
+                  <div>
+                    <h3 className="text-white font-bold text-sm sm:text-base">Teacher</h3>
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-green-400">You're connected</span>
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-green-400 text-xs sm:text-sm">Live</span>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          ))}
         
-        {/* ========== RIGHT: STUDENTS & CONTROLS SIDEBAR ========== */}
-        <div className="lg:w-96 flex flex-col border-l border-gray-800/50 bg-gradient-to-b from-gray-900/95 to-gray-950">
-          
-          {/* 👤 Students List Section */}
-          <div className="p-4 border-b border-gray-800/50">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-lg bg-cyan-500/10">
-                <Users size={20} className="text-cyan-400" />
+        {/* No Teacher State */}
+        {!teacherUid && (
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="text-center max-w-sm">
+              <div className="relative mb-6">
+                <div className="text-8xl text-yellow-500/20">👨‍🏫</div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="animate-ping w-32 h-32 bg-yellow-500/10 rounded-full"></div>
+                </div>
               </div>
-              <div>
-                <h4 className="font-bold text-white">Classmates</h4>
-                <p className="text-xs text-gray-400">
-                  {Array.from(remoteTracks.entries()).filter(([uid]) => {
-                    const uidString = uid.toString();
-                    const profile = userProfiles.get(uidString);
-                    return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
-                  }).length} students online
-                </p>
+              <h3 className="text-2xl font-bold text-white mb-3">Waiting for Teacher</h3>
+              <p className="text-gray-400 text-base mb-6">
+                The teacher will join shortly. Prepare your questions.
+              </p>
+              <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/30 p-4 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
+                <div className="flex items-center justify-center gap-3">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-green-400">You're connected and ready</span>
+                </div>
               </div>
             </div>
-            
-            {/* Other Students List */}
-            <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-              {Array.from(remoteTracks.entries())
-                .filter(([uid]) => {
-                  const uidString = uid.toString();
-                  const profile = userProfiles.get(uidString);
-                  return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
-                })
-                .map(([uid, tracks]) => {
-                  const uidString = uid.toString();
-                  const profile = userProfiles.get(uidString);
-                  const displayName = profile?.name || profile?.display_name || 'Student';
-                  
-                  return (
-                    <div key={uid} className="flex items-center gap-3 p-3 rounded-xl bg-gray-800/30 hover:bg-gray-700/30 transition-all duration-200">
-                      <div className="relative">
-                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
-                          {tracks.video ? (
-                            <div 
-                              ref={el => {
-                                if (el && tracks.video) tracks.video.play(el);
-                              }}
-                              className="w-full h-full"
-                            />
-                          ) : (
-                            <span className="text-xl">🎓</span>
-                          )}
+          </div>
+        )}
+        
+        {/* ============================================
+        PART 5: Students Grid for Large Screens
+        ============================================ */}
+        <div className="hidden lg:block absolute bottom-4 right-4 left-4">
+          <div className={`grid gap-3 ${
+            remoteTracks.size <= 2 ? 'grid-cols-2' :
+            remoteTracks.size <= 4 ? 'grid-cols-4' :
+            'grid-cols-4'
+          }`}>
+            {Array.from(remoteTracks.entries())
+              .filter(([uid]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+              })
+              .slice(0, 4)
+              .map(([uid, tracks]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                const displayName = profile?.name || profile?.display_name || 'Student';
+                
+                return (
+                  <div key={uid} className="aspect-video rounded-xl overflow-hidden bg-gray-800/50 border border-cyan-500/20 relative group hover:border-cyan-500/50 transition-all duration-200">
+                    <div 
+                      ref={el => {
+                        if (el && tracks.video) {
+                          requestAnimationFrame(() => {
+                            try {
+                              tracks.video.play(el);
+                            } catch (error) {
+                              console.warn('Student video error:', error);
+                            }
+                          });
+                        }
+                      }}
+                      className="w-full h-full"
+                    />
+                    
+                    {!tracks.video && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-900/20 to-gray-800">
+                        <div className="text-center">
+                          <div className="text-3xl opacity-70">🎓</div>
+                          <p className="text-cyan-300 text-xs mt-1 truncate px-2">{displayName}</p>
                         </div>
+                      </div>
+                    )}
+                    
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white text-xs font-medium truncate">{displayName}</span>
                         {tracks.audio && (
-                          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
-                            <Mic size={8} className="text-white" />
-                          </div>
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                         )}
                       </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-white truncate">{displayName}</div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-cyan-400">Student</span>
-                          <div className="flex items-center gap-1">
-                            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-green-400">Online</span>
-                          </div>
-                        </div>
-                      </div>
                     </div>
-                  );
-                })}
-              
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+      
+      {/* Sidebar - Collapsible on Mobile */}
+      <div className="lg:w-80 xl:w-96 flex flex-col border-t lg:border-t-0 lg:border-l border-gray-800/30 bg-gray-900/80 backdrop-blur-lg">
+        {/* Students Section */}
+        <div className="p-3 sm:p-4 border-b border-gray-800/30">
+          <div className="flex items-center gap-2 mb-3">
+            <Users size={18} className="text-cyan-400" />
+            <h4 className="font-bold text-white text-sm sm:text-base">Classmates</h4>
+            <span className="ml-auto text-xs text-gray-400">
               {Array.from(remoteTracks.entries()).filter(([uid]) => {
                 const uidString = uid.toString();
                 const profile = userProfiles.get(uidString);
                 return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
-              }).length === 0 && (
-                <div className="text-center py-4">
-                  <p className="text-gray-500 text-sm">No other students yet</p>
-                </div>
-              )}
-            </div>
+              }).length} online
+            </span>
           </div>
           
-          {/* 🎛️ Quick Actions Bar */}
-          <div className="p-4 border-t border-gray-800/50">
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <button
-                onClick={toggleAudio}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 ${
-                  controls.audioEnabled 
-                    ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
-                    : 'bg-gradient-to-r from-red-600/20 to-red-700/20 text-red-400 border border-red-500/30'
-                }`}
-              >
-                {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-                <span className="text-xs mt-1">{controls.audioEnabled ? 'Mute' : 'Unmute'}</span>
-              </button>
-              
-              <button
-                onClick={toggleVideo}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 ${
-                  controls.videoEnabled 
-                    ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
-                    : 'bg-gradient-to-r from-red-600/20 to-red-700/20 text-red-400 border border-red-500/30'
-                }`}
-              >
-                {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
-                <span className="text-xs mt-1">{controls.videoEnabled ? 'Video Off' : 'Video On'}</span>
-              </button>
-            </div>
+          {/* Students List - Mobile Friendly */}
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+            {Array.from(remoteTracks.entries())
+              .filter(([uid]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+              })
+              .map(([uid, tracks]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                const displayName = profile?.name || profile?.display_name || 'Student';
+                
+                return (
+                  <div key={uid} className="flex items-center gap-2 p-2 rounded-xl bg-gray-800/30 hover:bg-gray-700/30 transition-all duration-200 active:scale-[0.98]">
+                    <div className="relative shrink-0">
+                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
+                        {tracks.video ? (
+                          <div 
+                            ref={el => {
+                              if (el && tracks.video) {
+                                requestAnimationFrame(() => {
+                                  tracks.video.play(el);
+                                });
+                              }
+                            }}
+                            className="w-full h-full"
+                          />
+                        ) : (
+                          <span className="text-lg">🎓</span>
+                        )}
+                      </div>
+                      {tracks.audio && (
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border border-gray-900"></div>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-white text-sm truncate">{displayName}</div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-cyan-400">Student</span>
+                        {!tracks.video && (
+                          <span className="text-xs text-gray-500">• No video</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             
-            <button 
-              onClick={toggleHandRaise}
-              className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl transition-all duration-200 mb-4 ${
-                controls.handRaised 
-                  ? 'bg-gradient-to-r from-yellow-600/20 to-orange-600/20 text-yellow-400 border border-yellow-500/30 animate-pulse' 
-                  : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-300 border border-gray-700/50'
-              }`}
+            {/* Empty State */}
+            {Array.from(remoteTracks.entries()).filter(([uid]) => {
+              const uidString = uid.toString();
+              const profile = userProfiles.get(uidString);
+              return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+            }).length === 0 && (
+              <div className="text-center py-3">
+                <p className="text-gray-500 text-sm">No other students yet</p>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Quick Controls - Touch Optimized */}
+        <div className="p-3 sm:p-4 border-b border-gray-800/30">
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <button
+              onClick={toggleAudio}
+              disabled={!controls.hasMicrophone}
+              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 active:scale-95 touch-manipulation ${
+                controls.audioEnabled 
+                  ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
+                  : 'bg-gradient-to-r from-red-600/20 to-pink-600/20 text-red-400 border border-red-500/30'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             >
-              <Hand size={18} />
-              <span className="font-medium">{controls.handRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+              {controls.audioEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+              <span className="text-xs mt-1">{controls.audioEnabled ? 'Mute' : 'Unmute'}</span>
             </button>
             
-            {/* Session Info */}
-            <div className="bg-gradient-to-r from-gray-800/30 to-gray-900/30 p-3 rounded-xl border border-gray-700/50">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm text-gray-400">Duration</span>
-                <span className="text-white font-medium">{formatDuration(stats.duration)}</span>
+            <button
+              onClick={toggleVideo}
+              disabled={!controls.hasCamera}
+              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 active:scale-95 touch-manipulation ${
+                controls.videoEnabled 
+                  ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
+                  : 'bg-gradient-to-r from-red-600/20 to-pink-600/20 text-red-400 border border-red-500/30'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              {controls.videoEnabled ? <Camera size={18} /> : <CameraOff size={18} />}
+              <span className="text-xs mt-1">{controls.videoEnabled ? 'Video Off' : 'Video On'}</span>
+            </button>
+          </div>
+          
+          <button 
+            onClick={toggleHandRaise}
+            className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl transition-all duration-200 active:scale-95 touch-manipulation ${
+              controls.handRaised 
+                ? 'bg-gradient-to-r from-yellow-600/30 to-orange-600/30 text-yellow-400 border border-yellow-500/30 animate-pulse' 
+                : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-300 border border-gray-700/50'
+            }`}
+          >
+            <Hand size={16} />
+            <span className="font-medium text-sm">{controls.handRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+          </button>
+        </div>
+        
+        {/* Session Info */}
+        <div className="mt-auto p-3 sm:p-4">
+          <div className="bg-gradient-to-r from-gray-800/30 to-gray-900/30 p-3 rounded-xl border border-gray-700/50">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-gray-400">Duration</div>
+                <div className="text-white font-medium text-sm">{formatDuration(stats.duration)}</div>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400">Participants</span>
-                <span className="text-white font-medium">{stats.participantCount}</span>
+              <div>
+                <div className="text-xs text-gray-400">Participants</div>
+                <div className="text-white font-medium text-sm">{stats.participantCount}</div>
               </div>
             </div>
           </div>
           
-          {/* 📱 Bottom Controls */}
-          <div className="mt-auto p-4 border-t border-gray-800/50">
-            <div className="flex justify-between items-center">
-              <button 
-                onClick={() => setShowChat(!showChat)}
-                className={`p-3 rounded-xl ${showChat ? 'bg-cyan-600' : 'bg-gray-800'}`}
-              >
-                <MessageSquare size={20} className="text-white" />
-              </button>
-              
-              <button 
-                onClick={leaveSession}
-                className="flex-1 ml-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all duration-200"
-              >
-                <PhoneOff size={18} />
-                <span>Leave Session</span>
-              </button>
+          {/* Leave Button */}
+          <button 
+            onClick={leaveSession}
+            className="w-full mt-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 text-sm touch-manipulation"
+          >
+            <PhoneOff size={16} />
+            <span>Leave Session</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    {/* ============================================
+    PART 6: Mobile Controls Bar (Hidden on Desktop)
+    ============================================ */}
+    <div className="lg:hidden bg-gray-900/95 backdrop-blur-lg border-t border-cyan-500/20 p-3 safe-area-bottom">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={toggleAudio}
+            disabled={!controls.hasMicrophone}
+            className={`p-3 rounded-xl transition-all duration-200 active:scale-95 ${
+              controls.audioEnabled 
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
+                : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+          </button>
+          
+          <button
+            onClick={toggleVideo}
+            disabled={!controls.hasCamera}
+            className={`p-3 rounded-xl transition-all duration-200 active:scale-95 ${
+              controls.videoEnabled 
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
+                : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
+          </button>
+          
+          <button 
+            onClick={toggleHandRaise}
+            className={`p-3 rounded-xl transition-all duration-200 active:scale-95 ${
+              controls.handRaised 
+                ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
+                : 'bg-gradient-to-r from-gray-700 to-gray-800 text-white'
+            }`}
+          >
+            <Hand size={20} />
+          </button>
+        </div>
+        
+        <button className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 text-white transition-all duration-200 active:scale-95">
+          <MoreVertical size={20} />
+        </button>
+      </div>
+    </div>
+    
+    {/* Chat Sidebar */}
+    {showChat && (
+      <div className="absolute inset-0 lg:inset-y-0 lg:left-auto lg:right-0 lg:w-96 bg-gradient-to-b from-gray-900 to-gray-950 border-l border-cyan-500/20 flex flex-col shadow-2xl">
+        {/* Chat Header */}
+        <div className="p-4 border-b border-cyan-500/20 flex justify-between items-center">
+          <div>
+            <h3 className="font-bold text-white">Chat</h3>
+            <p className="text-cyan-300 text-xs">Live Class</p>
+          </div>
+          <button 
+            onClick={() => setShowChat(false)}
+            className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 rounded-xl transition-all duration-200 active:scale-95"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {messages.length === 0 ? (
+            <div className="text-center text-gray-400 py-12">
+              <MessageCircle className="mx-auto mb-4 opacity-50" size={48} />
+              <p className="text-lg font-semibold">No messages yet</p>
+              <p className="text-sm mt-2">Be the first to say hello!</p>
             </div>
+          ) : (
+            messages.map(msg => (
+              <div key={msg.id} className="p-3 rounded-xl bg-gray-800/50">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="font-semibold text-white text-sm">
+                        {msg.profiles?.name || 'Unknown User'}
+                      </div>
+                      {msg.message_type === 'system' && (
+                        <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full text-xs">
+                          System
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-cyan-100 text-sm">{msg.message_text}</p>
+                    <p className="text-cyan-400 text-xs mt-2">
+                      {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        
+        {/* Message Input */}
+        <div className="p-4 border-t border-cyan-500/20">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              placeholder="Type a message..."
+              className="flex-1 bg-gray-800/50 border border-cyan-500/30 rounded-xl px-4 py-3 text-white placeholder-cyan-400/50 focus:outline-none focus:ring-1 focus:ring-cyan-500 text-sm"
+            />
+            <button 
+              onClick={() => sendMessage()}
+              disabled={!newMessage.trim()}
+              className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 rounded-xl font-semibold text-white transition-all duration-200 active:scale-95 text-sm"
+            >
+              Send
+            </button>
           </div>
         </div>
       </div>
+    )}
+    
+    {/* ============================================
+    PART 3: Draggable Local Video PIP - World Class
+    ============================================ */}
+    {controls.hasCamera && (
+      <div 
+        style={{
+          position: 'fixed',
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          width: 'clamp(160px, 30vw, 280px)',
+          height: 'auto',
+          aspectRatio: '16/9',
+          zIndex: 1000,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          transition: isDragging ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+          touchAction: 'none',
+          WebkitTapHighlightColor: 'transparent',
+          willChange: 'transform'
+        }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        className="local-video-pip select-none"
+      >
+        <div className="relative w-full h-full bg-gray-900 rounded-xl sm:rounded-2xl overflow-hidden shadow-2xl border-2 border-cyan-500/50 hover:border-cyan-500 transition-all duration-200 group">
+          {/* Drag Handle */}
+          <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <div className="w-12 h-1.5 bg-white/40 rounded-full backdrop-blur-sm"></div>
+          </div>
 
-      {/* ============================================
-      PART 3: Draggable Local Video PIP
-      ============================================ */}
-      {controls.hasCamera && (
-        <div 
-          style={{
-            position: 'fixed',
-            left: `${position.x}px`,
-            top: `${position.y}px`,
-            width: '280px',
-            height: '210px',
-            zIndex: 1000,
-            cursor: isDragging ? 'grabbing' : 'grab',
-            transition: isDragging ? 'none' : 'box-shadow 0.2s ease',
-            touchAction: 'none'
-          }}
-          onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
-          className="local-video-pip"
-        >
-          <div className="relative w-full h-full bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border-2 border-cyan-500/50 hover:border-cyan-500 transition-all duration-200 hover:shadow-cyan-500/20 hover:shadow-xl">
-            {/* Drag Handle Indicator */}
-            <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 pointer-events-none">
-              <div className="w-12 h-1 bg-white/30 rounded-full"></div>
-            </div>
-
-            {/* Video Element with Anti-Flicker */}
+          {/* Video Container with Hardware Acceleration */}
+          <div className="relative w-full h-full transform-gpu">
             <video
               id="local-video-player"
               className="w-full h-full object-cover"
@@ -1457,7 +1646,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                 transform: 'scaleX(-1)',
                 backfaceVisibility: 'hidden',
                 WebkitBackfaceVisibility: 'hidden',
-                willChange: 'transform'
+                transformStyle: 'preserve-3d'
               }}
             />
             
@@ -1465,322 +1654,48 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
             {!controls.videoEnabled && (
               <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
                 <div className="text-center">
-                  <CameraOff className="text-gray-400 w-10 h-10 mx-auto mb-2" />
-                  <p className="text-gray-400 text-sm font-medium">Camera Off</p>
+                  <CameraOff className="text-gray-400 w-8 h-8 mx-auto mb-2" />
+                  <p className="text-gray-400 text-xs font-medium">Camera Off</p>
                 </div>
               </div>
             )}
-            
-            {/* Compact Overlay Info */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-2">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className={`w-1.5 h-1.5 rounded-full ${
-                      controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-                    }`}></div>
-                    <span className="text-white text-xs font-semibold">You</span>
-                  </div>
-                </div>
-                
-                {/* Mini Status Icons */}
-                <div className="flex gap-1 no-drag">
-                  {!controls.audioEnabled && (
-                    <div className="bg-red-500/80 p-1 rounded">
-                      <MicOff size={10} className="text-white" />
-                    </div>
-                  )}
-                  {!controls.videoEnabled && (
-                    <div className="bg-red-500/80 p-1 rounded">
-                      <CameraOff size={10} className="text-white" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Dragging Indicator */}
-            {isDragging && (
-              <div className="absolute inset-0 bg-cyan-500/10 border-2 border-cyan-500 rounded-2xl pointer-events-none"></div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ============================================
-      PART 5: Responsive Main Video Grid
-      ============================================ */}
-      <div className="flex-1 relative p-2 sm:p-4 md:p-6 overflow-hidden">
-        {/* Responsive Remote Videos Grid */}
-        <div className="w-full h-full">
-          <div className={`grid gap-2 sm:gap-3 md:gap-4 lg:gap-6 h-full ${
-            remoteTracks.size === 0 ? 'grid-cols-1' :
-            remoteTracks.size === 1 ? 'grid-cols-1' :
-            remoteTracks.size === 2 ? 'grid-cols-1 sm:grid-cols-2' :
-            remoteTracks.size <= 4 ? 'grid-cols-1 sm:grid-cols-2' :
-            remoteTracks.size <= 6 ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3' :
-            'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
-          }`}>
-            {Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
-              const profile = userProfiles.get(uid.toString());
-              const isTeacher = profile?.is_teacher || uid === teacherUid;
-              const displayName = profile?.name || profile?.display_name || 
-                               (isTeacher ? 'Teacher' : `Student ${uid}`);
-              
-              const userIcon = isTeacher ? '👨‍🏫' : '🎓';
-              const userRole = isTeacher ? 'Teacher' : 'Student';
-              const borderColor = isTeacher ? 'border-yellow-500/50' : 'border-blue-500/30';
-              const bgGradient = isTeacher ? 'from-gray-900 to-gray-800' : 'from-blue-900/20 to-gray-800';
-              
-              return (
-                <div 
-                  key={uid} 
-                  className={`relative rounded-xl sm:rounded-2xl overflow-hidden border-2 ${borderColor} 
-                             group hover:border-cyan-500/60 transition-all duration-200
-                             min-h-[180px] sm:min-h-[200px] md:min-h-[240px] lg:min-h-[280px]
-                             hover:scale-[1.02] hover:shadow-xl hover:shadow-cyan-500/10`}
-                >
-                  {/* Video Container with Anti-Flicker */}
-                  <div 
-                    ref={el => {
-                      if (el && tracks.video) {
-                        requestAnimationFrame(() => {
-                          try {
-                            tracks.video.play(el);
-                            el.style.backfaceVisibility = 'hidden';
-                            el.style.WebkitBackfaceVisibility = 'hidden';
-                          } catch (error) {
-                            console.warn('Remote video play error:', error);
-                          }
-                        });
-                      }
-                    }}
-                    className="w-full h-full bg-gray-800"
-                    style={{
-                      backfaceVisibility: 'hidden',
-                      WebkitBackfaceVisibility: 'hidden'
-                    }}
-                  />
-                  
-                  {/* No Video Placeholder */}
-                  {!tracks.video && (
-                    <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${bgGradient}`}>
-                      <div className="text-center px-4">
-                        <div className="text-3xl sm:text-4xl md:text-5xl mb-2 sm:mb-3 opacity-70">
-                          {userIcon}
-                        </div>
-                        <p className="text-cyan-300 font-medium text-sm sm:text-base truncate max-w-full">
-                          {displayName}
-                        </p>
-                        <div className={`px-2 py-1 rounded-full text-xs mt-2 inline-block ${
-                          isTeacher ? 'bg-yellow-500/20 text-yellow-300' : 'bg-blue-500/20 text-blue-300'
-                        }`}>
-                          {userRole}
-                        </div>
-                        <p className="text-gray-400 text-xs sm:text-sm mt-1 sm:mt-2">
-                          {tracks.audio ? 'Audio only' : 'Connecting...'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Compact Overlay - Responsive */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-2 sm:p-3">
-                    <div className="flex justify-between items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white text-xs sm:text-sm truncate flex items-center gap-1.5">
-                          <span className="truncate">{displayName}</span>
-                          {isTeacher && (
-                            <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full text-[10px] sm:text-xs flex-shrink-0">
-                              Teacher
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] sm:text-xs text-cyan-300 flex items-center gap-1.5 mt-0.5">
-                          <span>{userRole}</span>
-                          {!tracks.video && (
-                            <span className="bg-gray-700/50 px-1.5 py-0.5 rounded">No Video</span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {tracks.audio && (
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-                          <span className="text-[10px] text-green-300 hidden sm:inline">Audio</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            
-            {/* Empty State - Responsive */}
-            {remoteTracks.size === 0 && (
-              <div className="col-span-full flex items-center justify-center min-h-[300px] sm:min-h-[400px] px-4">
-                <div className="text-center text-gray-400 max-w-md">
-                  <div className="relative mb-4 sm:mb-6">
-                    <Users className="text-cyan-400 opacity-50 mx-auto w-16 h-16 sm:w-20 sm:h-20" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="animate-ping w-12 h-12 sm:w-16 sm:h-16 bg-cyan-500/30 rounded-full"></div>
-                    </div>
-                  </div>
-                  <h3 className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3">
-                    Waiting for others...
-                  </h3>
-                  <p className="text-base sm:text-lg mb-4 sm:mb-6">
-                    {teacherUid ? 'Teacher is in the session' : 'Connecting to session...'}
-                  </p>
-                  <div className="bg-gray-800/50 p-3 sm:p-4 rounded-xl border border-cyan-500/20">
-                    <p className="text-cyan-300 text-xs sm:text-sm">
-                      {teacherUid 
-                        ? 'Other participants will appear when they join' 
-                        : 'Your session is ready'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ============================================
-      PART 6: Responsive Controls Bar
-      ============================================ */}
-      <div className="bg-gray-900/90 backdrop-blur-xl border-t border-cyan-500/30 p-3 sm:p-4 md:p-6 safe-area-bottom">
-        <div className="flex items-center justify-center gap-2 sm:gap-3 md:gap-6 max-w-screen-xl mx-auto">
-          {/* Audio Toggle */}
-          <button
-            onClick={toggleAudio}
-            disabled={!controls.hasMicrophone}
-            className={`p-3 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl transition-all duration-200 shadow-lg ${
-              controls.audioEnabled 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
-                : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
-            } disabled:opacity-50 disabled:cursor-not-allowed active:scale-95`}
-            title={controls.hasMicrophone ? (controls.audioEnabled ? 'Mute' : 'Unmute') : 'No mic'}
-          >
-            {controls.audioEnabled ? <Mic size={20} className="sm:w-6 sm:h-6" /> : <MicOff size={20} className="sm:w-6 sm:h-6" />}
-          </button>
-
-          {/* Video Toggle */}
-          <button
-            onClick={toggleVideo}
-            disabled={!controls.hasCamera}
-            className={`p-3 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl transition-all duration-200 shadow-lg ${
-              controls.videoEnabled 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
-                : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
-            } disabled:opacity-50 disabled:cursor-not-allowed active:scale-95`}
-            title={controls.hasCamera ? (controls.videoEnabled ? 'Stop video' : 'Start video') : 'No camera'}
-          >
-            {controls.videoEnabled ? <Camera size={20} className="sm:w-6 sm:h-6" /> : <CameraOff size={20} className="sm:w-6 sm:h-6" />}
-          </button>
-
-          {/* Hand Raise */}
-          <button
-            onClick={toggleHandRaise}
-            className={`p-3 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl transition-all duration-200 shadow-lg ${
-              controls.handRaised 
-                ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
-                : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
-            } active:scale-95`}
-            title={controls.handRaised ? 'Lower hand' : 'Raise hand'}
-          >
-            <Hand size={20} className="sm:w-6 sm:h-6" />
-          </button>
-
-          {/* More Options - Hidden on small screens */}
-          <button className="hidden sm:flex p-3 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 shadow-lg active:scale-95">
-            <MoreVertical size={20} className="sm:w-6 sm:h-6" />
-          </button>
-        </div>
-      </div>
-
-      {/* Chat Sidebar */}
-      {showChat && (
-        <div className="absolute inset-y-0 right-0 w-full md:w-96 bg-gradient-to-b from-gray-900 to-gray-950 border-l border-cyan-500/30 flex flex-col shadow-2xl">
-          <div className="p-6 border-b border-cyan-500/30 flex justify-between items-center">
-            <div>
-              <h3 className="font-bold text-xl text-white">Madina Chat</h3>
-              <p className="text-cyan-300 text-sm">Live Class with teacher</p>
-            </div>
-            <button 
-              onClick={() => setShowChat(false)}
-              className="p-3 text-cyan-300 hover:text-white hover:bg-cyan-500/20 rounded-xl transition-all duration-200"
-            >
-              <X size={20} />
-            </button>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 ? (
-              <div className="text-center text-gray-400 py-12">
-                <MessageCircle className="mx-auto mb-4 opacity-50" size={48} />
-                <p className="text-lg font-semibold">No messages yet</p>
-                <p className="text-sm mt-2">Be the first to say hello!</p>
+          {/* Compact Overlay Info */}
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-2">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${
+                  controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                }`}></div>
+                <span className="text-white text-xs font-semibold">You</span>
               </div>
-            ) : (messages.map(msg => (
-              <div 
-                key={msg.id} 
-                className={`p-4 rounded-2xl ${
-                  msg.message_type === 'system' 
-                    ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-500/20' 
-                    : 'bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700/50'
-                }`}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="font-semibold text-white">
-                        {msg.profiles?.name || 'Unknown User'}
-                      </div>
-                      {msg.message_type === 'system' && (
-                        <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs">
-                          System
-                        </span>
-                      )}
-                      {msg.profiles?.role === 'teacher' && (
-                        <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
-                          Teacher
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-cyan-100">{msg.message_text}</p>
-                    <p className="text-cyan-400 text-xs mt-3">
-                      {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </p>
+              
+              {/* Mini Status Icons */}
+              <div className="flex gap-1 no-drag">
+                {!controls.audioEnabled && (
+                  <div className="bg-red-500/90 p-1 rounded">
+                    <MicOff size={8} className="text-white" />
                   </div>
-                </div>
+                )}
+                {!controls.videoEnabled && (
+                  <div className="bg-red-500/90 p-1 rounded">
+                    <CameraOff size={8} className="text-white" />
+                  </div>
+                )}
               </div>
-            )))}
-          </div>
-          
-          <div className="p-6 border-t border-cyan-500/30">
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder="Type your message here..."
-                className="flex-1 bg-gray-800/50 border border-cyan-500/30 rounded-2xl px-5 py-4 text-white placeholder-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent backdrop-blur-lg"
-              />
-              <button 
-                onClick={() => sendMessage()}
-                disabled={!newMessage.trim()}
-                className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-4 rounded-2xl font-semibold text-white transition-all duration-200 shadow-lg"
-              >
-                Send
-              </button>
             </div>
           </div>
+
+          {/* Dragging Indicator */}
+          {isDragging && (
+            <div className="absolute inset-0 bg-cyan-500/10 border-2 border-dashed border-cyan-500 rounded-xl pointer-events-none"></div>
+          )}
         </div>
-      )}
-    </div>
-  );
+      </div>
+    )}
+  </div>
+);
 };
 
 export default StudentVideoCall;
