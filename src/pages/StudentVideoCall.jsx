@@ -1411,75 +1411,7 @@ return (
             )}
           </div>
         </div>
-        
-        {/* Quick Controls - Touch Optimized */}
-        <div className="p-3 sm:p-4 border-b border-gray-800/30">
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <button
-              onClick={toggleAudio}
-              disabled={!controls.hasMicrophone}
-              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 active:scale-95 touch-manipulation ${
-                controls.audioEnabled 
-                  ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
-                  : 'bg-gradient-to-r from-red-600/20 to-pink-600/20 text-red-400 border border-red-500/30'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              {controls.audioEnabled ? <Mic size={18} /> : <MicOff size={18} />}
-              <span className="text-xs mt-1">{controls.audioEnabled ? 'Mute' : 'Unmute'}</span>
-            </button>
-            
-            <button
-              onClick={toggleVideo}
-              disabled={!controls.hasCamera}
-              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 active:scale-95 touch-manipulation ${
-                controls.videoEnabled 
-                  ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30' 
-                  : 'bg-gradient-to-r from-red-600/20 to-pink-600/20 text-red-400 border border-red-500/30'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              {controls.videoEnabled ? <Camera size={18} /> : <CameraOff size={18} />}
-              <span className="text-xs mt-1">{controls.videoEnabled ? 'Video Off' : 'Video On'}</span>
-            </button>
-          </div>
-          
-          <button 
-            onClick={toggleHandRaise}
-            className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl transition-all duration-200 active:scale-95 touch-manipulation ${
-              controls.handRaised 
-                ? 'bg-gradient-to-r from-yellow-600/30 to-orange-600/30 text-yellow-400 border border-yellow-500/30 animate-pulse' 
-                : 'bg-gradient-to-r from-gray-800 to-gray-900 text-gray-300 border border-gray-700/50'
-            }`}
-          >
-            <Hand size={16} />
-            <span className="font-medium text-sm">{controls.handRaised ? 'Hand Raised' : 'Raise Hand'}</span>
-          </button>
-        </div>
-        
-        {/* Session Info */}
-        <div className="mt-auto p-3 sm:p-4">
-          <div className="bg-gradient-to-r from-gray-800/30 to-gray-900/30 p-3 rounded-xl border border-gray-700/50">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-gray-400">Duration</div>
-                <div className="text-white font-medium text-sm">{formatDuration(stats.duration)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400">Participants</div>
-                <div className="text-white font-medium text-sm">{stats.participantCount}</div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Leave Button */}
-          <button 
-            onClick={leaveSession}
-            className="w-full mt-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 text-sm touch-manipulation"
-          >
-            <PhoneOff size={16} />
-            <span>Leave Session</span>
-          </button>
-        </div>
-      </div>
+             </div>
     </div>
     
     {/* ============================================
