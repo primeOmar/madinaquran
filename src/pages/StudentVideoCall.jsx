@@ -2919,35 +2919,6 @@ useEffect(() => {
         </div>
       </div>
       
-      {/* Video Controls Overlay - Top Right */}
-      <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
-        {controls.videoEnabled && localTracks.video && (
-          <div className="bg-black/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-green-500/30">
-            <span className="text-green-400 text-xs font-semibold">● LIVE</span>
-          </div>
-        )}
-        <button 
-          onClick={toggleVideo}
-          className="bg-black/80 backdrop-blur-sm p-2 rounded-lg border border-white/10 hover:bg-gray-800/90 transition-all duration-200 hover:scale-105"
-          title={controls.videoEnabled ? "Turn off camera" : "Turn on camera"}
-        >
-          {controls.videoEnabled ? 
-            <Camera size={16} className="text-green-400" /> : 
-            <CameraOff size={16} className="text-red-400" />
-          }
-        </button>
-        <button 
-          onClick={toggleAudio}
-          className="bg-black/80 backdrop-blur-sm p-2 rounded-lg border border-white/10 hover:bg-gray-800/90 transition-all duration-200 hover:scale-105"
-          title={controls.audioEnabled ? "Mute microphone" : "Unmute microphone"}
-        >
-          {controls.audioEnabled ? 
-            <Mic size={16} className="text-green-400" /> : 
-            <MicOff size={16} className="text-red-400" />
-          }
-        </button>
-      </div>
-      
       {/* Drag Handle - Top Center */}
       <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 no-drag">
         <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
