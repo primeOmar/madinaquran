@@ -319,91 +319,386 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   }, [remoteTracks]);
 
   // ============================================
-  // Session Initialization
+  // FIXED: Initialization - Run Once (From Second File)
   // ============================================
   useEffect(() => {
-    let mounted = true;
-    
-    const initializeSession = async () => {
-      if (initializationRef.current.clientCreated) {
-        console.log('Session already initializing or initialized');
-        return;
-      }
-
-      try {
-        initializationRef.current.clientCreated = true;
-        console.log('🔵 Initializing video session...');
-        
-        const result = await studentvideoApi.createSession(classId, studentId, meetingId);
-        
-        if (!mounted) return;
-        
-        if (result.error) {
-          throw new Error(result.error);
-        }
-
-        console.log('✅ Session created:', result);
-        setSessionState({
-          isInitialized: true,
-          isJoined: false,
-          sessionInfo: result,
-          error: null
-        });
-
-        await joinChannel(result);
-      } catch (error) {
-        console.error('❌ Failed to initialize session:', error);
-        if (mounted) {
-          setSessionState(prev => ({
-            ...prev,
-            error: error.message
-          }));
-          initializationRef.current.clientCreated = false;
-        }
-      }
-    };
-
-    initializeSession();
-
-    return () => {
-      mounted = false;
-    };
-  }, [classId, studentId, meetingId]);
-
-  // ============================================
-  // Join Channel Function
-  // ============================================
-  const joinChannel = async (sessionInfo) => {
     if (initializationRef.current.joined) {
-      console.log('Already joined channel');
       return;
     }
 
+    const init = async () => {
+      try {
+        await initializeSession();
+      } catch (error) {
+        console.error('Initialization failed:', error);
+      }
+    };
+
+    init();
+
+    return () => {
+      if (initializationRef.current.joined) {
+        cleanup();
+      }
+    };
+  }, [meetingId, studentId]);
+
+  // ============================================
+  // FIXED: Sync Profiles with Tracks (From Second File)
+  // ============================================
+  useEffect(() => {
+    if (remoteTracks.size > 0 && sessionState.isJoined) {
+      syncProfilesWithTracks();
+    }
+  }, [remoteTracks, sessionState.isJoined]);
+
+  // ============================================
+  // FIXED: Participant Sync Interval (From Second File)
+  // ============================================
+  useEffect(() => {
+    if (!sessionState.isJoined || !sessionState.sessionInfo?.meetingId) return;
+    
+    const syncInterval = setInterval(() => {
+      fetchParticipants(sessionState.sessionInfo.meetingId);
+    }, 15000);
+    
+    return () => clearInterval(syncInterval);
+  }, [sessionState.isJoined, sessionState.sessionInfo?.meetingId]);
+
+  // ============================================
+  // FIXED: Helper Functions (From Second File)
+  // ============================================
+  const fetchParticipants = async (meetingId) => {
     try {
-      console.log('🔵 Joining channel...');
+      const response = await studentvideoApi.getSessionParticipants(meetingId);
+      
+      if (response.success && response.participants) {
+        const newProfiles = new Map();
+        let teacherUidFound = null;
+        
+        response.participants.forEach(participant => {
+          if (participant.agora_uid) {
+            const uidString = String(participant.agora_uid);
+            const isTeacher = participant.role === 'teacher' || participant.is_teacher;
+            
+            newProfiles.set(uidString, {
+              id: participant.user_id,
+              agora_uid: participant.agora_uid,
+              name: participant.display_name || participant.name || 'Unknown User',
+              display_name: participant.display_name || participant.name || 'Unknown User',
+              role: isTeacher ? 'teacher' : 'student',
+              is_teacher: isTeacher,
+              avatar_url: participant.avatar_url
+            });
+            
+            if (isTeacher) {
+              teacherUidFound = uidString;
+            }
+          }
+        });
+        
+        setUserProfiles(newProfiles);
+        if (teacherUidFound) {
+          setTeacherUid(teacherUidFound);
+        }
+        
+        setParticipants(response.participants);
+      }
+    } catch (error) {
+      console.error('Failed to fetch participants:', error);
+    }
+  };
+
+  const syncProfilesWithTracks = () => {
+    const remoteUids = Array.from(remoteTracks.keys()).map(uid => String(uid));
+    const profileUids = Array.from(userProfiles.keys());
+    
+    const missingUids = remoteUids.filter(uid => !profileUids.includes(uid));
+    
+    if (missingUids.length > 0 && sessionState.sessionInfo?.meetingId) {
+      fetchProfilesByUids(missingUids);
+    }
+  };
+
+  const fetchProfilesByUids = async (uids) => {
+    try {
+      if (!sessionState.sessionInfo?.meetingId || !uids.length) return;
+      
+      const response = await studentvideoApi.getParticipantProfiles(
+        sessionState.sessionInfo.meetingId,
+        uids.map(uid => parseInt(uid, 10)).filter(uid => !isNaN(uid))
+      );
+      
+      if (response.success && response.profiles) {
+        setUserProfiles(prev => {
+          const updated = new Map(prev);
+          response.profiles.forEach(profile => {
+            const uidString = String(profile.agora_uid);
+            const isTeacher = profile.role === 'teacher' || profile.is_teacher;
+            
+            updated.set(uidString, {
+              id: profile.user_id,
+              agora_uid: profile.agora_uid,
+              name: profile.name || profile.full_name || profile.display_name || 'User',
+              display_name: profile.full_name || profile.name || profile.display_name || 'User',
+              role: profile.role || (isTeacher ? 'teacher' : 'student'),
+              is_teacher: isTeacher,
+              avatar_url: profile.avatar_url
+            });
+            
+            if (isTeacher) {
+              setTeacherUid(uidString);
+            }
+          });
+          return updated;
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to fetch profiles by UIDs:', error);
+    }
+  };
+
+  // ============================================
+  // FIXED: Initialize Session with Proper Guards (From Second File)
+  // ============================================
+  const initializeSession = async () => {
+    try {
+      if (initializationRef.current.clientCreated) {
+        console.log('Client already created, skipping initialization');
+        return;
+      }
+
+      const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
+      
+      if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
+        throw new Error(sessionLookup.error || 'No active session found');
+      }
+
+      const effectiveMeetingId = sessionLookup.meetingId;
+      
+      await fetchParticipants(effectiveMeetingId);
       
       if (!clientRef.current) {
-        clientRef.current = AgoraRTC.createClient({ 
-          mode: 'rtc', 
-          codec: 'vp8'
-        });
+        clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+        initializationRef.current.clientCreated = true;
       }
 
       if (!initializationRef.current.listenersSet) {
-        setupEventListeners();
+        setupAgoraEventListeners();
         initializationRef.current.listenersSet = true;
       }
 
-      await clientRef.current.join(
-        sessionInfo.appId,
-        sessionInfo.channelName,
-        sessionInfo.token,
-        parseInt(studentId)
+      const sessionData = await studentvideoApi.joinVideoSession(
+        effectiveMeetingId,
+        studentId,
+        'student'
       );
 
-      initializationRef.current.joined = true;
-      console.log('✅ Joined channel successfully');
+      if (!sessionData.success || !sessionData.token) {
+        throw new Error(sessionData.error || 'Failed to join session');
+      }
 
+      const studentAgoraUid = sessionData.uid;
+
+      setSessionState({
+        isInitialized: true,
+        isJoined: false,
+        sessionInfo: {
+          ...sessionData,
+          uid: studentAgoraUid,
+          meetingId: effectiveMeetingId
+        },
+        error: null
+      });
+
+      await joinChannel({
+        ...sessionData,
+        uid: studentAgoraUid
+      });
+
+      setTimeout(() => {
+        fetchParticipants(effectiveMeetingId);
+      }, 2000);
+
+    } catch (error) {
+      console.error('Init Error:', error);
+      setSessionState(prev => ({ 
+        ...prev, 
+        error: error.message || 'Failed to connect' 
+      }));
+    }
+  };
+
+  // ============================================
+  // FIXED: Setup Agora Event Listeners (From Second File)
+  // ============================================
+  const setupAgoraEventListeners = () => {
+    const client = clientRef.current;
+    if (!client) return;
+
+    console.log('Setting up Agora event listeners');
+
+    client.on('user-joined', async (user) => {
+      console.log(`User joined: ${user.uid}`);
+      const uid = String(user.uid);
+      
+      if (sessionState.sessionInfo && String(sessionState.sessionInfo.uid) === uid) {
+        console.log('Skipping own user join event');
+        return;
+      }
+
+      setRemoteTracks(prev => {
+        const newMap = new Map(prev);
+        if (!newMap.has(uid)) {
+          newMap.set(uid, { audio: null, video: null });
+        }
+        return newMap;
+      });
+
+      updateParticipantCount();
+    });
+
+    client.on('user-published', async (user, mediaType) => {
+      console.log(`User published: ${user.uid}, media: ${mediaType}`);
+      const uid = String(user.uid);
+      
+      try {
+        await client.subscribe(user, mediaType);
+        
+        setRemoteTracks(prev => {
+          const newMap = new Map(prev);
+          const existing = newMap.get(uid) || { audio: null, video: null };
+          
+          if (mediaType === 'video') {
+            existing.video = user.videoTrack;
+          } else if (mediaType === 'audio') {
+            existing.audio = user.audioTrack;
+            user.audioTrack?.play();
+          }
+          
+          newMap.set(uid, existing);
+          return newMap;
+        });
+        
+      } catch (error) {
+        console.error('Subscribe error:', error);
+      }
+    });
+
+    client.on('user-unpublished', (user, mediaType) => {
+      console.log(`User unpublished: ${user.uid}, media: ${mediaType}`);
+      const uid = String(user.uid);
+      
+      setRemoteTracks(prev => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(uid);
+        
+        if (existing) {
+          if (mediaType === 'video') {
+            existing.video?.stop();
+            existing.video = null;
+          } else if (mediaType === 'audio') {
+            existing.audio?.stop();
+            existing.audio = null;
+          }
+          
+          newMap.set(uid, existing);
+        }
+        
+        return newMap;
+      });
+    });
+
+    client.on('user-left', (user) => {
+      console.log(`User left: ${user.uid}`);
+      const uid = String(user.uid);
+      
+      setRemoteTracks(prev => {
+        const newMap = new Map(prev);
+        const tracks = newMap.get(uid);
+        
+        if (tracks) {
+          tracks.audio?.stop();
+          tracks.video?.stop();
+        }
+        
+        newMap.delete(uid);
+        return newMap;
+      });
+      
+      setUserProfiles(prev => {
+        const updated = new Map(prev);
+        updated.delete(uid);
+        return updated;
+      });
+      
+      updateParticipantCount();
+    });
+
+    client.on('connection-state-change', (curState, prevState) => {
+      console.log(`Connection state change: ${prevState} -> ${curState}`);
+      
+      if (curState === 'DISCONNECTED' || curState === 'DISCONNECTING') {
+        setSessionState(prev => ({
+          ...prev,
+          error: 'Connection lost. Trying to reconnect...'
+        }));
+      } else if (curState === 'CONNECTED') {
+        setSessionState(prev => ({
+          ...prev,
+          error: null
+        }));
+      }
+    });
+  };
+
+  // ============================================
+  // FIXED: Join Channel (From Second File)
+  // ============================================
+  const joinChannel = async (sessionData) => {
+    try {
+      const { channel, token, uid, appId } = sessionData;
+
+      if (!appId || appId.length !== 32) {
+        throw new Error('Invalid App ID');
+      }
+
+      if (!channel) {
+        throw new Error('Channel name is missing');
+      }
+
+      if (!token) {
+        throw new Error('Token is missing');
+      }
+
+      console.log('Joining channel:', channel);
+
+      if (initializationRef.current.joined) {
+        console.log('Already joined channel, skipping');
+        return;
+      }
+
+      const joinedUid = await clientRef.current.join(
+        appId,
+        channel,
+        token,
+        uid || null
+      );
+      
+      console.log('Joined channel with UID:', joinedUid);
+      initializationRef.current.joined = true;
+
+      if (profilePollingRef.current) {
+        clearInterval(profilePollingRef.current);
+      }
+      
+      profilePollingRef.current = setInterval(() => {
+        if (sessionState.sessionInfo?.meetingId) {
+          fetchParticipants(sessionState.sessionInfo.meetingId);
+        }
+      }, 10000);
+
+      // Use the improved createAndPublishTracks from first file
       await createAndPublishTracks();
 
       setSessionState(prev => ({
@@ -411,19 +706,25 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
         isJoined: true
       }));
 
-      startDurationTimer();
-      startMessagePolling();
-      startProfilePolling();
+      startDurationTracking();
+      
+      await updateParticipantStatus({ status: 'joined' });
+
+      // ============================================
+      // CRITICAL FIX: Added back startMessagePolling call
+      // ============================================
+      if (sessionData.session?.id) {
+        startMessagePolling(sessionData.session.id);
+      }
 
     } catch (error) {
-      console.error('❌ Failed to join channel:', error);
-      initializationRef.current.joined = false;
+      console.error('Join channel error:', error);
       throw error;
     }
   };
 
   // ============================================
-  // ⚠️ CRITICAL FIX #4: Improved Track Creation
+  // ⚠️ CRITICAL FIX #4: Improved Track Creation (From First File)
   // ============================================
   const createAndPublishTracks = async () => {
     try {
@@ -492,100 +793,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   };
 
   // ============================================
-  // Event Listeners Setup
-  // ============================================
-  const setupEventListeners = () => {
-    if (!clientRef.current) return;
-
-    clientRef.current.on('user-published', async (user, mediaType) => {
-      console.log(`👤 User ${user.uid} published ${mediaType}`);
-      
-      try {
-        await clientRef.current.subscribe(user, mediaType);
-        console.log(`✅ Subscribed to user ${user.uid} ${mediaType}`);
-
-        setRemoteTracks(prev => {
-          const updated = new Map(prev);
-          const userTracks = updated.get(user.uid) || {};
-          
-          if (mediaType === 'video') {
-            userTracks.video = user.videoTrack;
-          } else if (mediaType === 'audio') {
-            userTracks.audio = user.audioTrack;
-            if (user.audioTrack) {
-              user.audioTrack.play();
-            }
-          }
-          
-          updated.set(user.uid, userTracks);
-          return updated;
-        });
-
-        setParticipants(prev => {
-          if (!prev.find(p => p.uid === user.uid)) {
-            return [...prev, { uid: user.uid, hasVideo: mediaType === 'video', hasAudio: mediaType === 'audio' }];
-          }
-          return prev.map(p => 
-            p.uid === user.uid 
-              ? { ...p, hasVideo: p.hasVideo || mediaType === 'video', hasAudio: p.hasAudio || mediaType === 'audio' }
-              : p
-          );
-        });
-
-      } catch (error) {
-        console.error(`❌ Failed to subscribe to user ${user.uid}:`, error);
-      }
-    });
-
-    clientRef.current.on('user-unpublished', (user, mediaType) => {
-      console.log(`👤 User ${user.uid} unpublished ${mediaType}`);
-      
-      setRemoteTracks(prev => {
-        const updated = new Map(prev);
-        const userTracks = updated.get(user.uid);
-        
-        if (userTracks) {
-          if (mediaType === 'video') {
-            delete userTracks.video;
-          } else if (mediaType === 'audio') {
-            delete userTracks.audio;
-          }
-          
-          if (!userTracks.video && !userTracks.audio) {
-            updated.delete(user.uid);
-          } else {
-            updated.set(user.uid, userTracks);
-          }
-        }
-        
-        return updated;
-      });
-    });
-
-    clientRef.current.on('user-left', (user) => {
-      console.log(`👤 User ${user.uid} left`);
-      
-      setRemoteTracks(prev => {
-        const updated = new Map(prev);
-        updated.delete(user.uid);
-        return updated;
-      });
-      
-      setParticipants(prev => prev.filter(p => p.uid !== user.uid));
-    });
-
-    clientRef.current.on('connection-state-change', (curState, prevState) => {
-      console.log(`🔌 Connection state: ${prevState} → ${curState}`);
-      
-      setStats(prev => ({
-        ...prev,
-        connectionQuality: curState === 'CONNECTED' ? 'good' : curState === 'CONNECTING' ? 'fair' : 'poor'
-      }));
-    });
-  };
-
-  // ============================================
-  // Toggle Functions with Better Track Management
+  // Toggle Functions with Better Track Management (From First File)
   // ============================================
   const toggleAudio = async () => {
     if (!localTracks.audio || !controls.hasMicrophone) return;
@@ -595,6 +803,8 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       await localTracks.audio.setEnabled(newState);
       setControls(prev => ({ ...prev, audioEnabled: newState }));
       console.log(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
+      
+      await updateParticipantStatus({ audioEnabled: newState });
     } catch (error) {
       console.error('Failed to toggle audio:', error);
     }
@@ -608,6 +818,8 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       await localTracks.video.setEnabled(newState);
       setControls(prev => ({ ...prev, videoEnabled: newState }));
       console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
+      
+      await updateParticipantStatus({ videoEnabled: newState });
     } catch (error) {
       console.error('Failed to toggle video:', error);
     }
@@ -618,24 +830,34 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     setControls(prev => ({ ...prev, handRaised: newState }));
     
     try {
-      await studentvideoApi.raiseHand(meetingId, studentId, newState);
+      await updateParticipantStatus({ handRaised: newState });
       console.log(`✋ Hand ${newState ? 'raised' : 'lowered'}`);
+      
+      // Send message if session exists
+      if (sessionState.sessionInfo?.session?.id) {
+        sendMessage(
+          newState ? '✋ Raised hand' : 'Lowered hand',
+          'system'
+        );
+      }
     } catch (error) {
       console.error('Failed to toggle hand raise:', error);
     }
   };
 
   // ============================================
-  // Duration Timer
+  // Duration Timer (From First File)
   // ============================================
-  const startDurationTimer = () => {
-    if (durationIntervalRef.current) return;
+  const startDurationTracking = () => {
+    const startTime = Date.now();
+    
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
     
     durationIntervalRef.current = setInterval(() => {
-      setStats(prev => ({
-        ...prev,
-        duration: prev.duration + 1
-      }));
+      const diff = Math.floor((Date.now() - startTime) / 1000);
+      setStats(prev => ({ ...prev, duration: diff }));
     }, 1000);
   };
 
@@ -647,131 +869,161 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   };
 
   // ============================================
-  // Message Functions
+  // CRITICAL: Message Functions (From Second File)
   // ============================================
-  const startMessagePolling = () => {
-    if (messagesPollIntervalRef.current) return;
-    
-    const pollMessages = async () => {
-      try {
-        const msgs = await studentvideoApi.getMessages(meetingId);
-        if (msgs && Array.isArray(msgs)) {
-          setMessages(msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
-        }
-      } catch (error) {
-        console.error('Failed to fetch messages:', error);
-      }
-    };
-
-    pollMessages();
-    messagesPollIntervalRef.current = setInterval(pollMessages, 3000);
-  };
-
-  const sendMessage = async () => {
-    if (!newMessage.trim()) return;
-    
-    try {
-      await studentvideoApi.sendMessage(meetingId, studentId, newMessage.trim());
-      setNewMessage('');
-    } catch (error) {
-      console.error('Failed to send message:', error);
+  const startMessagePolling = (sessionId) => {
+    if (!sessionId) {
+      console.warn('No session ID provided for message polling');
+      return;
     }
+
+    // Initial load
+    loadMessages(sessionId);
+
+    // Clear any existing interval
+    if (messagesPollIntervalRef.current) {
+      clearInterval(messagesPollIntervalRef.current);
+    }
+
+    // Set up polling
+    messagesPollIntervalRef.current = setInterval(() => {
+      loadMessages(sessionId);
+    }, 3000);
   };
 
-  // ============================================
-  // Profile Polling
-  // ============================================
-  const startProfilePolling = () => {
-    const pollProfiles = async () => {
-      try {
-        const allUids = [studentId, ...Array.from(remoteTracks.keys())];
-        const profiles = await Promise.all(
-          allUids.map(uid => studentvideoApi.getUserProfile(uid).catch(() => null))
+  const loadMessages = async (sessionId) => {
+    try {
+      if (!sessionId) return;
+      
+      const msgs = await studentvideoApi.getSessionMessages(sessionId);
+      setMessages(prev => {
+        const newIds = new Set(msgs.map(m => m.id));
+        const existing = prev.filter(m => !newIds.has(m.id));
+        return [...existing, ...msgs].sort((a, b) => 
+          new Date(a.created_at) - new Date(b.created_at)
         );
-        
-        const profileMap = new Map();
-        profiles.forEach((profile, idx) => {
-          if (profile) {
-            const uid = allUids[idx];
-            profileMap.set(String(uid), profile);
-            
-            if (profile.is_teacher || profile.role === 'teacher') {
-              setTeacherUid(String(uid));
-            }
-          }
-        });
-        
-        setUserProfiles(profileMap);
-      } catch (error) {
-        console.error('Failed to fetch profiles:', error);
-      }
-    };
-
-    pollProfiles();
-    profilePollingRef.current = setInterval(pollProfiles, 5000);
-  };
-
-  // ============================================
-  // Leave Call and Cleanup
-  // ============================================
-  const leaveCall = async () => {
-    try {
-      console.log('🔵 Leaving call...');
-      
-      // Stop all intervals
-      if (durationIntervalRef.current) {
-        clearInterval(durationIntervalRef.current);
-        durationIntervalRef.current = null;
-      }
-      if (messagesPollIntervalRef.current) {
-        clearInterval(messagesPollIntervalRef.current);
-        messagesPollIntervalRef.current = null;
-      }
-      if (profilePollingRef.current) {
-        clearInterval(profilePollingRef.current);
-        profilePollingRef.current = null;
-      }
-
-      // Close local tracks
-      if (localTracks.audio) {
-        localTracks.audio.close();
-      }
-      if (localTracks.video) {
-        localTracks.video.close();
-      }
-
-      // Leave channel and destroy client
-      if (clientRef.current) {
-        await clientRef.current.leave();
-        clientRef.current.removeAllListeners();
-        clientRef.current = null;
-      }
-
-      // End session
-      await studentvideoApi.endSession(meetingId, studentId);
-      
-      console.log('✅ Left call successfully');
-      
-      if (onLeaveCall) {
-        onLeaveCall();
-      }
+      });
     } catch (error) {
-      console.error('❌ Error leaving call:', error);
-      if (onLeaveCall) {
-        onLeaveCall();
-      }
+      console.error('Load messages error:', error);
     }
   };
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      leaveCall();
-    };
-  }, []);
+  const sendMessage = async (text = null, type = 'text') => {
+    const messageText = text || newMessage.trim();
+    if (!messageText || !sessionState.sessionInfo?.session?.id) return;
+
+    try {
+      const message = await studentvideoApi.sendMessage(
+        sessionState.sessionInfo.session.id,
+        studentId,
+        messageText,
+        type
+      );
+
+      setMessages(prev => [...prev, message]);
+      if (!text) setNewMessage('');
+    } catch (error) {
+      console.error('Send message error:', error);
+    }
+  };
 
   // ============================================
-  // Update Stats
+  // Other Helper Functions (From Second File)
+  // ============================================
+  const updateParticipantStatus = async (updates) => {
+    try {
+      if (!sessionState.sessionInfo?.session?.id) return;
+
+      const statusUpdate = {
+        ...updates,
+        timestamp: new Date().toISOString(),
+        student_id: studentId,
+        session_id: sessionState.sessionInfo.session.id
+      };
+      
+      await studentvideoApi.updateParticipantStatus(
+        sessionState.sessionInfo.session.id,
+        studentId,
+        statusUpdate
+      );
+
+    } catch (error) {
+      console.warn('Participant status update error:', error.message);
+    }
+  };
+
+  const updateParticipantCount = () => {
+    const remoteUsers = clientRef.current?.remoteUsers || [];
+    setStats(prev => ({
+      ...prev,
+      participantCount: remoteUsers.length + 1
+    }));
+  };
+
+  // ============================================
+  // FIXED: Cleanup Function with message polling cleanup (From Second File)
+  // ============================================
+  const cleanup = async () => {
+    console.log('Cleaning up student session...');
+    
+    // Clear intervals
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    if (messagesPollIntervalRef.current) clearInterval(messagesPollIntervalRef.current);
+    if (profilePollingRef.current) clearInterval(profilePollingRef.current);
+
+    // Stop and close local tracks
+    if (localTracks.audio) {
+      try {
+        localTracks.audio.stop();
+        localTracks.audio.close();
+      } catch (error) {
+        console.warn('Audio cleanup error:', error);
+      }
+    }
+    if (localTracks.video) {
+      try {
+        localTracks.video.stop();
+        localTracks.video.close();
+      } catch (error) {
+        console.warn('Video cleanup error:', error);
+      }
+    }
+
+    // Leave channel
+    if (clientRef.current) {
+      try {
+        await clientRef.current.leave();
+      } catch (error) {
+        console.warn('Leave channel error:', error);
+      }
+    }
+
+    // Reset refs
+    initializationRef.current = {
+      clientCreated: false,
+      listenersSet: false,
+      joined: false
+    };
+
+    setRemoteTracks(new Map());
+    setUserProfiles(new Map());
+  };
+
+  // ============================================
+  // FIXED: Leave Session (From Second File)
+  // ============================================
+  const leaveSession = async () => {
+    try {
+      await updateParticipantStatus({ status: 'left' });
+      await cleanup();
+      if (onLeaveCall) onLeaveCall();
+    } catch (error) {
+      console.error('Leave session error:', error);
+    }
+  };
+
+  // ============================================
+  // Update Stats (From First File)
   // ============================================
   useEffect(() => {
     setStats(prev => ({
@@ -781,19 +1033,19 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   }, [remoteTracks]);
 
   // ============================================
-  // Error Display
+  // Render - Error States (From Second File)
   // ============================================
   if (sessionState.error) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-900">
-        <div className="text-center p-8 bg-red-500/10 border border-red-500/20 rounded-xl">
-          <h2 className="text-xl font-bold text-red-400 mb-4">Connection Error</h2>
-          <p className="text-red-300 mb-6">{sessionState.error}</p>
+      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+        <div className="bg-gray-800 p-8 rounded-2xl text-white max-w-md text-center">
+          <h2 className="text-2xl font-bold mb-4 text-red-400">Cannot Join Session</h2>
+          <p className="mb-6 text-gray-300">{sessionState.error}</p>
           <button 
-            onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 rounded-xl text-white font-semibold"
+            onClick={() => onLeaveCall && onLeaveCall()}
+            className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-xl font-semibold transition-all duration-200"
           >
-            Retry
+            Go Back to Dashboard
           </button>
         </div>
       </div>
@@ -802,10 +1054,11 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
 
   if (!sessionState.isJoined) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-900">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-cyan-300 text-lg">Connecting to class...</p>
+      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="animate-spin h-20 w-20 border-b-2 border-cyan-500 rounded-full mx-auto mb-6"></div>
+          <h3 className="text-2xl font-semibold mb-3">Joining Session...</h3>
+          <p className="text-gray-400">Connecting to video call</p>
         </div>
       </div>
     );
@@ -815,6 +1068,9 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const teacherTracks = teacherUid ? remoteTracks.get(Number(teacherUid)) : null;
   const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
 
+  // ============================================
+  // Main Render - Only show when joined
+  // ============================================
   return (
     <div className="relative h-screen w-full bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900 overflow-hidden">
       {/* Main Video Area - Teacher's Video */}
@@ -922,7 +1178,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
           </button>
           
           <button 
-            onClick={leaveCall}
+            onClick={leaveSession}
             className="p-4 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-500/50 transition-all duration-200"
           >
             <PhoneOff size={24} />
@@ -1028,7 +1284,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
           </div>
           
           <button 
-            onClick={leaveCall}
+            onClick={leaveSession}
             className="p-3 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white"
           >
             <PhoneOff size={20} />
@@ -1107,7 +1363,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
         </div>
       )}
 
-      {/* ⚠️ CRITICAL FIX #5: Improved PIP with Better Rendering */}
+      {/* ⚠️ CRITICAL FIX #5: Improved PIP with Better Rendering (From First File) */}
       {(controls.hasCamera || controls.hasMicrophone) && (
         <div 
           ref={pipRef}
