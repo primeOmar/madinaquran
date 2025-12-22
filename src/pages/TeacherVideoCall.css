@@ -1449,14 +1449,14 @@ video {
 @media (max-width: 640px) {
   .local-video-pip {
     width: 160px !important;
-    height: 90px !important;
+    height: 200px !important;
   }
 }
 
 @media (min-width: 641px) and (max-width: 1024px) {
   .local-video-pip {
     width: 240px !important;
-    height: 135px !important;
+    height: 335px !important;
   }
 }
 

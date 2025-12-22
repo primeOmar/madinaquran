@@ -31,7 +31,7 @@ const useDraggable = () => {
       const isMobile = viewportWidth < 768;
       
       const pipWidth = isMobile ? 160 : 280;
-      const pipHeight = isMobile ? 120 : 210;
+      const pipHeight = isMobile ? 150 : 300;
       
       return {
         x: Math.max(20, viewportWidth - pipWidth - 20),
@@ -2856,7 +2856,7 @@ useEffect(() => {
   </div>
 )}
 
-     {/* ⚠️ CRITICAL FIX #5: Improved PIP with Better Rendering */}
+{/* ⚠️ CRITICAL FIX #5: PIP with Better Rendering - ENLARGED */}
 {(controls.hasCamera || controls.hasMicrophone) && (
   <div 
     ref={pipRef}
@@ -2864,72 +2864,102 @@ useEffect(() => {
       position: 'fixed',
       left: `${position.x}px`,
       top: `${position.y}px`,
-      width: '280px',
-      height: '400px', 
+      width: '340px', 
+      height: '255px', 
       zIndex: 99999,
       cursor: isDragging ? 'grabbing' : 'grab',
       transition: isDragging ? 'none' : 'all 0.2s ease',
       touchAction: 'none',
+      boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(6, 182, 212, 0.3)',
+      borderRadius: '12px',
+      overflow: 'hidden',
     }}
     onMouseDown={handleMouseDown}
     onTouchStart={handleTouchStart}
     className={`local-video-pip ${isDragging ? 'local-video-pip-dragging' : ''}`}
   >
-    <div className="relative w-full h-full bg-gray-900 rounded-xl overflow-hidden border-2 border-cyan-500/70 shadow-2xl">
-      {/* Video Container */}
-      <div className="w-full h-full bg-black relative overflow-hidden">
-        {/* CRITICAL: Proper video container with aspect ratio */}
+    <div className="relative w-full h-full bg-black">
+      {/* Video Container - Full Size with Better Styling */}
+      <div className="w-full h-full relative">
+        {/* Local Video Display */}
         <div 
           ref={localVideoRef}
-          className="w-full h-full"
+          className="w-full h-full bg-black"
           style={{ 
             transform: 'scaleX(-1)', // Mirror for self-view
-            backgroundColor: '#000',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            borderRadius: '10px',
+            overflow: 'hidden'
           }}
         />
         
         {/* Placeholder when video is off */}
         {(!controls.videoEnabled || !localTracks.video) && (
           <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-            <div className="text-center">
-              <CameraOff className="text-gray-400 w-12 h-12 mx-auto mb-2" />
-              <p className="text-gray-400 text-xs">Camera Off</p>
+            <div className="text-center p-4">
+              <div className="w-16 h-16 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CameraOff className="text-gray-400 w-8 h-8" />
+              </div>
+              <p className="text-gray-400 text-sm font-medium">Camera Off</p>
+              <p className="text-gray-500 text-xs mt-1">Tap to enable</p>
             </div>
           </div>
         )}
       </div>
       
-      {/* Status Indicator */}
-      <div className="absolute bottom-2 left-2 z-10">
-        <div className="flex items-center gap-1.5 bg-black/80 backdrop-blur-sm px-2.5 py-1.5 rounded-lg border border-white/10">
-          <div className={`w-1.5 h-1.5 rounded-full ${
-            controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'
-          } ${controls.audioEnabled ? 'animate-pulse' : ''}`} />
-          <span className="text-white text-[10px] font-bold tracking-wider">YOU</span>
+      {/* Status Indicator - Bottom Left */}
+      <div className="absolute bottom-3 left-3 z-10">
+        <div className="flex items-center gap-2 bg-black/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-white/10 shadow-lg">
+          <div className={`w-3 h-3 rounded-full ${
+            controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+          }`} />
+          <span className="text-white text-xs font-bold tracking-wider">YOU</span>
+          {controls.videoEnabled && (
+            <div className="w-1.5 h-1.5 bg-green-500 rounded-full ml-1" />
+          )}
         </div>
       </div>
       
-      {/* Video Controls Overlay */}
-      <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+      {/* Video Controls Overlay - Top Right */}
+      <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
         {controls.videoEnabled && localTracks.video && (
-          <div className="bg-black/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
-            <span className="text-green-400 text-[9px] font-semibold">LIVE</span>
+          <div className="bg-black/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-green-500/30">
+            <span className="text-green-400 text-xs font-semibold">● LIVE</span>
           </div>
         )}
         <button 
           onClick={toggleVideo}
-          className="bg-black/80 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 hover:bg-gray-800/80 transition-colors"
+          className="bg-black/80 backdrop-blur-sm p-2 rounded-lg border border-white/10 hover:bg-gray-800/90 transition-all duration-200 hover:scale-105"
+          title={controls.videoEnabled ? "Turn off camera" : "Turn on camera"}
         >
           {controls.videoEnabled ? 
-            <Camera size={12} className="text-green-400" /> : 
-            <CameraOff size={12} className="text-red-400" />
+            <Camera size={16} className="text-green-400" /> : 
+            <CameraOff size={16} className="text-red-400" />
+          }
+        </button>
+        <button 
+          onClick={toggleAudio}
+          className="bg-black/80 backdrop-blur-sm p-2 rounded-lg border border-white/10 hover:bg-gray-800/90 transition-all duration-200 hover:scale-105"
+          title={controls.audioEnabled ? "Mute microphone" : "Unmute microphone"}
+        >
+          {controls.audioEnabled ? 
+            <Mic size={16} className="text-green-400" /> : 
+            <MicOff size={16} className="text-red-400" />
           }
         </button>
       </div>
+      
+      {/* Drag Handle - Top Center */}
+      <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 no-drag">
+        <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
+      </div>
     </div>
+    
+    {/* Optional: Add a subtle glow effect when video is active */}
+    {controls.videoEnabled && localTracks.video && (
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 border border-cyan-500/20 rounded-xl shadow-[0_0_30px_rgba(6,182,212,0.15)]"></div>
+      </div>
+    )}
   </div>
 )}
     </div>
