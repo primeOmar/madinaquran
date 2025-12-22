@@ -998,73 +998,77 @@ const updateVideoSettings = (setting, value) => {
   // ============================================
   // FIXED: Initialize Session with Proper Guards (From Second File)
   // ============================================
-  const initializeSession = async () => {
-    try {
-      if (initializationRef.current.clientCreated) {
-        console.log('Client already created, skipping initialization');
-        return;
-      }
-
-      const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
-      
-      if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
-        throw new Error(sessionLookup.error || 'No active session found');
-      }
-
-      const effectiveMeetingId = sessionLookup.meetingId;
-      
-      await fetchParticipants(effectiveMeetingId);
-      
-      if (!clientRef.current) {
-        clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-        initializationRef.current.clientCreated = true;
-      }
-
-      if (!initializationRef.current.listenersSet) {
-        setupAgoraEventListeners();
-        initializationRef.current.listenersSet = true;
-      }
-
-      const sessionData = await studentvideoApi.joinVideoSession(
-        effectiveMeetingId,
-        studentId,
-        'student'
-      );
-
-      if (!sessionData.success || !sessionData.token) {
-        throw new Error(sessionData.error || 'Failed to join session');
-      }
-
-      const studentAgoraUid = sessionData.uid;
-
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: {
-          ...sessionData,
-          uid: studentAgoraUid,
-          meetingId: effectiveMeetingId
-        },
-        error: null
-      });
-
-      await joinChannel({
-        ...sessionData,
-        uid: studentAgoraUid
-      });
-
-      setTimeout(() => {
-        fetchParticipants(effectiveMeetingId);
-      }, 2000);
-
-    } catch (error) {
-      console.error('Init Error:', error);
-      setSessionState(prev => ({ 
-        ...prev, 
-        error: error.message || 'Failed to connect' 
-      }));
+ const initializeSession = async () => {
+  try {
+    if (initializationRef.current.clientCreated) {
+      console.log('Client already created, skipping initialization');
+      return;
     }
-  };
+
+    const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
+    
+    if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
+      throw new Error(sessionLookup.error || 'No active session found');
+    }
+
+    const effectiveMeetingId = sessionLookup.meetingId;
+    
+    // ⚡ PARALLEL TASK: Fetch participants while creating client
+    const fetchParticipantsPromise = fetchParticipants(effectiveMeetingId);
+    
+    if (!clientRef.current) {
+      clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      initializationRef.current.clientCreated = true;
+    }
+
+    if (!initializationRef.current.listenersSet) {
+      setupAgoraEventListeners();
+      initializationRef.current.listenersSet = true;
+    }
+
+    // ⚡ PARALLEL TASK: Join session while participants are loading
+    const sessionData = await studentvideoApi.joinVideoSession(
+      effectiveMeetingId,
+      studentId,
+      'student'
+    );
+
+    if (!sessionData.success || !sessionData.token) {
+      throw new Error(sessionData.error || 'Failed to join session');
+    }
+
+    const studentAgoraUid = sessionData.uid;
+
+    setSessionState({
+      isInitialized: true,
+      isJoined: false,
+      sessionInfo: {
+        ...sessionData,
+        uid: studentAgoraUid,
+        meetingId: effectiveMeetingId
+      },
+      error: null
+    });
+
+    // ⚡ Wait for participants fetch to complete in background
+    await Promise.race([
+      fetchParticipantsPromise,
+      new Promise(resolve => setTimeout(resolve, 2000)) // Max 2s wait
+    ]);
+
+    await joinChannel({
+      ...sessionData,
+      uid: studentAgoraUid
+    });
+
+  } catch (error) {
+    console.error('Init Error:', error);
+    setSessionState(prev => ({ 
+      ...prev, 
+      error: error.message || 'Failed to connect' 
+    }));
+  }
+};
 
   // ============================================
   // FIXED: Setup Agora Event Listeners (From Second File)
@@ -1264,138 +1268,131 @@ const updateVideoSettings = (setting, value) => {
   // ⚠️ CRITICAL FIX #4: Improved Track Creation (From First File)
   // ============================================
 const createLocalTracks = async () => {
-  console.log('🔵 Creating local tracks...');
+  console.log('🔵 Creating local tracks - OPTIMIZED VERSION');
   
   let audioTrack = null;
   let videoTrack = null;
-  let hasCamera = false;
-  let hasMicrophone = false;
+  
+  // Track creation start time for performance monitoring
+  const startTime = Date.now();
 
   try {
     // ============================================
-    // STEP 1: Detect Available Devices
+    // STEP 1: Create Tracks in Parallel with Timeouts
     // ============================================
-    console.log('📱 Detecting devices...');
-    const devices = await AgoraRTC.getDevices().catch(err => {
-      console.error('❌ Failed to get devices:', err);
-      return [];
-    });
-
-    hasCamera = devices.some(d => d.kind === 'videoinput');
-    hasMicrophone = devices.some(d => d.kind === 'audioinput');
+    console.log('⚡ Creating audio and video tracks in parallel...');
     
-    console.log('📱 Device detection:', {
-      cameras: devices.filter(d => d.kind === 'videoinput').length,
-      microphones: devices.filter(d => d.kind === 'audioinput').length,
-      hasCamera,
-      hasMicrophone
+    // Create both tracks simultaneously to speed up initialization
+    const [audioResult, videoResult] = await Promise.allSettled([
+      // Audio track with timeout
+      (async () => {
+        try {
+          console.log('🎤 Starting audio track creation...');
+          return await Promise.race([
+            AgoraRTC.createMicrophoneAudioTrack({
+              encoderConfig: 'music_standard',
+              AEC: true,
+              ANS: true,
+              AGC: true
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Audio track timeout')), 4000)
+            )
+          ]);
+        } catch (audioError) {
+          console.warn('⚠️ Audio track skipped:', audioError.message);
+          return null;
+        }
+      })(),
+      
+      // Video track with progressive fallbacks
+      (async () => {
+        try {
+          console.log('📹 Starting video track creation...');
+          
+          // Try optimized configuration first
+          return await Promise.race([
+            AgoraRTC.createCameraVideoTrack({
+              // ⚡ OPTIMIZED: Use preset for faster initialization
+              encoderConfig: '720p_1', // Faster than custom config
+              optimizationMode: 'motion',
+              facingMode: 'user',
+              mirror: true
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Video track timeout')), 5000)
+            )
+          ]);
+        } catch (primaryError) {
+          console.warn('⚠️ Primary video failed, trying fallback:', primaryError.message);
+          
+          try {
+            // First fallback: lower quality
+            return await AgoraRTC.createCameraVideoTrack({
+              encoderConfig: '480p_1', // Lower quality, faster
+              facingMode: 'user'
+            });
+          } catch (fallback1Error) {
+            console.warn('⚠️ First fallback failed, trying basic config:', fallback1Error.message);
+            
+            try {
+              // Second fallback: basic configuration
+              return await AgoraRTC.createCameraVideoTrack({
+                encoderConfig: '360p_1', // Even lower quality
+                facingMode: { exact: 'user' }
+              });
+            } catch (fallback2Error) {
+              console.warn('⚠️ All video attempts failed:', fallback2Error.message);
+              return null;
+            }
+          }
+        }
+      })()
+    ]);
+
+    // Extract results from promises
+    audioTrack = audioResult.status === 'fulfilled' ? audioResult.value : null;
+    videoTrack = videoResult.status === 'fulfilled' ? videoResult.value : null;
+    
+    // Log what we got
+    console.log('📊 Track creation results:', {
+      audio: !!audioTrack,
+      video: !!videoTrack,
+      timeElapsed: `${Date.now() - startTime}ms`
     });
 
     // ============================================
-    // STEP 2: Create Audio Track (if available)
-    // ============================================
-    if (hasMicrophone) {
-      try {
-        console.log('🎤 Creating audio track...');
-        audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-          encoderConfig: 'music_standard',
-          AEC: true, // Echo cancellation
-          ANS: true, // Noise suppression
-          AGC: true  // Auto gain control
-        });
-        console.log('✅ Audio track created');
-      } catch (audioError) {
-        console.error('❌ Audio track creation failed:', audioError);
-        audioTrack = null;
-      }
-    }
-
-    // ============================================
-    // STEP 3: Create Video Track with FACE FOCUS
-    // ============================================
-    if (hasCamera) {
-      try {
-        console.log('📹 Creating video track with face optimization...');
-        
-        // Try to get user media first to check capabilities
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 },
-            facingMode: 'user', // Front camera
-            // Add constraints for better face framing
-            aspectRatio: { ideal: 16/9 },
-          }
-        });
-        
-        // Get the actual video track from stream
-        const videoStream = stream.getVideoTracks()[0];
-        const settings = videoStream.getSettings();
-        
-        console.log('Camera settings:', {
-          width: settings.width,
-          height: settings.height,
-          frameRate: settings.frameRate,
-          aspectRatio: settings.aspectRatio,
-          facingMode: settings.facingMode
-        });
-        
-        // Stop the test stream
-        stream.getTracks().forEach(track => track.stop());
-        
-        // Now create Agora track with optimal settings
-        videoTrack = await AgoraRTC.createCameraVideoTrack({
-          // Use device's native resolution for better quality
-          encoderConfig: {
-            width: settings.width || 1280,
-            height: settings.height || 720,
-            frameRate: settings.frameRate || 30,
-            bitrateMin: 800,
-            bitrateMax: 1500
-          },
-          optimizationMode: 'motion', // Better for movement/face
-          facingMode: 'user', // Front camera
-          mirror: true, // Mirror effect for self-view
-        });
-        
-        console.log('✅ Video track created with face optimization');
-        
-      } catch (videoError) {
-        console.error('❌ Video track creation failed:', videoError);
-        // Fallback to basic video track
-        try {
-          videoTrack = await AgoraRTC.createCameraVideoTrack({
-            encoderConfig: '720p_2',
-            optimizationMode: 'detail',
-            facingMode: 'user'
-          });
-        } catch (fallbackError) {
-          console.error('❌ Fallback video track failed:', fallbackError);
-          videoTrack = null;
-        }
-      }
-    }
-
-    // ============================================
-    // STEP 4: Validate We Have At Least One Track
+    // STEP 2: Validate We Have At Least One Track
     // ============================================
     if (!audioTrack && !videoTrack) {
-      const errorMsg = !hasCamera && !hasMicrophone 
-        ? 'No camera or microphone detected. Please connect a device and refresh.'
-        : 'Failed to create audio and video tracks. Please check permissions.';
-      throw new Error(errorMsg);
+      const errorMsg = 'Could not access camera or microphone. ';
+      const devices = await AgoraRTC.getDevices().catch(() => []);
+      const hasCamera = devices.some(d => d.kind === 'videoinput');
+      const hasMicrophone = devices.some(d => d.kind === 'audioinput');
+      
+      if (!hasCamera && !hasMicrophone) {
+        throw new Error(errorMsg + 'No camera or microphone detected.');
+      } else if (!hasCamera) {
+        throw new Error(errorMsg + 'No camera detected.');
+      } else if (!hasMicrophone) {
+        throw new Error(errorMsg + 'No microphone detected.');
+      } else {
+        throw new Error(errorMsg + 'Please check permissions and try again.');
+      }
     }
 
     // ============================================
-    // STEP 5: Update React State
+    // STEP 3: Update React State IMMEDIATELY
     // ============================================
     console.log('🔄 Updating state with tracks...');
+    
+    // Update local tracks state
     setLocalTracks({ 
       audio: audioTrack, 
       video: videoTrack 
     });
     
+    // Update controls state
     setControls(prev => ({
       ...prev,
       hasCamera: !!videoTrack,
@@ -1404,23 +1401,20 @@ const createLocalTracks = async () => {
       videoEnabled: !!videoTrack
     }));
 
-    // Log joining mode
+    // Log joining mode for debugging
     const mode = audioTrack && videoTrack ? 'Audio + Video' : 
                  audioTrack ? 'Audio Only' :
                  videoTrack ? 'Video Only' : 'None';
     console.log(`📢 Joining call with: ${mode}`);
 
     // ============================================
-    // STEP 6: Wait for State to Update
-    // ============================================
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // ============================================
-    // STEP 7: Publish Tracks to Agora
+    // STEP 4: Publish Tracks to Agora (Non-blocking)
     // ============================================
     if (!clientRef.current) {
       console.error('❌ Client ref is null - cannot publish tracks');
-      throw new Error('Agora client not initialized');
+      // Don't throw error - tracks are created, just not published yet
+      console.warn('⚠️ Tracks created but client not ready. Will retry later.');
+      return;
     }
 
     const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
@@ -1432,37 +1426,75 @@ const createLocalTracks = async () => {
 
     console.log(`📤 Publishing ${tracksToPublish.length} track(s)...`);
     
-    try {
-      await clientRef.current.publish(tracksToPublish);
-      console.log('✅ Tracks published successfully');
-    } catch (publishError) {
-      console.error('❌ Failed to publish tracks:', publishError);
-    }
-
-    // ============================================
-    // STEP 8: Verify Video Track is Playing
-    // ============================================
-    if (videoTrack) {
-      setTimeout(() => {
-        if (videoTrack.isPlaying) {
-          console.log('✅ Video track is playing');
-        } else {
-          console.warn('⚠️ Video track created but not playing');
+    // Publish asynchronously - don't wait for it to complete
+    clientRef.current.publish(tracksToPublish)
+      .then(() => {
+        console.log('✅ Tracks published successfully');
+        console.log('🎯 Publication time:', `${Date.now() - startTime}ms total`);
+        
+        // Verify video track is playing (after a delay)
+        if (videoTrack) {
+          setTimeout(() => {
+            if (videoTrack.isPlaying) {
+              console.log('✅ Video track is playing');
+            } else {
+              console.warn('⚠️ Video track created but not playing yet');
+              // Auto-retry play if not playing
+              if (localVideoRef.current && !videoTrack.isPlaying) {
+                videoTrack.play(localVideoRef.current).catch(() => {});
+              }
+            }
+          }, 1000);
         }
-      }, 1000);
+      })
+      .catch(publishError => {
+        console.warn('⚠️ Track publication warning:', publishError.message);
+        // This is non-critical - user can still see their video
+        // We'll retry publication in background
+        setTimeout(() => {
+          if (clientRef.current && tracksToPublish.length > 0) {
+            clientRef.current.publish(tracksToPublish)
+              .then(() => console.log('✅ Tracks published on retry'))
+              .catch(err => console.warn('⚠️ Retry also failed:', err.message));
+          }
+        }, 2000);
+      });
+
+    // ============================================
+    // STEP 5: Handle Auto-playback for Local Video
+    // ============================================
+    if (videoTrack && localVideoRef.current) {
+      // Try to play immediately
+      setTimeout(() => {
+        if (videoTrack && localVideoRef.current && !videoTrack.isPlaying) {
+          videoTrack.play(localVideoRef.current)
+            .then(() => console.log('✅ Local video playback started'))
+            .catch(playError => {
+              console.warn('⚠️ Initial play failed, will retry:', playError.message);
+              // Retry after user interaction
+            });
+        }
+      }, 300);
     }
 
-    console.log('✅ Track creation complete!');
+    console.log(`✅ Track creation completed in ${Date.now() - startTime}ms`);
 
   } catch (error) {
     console.error('❌ Critical error in createLocalTracks:', error);
     
+    // Performance logging
+    console.log(`⏱️ Track creation failed after ${Date.now() - startTime}ms`);
+    
     // Clean up any tracks that were created
-    if (audioTrack) audioTrack.close();
-    if (videoTrack) videoTrack.close();
+    if (audioTrack) {
+      try { audioTrack.close(); } catch (e) { console.warn('Cleanup warning:', e); }
+    }
+    if (videoTrack) {
+      try { videoTrack.close(); } catch (e) { console.warn('Cleanup warning:', e); }
+    }
 
     // Provide user-friendly error messages
-    let userMessage = 'Failed to access camera/microphone. ';
+    let userMessage = 'Unable to start video call. ';
     
     if (error.name === 'NotAllowedError' || error.message.includes('Permission denied')) {
       userMessage += 'Please allow camera and microphone access in your browser settings.';
@@ -1470,8 +1502,10 @@ const createLocalTracks = async () => {
       userMessage += 'No camera or microphone found. Please connect a device.';
     } else if (error.message.includes('already in use')) {
       userMessage += 'Camera/microphone is being used by another application.';
+    } else if (error.message.includes('timeout')) {
+      userMessage += 'Device access is taking too long. Please refresh and try again.';
     } else {
-      userMessage += error.message;
+      userMessage += error.message || 'Please refresh the page and try again.';
     }
 
     throw new Error(userMessage);
