@@ -160,6 +160,10 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     error: null
   });
 
+  const [participantSync, setParticipantSync] = useState({
+  lastSync: 0,
+  syncing: false
+});
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
   const [remoteUsers, setRemoteUsers] = useState(new Map());
   
@@ -260,6 +264,58 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // ============================================
   // EFFECTS
   // ============================================
+
+useEffect(() => {
+  if (!sessionState.isJoined || !sessionState.sessionInfo?.meetingId) return;
+  
+  const syncParticipants = async () => {
+    const now = Date.now();
+    if (now - participantSync.lastSync < 10000 || participantSync.syncing) return; 
+    
+    try {
+      setParticipantSync(prev => ({ ...prev, syncing: true }));
+      
+      // Get current participants from backend
+      const response = await videoApi.getSessionParticipants(
+        sessionState.sessionInfo.meetingId
+      );
+      
+      if (response.success && response.participants) {
+        // Get student participants (excluding teacher)
+        const studentParticipants = response.participants.filter(p => 
+          p.user_id !== teacherId && p.role === 'student'
+        );
+        
+        console.log('🔄 Synced participants from backend:', {
+          total: response.participants.length,
+          students: studentParticipants.length,
+          studentsList: studentParticipants.map(p => p.user_id)
+        });
+        
+        // Note: Participants will appear automatically when they publish tracks
+        // This just ensures we know who should be there
+      }
+      
+      setParticipantSync(prev => ({ 
+        ...prev, 
+        lastSync: now,
+        syncing: false 
+      }));
+      
+    } catch (error) {
+      console.warn('Participant sync failed:', error);
+      setParticipantSync(prev => ({ ...prev, syncing: false }));
+    }
+  };
+  
+  // Initial sync
+  syncParticipants();
+  
+  // Sync every 30 seconds
+  const interval = setInterval(syncParticipants, 30000);
+  
+  return () => clearInterval(interval);
+}, [sessionState.isJoined, sessionState.sessionInfo?.meetingId, teacherId]);
   
   useEffect(() => {
     const handleMouseMove = () => {
@@ -365,34 +421,81 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
       setLoading(prev => ({ ...prev, isConnecting: false }));
     }
   };
-  
   const joinChannel = async (sessionData) => {
-    try {
-      const { channel, token, uid, appId } = sessionData;
+  try {
+    const { channel, token, uid, appId } = sessionData;
+    
+    const assignedUid = await clientRef.current.join(
+      appId,
+      channel,
+      token,
+      uid || null
+    );
+    
+    console.log('✅ Teacher rejoined channel:', { 
+      channel, 
+      assignedUid,
+      timestamp: new Date().toISOString()
+    });
+    
+    // ✅ CRITICAL: After joining, resubscribe to existing users
+    setTimeout(() => {
+      resubscribeToAllUsers();
+    }, 2000); // Wait 2 seconds for connection to stabilize
+    
+    // Create and publish tracks
+    await createAndPublishTracks();
+    
+    setSessionState(prev => ({ ...prev, isJoined: true }));
+    
+    // Start tracking and listeners
+    startDurationTracking();
+    setupAgoraEventListeners();
+    
+  } catch (error) {
+    console.error('Join channel error:', error);
+    throw error;
+  }
+};
+
+
+const syncExistingParticipants = async () => {
+  if (!sessionState.sessionInfo?.meetingId || !teacherId) return;
+  
+  try {
+    console.log('🔄 Syncing existing participants...');
+    const response = await videoApi.syncParticipants(
+      sessionState.sessionInfo.meetingId, 
+      teacherId
+    );
+    
+    if (response.success && response.participants_synced > 0) {
+      console.log('✅ Synced existing participants:', {
+        count: response.participants_synced,
+        participants: response.participants.map(p => p.user_id)
+      });
       
-      const assignedUid = await clientRef.current.join(
-        appId,
-        channel,
-        token,
-        uid || null
-      );
-      
-      console.log('✅ Teacher joined channel:', { channel, assignedUid });
-      
-      // Create and publish tracks
-      await createAndPublishTracks();
-      
-      setSessionState(prev => ({ ...prev, isJoined: true }));
-      
-      // Start tracking and listeners
-      startDurationTracking();
-      setupAgoraEventListeners();
-      
-    } catch (error) {
-      console.error('Join channel error:', error);
-      throw error;
+      // Force a UI refresh to show synced participants
+      setTimeout(() => {
+        setRemoteUsers(prev => new Map(prev));
+      }, 1000);
     }
-  };
+  } catch (error) {
+    console.warn('⚠️ Participant sync failed (non-critical):', error);
+  }
+};
+
+// Call it after successful join
+useEffect(() => {
+  if (sessionState.isJoined && sessionState.sessionInfo?.meetingId) {
+    // Wait 3 seconds for Agora connection to stabilize
+    const timeout = setTimeout(() => {
+      syncExistingParticipants();
+    }, 3000);
+    
+    return () => clearTimeout(timeout);
+  }
+}, [sessionState.isJoined]);
   
   const createAndPublishTracks = async () => {
     try {
@@ -462,7 +565,47 @@ const toggleRecording = async () => {
     console.error('Toggle recording error:', error);
   }
 };
-
+const resubscribeToAllUsers = async () => {
+  try {
+    console.log('🔄 Attempting to resubscribe to all users...');
+    
+    const client = clientRef.current;
+    if (!client) return;
+    
+    const remoteUsersList = client.remoteUsers || [];
+    console.log('👥 Found remote users in client:', remoteUsersList.length);
+    
+    for (const user of remoteUsersList) {
+      try {
+        // Subscribe to audio if available
+        if (user.hasAudio) {
+          await client.subscribe(user, 'audio');
+          console.log('✅ Resubscribed to audio for user:', user.uid);
+        }
+        
+        // Subscribe to video if available
+        if (user.hasVideo) {
+          await client.subscribe(user, 'video');
+          console.log('✅ Resubscribed to video for user:', user.uid);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not resubscribe to user ${user.uid}:`, error);
+      }
+    }
+    
+    // Force UI update
+    setTimeout(() => {
+      setRemoteUsers(prev => {
+        const updated = new Map(prev);
+        console.log('🔄 Forcing UI refresh for remote users');
+        return new Map(updated); // Create new Map to trigger re-render
+      });
+    }, 1000);
+    
+  } catch (error) {
+    console.error('Resubscribe error:', error);
+  }
+};
 
   const setupAgoraEventListeners = () => {
     const client = clientRef.current;
