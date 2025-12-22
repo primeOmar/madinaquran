@@ -184,8 +184,11 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const messagesPollIntervalRef = useRef(null);
   const profilePollingRef = useRef();
 
-  const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
-
+// At the top of your component, adjust the useDraggable initial position:
+const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable({
+  x: window.innerWidth - 300, 
+  y: window.innerHeight - 200
+});
   // ============================================
   // Window Resize Handler
   // ============================================
@@ -1036,9 +1039,9 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // Render - Error States (From Second File)
   // ============================================
   if (sessionState.error) {
-    return (
-      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-        <div className="bg-gray-800 p-8 rounded-2xl text-white max-w-md text-center">
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+      <div className="bg-gray-900/90 backdrop-blur-xl border border-cyan-500/30 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
           <h2 className="text-2xl font-bold mb-4 text-red-400">Cannot Join Session</h2>
           <p className="mb-6 text-gray-300">{sessionState.error}</p>
           <button 
@@ -1072,10 +1075,11 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // Main Render - Only show when joined
   // ============================================
   return (
-    <div className="relative h-screen w-full bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black">
+    <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
       {/* Main Video Area - Teacher's Video */}
       <div className="absolute inset-0">
-        <div className="relative w-full h-full bg-gray-950">
+        <div className="relative w-full h-full bg-black">
           {teacherTracks?.video ? (
             <div 
               ref={el => {
@@ -1105,7 +1109,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       </div>
 
       {/* Top Bar */}
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-gray-900/95 to-transparent p-4 lg:p-6 z-10">
+      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-lg p-4 lg:p-6 z-30 border-b border-cyan-500/30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -1140,7 +1144,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       </div>
 
       {/* Bottom Control Bar - Desktop */}
-      <div className="hidden lg:flex absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/95 to-transparent p-6 z-10">
+      <div className="hidden lg:flex absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900/80 backdrop-blur-lg rounded-2xl p-4 border border-cyan-500/30 shadow-2xl z-30">
         <div className="flex items-center justify-center gap-4 w-full">
           <button
             onClick={toggleAudio}
@@ -1187,7 +1191,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       </div>
 
       {/* Participants Panel - Desktop */}
-      <div className="hidden lg:block absolute right-4 top-24 bottom-24 w-80 bg-gradient-to-b from-gray-900/95 to-gray-950/95 rounded-2xl border border-cyan-500/20 shadow-2xl overflow-hidden">
+      <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-96 bg-gradient-to-b from-gray-900/95 to-gray-950/95 backdrop-blur-xl border-l border-cyan-500/30 shadow-2xl overflow-hidden">
         <div className="h-full flex flex-col">
           <div className="p-4 border-b border-cyan-500/20">
             <div className="flex items-center justify-between mb-3">
@@ -1293,9 +1297,9 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       </div>
 
       {/* Chat Sidebar */}
-      {showChat && (
-        <div className="absolute inset-0 lg:inset-y-0 lg:left-auto lg:right-0 lg:w-96 bg-gradient-to-b from-gray-900 to-gray-950 border-l border-cyan-500/20 flex flex-col shadow-2xl z-20">
-          <div className="p-4 border-b border-cyan-500/20 flex justify-between items-center">
+           {showChat && (
+        <div className="absolute inset-0 bg-black/90 backdrop-blur-lg flex items-center justify-center z-50">
+ <div className="p-4 border-b border-cyan-500/20 flex justify-between items-center">
             <div>
               <h3 className="font-bold text-white">Chat</h3>
               <p className="text-cyan-300 text-xs">Live Class</p>
@@ -1428,6 +1432,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 };
