@@ -1303,49 +1303,78 @@ const createLocalTracks = async () => {
           ANS: true, // Noise suppression
           AGC: true  // Auto gain control
         });
-        console.log('✅ Audio track created:', {
-          trackId: audioTrack.getTrackId(),
-          label: audioTrack.getTrackLabel(),
-          enabled: audioTrack.enabled
-        });
+        console.log('✅ Audio track created');
       } catch (audioError) {
         console.error('❌ Audio track creation failed:', audioError);
-        // Don't throw - continue to try video
         audioTrack = null;
       }
-    } else {
-      console.warn('⚠️ No microphone detected - skipping audio track');
     }
 
     // ============================================
-    // STEP 3: Create Video Track (if available)
+    // STEP 3: Create Video Track with FACE FOCUS
     // ============================================
     if (hasCamera) {
       try {
-        console.log('📹 Creating video track...');
+        console.log('📹 Creating video track with face optimization...');
+        
+        // Try to get user media first to check capabilities
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            facingMode: 'user', // Front camera
+            // Add constraints for better face framing
+            aspectRatio: { ideal: 16/9 },
+          }
+        });
+        
+        // Get the actual video track from stream
+        const videoStream = stream.getVideoTracks()[0];
+        const settings = videoStream.getSettings();
+        
+        console.log('Camera settings:', {
+          width: settings.width,
+          height: settings.height,
+          frameRate: settings.frameRate,
+          aspectRatio: settings.aspectRatio,
+          facingMode: settings.facingMode
+        });
+        
+        // Stop the test stream
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Now create Agora track with optimal settings
         videoTrack = await AgoraRTC.createCameraVideoTrack({
+          // Use device's native resolution for better quality
           encoderConfig: {
-            width: 1280,
-            height: 720,
-            frameRate: 30,
-            bitrateMin: 600,
-            bitrateMax: 1000
+            width: settings.width || 1280,
+            height: settings.height || 720,
+            frameRate: settings.frameRate || 30,
+            bitrateMin: 800,
+            bitrateMax: 1500
           },
-          optimizationMode: 'detail'
+          optimizationMode: 'motion', // Better for movement/face
+          facingMode: 'user', // Front camera
+          mirror: true, // Mirror effect for self-view
         });
-        console.log('✅ Video track created:', {
-          trackId: videoTrack.getTrackId(),
-          label: videoTrack.getTrackLabel(),
-          enabled: videoTrack.enabled,
-          muted: videoTrack.muted
-        });
+        
+        console.log('✅ Video track created with face optimization');
+        
       } catch (videoError) {
         console.error('❌ Video track creation failed:', videoError);
-        // Don't throw - continue with audio only
-        videoTrack = null;
+        // Fallback to basic video track
+        try {
+          videoTrack = await AgoraRTC.createCameraVideoTrack({
+            encoderConfig: '720p_2',
+            optimizationMode: 'detail',
+            facingMode: 'user'
+          });
+        } catch (fallbackError) {
+          console.error('❌ Fallback video track failed:', fallbackError);
+          videoTrack = null;
+        }
       }
-    } else {
-      console.warn('⚠️ No camera detected - skipping video track');
     }
 
     // ============================================
@@ -1369,8 +1398,8 @@ const createLocalTracks = async () => {
     
     setControls(prev => ({
       ...prev,
-      hasCamera,
-      hasMicrophone,
+      hasCamera: !!videoTrack,
+      hasMicrophone: !!audioTrack,
       audioEnabled: !!audioTrack,
       videoEnabled: !!videoTrack
     }));
@@ -1384,7 +1413,6 @@ const createLocalTracks = async () => {
     // ============================================
     // STEP 6: Wait for State to Update
     // ============================================
-    // Give React a moment to update state before publishing
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // ============================================
@@ -1406,36 +1434,22 @@ const createLocalTracks = async () => {
     
     try {
       await clientRef.current.publish(tracksToPublish);
-      console.log('✅ Tracks published successfully:', 
-        tracksToPublish.map(t => `${t.trackMediaType} (${t.getTrackId()})`).join(', ')
-      );
+      console.log('✅ Tracks published successfully');
     } catch (publishError) {
       console.error('❌ Failed to publish tracks:', publishError);
-      // Don't throw - tracks are created, just not published
-      // User can still see their own video
     }
 
     // ============================================
     // STEP 8: Verify Video Track is Playing
     // ============================================
     if (videoTrack) {
-      // The useEffect should handle playback, but let's verify after a delay
       setTimeout(() => {
         if (videoTrack.isPlaying) {
           console.log('✅ Video track is playing');
         } else {
-          console.warn('⚠️ Video track created but not playing - check useEffect');
+          console.warn('⚠️ Video track created but not playing');
         }
       }, 1000);
-    }
-
-    // ============================================
-    // STEP 9: Show User-Friendly Messages
-    // ============================================
-    if (audioTrack && !videoTrack) {
-      console.warn('⚠️ Joined with audio only - camera not available');
-    } else if (!audioTrack && videoTrack) {
-      console.warn('⚠️ Joined with video only - microphone not available');
     }
 
     console.log('✅ Track creation complete!');
@@ -1444,12 +1458,8 @@ const createLocalTracks = async () => {
     console.error('❌ Critical error in createLocalTracks:', error);
     
     // Clean up any tracks that were created
-    if (audioTrack) {
-      audioTrack.close();
-    }
-    if (videoTrack) {
-      videoTrack.close();
-    }
+    if (audioTrack) audioTrack.close();
+    if (videoTrack) videoTrack.close();
 
     // Provide user-friendly error messages
     let userMessage = 'Failed to access camera/microphone. ';
@@ -2205,32 +2215,29 @@ useEffect(() => {
       {/* Main Video Area - Teacher's Video */}
       <div className="absolute inset-0">
         <div className="relative w-full h-full bg-black">
-          {teacherTracks?.video ? (
-            <div 
-              ref={el => {
-                if (el && teacherTracks.video) {
-                  remoteVideoRefs.current.set(teacherUid, el);
-                }
-              }}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-              <div className="text-center">
-                <div className="w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 mx-auto">
-                  <span className="text-6xl">👨‍🏫</span>
-                </div>
-                <p className="text-cyan-300 text-xl font-semibold">
-                  {teacherProfile?.name || 'Teacher'}
-                </p>
-                <p className="text-cyan-400/60 text-sm mt-2">Camera is off</p>
-              </div>
-            </div>
-          )}
-          
-          {/* Overlay gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 via-transparent to-transparent pointer-events-none" />
+  {teacherTracks?.video ? (
+    <div 
+      ref={el => {
+        if (el && teacherTracks.video) {
+          remoteVideoRefs.current.set(teacherUid, el);
+        }
+      }}
+      className="remote-video-container w-full h-full"
+    />
+  ) : (
+    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+      <div className="text-center">
+        <div className="w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 mx-auto">
+          <span className="text-6xl">👨‍🏫</span>
         </div>
+        <p className="text-cyan-300 text-xl font-semibold">
+          {teacherProfile?.name || 'Teacher'}
+        </p>
+        <p className="text-cyan-400/60 text-sm mt-2">Camera is off</p>
+      </div>
+    </div>
+  )}
+</div>
       </div>
 
       {/* Top Bar */}
@@ -2658,24 +2665,24 @@ useEffect(() => {
               >
                 {/* Video/Avatar Container */}
                 <div className="relative aspect-video bg-gradient-to-br from-gray-900 to-gray-950">
-                  {participant.tracks.video && participant.hasVideo ? (
-                    <div 
-                      ref={el => {
-                        if (el && participant.tracks.video && participant.hasVideo) {
-                          remoteVideoRefs.current.set(participant.uid, el);
-                        }
-                      }}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
-                        <span className="text-3xl">
-                          {isTeacher ? '👨‍🏫' : isCurrentUser ? '👤' : '🎓'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                 {participant.tracks.video && participant.hasVideo ? (
+  <div 
+    ref={el => {
+      if (el && participant.tracks.video && participant.hasVideo) {
+        remoteVideoRefs.current.set(participant.uid, el);
+      }
+    }}
+    className="participant-video-container w-full h-full"
+  />
+) : (
+  <div className="w-full h-full flex items-center justify-center">
+    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
+      <span className="text-3xl">
+        {isTeacher ? '👨‍🏫' : isCurrentUser ? '👤' : '🎓'}
+      </span>
+    </div>
+  </div>
+)}
                   
                   {/* Status Overlay */}
                   <div className="absolute top-3 left-3 flex items-center gap-2">
@@ -2848,73 +2855,83 @@ useEffect(() => {
     </div>
   </div>
 )}
-      {/* ⚠️ CRITICAL FIX #5: Improved PIP with Better Rendering (From First File) */}
-      {(controls.hasCamera || controls.hasMicrophone) && (
+
+     {/* ⚠️ CRITICAL FIX #5: Improved PIP with Better Rendering */}
+{(controls.hasCamera || controls.hasMicrophone) && (
+  <div 
+    ref={pipRef}
+    style={{
+      position: 'fixed',
+      left: `${position.x}px`,
+      top: `${position.y}px`,
+      width: '280px',
+      height: '210px', // Increased height for better aspect ratio
+      zIndex: 99999,
+      cursor: isDragging ? 'grabbing' : 'grab',
+      transition: isDragging ? 'none' : 'all 0.2s ease',
+      touchAction: 'none',
+    }}
+    onMouseDown={handleMouseDown}
+    onTouchStart={handleTouchStart}
+    className={`local-video-pip ${isDragging ? 'local-video-pip-dragging' : ''}`}
+  >
+    <div className="relative w-full h-full bg-gray-900 rounded-xl overflow-hidden border-2 border-cyan-500/70 shadow-2xl">
+      {/* Video Container */}
+      <div className="w-full h-full bg-black relative overflow-hidden">
+        {/* CRITICAL: Proper video container with aspect ratio */}
         <div 
-          ref={pipRef}
-          style={{
-            position: 'fixed',
-            left: `${position.x}px`,
-            top: `${position.y}px`,
-            width: '280px',
-            height: '157.5px',
-            zIndex: 99999,
-            cursor: isDragging ? 'grabbing' : 'grab',
-            transition: isDragging ? 'none' : 'all 0.2s ease',
-            touchAction: 'none',
+          ref={localVideoRef}
+          className="w-full h-full"
+          style={{ 
+            transform: 'scaleX(-1)', // Mirror for self-view
+            backgroundColor: '#000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}
-          onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
-          className={`local-video-pip ${isDragging ? 'local-video-pip-dragging' : ''}`}
-        >
-          <div className="relative w-full h-full bg-gray-900 rounded-xl overflow-hidden border-2 border-cyan-500/70 shadow-2xl">
-            {/* Video Container */}
-            <div className="w-full h-full bg-black relative">
-              {/* ⚠️ CRITICAL: This is where the local video plays */}
-              <div 
-  ref={localVideoRef}
-  className="w-full h-full"
-  style={{ 
-    transform: 'scaleX(-1)',
-    opacity: (controls.videoEnabled && localTracks.video) ? 1 : 0,
-    backgroundColor: '#000',  
-    width: '100%',            
-    height: '100%'            
-  }}
-/>
-              
-              {/* Placeholder when video is off */}
-              {(!controls.videoEnabled || !localTracks.video) && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-                  <div className="text-center">
-                    <CameraOff className="text-gray-400 w-12 h-12 mx-auto mb-2" />
-                    <p className="text-gray-400 text-xs">Camera Off</p>
-                  </div>
-                </div>
-              )}
+        />
+        
+        {/* Placeholder when video is off */}
+        {(!controls.videoEnabled || !localTracks.video) && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+            <div className="text-center">
+              <CameraOff className="text-gray-400 w-12 h-12 mx-auto mb-2" />
+              <p className="text-gray-400 text-xs">Camera Off</p>
             </div>
-            
-            {/* Status Indicator */}
-            <div className="absolute bottom-2 left-2 z-10">
-              <div className="flex items-center gap-1.5 bg-black/80 backdrop-blur-sm px-2.5 py-1.5 rounded-lg border border-white/10">
-                <div className={`w-1.5 h-1.5 rounded-full ${
-                  controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'
-                } ${controls.audioEnabled ? 'animate-pulse' : ''}`} />
-                <span className="text-white text-[10px] font-bold tracking-wider">YOU</span>
-              </div>
-            </div>
-            
-            {/* Video Quality Indicator */}
-            {controls.videoEnabled && localTracks.video && (
-              <div className="absolute top-2 right-2 z-10">
-                <div className="bg-black/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
-                  <span className="text-green-400 text-[9px] font-semibold">HD</span>
-                </div>
-              </div>
-            )}
           </div>
+        )}
+      </div>
+      
+      {/* Status Indicator */}
+      <div className="absolute bottom-2 left-2 z-10">
+        <div className="flex items-center gap-1.5 bg-black/80 backdrop-blur-sm px-2.5 py-1.5 rounded-lg border border-white/10">
+          <div className={`w-1.5 h-1.5 rounded-full ${
+            controls.audioEnabled ? 'bg-green-500' : 'bg-red-500'
+          } ${controls.audioEnabled ? 'animate-pulse' : ''}`} />
+          <span className="text-white text-[10px] font-bold tracking-wider">YOU</span>
         </div>
-      )}
+      </div>
+      
+      {/* Video Controls Overlay */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+        {controls.videoEnabled && localTracks.video && (
+          <div className="bg-black/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
+            <span className="text-green-400 text-[9px] font-semibold">LIVE</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleVideo}
+          className="bg-black/80 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 hover:bg-gray-800/80 transition-colors"
+        >
+          {controls.videoEnabled ? 
+            <Camera size={12} className="text-green-400" /> : 
+            <CameraOff size={12} className="text-red-400" />
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
     </div>
   );

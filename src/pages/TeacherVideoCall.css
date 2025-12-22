@@ -1516,3 +1516,32 @@ video {
 .fixed.inset-0.z-50.bg-black > *:not(.local-video-pip) {
   overflow: hidden !important;
 }
+/* Video Display Improvements */
+.local-video-pip video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important; /* Show full video without cropping */
+  border-radius: 10px;
+}
+
+/* For remote videos */
+.remote-video-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important; /* Fill the container for others */
+  border-radius: 8px;
+}
+
+/* For participant grid videos */
+.participant-video-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 8px;
+}
+
+/* Ensure video elements take full space */
+video {
+  max-width: 100%;
+  max-height: 100%;
+}
