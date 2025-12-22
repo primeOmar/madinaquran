@@ -760,6 +760,16 @@ const updateVideoSettings = (setting, value) => {
   }, [meetingId, studentId]);
 
   
+  useEffect(() => {
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape' && showParticipants) {
+      setShowParticipants(false);
+    }
+  };
+  
+  document.addEventListener('keydown', handleKeyDown);
+  return () => document.removeEventListener('keydown', handleKeyDown);
+}, [showParticipants]);
   // ============================================
   // FIXED: Sync Profiles with Tracks (From Second File)
   // ============================================
@@ -2109,18 +2119,20 @@ useEffect(() => {
     </button>
     
     {/* Participants Toggle */}
-    <button 
-      onClick={toggleParticipants}
-      className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 relative"
-      title="Participants"
-    >
-      <Users size={22} />
-      {stats.participantCount > 0 && (
-        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-          {stats.participantCount}
-        </span>
-      )}
-    </button>
+<button 
+  onClick={toggleParticipants}
+  className={`p-3 rounded-xl transition-all duration-200 ${
+    showParticipants 
+      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
+      : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
+  }`}
+  title="Participants"
+>
+  <Users size={22} />
+  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+    {stats.participantCount}
+  </span>
+</button>
     
     {/* Settings/More */}
     <button 
@@ -2142,62 +2154,6 @@ useEffect(() => {
   </div>
 </div>
 
-      {/* Participants Panel - Desktop */}
-      <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-96 bg-gradient-to-b from-gray-900/95 to-gray-950/95 backdrop-blur-xl border-l border-cyan-500/30 shadow-2xl overflow-hidden">
-        <div className="h-full flex flex-col">
-          <div className="p-4 border-b border-cyan-500/20">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-white text-lg">Class Members</h3>
-              <span className="text-cyan-300 text-sm font-semibold">
-                {Array.from(remoteTracks.entries()).filter(([uid]) => {
-                  const uidString = uid.toString();
-                  const profile = userProfiles.get(uidString);
-                  return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
-                }).length} online
-              </span>
-            </div>
-            
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {Array.from(remoteTracks.entries())
-                .filter(([uid]) => {
-                  const uidString = uid.toString();
-                  const profile = userProfiles.get(uidString);
-                  return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
-                })
-                .map(([uid, tracks]) => {
-                  const uidString = uid.toString();
-                  const profile = userProfiles.get(uidString);
-                  const displayName = profile?.name || 'Student';
-                  
-                  return (
-                    <div key={uid} className="flex items-center gap-2 p-2 rounded-xl bg-gray-800/30">
-                      <div className="relative shrink-0">
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
-                          {tracks.video ? (
-                            <div 
-                              ref={el => {
-                                if (el && tracks.video) {
-                                  tracks.video.play(el);
-                                }
-                              }}
-                              className="w-full h-full"
-                            />
-                          ) : (
-                            <span className="text-lg">🎓</span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-white text-sm truncate">{displayName}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      </div>
 
      {/* Enhanced Mobile Controls */}
 <div className="lg:hidden absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent backdrop-blur-lg p-4 border-t border-cyan-500/30 z-30">
@@ -2361,6 +2317,255 @@ useEffect(() => {
           </div>
         </div>
       )}
+
+      // Add this to your component after the chat panel but before the settings panel
+
+{/* Participants Overlay for All Screen Sizes */}
+{showParticipants && (
+  <div className="absolute inset-0 bg-black/95 backdrop-blur-xl z-50 overflow-hidden flex flex-col">
+    {/* Header */}
+    <div className="p-4 lg:p-6 border-b border-cyan-500/30 bg-gradient-to-b from-black/80 to-transparent">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-cyan-500/20 rounded-xl">
+            <Users size={24} className="text-cyan-300" />
+          </div>
+          <div>
+            <h2 className="text-xl lg:text-2xl font-bold text-white">Participants</h2>
+            <p className="text-cyan-300 text-sm">
+              {Array.from(remoteTracks.entries()).filter(([uid]) => {
+                const uidString = uid.toString();
+                const profile = userProfiles.get(uidString);
+                return !(uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher');
+              }).length + 1} online • {stats.participantCount} total
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {/* Filter buttons - Desktop only */}
+          <div className="hidden lg:flex items-center gap-2 bg-gray-800/50 rounded-xl p-1">
+            <button
+              onClick={() => setParticipantsFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                participantsFilter === 'all' 
+                  ? 'bg-cyan-600 text-white' 
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setParticipantsFilter('teachers')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                participantsFilter === 'teachers' 
+                  ? 'bg-cyan-600 text-white' 
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Teachers
+            </button>
+            <button
+              onClick={() => setParticipantsFilter('students')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                participantsFilter === 'students' 
+                  ? 'bg-cyan-600 text-white' 
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Students
+            </button>
+          </div>
+          
+          {/* Sort dropdown - Mobile */}
+          <div className="lg:hidden">
+            <select
+              value={participantsSort}
+              onChange={(e) => setParticipantsSort(e.target.value)}
+              className="bg-gray-800/50 border border-cyan-500/30 rounded-xl px-3 py-2 text-white text-sm"
+            >
+              <option value="name">Sort by Name</option>
+              <option value="role">Sort by Role</option>
+              <option value="joinTime">Sort by Join Time</option>
+            </select>
+          </div>
+          
+          {/* Close button */}
+          <button 
+            onClick={() => setShowParticipants(false)}
+            className="p-2 lg:p-3 bg-gray-800/50 hover:bg-red-500/20 rounded-xl text-cyan-300 hover:text-white transition-all duration-200 ml-2"
+          >
+            <X size={20} />
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {/* Participants Grid */}
+    <div className="flex-1 overflow-y-auto p-4 lg:p-6">
+      {getSortedParticipants().length === 0 ? (
+        <div className="h-full flex flex-col items-center justify-center text-center py-12">
+          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-gray-800/50 to-cyan-500/10 flex items-center justify-center mb-6">
+            <Users size={48} className="text-cyan-500/50" />
+          </div>
+          <h3 className="text-xl font-semibold text-white mb-2">No Participants</h3>
+          <p className="text-cyan-300/60 text-sm max-w-md">
+            Participants will appear here when they join the session
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {getSortedParticipants().map((participant, index) => {
+            const isCurrentUser = participant.uid === String(sessionState.sessionInfo?.uid || studentId);
+            const isTeacher = participant.isTeacher;
+            const displayName = participant.profile?.name || 
+                              participant.profile?.display_name || 
+                              (isCurrentUser ? 'You' : 'Participant');
+            
+            return (
+              <div
+                key={participant.uid}
+                className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-cyan-500/20 hover:border-cyan-500/40 transition-all duration-300"
+              >
+                {/* Video/Avatar Container */}
+                <div className="relative aspect-video bg-gradient-to-br from-gray-900 to-gray-950">
+                  {participant.tracks.video && participant.hasVideo ? (
+                    <div 
+                      ref={el => {
+                        if (el && participant.tracks.video && participant.hasVideo) {
+                          remoteVideoRefs.current.set(participant.uid, el);
+                        }
+                      }}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
+                        <span className="text-3xl">
+                          {isTeacher ? '👨‍🏫' : isCurrentUser ? '👤' : '🎓'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Status Overlay */}
+                  <div className="absolute top-3 left-3 flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      participant.hasAudio ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                    }`} />
+                    {isCurrentUser && (
+                      <span className="bg-cyan-600 text-white text-xs px-2 py-1 rounded-full font-semibold">
+                        YOU
+                      </span>
+                    )}
+                    {isTeacher && (
+                      <span className="bg-purple-600 text-white text-xs px-2 py-1 rounded-full font-semibold">
+                        TEACHER
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Video/Audio Status */}
+                  <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
+                    {!participant.hasVideo && (
+                      <div className="bg-black/70 backdrop-blur-sm p-1.5 rounded-lg">
+                        <CameraOff size={14} className="text-gray-300" />
+                      </div>
+                    )}
+                    {!participant.hasAudio && (
+                      <div className="bg-black/70 backdrop-blur-sm p-1.5 rounded-lg">
+                        <MicOff size={14} className="text-gray-300" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Participant Info */}
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold text-white truncate text-sm lg:text-base">
+                      {displayName}
+                    </h4>
+                    {participant.handRaised && (
+                      <Hand size={16} className="text-yellow-400 animate-pulse" />
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        isTeacher 
+                          ? 'bg-purple-500/20 text-purple-300' 
+                          : 'bg-blue-500/20 text-blue-300'
+                      }`}>
+                        {isTeacher ? 'Teacher' : 'Student'}
+                      </span>
+                      <span className="text-gray-400 text-xs">
+                        {participant.hasVideo ? 'Video On' : 'Video Off'}
+                      </span>
+                    </div>
+                    
+                    {/* Admin actions - only for teachers/own user */}
+                    {!isCurrentUser && isTeacher && (
+                      <button
+                        onClick={() => kickParticipant(participant.uid)}
+                        className="text-xs text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 hover:bg-red-500/10 rounded-lg"
+                        title="Remove participant"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+
+    {/* Footer Controls */}
+    <div className="p-4 lg:p-6 border-t border-cyan-500/30 bg-gradient-to-t from-black/80 to-transparent">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <span className="text-green-400 text-sm">
+              {getSortedParticipants().filter(p => p.hasAudio).length} speaking
+            </span>
+          </div>
+          <div className="hidden lg:block text-cyan-300 text-sm">
+            Press <kbd className="px-2 py-1 bg-gray-800/50 rounded-lg text-xs">ESC</kbd> to close
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          {/* Copy participant list */}
+          <button
+            onClick={() => {
+              const participantNames = getSortedParticipants()
+                .map(p => p.profile?.name || 'Participant')
+                .join(', ');
+              navigator.clipboard.writeText(participantNames);
+              sendMessage('Copied participant list', 'system');
+            }}
+            className="px-4 py-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-xl text-white text-sm transition-all"
+          >
+            Copy List
+          </button>
+          
+          {/* Refresh button */}
+          <button
+            onClick={() => fetchParticipants(sessionState.sessionInfo?.meetingId)}
+            className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 rounded-xl text-cyan-300 text-sm transition-all"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
 {/* Settings Panel */}
 {showSettings && (
