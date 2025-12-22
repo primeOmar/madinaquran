@@ -2865,7 +2865,7 @@ useEffect(() => {
       left: `${position.x}px`,
       top: `${position.y}px`,
       width: '280px',
-      height: '210px', // Increased height for better aspect ratio
+      height: '300px', 
       zIndex: 99999,
       cursor: isDragging ? 'grabbing' : 'grab',
       transition: isDragging ? 'none' : 'all 0.2s ease',
