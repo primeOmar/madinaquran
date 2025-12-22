@@ -1263,36 +1263,67 @@ const updateVideoSettings = (setting, value) => {
   // ============================================
   // ⚠️ CRITICAL FIX #4: Improved Track Creation (From First File)
   // ============================================
- const createLocalTracks = async () => {
+const createLocalTracks = async () => {
   try {
     console.log('🔵 Creating local tracks...');
     
-    // Create tracks
-    const tracks = await AgoraRTC.createMicrophoneAndCameraTracks(
-      {
-        encoderConfig: 'music_standard',
-      },
-      {
-        encoderConfig: '720p_3',
-        optimizationMode: 'detail'
+    // Check what devices are available
+    const devices = await AgoraRTC.getDevices();
+    const hasCamera = devices.some(d => d.kind === 'videoinput');
+    const hasMicrophone = devices.some(d => d.kind === 'audioinput');
+    
+    console.log('📱 Available devices:', { hasCamera, hasMicrophone });
+
+    let audioTrack = null;
+    let videoTrack = null;
+
+    // Create audio track IF microphone exists
+    if (hasMicrophone) {
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+          encoderConfig: 'music_standard',
+        });
+        console.log('✅ Audio track created');
+      } catch (error) {
+        console.error('❌ Failed to create audio track:', error);
       }
-    );
-    
-    const [audioTrack, videoTrack] = tracks;
-    console.log('✅ Audio track created');
-    console.log('✅ Video track created');
-    
-    // Update state (this triggers useEffect to play video)
+    } else {
+      console.warn('⚠️ No microphone detected');
+    }
+
+    // Create video track IF camera exists
+    if (hasCamera) {
+      try {
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: '720p_3',
+          optimizationMode: 'detail'
+        });
+        console.log('✅ Video track created');
+      } catch (error) {
+        console.error('❌ Failed to create video track:', error);
+      }
+    } else {
+      console.warn('⚠️ No camera detected');
+    }
+
+    // Check if we have at least ONE track
+    if (!audioTrack && !videoTrack) {
+      throw new Error('No camera or microphone available');
+    }
+
+    // Update state
     setLocalTracks({ audio: audioTrack, video: videoTrack });
     setControls(prev => ({
       ...prev,
-      hasCamera: !!videoTrack,
-      hasMicrophone: !!audioTrack,
+      hasCamera,
+      hasMicrophone,
       audioEnabled: !!audioTrack,
       videoEnabled: !!videoTrack
     }));
-    
-    // ✅ CRITICAL: Publish tracks so others can see/hear you
+
+    console.log(`📢 Joining with: ${audioTrack && videoTrack ? 'audio + video' : audioTrack ? 'audio only' : 'video only'}`);
+
+    // Publish available tracks
     if (clientRef.current) {
       const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
       if (tracksToPublish.length > 0) {
@@ -1300,9 +1331,7 @@ const updateVideoSettings = (setting, value) => {
         console.log('✅ Published tracks:', tracksToPublish.map(t => t.trackMediaType));
       }
     }
-    
-    // ✅ DO NOT play video here - let useEffect handle it
-    
+
   } catch (error) {
     console.error('❌ Failed to create tracks:', error);
     throw error;
