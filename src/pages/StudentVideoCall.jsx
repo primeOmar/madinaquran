@@ -886,7 +886,7 @@ const updateVideoSettings = (setting, value) => {
     }));
   };
   
-  const interval = setInterval(checkConnection, 10000);
+  const interval = setInterval(checkConnection, 15000);
   return () => clearInterval(interval);
 }, []);
   // ============================================
