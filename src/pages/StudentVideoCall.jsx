@@ -1610,7 +1610,7 @@ const toggleAudio = async () => {
     // Set up polling
     messagesPollIntervalRef.current = setInterval(() => {
       loadMessages(sessionId);
-    }, 3000);
+    }, 15000);
   };
 
   const loadMessages = async (sessionId) => {
