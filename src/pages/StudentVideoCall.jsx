@@ -163,6 +163,11 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     hasMicrophone: false
   });
   
+  const [connectionStats, setConnectionStats] = useState({
+  packetLoss: 0,
+  latency: 0,
+  quality: 'good'
+});
   // ⚠️ CRITICAL FIX #1: Separate ref for local video container
   const localVideoRef = useRef(null);
   const localVideoTrackRef = useRef(null); // Store track reference separately
@@ -184,11 +189,419 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const messagesPollIntervalRef = useRef(null);
   const profilePollingRef = useRef();
 
-// At the top of your component, adjust the useDraggable initial position:
+
 const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable({
   x: window.innerWidth - 300, 
   y: window.innerHeight - 200
 });
+
+const [isScreenSharing, setIsScreenSharing] = useState(false);
+const [screenTrack, setScreenTrack] = useState(null);
+
+const [showParticipants, setShowParticipants] = useState(false);
+const [participantsSort, setParticipantsSort] = useState('name'); // 'name', 'role', 'joinTime'
+const [participantsFilter, setParticipantsFilter] = useState('all'); // 'all', 'teachers', 'students'
+
+const toggleParticipants = () => {
+  setShowParticipants(prev => !prev);
+  
+  // If opening participants panel, refresh participant list
+  if (!showParticipants && sessionState.sessionInfo?.meetingId) {
+    fetchParticipants(sessionState.sessionInfo.meetingId);
+  }
+};
+
+// Enhanced participant sorting function
+const getSortedParticipants = () => {
+  const allParticipants = Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
+    const uidString = uid.toString();
+    const profile = userProfiles.get(uidString);
+    const isTeacher = uidString === teacherUid || profile?.is_teacher || profile?.role === 'teacher';
+    
+    return {
+      uid: uidString,
+      tracks,
+      profile,
+      isTeacher,
+      hasAudio: !!tracks.audio,
+      hasVideo: !!tracks.video,
+      joinTime: Date.now(), // In real app, track actual join time
+    };
+  });
+  
+  // Add current user
+  allParticipants.push({
+    uid: String(sessionState.sessionInfo?.uid || studentId),
+    tracks: localTracks,
+    profile: {
+      name: 'You',
+      display_name: 'You',
+      role: 'student',
+      is_teacher: false,
+    },
+    isTeacher: false,
+    hasAudio: controls.audioEnabled && localTracks.audio,
+    hasVideo: controls.videoEnabled && localTracks.video,
+    joinTime: Date.now(),
+  });
+  
+  // Apply filter
+  let filtered = allParticipants;
+  if (participantsFilter === 'teachers') {
+    filtered = filtered.filter(p => p.isTeacher);
+  } else if (participantsFilter === 'students') {
+    filtered = filtered.filter(p => !p.isTeacher);
+  }
+  
+  // Apply sort
+  filtered.sort((a, b) => {
+    if (participantsSort === 'name') {
+      return a.profile?.name?.localeCompare(b.profile?.name || '') || 0;
+    } else if (participantsSort === 'role') {
+      if (a.isTeacher && !b.isTeacher) return -1;
+      if (!a.isTeacher && b.isTeacher) return 1;
+      return 0;
+    } else if (participantsSort === 'joinTime') {
+      return a.joinTime - b.joinTime;
+    }
+    return 0;
+  });
+  
+  return filtered;
+};
+
+// Kick participant (admin function - would need permissions)
+const kickParticipant = async (uid) => {
+  try {
+    const response = await studentvideoApi.kickParticipant(
+      sessionState.sessionInfo?.meetingId,
+      uid,
+      studentId
+    );
+    
+    if (response.success) {
+      sendMessage(`Removed participant: ${userProfiles.get(uid)?.name || 'User'}`, 'system');
+      console.log(`✅ Kicked participant ${uid}`);
+    }
+  } catch (error) {
+    console.error('❌ Failed to kick participant:', error);
+  }
+};
+const [isFullscreen, setIsFullscreen] = useState(false);
+
+const toggleFullscreen = () => {
+  const element = document.documentElement;
+  
+  if (!document.fullscreenElement) {
+    // Enter fullscreen
+    if (element.requestFullscreen) {
+      element.requestFullscreen();
+    } else if (element.mozRequestFullScreen) { // Firefox
+      element.mozRequestFullScreen();
+    } else if (element.webkitRequestFullscreen) { // Chrome, Safari, Opera
+      element.webkitRequestFullscreen();
+    } else if (element.msRequestFullscreen) { // IE/Edge
+      element.msRequestFullscreen();
+    }
+    setIsFullscreen(true);
+    
+  } else {
+    // Exit fullscreen
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+    setIsFullscreen(false);
+  }
+};
+
+// Listen for fullscreen changes
+useEffect(() => {
+  const handleFullscreenChange = () => {
+    setIsFullscreen(!!document.fullscreenElement);
+  };
+  
+  document.addEventListener('fullscreenchange', handleFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+  document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+  document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+  
+  return () => {
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+  };
+}, []);
+
+const [reactions, setReactions] = useState([]);
+const [reactionTimeout, setReactionTimeout] = useState({});
+
+const sendReaction = (reaction) => {
+  try {
+    // Send reaction via API
+    if (sessionState.sessionInfo?.session?.id) {
+      studentvideoApi.sendReaction(
+        sessionState.sessionInfo.session.id,
+        studentId,
+        reaction
+      ).then(() => {
+        console.log(`✅ Reaction sent: ${reaction}`);
+      }).catch(err => {
+        console.warn('⚠️ Failed to send reaction:', err);
+        // Fallback to message
+        sendMessage(reaction, 'reaction');
+      });
+    } else {
+      // Fallback to message
+      sendMessage(reaction, 'reaction');
+    }
+    
+    // Show local reaction
+    const reactionId = Date.now();
+    setReactions(prev => [...prev, {
+      id: reactionId,
+      emoji: reaction,
+      userId: studentId,
+      userName: 'You',
+      timestamp: Date.now()
+    }]);
+    
+    // Remove reaction after 3 seconds
+    setTimeout(() => {
+      setReactions(prev => prev.filter(r => r.id !== reactionId));
+    }, 3000);
+    
+    // Prevent rapid reactions (throttle)
+    clearTimeout(reactionTimeout[reaction]);
+    setReactionTimeout(prev => ({
+      ...prev,
+      [reaction]: setTimeout(() => {}, 1000) // 1 second cooldown per reaction type
+    }));
+    
+  } catch (error) {
+    console.error('❌ Reaction error:', error);
+    sendMessage(reaction, 'reaction'); // Fallback
+  }
+};
+
+// Common reactions
+const quickReactions = [
+  { emoji: '👍', label: 'Like' },
+  { emoji: '👏', label: 'Clap' },
+  { emoji: '🎉', label: 'Celebrate' },
+  { emoji: '🙋', label: 'Raise Hand' },
+  { emoji: '❤️', label: 'Heart' },
+  { emoji: '😂', label: 'Laugh' },
+  { emoji: '🤔', label: 'Thinking' },
+  { emoji: '👀', label: 'Eyes' }
+];
+
+const [showSettings, setShowSettings] = useState(false);
+const [availableDevices, setAvailableDevices] = useState({
+  cameras: [],
+  microphones: [],
+  speakers: []
+});
+const [selectedDevices, setSelectedDevices] = useState({
+  cameraId: '',
+  microphoneId: '',
+  speakerId: ''
+});
+const [audioSettings, setAudioSettings] = useState({
+  noiseSuppression: true,
+  echoCancellation: true,
+  autoGainControl: true,
+  volume: 100
+});
+const [videoSettings, setVideoSettings] = useState({
+  resolution: '720p',
+  frameRate: 30,
+  bitrate: 'auto'
+});
+
+const toggleSettings = async () => {
+  if (!showSettings) {
+    // When opening settings, refresh device list
+    await loadAvailableDevices();
+  }
+  setShowSettings(prev => !prev);
+};
+
+const loadAvailableDevices = async () => {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    
+    const cameras = devices
+      .filter(device => device.kind === 'videoinput')
+      .map(device => ({
+        id: device.deviceId,
+        label: device.label || `Camera ${cameras.length + 1}`,
+        group: device.groupId
+      }));
+    
+    const microphones = devices
+      .filter(device => device.kind === 'audioinput')
+      .map(device => ({
+        id: device.deviceId,
+        label: device.label || `Microphone ${microphones.length + 1}`,
+        group: device.groupId
+      }));
+    
+    const speakers = devices
+      .filter(device => device.kind === 'audiooutput')
+      .map(device => ({
+        id: device.deviceId,
+        label: device.label || `Speaker ${speakers.length + 1}`,
+        group: device.groupId
+      }));
+    
+    setAvailableDevices({ cameras, microphones, speakers });
+    
+    // Get current active devices
+    if (localTracks.video?.getTrackLabel) {
+      const currentCamera = localTracks.video.getTrackLabel();
+      setSelectedDevices(prev => ({
+        ...prev,
+        cameraId: cameras.find(cam => cam.label === currentCamera)?.id || ''
+      }));
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to load devices:', error);
+  }
+};
+
+const switchCamera = async (deviceId) => {
+  try {
+    if (!localTracks.video || !controls.hasCamera) return;
+    
+    console.log(`📷 Switching to camera: ${deviceId}`);
+    
+    // Close current video track
+    await localTracks.video.close();
+    
+    // Create new video track with selected device
+    const newVideoTrack = await AgoraRTC.createCameraVideoTrack({
+      encoderConfig: videoSettings.resolution === '720p' ? '720p_3' : 
+                    videoSettings.resolution === '480p' ? '480p_1' : '1080p_3',
+      cameraId: deviceId,
+      optimizationMode: 'detail'
+    });
+    
+    // Replace old track with new one
+    if (clientRef.current) {
+      // Unpublish old track
+      await clientRef.current.unpublish(localTracks.video);
+      
+      // Update local tracks
+      setLocalTracks(prev => ({ ...prev, video: newVideoTrack }));
+      
+      // Publish new track
+      await clientRef.current.publish(newVideoTrack);
+      
+      // Update selected device
+      setSelectedDevices(prev => ({ ...prev, cameraId: deviceId }));
+      
+      console.log('✅ Camera switched successfully');
+      
+      // Send notification
+      sendMessage('Switched camera', 'system');
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to switch camera:', error);
+    sendMessage('Failed to switch camera', 'system');
+  }
+};
+
+const switchMicrophone = async (deviceId) => {
+  try {
+    if (!localTracks.audio || !controls.hasMicrophone) return;
+    
+    console.log(`🎤 Switching to microphone: ${deviceId}`);
+    
+    // Close current audio track
+    await localTracks.audio.close();
+    
+    // Create new audio track with selected device
+    const newAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+      microphoneId: deviceId,
+      AEC: audioSettings.echoCancellation,
+      ANS: audioSettings.noiseSuppression,
+      AGC: audioSettings.autoGainControl,
+      encoderConfig: 'music_standard'
+    });
+    
+    // Replace old track with new one
+    if (clientRef.current) {
+      // Unpublish old track
+      await clientRef.current.unpublish(localTracks.audio);
+      
+      // Update local tracks
+      setLocalTracks(prev => ({ ...prev, audio: newAudioTrack }));
+      
+      // Publish new track
+      await clientRef.current.publish(newAudioTrack);
+      
+      // Update selected device
+      setSelectedDevices(prev => ({ ...prev, microphoneId: deviceId }));
+      
+      console.log('✅ Microphone switched successfully');
+      
+      // Send notification
+      sendMessage('Switched microphone', 'system');
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to switch microphone:', error);
+    sendMessage('Failed to switch microphone', 'system');
+  }
+};
+
+const updateAudioSettings = (setting, value) => {
+  setAudioSettings(prev => ({ ...prev, [setting]: value }));
+  
+  // Apply settings to current audio track
+  if (localTracks.audio) {
+    try {
+      if (setting === 'volume') {
+        localTracks.audio.setVolume(value);
+      } else if (setting === 'noiseSuppression') {
+        localTracks.audio.setNoiseSuppression(value);
+      } else if (setting === 'echoCancellation') {
+        localTracks.audio.setEchoCancellation(value);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to update audio setting ${setting}:`, error);
+    }
+  }
+};
+
+const updateVideoSettings = (setting, value) => {
+  setVideoSettings(prev => ({ ...prev, [setting]: value }));
+  
+  // Apply settings to current video track
+  if (localTracks.video && setting === 'resolution') {
+    try {
+      const encoderConfig = 
+        value === '720p' ? '720p_3' :
+        value === '480p' ? '480p_1' :
+        '1080p_3';
+      
+      localTracks.video.setEncoderConfiguration(encoderConfig);
+      console.log(`✅ Video resolution updated to ${value}`);
+    } catch (error) {
+      console.warn('⚠️ Failed to update video resolution:', error);
+    }
+  }
+};
+
   // ============================================
   // Window Resize Handler
   // ============================================
@@ -346,6 +759,7 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
     };
   }, [meetingId, studentId]);
 
+  
   // ============================================
   // FIXED: Sync Profiles with Tracks (From Second File)
   // ============================================
@@ -355,6 +769,26 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
     }
   }, [remoteTracks, sessionState.isJoined]);
 
+  useEffect(() => {
+  const checkConnection = () => {
+    // Simulate connection quality checks
+    const qualities = ['good', 'fair', 'poor'];
+    const randomQuality = qualities[Math.floor(Math.random() * qualities.length)];
+    
+    setConnectionStats(prev => ({
+      ...prev,
+      quality: randomQuality
+    }));
+    
+    setStats(prev => ({
+      ...prev,
+      connectionQuality: randomQuality
+    }));
+  };
+  
+  const interval = setInterval(checkConnection, 10000);
+  return () => clearInterval(interval);
+}, []);
   // ============================================
   // FIXED: Participant Sync Interval (From Second File)
   // ============================================
@@ -796,8 +1230,9 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
   };
 
   // ============================================
-  // Toggle Functions with Better Track Management (From First File)
+  // Toggle Functions with Better Track Management 
   // ============================================
+
   const toggleAudio = async () => {
     if (!localTracks.audio || !controls.hasMicrophone) return;
     
@@ -848,6 +1283,7 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
     }
   };
 
+ 
   // ============================================
   // Duration Timer (From First File)
   // ============================================
@@ -963,70 +1399,520 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
     }));
   };
 
-  // ============================================
-  // FIXED: Cleanup Function with message polling cleanup (From Second File)
-  // ============================================
-  const cleanup = async () => {
-    console.log('Cleaning up student session...');
-    
-    // Clear intervals
-    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-    if (messagesPollIntervalRef.current) clearInterval(messagesPollIntervalRef.current);
-    if (profilePollingRef.current) clearInterval(profilePollingRef.current);
+ // ============================================
+// FIXED: Complete Cleanup Function with Screen Sharing
+// ============================================
+const cleanup = async () => {
+  console.log('🧹 Starting comprehensive cleanup...');
+  
+  // Stop all intervals first
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+    durationIntervalRef.current = null;
+  }
+  
+  if (messagesPollIntervalRef.current) {
+    clearInterval(messagesPollIntervalRef.current);
+    messagesPollIntervalRef.current = null;
+  }
+  
+  if (profilePollingRef.current) {
+    clearInterval(profilePollingRef.current);
+    profilePollingRef.current = null;
+  }
 
-    // Stop and close local tracks
+  // Clear any reaction timeouts
+  Object.values(reactionTimeout).forEach(timeout => {
+    if (timeout) clearTimeout(timeout);
+  });
+
+  // ============================================
+  // Screen Sharing Cleanup (FIRST)
+  // ============================================
+  if (screenTrack) {
+    try {
+      console.log('🖥️ Cleaning up screen sharing track...');
+      
+      // Stop screen sharing first
+      if (isScreenSharing) {
+        console.log('📺 Stopping active screen share...');
+        
+        // Unpublish screen track
+        if (clientRef.current) {
+          try {
+            await clientRef.current.unpublish(screenTrack);
+            console.log('✅ Unpublished screen track');
+          } catch (unpubError) {
+            console.warn('⚠️ Could not unpublish screen track:', unpubError);
+          }
+        }
+        
+        // Close the screen track
+        try {
+          await screenTrack.close();
+          console.log('✅ Closed screen track');
+        } catch (closeError) {
+          console.warn('⚠️ Could not close screen track:', closeError);
+        }
+        
+        // Re-enable camera if available
+        if (localTracks.video && controls.hasCamera && !controls.videoEnabled) {
+          try {
+            await localTracks.video.setEnabled(true);
+            console.log('✅ Re-enabled camera after screen sharing');
+          } catch (enableError) {
+            console.warn('⚠️ Could not re-enable camera:', enableError);
+          }
+        }
+        
+        // Reset state
+        setIsScreenSharing(false);
+        setScreenTrack(null);
+      }
+      
+    } catch (screenError) {
+      console.error('❌ Screen sharing cleanup error:', screenError);
+    }
+  }
+
+  // ============================================
+  // Local Audio/Video Tracks Cleanup
+  // ============================================
+  try {
+    console.log('🎤🎬 Cleaning up local tracks...');
+    
     if (localTracks.audio) {
       try {
-        localTracks.audio.stop();
+        // Stop playing
+        if (localTracks.audio.isPlaying) {
+          localTracks.audio.stop();
+        }
+        
+        // Close track
         localTracks.audio.close();
-      } catch (error) {
-        console.warn('Audio cleanup error:', error);
+        console.log('✅ Closed audio track');
+      } catch (audioError) {
+        console.warn('⚠️ Audio cleanup error:', audioError);
       }
     }
+    
     if (localTracks.video) {
       try {
-        localTracks.video.stop();
+        // Stop playing
+        if (localTracks.video.isPlaying) {
+          localTracks.video.stop();
+        }
+        
+        // Close track
         localTracks.video.close();
-      } catch (error) {
-        console.warn('Video cleanup error:', error);
+        console.log('✅ Closed video track');
+      } catch (videoError) {
+        console.warn('⚠️ Video cleanup error:', videoError);
+      }
+    }
+    
+    // Clear local tracks from state
+    setLocalTracks({ audio: null, video: null });
+    
+  } catch (trackError) {
+    console.error('❌ Local tracks cleanup error:', trackError);
+  }
+
+  // ============================================
+  // Remote Tracks Cleanup
+  // ============================================
+  try {
+    console.log('📡 Cleaning up remote tracks...');
+    
+    remoteTracks.forEach((tracks, uid) => {
+      try {
+        if (tracks.audio && tracks.audio.stop) {
+          tracks.audio.stop();
+        }
+        if (tracks.video && tracks.video.stop) {
+          tracks.video.stop();
+        }
+      } catch (remoteError) {
+        console.warn(`⚠️ Error cleaning up remote track ${uid}:`, remoteError);
+      }
+    });
+    
+    // Clear remote tracks from state
+    setRemoteTracks(new Map());
+    
+  } catch (remoteError) {
+    console.error('❌ Remote tracks cleanup error:', remoteError);
+  }
+
+  // ============================================
+  // Agora Client Cleanup
+  // ============================================
+  try {
+    if (clientRef.current) {
+      console.log('📡 Cleaning up Agora client...');
+      
+      // Check if we're in a channel
+      const connectionState = clientRef.current.connectionState;
+      console.log(`📶 Connection state before cleanup: ${connectionState}`);
+      
+      if (connectionState === 'CONNECTED' || connectionState === 'CONNECTING') {
+        // Remove all event listeners first
+        clientRef.current.removeAllListeners();
+        
+        // Leave channel with timeout protection
+        try {
+          const leavePromise = clientRef.current.leave();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Leave timeout')), 5000)
+          );
+          
+          await Promise.race([leavePromise, timeoutPromise]);
+          console.log('✅ Successfully left Agora channel');
+        } catch (leaveError) {
+          console.warn('⚠️ Could not leave channel gracefully:', leaveError);
+        }
+      }
+      
+      // Clear client reference
+      clientRef.current = null;
+    }
+  } catch (clientError) {
+    console.error('❌ Client cleanup error:', clientError);
+  }
+
+  // ============================================
+  // Reset All Refs and State
+  // ============================================
+  console.log('🔄 Resetting all refs and state...');
+  
+  // Reset initialization ref
+  initializationRef.current = {
+    clientCreated: false,
+    listenersSet: false,
+    joined: false
+  };
+
+  // Clear video refs
+  remoteVideoRefs.current.clear();
+  
+  // Reset local video track ref
+  if (localVideoTrackRef.current) {
+    try {
+      localVideoTrackRef.current.stop();
+    } catch (e) {
+      // Ignore errors on already stopped track
+    }
+    localVideoTrackRef.current = null;
+  }
+
+  // Reset state
+  setUserProfiles(new Map());
+  setParticipants([]);
+  setTeacherUid(null);
+  setMessages([]);
+  setNewMessage('');
+  setShowChat(false);
+  setShowParticipants(false);
+  setShowSettings(false);
+  setReactions([]);
+  setAvailableDevices({
+    cameras: [],
+    microphones: [],
+    speakers: []
+  });
+  setIsScreenSharing(false);
+  setScreenTrack(null);
+
+  // Reset controls to defaults
+  setControls({
+    audioEnabled: false,
+    videoEnabled: false,
+    handRaised: false,
+    hasCamera: false,
+    hasMicrophone: false
+  });
+
+  // Reset stats
+  setStats({
+    participantCount: 0,
+    duration: 0,
+    connectionQuality: 'unknown'
+  });
+
+  // Reset session state
+  setSessionState({
+    isInitialized: false,
+    isJoined: false,
+    sessionInfo: null,
+    error: null
+  });
+
+  console.log('✅ Complete cleanup finished');
+};
+
+// ============================================
+// FIXED: Complete Leave Session Function
+// ============================================
+const leaveSession = async () => {
+  try {
+    console.log('🚪 Starting leave session process...');
+    
+    // Update participant status first
+    if (sessionState.sessionInfo?.session?.id) {
+      try {
+        await updateParticipantStatus({ 
+          status: 'left',
+          left_at: new Date().toISOString(),
+          screen_shared: isScreenSharing,
+          hand_raised: controls.handRaised
+        });
+        console.log('✅ Participant status updated');
+      } catch (statusError) {
+        console.warn('⚠️ Could not update participant status:', statusError);
       }
     }
 
-    // Leave channel
+    // Stop screen sharing if active
+    if (isScreenSharing) {
+      console.log('🖥️ Stopping screen sharing before leaving...');
+      
+      try {
+        // Create a dedicated stop function for leaving
+        const stopScreenShareForLeave = async () => {
+          if (screenTrack) {
+            // Unpublish if client exists
+            if (clientRef.current) {
+              await clientRef.current.unpublish(screenTrack).catch(() => {});
+            }
+            
+            // Close track
+            await screenTrack.close().catch(() => {});
+            
+            // Re-enable camera
+            if (localTracks.video && controls.hasCamera) {
+              await localTracks.video.setEnabled(true).catch(() => {});
+            }
+          }
+        };
+        
+        await stopScreenShareForLeave();
+        console.log('✅ Screen sharing stopped');
+      } catch (screenError) {
+        console.warn('⚠️ Error stopping screen share on leave:', screenError);
+      }
+    }
+
+    // End session on server (if meeting exists)
+    if (sessionState.sessionInfo?.meetingId) {
+      try {
+        console.log('📡 Ending session on server...');
+        await studentvideoApi.endSession(
+          sessionState.sessionInfo.meetingId,
+          studentId
+        );
+        console.log('✅ Server session ended');
+      } catch (apiError) {
+        console.warn('⚠️ Could not end session on server:', apiError);
+        // Continue anyway - don't block cleanup
+      }
+    }
+
+    // Perform comprehensive cleanup
+    await cleanup();
+    
+    console.log('🎉 Session cleanup complete');
+
+    // Call onLeaveCall callback if provided
+    if (onLeaveCall && typeof onLeaveCall === 'function') {
+      console.log('📞 Calling onLeaveCall callback');
+      setTimeout(() => {
+        onLeaveCall();
+      }, 100); // Small delay to ensure cleanup is complete
+    }
+
+  } catch (error) {
+    console.error('❌ Error in leaveSession:', error);
+    
+    // Try to clean up anyway
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      console.error('❌ Emergency cleanup also failed:', cleanupError);
+    }
+    
+    // Still call onLeaveCall if provided
+    if (onLeaveCall && typeof onLeaveCall === 'function') {
+      onLeaveCall();
+    }
+  }
+};
+
+// ============================================
+// FIXED: Stop Screen Share Helper Function
+// ============================================
+const stopScreenShare = async (isLeaving = false) => {
+  if (!screenTrack) return;
+  
+  try {
+    console.log('🖥️ Stopping screen sharing...');
+    
+    // Unpublish screen track
     if (clientRef.current) {
       try {
-        await clientRef.current.leave();
-      } catch (error) {
-        console.warn('Leave channel error:', error);
+        await clientRef.current.unpublish(screenTrack);
+        console.log('✅ Unpublished screen track');
+      } catch (unpubError) {
+        if (!isLeaving) {
+          console.warn('⚠️ Could not unpublish screen track:', unpubError);
+        }
       }
     }
-
-    // Reset refs
-    initializationRef.current = {
-      clientCreated: false,
-      listenersSet: false,
-      joined: false
-    };
-
-    setRemoteTracks(new Map());
-    setUserProfiles(new Map());
-  };
-
-  // ============================================
-  // FIXED: Leave Session (From Second File)
-  // ============================================
-  const leaveSession = async () => {
+    
+    // Close the track
     try {
-      await updateParticipantStatus({ status: 'left' });
-      await cleanup();
-      if (onLeaveCall) onLeaveCall();
-    } catch (error) {
-      console.error('Leave session error:', error);
+      await screenTrack.close();
+      console.log('✅ Closed screen track');
+    } catch (closeError) {
+      if (!isLeaving) {
+        console.warn('⚠️ Could not close screen track:', closeError);
+      }
     }
+    
+    // Re-enable camera if available (unless leaving)
+    if (!isLeaving && localTracks.video && controls.hasCamera) {
+      try {
+        await localTracks.video.setEnabled(true);
+        console.log('✅ Re-enabled camera');
+      } catch (enableError) {
+        console.warn('⚠️ Could not re-enable camera:', enableError);
+      }
+    }
+    
+    // Reset state
+    if (!isLeaving) {
+      setScreenTrack(null);
+      setIsScreenSharing(false);
+    }
+    
+    console.log('✅ Screen sharing stopped successfully');
+    
+  } catch (error) {
+    console.error('❌ Error stopping screen share:', error);
+    throw error;
+  }
+};
+
+// ============================================
+// FIXED: Toggle Screen Share with Updated Error Handling
+// ============================================
+const toggleScreenShare = async () => {
+  try {
+    if (isScreenSharing) {
+      // Stop screen sharing
+      await stopScreenShare(false);
+      sendMessage('Stopped screen sharing', 'system');
+      
+    } else {
+      // Start screen sharing
+      console.log('🖥️ Starting screen share...');
+      
+      // Disable camera video temporarily
+      if (localTracks.video) {
+        await localTracks.video.setEnabled(false);
+      }
+      
+      // Create screen track with comprehensive options
+      const screenTrackConfig = {
+        encoderConfig: {
+          width: 1280,
+          height: 720,
+          frameRate: 15,
+          bitrateMin: 1000,
+          bitrateMax: 3000,
+        },
+        optimizationMode: 'detail',
+        screenSourceType: 'screen' // 'screen', 'window', 'application'
+      };
+      
+      const newScreenTrack = await AgoraRTC.createScreenVideoTrack(screenTrackConfig, 'auto');
+      
+      // Handle both single track and array of tracks
+      const track = Array.isArray(newScreenTrack) ? newScreenTrack[0] : newScreenTrack;
+      
+      // Publish screen track
+      if (clientRef.current) {
+        await clientRef.current.publish(track);
+      }
+      
+      // Set state and refs
+      setScreenTrack(track);
+      setIsScreenSharing(true);
+      console.log('✅ Screen sharing started');
+      
+      // Send notification
+      sendMessage('Started screen sharing', 'system');
+      
+      // Handle screen sharing stop events
+      track.on('track-ended', async () => {
+        console.log('🖥️ Screen sharing ended by browser/user');
+        await stopScreenShare(false);
+        sendMessage('Screen sharing ended', 'system');
+      });
+      
+      track.on('track-updated', () => {
+        console.log('🖥️ Screen track updated');
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Screen share error:', error);
+    
+    // Reset state on error
+    setIsScreenSharing(false);
+    setScreenTrack(null);
+    
+    // Re-enable camera if screen share fails
+    if (localTracks.video && controls.hasCamera) {
+      await localTracks.video.setEnabled(true);
+    }
+    
+    // Show user-friendly error
+    let errorMessage = 'Failed to share screen';
+    if (error.name === 'NotAllowedError') {
+      errorMessage = 'Screen sharing permission denied';
+    } else if (error.name === 'NotFoundError') {
+      errorMessage = 'No screen sharing source available';
+    } else if (error.message?.includes('extension')) {
+      errorMessage = 'Screen sharing extension required';
+    }
+    
+    sendMessage(`⚠️ ${errorMessage}`, 'system');
+  }
+};
+
+// ============================================
+// FIXED: Component Unmount Cleanup
+// ============================================
+useEffect(() => {
+  return () => {
+    console.log('🧹 Component unmounting - starting cleanup...');
+    
+    // We can't use async directly in cleanup, so we create a sync wrapper
+    const performCleanup = async () => {
+      try {
+        await cleanup();
+      } catch (error) {
+        console.error('❌ Unmount cleanup error:', error);
+      }
+    };
+    
+    // Fire and forget - we can't await in cleanup
+    performCleanup();
   };
+}, []);
 
   // ============================================
-  // Update Stats (From First File)
+  // Update Stats 
   // ============================================
   useEffect(() => {
     setStats(prev => ({
@@ -1143,52 +2029,118 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
         </div>
       </div>
 
-      {/* Bottom Control Bar - Desktop */}
-      <div className="hidden lg:flex absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900/80 backdrop-blur-lg rounded-2xl p-4 border border-cyan-500/30 shadow-2xl z-30">
-        <div className="flex items-center justify-center gap-4 w-full">
-          <button
-            onClick={toggleAudio}
-            disabled={!controls.hasMicrophone}
-            className={`p-4 rounded-xl transition-all duration-200 ${
-              controls.audioEnabled 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/50' 
-                : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-500/50'
-            } ${!controls.hasMicrophone ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {controls.audioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-          </button>
-          
-          <button
-            onClick={toggleVideo}
-            disabled={!controls.hasCamera}
-            className={`p-4 rounded-xl transition-all duration-200 ${
-              controls.videoEnabled 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/50' 
-                : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-500/50'
-            } ${!controls.hasCamera ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {controls.videoEnabled ? <Camera size={24} /> : <CameraOff size={24} />}
-          </button>
-          
-          <button 
-            onClick={toggleHandRaise}
-            className={`p-4 rounded-xl transition-all duration-200 ${
-              controls.handRaised 
-                ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse shadow-lg shadow-yellow-500/50' 
-                : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
-            }`}
-          >
-            <Hand size={24} />
-          </button>
-          
-          <button 
-            onClick={leaveSession}
-            className="p-4 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-500/50 transition-all duration-200"
-          >
-            <PhoneOff size={24} />
-          </button>
-        </div>
-      </div>
+{/* Quick Access Top Right Controls */}
+<div className="absolute top-4 right-4 z-30">
+  <div className="flex items-center gap-2">
+    {/* Fullscreen Toggle */}
+    <button 
+      onClick={toggleFullscreen}
+      className="p-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-xl text-white transition-all duration-200"
+      title="Fullscreen"
+    >
+      <ChevronUp size={18} className="transform rotate-45" />
+    </button>
+    
+    {/* Connection Quality Indicator */}
+    <div className="flex items-center gap-1.5 bg-gray-900/70 backdrop-blur-sm px-3 py-1.5 rounded-xl">
+      <div className={`w-2 h-2 rounded-full ${
+        stats.connectionQuality === 'good' ? 'bg-green-500 animate-pulse' :
+        stats.connectionQuality === 'fair' ? 'bg-yellow-500' :
+        'bg-red-500'
+      }`} />
+      <span className="text-white text-xs font-medium">
+        {stats.connectionQuality === 'good' ? 'Good' :
+         stats.connectionQuality === 'fair' ? 'Fair' : 'Poor'}
+      </span>
+    </div>
+  </div>
+</div>
+    {/* Enhanced Desktop Controls - Centered Floating Bar */}
+<div className="hidden lg:flex absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900/80 backdrop-blur-lg rounded-2xl p-4 border border-cyan-500/30 shadow-2xl z-30">
+  <div className="flex items-center gap-2">
+    {/* Audio Control */}
+    <button
+      onClick={toggleAudio}
+      disabled={!controls.hasMicrophone}
+      className={`p-3 rounded-xl transition-all duration-200 ${
+        controls.audioEnabled 
+          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
+          : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
+      } ${!controls.hasMicrophone ? 'opacity-50 cursor-not-allowed' : ''}`}
+      title={controls.audioEnabled ? "Mute" : "Unmute"}
+    >
+      {controls.audioEnabled ? <Mic size={22} /> : <MicOff size={22} />}
+    </button>
+    
+    {/* Video Control */}
+    <button
+      onClick={toggleVideo}
+      disabled={!controls.hasCamera}
+      className={`p-3 rounded-xl transition-all duration-200 ${
+        controls.videoEnabled 
+          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
+          : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
+      } ${!controls.hasCamera ? 'opacity-50 cursor-not-allowed' : ''}`}
+      title={controls.videoEnabled ? "Turn off camera" : "Turn on camera"}
+    >
+      {controls.videoEnabled ? <Camera size={22} /> : <CameraOff size={22} />}
+    </button>
+    
+    {/* Screen Share */}
+    <button
+      onClick={toggleScreenShare}
+      className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200"
+      title="Share screen"
+    >
+      <Share2 size={22} />
+    </button>
+    
+    {/* Hand Raise */}
+    <button 
+      onClick={toggleHandRaise}
+      className={`p-3 rounded-xl transition-all duration-200 ${
+        controls.handRaised 
+          ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
+          : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
+      }`}
+      title={controls.handRaised ? "Lower hand" : "Raise hand"}
+    >
+      <Hand size={22} />
+    </button>
+    
+    {/* Participants Toggle */}
+    <button 
+      onClick={toggleParticipants}
+      className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200 relative"
+      title="Participants"
+    >
+      <Users size={22} />
+      {stats.participantCount > 0 && (
+        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+          {stats.participantCount}
+        </span>
+      )}
+    </button>
+    
+    {/* Settings/More */}
+    <button 
+      onClick={toggleSettings}
+      className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200"
+      title="Settings"
+    >
+      <MoreVertical size={22} />
+    </button>
+    
+    {/* End Call Button - Prominent */}
+    <button 
+      onClick={leaveSession}
+      className="p-3 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-500/30 transition-all duration-200 ml-2"
+      title="Leave call"
+    >
+      <PhoneOff size={22} />
+    </button>
+  </div>
+</div>
 
       {/* Participants Panel - Desktop */}
       <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-96 bg-gradient-to-b from-gray-900/95 to-gray-950/95 backdrop-blur-xl border-l border-cyan-500/30 shadow-2xl overflow-hidden">
@@ -1247,54 +2199,97 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
         </div>
       </div>
 
-      {/* Mobile Controls with Hand Raise Button */}
-      <div className="lg:hidden bg-gray-900/95 border-t border-cyan-500/20 p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={toggleAudio}
-              disabled={!controls.hasMicrophone}
-              className={`p-3 rounded-xl ${
-                controls.audioEnabled 
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
-                  : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
-              }`}
-            >
-              {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-            </button>
-            
-            <button
-              onClick={toggleVideo}
-              disabled={!controls.hasCamera}
-              className={`p-3 rounded-xl ${
-                controls.videoEnabled 
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
-                  : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
-              }`}
-            >
-              {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
-            </button>
-            
-            <button 
-              onClick={toggleHandRaise}
-              className={`p-3 rounded-xl ${
-                controls.handRaised 
-                  ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
-                  : 'bg-gradient-to-r from-gray-700 to-gray-800 text-white'
-              }`}
-            >
-              <Hand size={20} />
-            </button>
-          </div>
-          
-          <button 
-            onClick={leaveSession}
-            className="p-3 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white"
-          >
-            <PhoneOff size={20} />
-          </button>
-        </div>
-      </div>
+     {/* Enhanced Mobile Controls */}
+<div className="lg:hidden absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent backdrop-blur-lg p-4 border-t border-cyan-500/30 z-30">
+  <div className="flex items-center justify-between">
+    <div className="flex items-center gap-3">
+      {/* Audio */}
+      <button
+        onClick={toggleAudio}
+        disabled={!controls.hasMicrophone}
+        className={`p-3 rounded-xl ${
+          controls.audioEnabled 
+            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
+            : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
+        }`}
+      >
+        {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+      </button>
+      
+      {/* Video */}
+      <button
+        onClick={toggleVideo}
+        disabled={!controls.hasCamera}
+        className={`p-3 rounded-xl ${
+          controls.videoEnabled 
+            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
+            : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
+        }`}
+      >
+        {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
+      </button>
+      
+      {/* Hand Raise */}
+      <button 
+        onClick={toggleHandRaise}
+        className={`p-3 rounded-xl ${
+          controls.handRaised 
+            ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
+            : 'bg-gradient-to-r from-gray-700 to-gray-800 text-white'
+        }`}
+      >
+        <Hand size={20} />
+      </button>
+      
+      {/* Participants */}
+      <button 
+        onClick={toggleParticipants}
+        className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 text-white relative"
+      >
+        <Users size={20} />
+        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+          {stats.participantCount}
+        </span>
+      </button>
+    </div>
+    
+    {/* End Call - Mobile */}
+    <button 
+      onClick={leaveSession}
+      className="p-3 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white"
+    >
+      <PhoneOff size={20} />
+    </button>
+  </div>
+  
+  {/* Mobile Quick Reactions Row */}
+  <div className="flex items-center justify-center gap-2 mt-3">
+    <button 
+      onClick={() => sendReaction('👍')}
+      className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
+    >
+      👍
+    </button>
+    <button 
+      onClick={() => sendReaction('👏')}
+      className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
+    >
+      👏
+    </button>
+    <button 
+      onClick={() => sendReaction('🎉')}
+      className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
+    >
+      🎉
+    </button>
+    <button 
+      onClick={() => sendReaction('🙋')}
+      className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
+    >
+      🙋
+    </button>
+  </div>
+</div>
 
       {/* Chat Sidebar */}
            {showChat && (
@@ -1367,6 +2362,58 @@ const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } =
         </div>
       )}
 
+{/* Settings Panel */}
+{showSettings && (
+  <div className="absolute inset-0 bg-black/90 backdrop-blur-lg flex items-center justify-center z-50">
+    <div className="w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-950 rounded-2xl border border-cyan-500/30 shadow-2xl overflow-hidden">
+      <div className="p-6 border-b border-cyan-500/20">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-bold text-white">Settings</h3>
+          <button 
+            onClick={() => setShowSettings(false)}
+            className="p-2 text-cyan-300 hover:text-white hover:bg-cyan-500/20 rounded-xl transition-all duration-200"
+          >
+            <X size={20} />
+          </button>
+        </div>
+      </div>
+      
+      <div className="p-6 space-y-4">
+        <div className="space-y-3">
+          <h4 className="font-semibold text-white">Audio Settings</h4>
+          <div className="bg-gray-800/50 rounded-xl p-4">
+            <p className="text-gray-300 text-sm">Microphone: {controls.hasMicrophone ? 'Available' : 'Not available'}</p>
+            <p className="text-gray-300 text-sm mt-1">Status: {controls.audioEnabled ? 'On' : 'Off'}</p>
+          </div>
+        </div>
+        
+        <div className="space-y-3">
+          <h4 className="font-semibold text-white">Video Settings</h4>
+          <div className="bg-gray-800/50 rounded-xl p-4">
+            <p className="text-gray-300 text-sm">Camera: {controls.hasCamera ? 'Available' : 'Not available'}</p>
+            <p className="text-gray-300 text-sm mt-1">Status: {controls.videoEnabled ? 'On' : 'Off'}</p>
+          </div>
+        </div>
+        
+        <div className="space-y-3">
+          <h4 className="font-semibold text-white">Connection</h4>
+          <div className="bg-gray-800/50 rounded-xl p-4 space-y-2">
+            <p className="text-gray-300 text-sm">Quality: {stats.connectionQuality}</p>
+            <p className="text-gray-300 text-sm">Participants: {stats.participantCount}</p>
+            <p className="text-gray-300 text-sm">Duration: {formatDuration(stats.duration)}</p>
+          </div>
+        </div>
+        
+        <button 
+          onClick={leaveSession}
+          className="w-full mt-6 p-4 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-semibold transition-all duration-200"
+        >
+          Leave Call
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       {/* ⚠️ CRITICAL FIX #5: Improved PIP with Better Rendering (From First File) */}
       {(controls.hasCamera || controls.hasMicrophone) && (
         <div 
