@@ -211,6 +211,96 @@ const toggleParticipants = () => {
   }
 };
 
+useEffect(() => {
+  const playLocalVideo = async () => {
+    if (!localTracks.video || !localVideoRef.current) {
+      console.log('⏸️ Local video not ready:', { 
+        hasTrack: !!localTracks.video, 
+        hasRef: !!localVideoRef.current 
+      });
+      return;
+    }
+
+    if (!controls.videoEnabled) {
+      console.log('⏸️ Video disabled by user');
+      return;
+    }
+
+    try {
+      console.log('▶️ Playing local video...');
+      
+      if (localVideoTrackRef.current && localVideoTrackRef.current !== localTracks.video) {
+        localVideoTrackRef.current.stop();
+      }
+
+      await localTracks.video.play(localVideoRef.current);
+      localVideoTrackRef.current = localTracks.video;
+      
+      console.log('✅ Local video playing');
+    } catch (error) {
+      console.error('❌ Failed to play local video:', error);
+      
+      setTimeout(async () => {
+        try {
+          if (localTracks.video && localVideoRef.current) {
+            await localTracks.video.play(localVideoRef.current);
+            localVideoTrackRef.current = localTracks.video;
+            console.log('✅ Local video retry successful');
+          }
+        } catch (retryError) {
+          console.error('❌ Retry failed:', retryError);
+        }
+      }, 500);
+    }
+  };
+
+  playLocalVideo();
+
+  return () => {
+    if (localVideoTrackRef.current) {
+      try {
+        localVideoTrackRef.current.stop();
+      } catch (e) {
+        console.warn('Cleanup warning:', e);
+      }
+    }
+  };
+}, [localTracks.video, controls.videoEnabled]);
+
+useEffect(() => {
+  const playRemoteVideos = async () => {
+    for (const [uid, tracks] of remoteTracks.entries()) {
+      const container = remoteVideoRefs.current.get(String(uid));
+      
+      if (container && tracks.video) {
+        try {
+          if (tracks.video.isPlaying) {
+            continue;
+          }
+          
+          console.log(`▶️ Playing remote video ${uid}`);
+          await tracks.video.play(container);
+          console.log(`✅ Remote video ${uid} playing`);
+        } catch (error) {
+          console.error(`❌ Failed to play remote ${uid}:`, error);
+          
+          setTimeout(async () => {
+            try {
+              if (container && tracks.video && !tracks.video.isPlaying) {
+                await tracks.video.play(container);
+              }
+            } catch (e) {
+              console.error(`❌ Retry failed for ${uid}:`, e);
+            }
+          }, 300);
+        }
+      }
+    }
+  };
+
+  playRemoteVideos();
+}, [remoteTracks]);
+
 // Enhanced participant sorting function
 const getSortedParticipants = () => {
   const allParticipants = Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
@@ -1173,106 +1263,86 @@ const updateVideoSettings = (setting, value) => {
   // ============================================
   // ⚠️ CRITICAL FIX #4: Improved Track Creation (From First File)
   // ============================================
-  const createAndPublishTracks = async () => {
-    try {
-      console.log('🔵 Creating local tracks...');
-      
-      // Check device availability first
-      const devices = await AgoraRTC.getDevices();
-      const hasCamera = devices.some(d => d.kind === 'videoinput');
-      const hasMicrophone = devices.some(d => d.kind === 'audioinput');
-      
-      console.log('📱 Devices available:', { hasCamera, hasMicrophone });
-
-      let audioTrack = null;
-      let videoTrack = null;
-
-      // Create audio track if microphone available
-      if (hasMicrophone) {
-        try {
-          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-            encoderConfig: 'music_standard',
-          });
-          console.log('✅ Audio track created');
-        } catch (error) {
-          console.error('❌ Failed to create audio track:', error);
-        }
+ const createLocalTracks = async () => {
+  try {
+    console.log('🔵 Creating local tracks...');
+    
+    // Create tracks
+    const tracks = await AgoraRTC.createMicrophoneAndCameraTracks(
+      {
+        encoderConfig: 'music_standard',
+      },
+      {
+        encoderConfig: '720p_3',
+        optimizationMode: 'detail'
       }
-
-      // Create video track if camera available
-      if (hasCamera) {
-        try {
-          videoTrack = await AgoraRTC.createCameraVideoTrack({
-            encoderConfig: '720p_3',
-            optimizationMode: 'detail'
-          });
-          console.log('✅ Video track created');
-          
-          // ⚠️ IMPORTANT: Don't play the track here immediately
-          // Let the useEffect handle playback after state updates
-          
-        } catch (error) {
-          console.error('❌ Failed to create video track:', error);
-        }
-      }
-
-      // Update state with new tracks
-      setLocalTracks({ audio: audioTrack, video: videoTrack });
-      setControls(prev => ({
-        ...prev,
-        hasCamera,
-        hasMicrophone,
-        audioEnabled: !!audioTrack,
-        videoEnabled: !!videoTrack
-      }));
-
-      // Publish tracks
+    );
+    
+    const [audioTrack, videoTrack] = tracks;
+    console.log('✅ Audio track created');
+    console.log('✅ Video track created');
+    
+    // Update state (this triggers useEffect to play video)
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
+    setControls(prev => ({
+      ...prev,
+      hasCamera: !!videoTrack,
+      hasMicrophone: !!audioTrack,
+      audioEnabled: !!audioTrack,
+      videoEnabled: !!videoTrack
+    }));
+    
+    // ✅ CRITICAL: Publish tracks so others can see/hear you
+    if (clientRef.current) {
       const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
-      if (tracksToPublish.length > 0 && clientRef.current) {
+      if (tracksToPublish.length > 0) {
         await clientRef.current.publish(tracksToPublish);
         console.log('✅ Published tracks:', tracksToPublish.map(t => t.trackMediaType));
       }
-
-    } catch (error) {
-      console.error('❌ Failed to create/publish tracks:', error);
-      throw error;
     }
-  };
-
+    
+    // ✅ DO NOT play video here - let useEffect handle it
+    
+  } catch (error) {
+    console.error('❌ Failed to create tracks:', error);
+    throw error;
+  }
+};
   // ============================================
   // Toggle Functions with Better Track Management 
   // ============================================
 
-  const toggleAudio = async () => {
-    if (!localTracks.audio || !controls.hasMicrophone) return;
+const toggleVideo = async () => {
+  if (!localTracks.video || !controls.hasCamera) return;
+  
+  try {
+    const newState = !controls.videoEnabled;
     
-    try {
-      const newState = !controls.audioEnabled;
-      await localTracks.audio.setEnabled(newState);
-      setControls(prev => ({ ...prev, audioEnabled: newState }));
-      console.log(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
-      
-      await updateParticipantStatus({ audioEnabled: newState });
-    } catch (error) {
-      console.error('Failed to toggle audio:', error);
-    }
-  };
-
-  const toggleVideo = async () => {
-    if (!localTracks.video || !controls.hasCamera) return;
+    // ✅ Use setEnabled() - does NOT destroy track
+    await localTracks.video.setEnabled(newState);
     
-    try {
-      const newState = !controls.videoEnabled;
-      await localTracks.video.setEnabled(newState);
-      setControls(prev => ({ ...prev, videoEnabled: newState }));
-      console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
-      
-      await updateParticipantStatus({ videoEnabled: newState });
-    } catch (error) {
-      console.error('Failed to toggle video:', error);
-    }
-  };
+    setControls(prev => ({ ...prev, videoEnabled: newState }));
+    console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
+  } catch (error) {
+    console.error('Failed to toggle video:', error);
+  }
+};
 
+const toggleAudio = async () => {
+  if (!localTracks.audio || !controls.hasMicrophone) return;
+  
+  try {
+    const newState = !controls.audioEnabled;
+    
+    // ✅ Use setEnabled() - does NOT destroy track
+    await localTracks.audio.setEnabled(newState);
+    
+    setControls(prev => ({ ...prev, audioEnabled: newState }));
+    console.log(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
+  } catch (error) {
+    console.error('Failed to toggle audio:', error);
+  }
+};
   const toggleHandRaise = async () => {
     const newState = !controls.handRaised;
     setControls(prev => ({ ...prev, handRaised: newState }));
@@ -2643,14 +2713,16 @@ useEffect(() => {
             <div className="w-full h-full bg-black relative">
               {/* ⚠️ CRITICAL: This is where the local video plays */}
               <div 
-                ref={localVideoRef}
-                className="w-full h-full"
-                style={{ 
-                  transform: 'scaleX(-1)', // Mirror effect
-                  opacity: (controls.videoEnabled && localTracks.video) ? 1 : 0,
-                  backgroundColor: '#000'
-                }}
-              />
+  ref={localVideoRef}
+  className="w-full h-full"
+  style={{ 
+    transform: 'scaleX(-1)',
+    opacity: (controls.videoEnabled && localTracks.video) ? 1 : 0,
+    backgroundColor: '#000',  
+    width: '100%',            
+    height: '100%'            
+  }}
+/>
               
               {/* Placeholder when video is off */}
               {(!controls.videoEnabled || !localTracks.video) && (
