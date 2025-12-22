@@ -1235,8 +1235,8 @@ const updateVideoSettings = (setting, value) => {
         }
       }, 10000);
 
-      // Use the improved createAndPublishTracks from first file
-      await createAndPublishTracks();
+      // Use the improved createAndPublish
+      await createLocalTracks();
 
       setSessionState(prev => ({
         ...prev,
