@@ -1264,55 +1264,109 @@ const updateVideoSettings = (setting, value) => {
   // ⚠️ CRITICAL FIX #4: Improved Track Creation (From First File)
   // ============================================
 const createLocalTracks = async () => {
+  console.log('🔵 Creating local tracks...');
+  
+  let audioTrack = null;
+  let videoTrack = null;
+  let hasCamera = false;
+  let hasMicrophone = false;
+
   try {
-    console.log('🔵 Creating local tracks...');
-    
-    // Check what devices are available
-    const devices = await AgoraRTC.getDevices();
-    const hasCamera = devices.some(d => d.kind === 'videoinput');
-    const hasMicrophone = devices.some(d => d.kind === 'audioinput');
-    
-    console.log('📱 Available devices:', { hasCamera, hasMicrophone });
+    // ============================================
+    // STEP 1: Detect Available Devices
+    // ============================================
+    console.log('📱 Detecting devices...');
+    const devices = await AgoraRTC.getDevices().catch(err => {
+      console.error('❌ Failed to get devices:', err);
+      return [];
+    });
 
-    let audioTrack = null;
-    let videoTrack = null;
+    hasCamera = devices.some(d => d.kind === 'videoinput');
+    hasMicrophone = devices.some(d => d.kind === 'audioinput');
+    
+    console.log('📱 Device detection:', {
+      cameras: devices.filter(d => d.kind === 'videoinput').length,
+      microphones: devices.filter(d => d.kind === 'audioinput').length,
+      hasCamera,
+      hasMicrophone
+    });
 
-    // Create audio track IF microphone exists
+    // ============================================
+    // STEP 2: Create Audio Track (if available)
+    // ============================================
     if (hasMicrophone) {
       try {
+        console.log('🎤 Creating audio track...');
         audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
           encoderConfig: 'music_standard',
+          AEC: true, // Echo cancellation
+          ANS: true, // Noise suppression
+          AGC: true  // Auto gain control
         });
-        console.log('✅ Audio track created');
-      } catch (error) {
-        console.error('❌ Failed to create audio track:', error);
+        console.log('✅ Audio track created:', {
+          trackId: audioTrack.getTrackId(),
+          label: audioTrack.getTrackLabel(),
+          enabled: audioTrack.enabled
+        });
+      } catch (audioError) {
+        console.error('❌ Audio track creation failed:', audioError);
+        // Don't throw - continue to try video
+        audioTrack = null;
       }
     } else {
-      console.warn('⚠️ No microphone detected');
+      console.warn('⚠️ No microphone detected - skipping audio track');
     }
 
-    // Create video track IF camera exists
+    // ============================================
+    // STEP 3: Create Video Track (if available)
+    // ============================================
     if (hasCamera) {
       try {
+        console.log('📹 Creating video track...');
         videoTrack = await AgoraRTC.createCameraVideoTrack({
-          encoderConfig: '720p_3',
+          encoderConfig: {
+            width: 1280,
+            height: 720,
+            frameRate: 30,
+            bitrateMin: 600,
+            bitrateMax: 1000
+          },
           optimizationMode: 'detail'
         });
-        console.log('✅ Video track created');
-      } catch (error) {
-        console.error('❌ Failed to create video track:', error);
+        console.log('✅ Video track created:', {
+          trackId: videoTrack.getTrackId(),
+          label: videoTrack.getTrackLabel(),
+          enabled: videoTrack.enabled,
+          muted: videoTrack.muted
+        });
+      } catch (videoError) {
+        console.error('❌ Video track creation failed:', videoError);
+        // Don't throw - continue with audio only
+        videoTrack = null;
       }
     } else {
-      console.warn('⚠️ No camera detected');
+      console.warn('⚠️ No camera detected - skipping video track');
     }
 
-    // Check if we have at least ONE track
+    // ============================================
+    // STEP 4: Validate We Have At Least One Track
+    // ============================================
     if (!audioTrack && !videoTrack) {
-      throw new Error('No camera or microphone available');
+      const errorMsg = !hasCamera && !hasMicrophone 
+        ? 'No camera or microphone detected. Please connect a device and refresh.'
+        : 'Failed to create audio and video tracks. Please check permissions.';
+      throw new Error(errorMsg);
     }
 
-    // Update state
-    setLocalTracks({ audio: audioTrack, video: videoTrack });
+    // ============================================
+    // STEP 5: Update React State
+    // ============================================
+    console.log('🔄 Updating state with tracks...');
+    setLocalTracks({ 
+      audio: audioTrack, 
+      video: videoTrack 
+    });
+    
     setControls(prev => ({
       ...prev,
       hasCamera,
@@ -1321,20 +1375,96 @@ const createLocalTracks = async () => {
       videoEnabled: !!videoTrack
     }));
 
-    console.log(`📢 Joining with: ${audioTrack && videoTrack ? 'audio + video' : audioTrack ? 'audio only' : 'video only'}`);
+    // Log joining mode
+    const mode = audioTrack && videoTrack ? 'Audio + Video' : 
+                 audioTrack ? 'Audio Only' :
+                 videoTrack ? 'Video Only' : 'None';
+    console.log(`📢 Joining call with: ${mode}`);
 
-    // Publish available tracks
-    if (clientRef.current) {
-      const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
-      if (tracksToPublish.length > 0) {
-        await clientRef.current.publish(tracksToPublish);
-        console.log('✅ Published tracks:', tracksToPublish.map(t => t.trackMediaType));
-      }
+    // ============================================
+    // STEP 6: Wait for State to Update
+    // ============================================
+    // Give React a moment to update state before publishing
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // ============================================
+    // STEP 7: Publish Tracks to Agora
+    // ============================================
+    if (!clientRef.current) {
+      console.error('❌ Client ref is null - cannot publish tracks');
+      throw new Error('Agora client not initialized');
     }
 
+    const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
+    
+    if (tracksToPublish.length === 0) {
+      console.warn('⚠️ No tracks to publish');
+      return;
+    }
+
+    console.log(`📤 Publishing ${tracksToPublish.length} track(s)...`);
+    
+    try {
+      await clientRef.current.publish(tracksToPublish);
+      console.log('✅ Tracks published successfully:', 
+        tracksToPublish.map(t => `${t.trackMediaType} (${t.getTrackId()})`).join(', ')
+      );
+    } catch (publishError) {
+      console.error('❌ Failed to publish tracks:', publishError);
+      // Don't throw - tracks are created, just not published
+      // User can still see their own video
+    }
+
+    // ============================================
+    // STEP 8: Verify Video Track is Playing
+    // ============================================
+    if (videoTrack) {
+      // The useEffect should handle playback, but let's verify after a delay
+      setTimeout(() => {
+        if (videoTrack.isPlaying) {
+          console.log('✅ Video track is playing');
+        } else {
+          console.warn('⚠️ Video track created but not playing - check useEffect');
+        }
+      }, 1000);
+    }
+
+    // ============================================
+    // STEP 9: Show User-Friendly Messages
+    // ============================================
+    if (audioTrack && !videoTrack) {
+      console.warn('⚠️ Joined with audio only - camera not available');
+    } else if (!audioTrack && videoTrack) {
+      console.warn('⚠️ Joined with video only - microphone not available');
+    }
+
+    console.log('✅ Track creation complete!');
+
   } catch (error) {
-    console.error('❌ Failed to create tracks:', error);
-    throw error;
+    console.error('❌ Critical error in createLocalTracks:', error);
+    
+    // Clean up any tracks that were created
+    if (audioTrack) {
+      audioTrack.close();
+    }
+    if (videoTrack) {
+      videoTrack.close();
+    }
+
+    // Provide user-friendly error messages
+    let userMessage = 'Failed to access camera/microphone. ';
+    
+    if (error.name === 'NotAllowedError' || error.message.includes('Permission denied')) {
+      userMessage += 'Please allow camera and microphone access in your browser settings.';
+    } else if (error.name === 'NotFoundError' || error.message.includes('not found')) {
+      userMessage += 'No camera or microphone found. Please connect a device.';
+    } else if (error.message.includes('already in use')) {
+      userMessage += 'Camera/microphone is being used by another application.';
+    } else {
+      userMessage += error.message;
+    }
+
+    throw new Error(userMessage);
   }
 };
   // ============================================
