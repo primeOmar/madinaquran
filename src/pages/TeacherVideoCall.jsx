@@ -21,25 +21,37 @@ import {
   VolumeX
 } from 'lucide-react';
 
+
 // ============================================
-// COMPONENTS
+// RESPONSIVE REMOTE VIDEO PLAYER
 // ============================================
 
-const RemoteVideoPlayer = React.memo(({ user, compact = false }) => {
+const RemoteVideoPlayer = React.memo(({ user, isCompact = false, gridConfig }) => {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
+  const [hasError, setHasError] = useState(false);
 
+  // Play video when track is available
   useEffect(() => {
-    if (!videoRef.current || !user.videoTrack) return;
+    if (!videoRef.current || !user.videoTrack || hasError) return;
 
-    const playVideo = () => {
+    const playVideo = async () => {
       try {
+        // Stop if already playing
         if (user.videoTrack.isPlaying) {
           user.videoTrack.stop();
         }
-        user.videoTrack.play(videoRef.current);
+        
+        // Use proper video configuration
+        await user.videoTrack.play(videoRef.current, {
+          fit: 'contain', // Ensures aspect ratio is maintained
+          mirror: false
+        });
+        
+        console.log(`✅ Video playing for user ${user.uid}`);
       } catch (error) {
-        console.warn(`Video play error for user ${user.uid}:`, error);
+        console.warn(`❌ Video play error for user ${user.uid}:`, error);
+        setHasError(true);
       }
     };
 
@@ -50,25 +62,87 @@ const RemoteVideoPlayer = React.memo(({ user, compact = false }) => {
         user.videoTrack.stop();
       }
     };
-  }, [user.videoTrack, user.uid]);
+  }, [user.videoTrack, user.uid, hasError]);
+
+  // Handle container resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (videoRef.current && user.videoTrack) {
+        // Force video to recalculate dimensions
+        user.videoTrack.setPlayerConfiguration?.({
+          fit: 'contain'
+        });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [user.videoTrack]);
+
+  const getResponsiveStyles = () => {
+    const screenWidth = window.innerWidth;
+    
+    if (screenWidth < 640) { // Mobile
+      return {
+        container: {
+          minHeight: '120px',
+          aspectRatio: '16/9'
+        },
+        avatarSize: '40px',
+        fontSize: '12px'
+      };
+    } else if (screenWidth < 1024) { // Tablet
+      return {
+        container: {
+          minHeight: '160px',
+          aspectRatio: gridConfig?.compactView ? '16/9' : '4/3'
+        },
+        avatarSize: '48px',
+        fontSize: '13px'
+      };
+    } else { // Desktop
+      return {
+        container: {
+          minHeight: isCompact ? '140px' : '180px',
+          aspectRatio: isCompact ? '16/9' : '4/3'
+        },
+        avatarSize: '56px',
+        fontSize: '14px'
+      };
+    }
+  };
+
+  const styles = getResponsiveStyles();
 
   return (
     <div 
       ref={containerRef}
-      className={`remote-video-player ${compact ? 'compact' : ''}`}
-      style={{ 
+      className="remote-video-container"
+      style={{
+        position: 'relative',
         width: '100%',
         height: '100%',
-        position: 'relative',
         backgroundColor: '#1a1a2e',
-        borderRadius: '8px',
+        borderRadius: '12px',
         overflow: 'hidden',
-        aspectRatio: compact ? '16/9' : 'auto'
+        ...styles.container,
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+        border: user.audioTrack ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)'
       }}
     >
-      <div ref={videoRef} style={{ width: '100%', height: '100%' }} />
+      {/* Video Element */}
+      <div 
+        ref={videoRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain', // Changed from 'cover' to 'contain'
+          backgroundColor: '#000'
+        }}
+      />
       
-      {!user.videoTrack && (
+      {/* Fallback UI when no video */}
+      {(!user.videoTrack || hasError) && (
         <div style={{
           position: 'absolute',
           top: 0,
@@ -79,47 +153,63 @@ const RemoteVideoPlayer = React.memo(({ user, compact = false }) => {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#1a1a2e'
+          background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)'
         }}>
           <div style={{
-            width: compact ? '40px' : '60px',
-            height: compact ? '40px' : '60px',
+            width: styles.avatarSize,
+            height: styles.avatarSize,
             borderRadius: '50%',
-            backgroundColor: '#4f46e5',
+            background: user.audioTrack 
+              ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+              : 'linear-gradient(135deg, #64748b 0%, #475569 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            marginBottom: compact ? '8px' : '12px',
-            fontSize: compact ? '16px' : '24px'
+            marginBottom: '8px',
+            fontSize: '20px',
+            color: 'white',
+            boxShadow: user.audioTrack ? '0 0 15px rgba(34, 197, 94, 0.3)' : 'none'
           }}>
-            🎓
+            {user.audioTrack ? '🎧' : '👤'}
           </div>
           <p style={{ 
-            fontSize: compact ? '12px' : '14px', 
+            fontSize: styles.fontSize, 
             fontWeight: '500',
-            color: '#a5b4fc',
-            textAlign: 'center'
+            color: user.audioTrack ? '#a5b4fc' : '#94a3b8',
+            textAlign: 'center',
+            margin: '4px 0'
           }}>
             Student {user.uid}
+          </p>
+          <p style={{ 
+            fontSize: '11px', 
+            color: '#64748b',
+            textAlign: 'center'
+          }}>
+            {user.audioTrack ? 'Audio only' : 'Connecting...'}
           </p>
         </div>
       )}
       
+      {/* Bottom Info Bar */}
       <div style={{
         position: 'absolute',
-        bottom: '8px',
-        left: '8px',
-        right: '8px',
+        bottom: '0',
+        left: '0',
+        right: '0',
+        background: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+        padding: '8px 12px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
         <span style={{
-          background: 'rgba(0, 0, 0, 0.6)',
+          background: 'rgba(0, 0, 0, 0.7)',
           color: 'white',
-          padding: '2px 8px',
-          borderRadius: '4px',
-          fontSize: '12px',
+          padding: '3px 10px',
+          borderRadius: '20px',
+          fontSize: '11px',
+          fontWeight: '500',
           maxWidth: '70%',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -128,22 +218,44 @@ const RemoteVideoPlayer = React.memo(({ user, compact = false }) => {
           Student {user.uid}
         </span>
         
-        {user.audioTrack && (
-          <span style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#22c55e',
-            animation: 'pulse 2s infinite'
-          }} />
-        )}
+        {/* Audio Indicator */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          {user.audioTrack && (
+            <>
+              <span style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#22c55e',
+                animation: 'pulse 2s infinite'
+              }} />
+              <span style={{
+                width: '4px',
+                height: '4px',
+                borderRadius: '50%',
+                backgroundColor: '#22c55e',
+                animation: 'pulse 2s infinite 0.5s'
+              }} />
+              <span style={{
+                width: '2px',
+                height: '2px',
+                borderRadius: '50%',
+                backgroundColor: '#22c55e',
+                animation: 'pulse 2s infinite 1s'
+              }} />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 });
 
 RemoteVideoPlayer.displayName = 'RemoteVideoPlayer';
-
 // ============================================
 // MAIN TEACHER VIDEO CALL COMPONENT
 // ============================================
@@ -160,6 +272,41 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     error: null,
      cameraWarning: null
   });
+
+const optimizeVideoQuality = () => {
+  if (!clientRef.current) return;
+  
+  // Get network quality
+  const quality = clientRef.current.getNetworkQuality();
+  
+  // Adjust video quality based on network
+  if (localTracks.video) {
+    let encoderConfig;
+    
+    if (quality.uplinkNetworkQuality >= 4) { // Excellent
+      encoderConfig = '1080p_3'; // High quality
+    } else if (quality.uplinkNetworkQuality >= 2) { // Good
+      encoderConfig = '720p_3'; // Medium quality
+    } else { // Poor
+      encoderConfig = '480p_3'; // Low quality
+    }
+    
+    try {
+      localTracks.video.setEncoderConfiguration(encoderConfig);
+      console.log(`🎥 Video quality set to: ${encoderConfig}`);
+    } catch (error) {
+      console.warn('Cannot adjust video quality:', error);
+    }
+  }
+};
+
+// Call this periodically
+useEffect(() => {
+  if (sessionState.isJoined) {
+    const interval = setInterval(optimizeVideoQuality, 10000);
+    return () => clearInterval(interval);
+  }
+}, [sessionState.isJoined, localTracks.video]);
 
   const [participantSync, setParticipantSync] = useState({
   lastSync: 0,
@@ -225,30 +372,49 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // RESPONSIVE CALCULATIONS
   // ============================================
   
-  const calculateGridConfig = useCallback(() => {
-    const remoteCount = remoteUsers.size;
-    const screenWidth = window.innerWidth;
+// Replace the calculateGridConfig function (lines 69-88) with:
+
+const calculateGridConfig = useCallback(() => {
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  const remoteCount = remoteUsers.size;
+  
+  // Mobile phones
+  if (screenWidth < 640) {
+    return {
+      maxVisible: 4,
+      gridCols: remoteCount === 1 ? 1 : 2, // Single user gets full width
+      compactView: true,
+      gridGap: '8px'
+    };
+  } 
+  // Tablets
+  else if (screenWidth < 1024) {
+    const cols = remoteCount <= 2 ? 2 : 3;
+    return {
+      maxVisible: 6,
+      gridCols: cols,
+      compactView: false,
+      gridGap: '12px'
+    };
+  } 
+  // Desktop
+  else {
+    // Dynamic columns based on participant count
+    let gridCols;
+    if (remoteCount <= 1) gridCols = 1;
+    else if (remoteCount <= 4) gridCols = 2;
+    else if (remoteCount <= 9) gridCols = 3;
+    else gridCols = 4;
     
-    if (screenWidth < 640) { // Mobile
-      return {
-        maxVisible: 4,
-        gridCols: 2,
-        compactView: true
-      };
-    } else if (screenWidth < 1024) { // Tablet
-      return {
-        maxVisible: 6,
-        gridCols: 3,
-        compactView: false
-      };
-    } else { // Desktop
-      return {
-        maxVisible: uiState.layoutMode === 'auto' ? 8 : 12,
-        gridCols: uiState.layoutMode === 'auto' ? 4 : 6,
-        compactView: false
-      };
-    }
-  }, [remoteUsers.size, uiState.layoutMode]);
+    return {
+      maxVisible: uiState.layoutMode === 'grid' ? 12 : 9,
+      gridCols,
+      compactView: false,
+      gridGap: '16px'
+    };
+  }
+}, [remoteUsers.size, uiState.layoutMode]);
 
   const getVisibleUsers = useMemo(() => {
     const config = calculateGridConfig();
@@ -1352,142 +1518,106 @@ const cleanup = async () => {
         display: 'flex',
         gap: '20px'
       }}>
-        {/* Main Students Grid */}
-        <div style={{ 
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px'
-        }}>
-          {/* Layout Controls */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '8px 0'
-          }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button 
-                onClick={() => changeLayout('auto')}
-                style={{
-                  padding: '6px 12px',
-                  background: uiState.layoutMode === 'auto' ? '#4f46e5' : 'rgba(255, 255, 255, 0.1)',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: 'white',
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                Auto
-              </button>
-              <button 
-                onClick={() => changeLayout('grid')}
-                style={{
-                  padding: '6px 12px',
-                  background: uiState.layoutMode === 'grid' ? '#4f46e5' : 'rgba(255, 255, 255, 0.1)',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: 'white',
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                <Grid3x3 size={14} />
-              </button>
-            </div>
-            
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button 
-                  onClick={() => navigatePage(-1)}
-                  disabled={currentPage === 0}
-                  style={{
-                    padding: '4px',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: 'none',
-                    borderRadius: '4px',
-                    color: currentPage === 0 ? '#64748b' : 'white',
-                    cursor: currentPage === 0 ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                
-                <span style={{ color: '#94a3b8', fontSize: '12px' }}>
-                  {currentPage + 1} / {totalPages}
-                </span>
-                
-                <button 
-                  onClick={() => navigatePage(1)}
-                  disabled={currentPage === totalPages - 1}
-                  style={{
-                    padding: '4px',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: 'none',
-                    borderRadius: '4px',
-                    color: currentPage === totalPages - 1 ? '#64748b' : 'white',
-                    cursor: currentPage === totalPages - 1 ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            )}
-          </div>
-          
-          {/* Students Grid */}
-          <div style={{
-            flex: 1,
-            display: 'grid',
-            gridTemplateColumns: `repeat(${config.gridCols}, 1fr)`,
-            gap: '16px',
-            overflowY: 'auto',
-            padding: '4px'
-          }}>
-            {visibleUsers.map(user => (
-              <div 
-                key={user.uid}
-                style={{
-                  position: 'relative',
-                  backgroundColor: '#1e293b',
-                  borderRadius: '12px',
-                  overflow: 'hidden',
-                  border: uiState.activeSpeakerId === user.uid 
-                    ? '2px solid #4f46e5' 
-                    : '1px solid rgba(255, 255, 255, 0.1)',
-                  minHeight: config.compactView ? '120px' : '160px'
-                }}
-              >
-                <RemoteVideoPlayer user={user} compact={config.compactView} />
-              </div>
-            ))}
-            
-            {/* Empty State */}
-            {visibleUsers.length === 0 && (
-              <div style={{
-                gridColumn: `1 / span ${config.gridCols}`,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '300px',
-                color: '#64748b'
-              }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}>
-                  👥
-                </div>
-                <h3 style={{ color: 'white', marginBottom: '8px' }}>
-                  Waiting for students...
-                </h3>
-                <p style={{ textAlign: 'center', maxWidth: '400px' }}>
-                  Students will appear here when they join your session
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+
+{/*  Responsive Students Grid */}
+<div style={{
+  flex: 1,
+  display: 'grid',
+  gridTemplateColumns: `repeat(${config.gridCols}, 1fr)`,
+  gridAutoRows: 'minmax(140px, 1fr)', // Better row sizing
+  gap: '12px',
+  overflowY: 'auto',
+  padding: '8px',
+  alignContent: 'start'
+}}>
+  {visibleUsers.map(user => (
+    <div 
+      key={user.uid}
+      className="student-video-container"
+      style={{
+        position: 'relative',
+        backgroundColor: '#1e293b',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        border: uiState.activeSpeakerId === user.uid 
+          ? '2px solid #4f46e5' 
+          : '1px solid rgba(255, 255, 255, 0.1)',
+        transition: 'all 0.2s ease',
+        // Responsive constraints
+        minHeight: config.compactView ? '120px' : '160px',
+        maxHeight: config.compactView ? '200px' : '240px'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'scale(1.02)';
+        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.3)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'scale(1)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+    >
+      <RemoteVideoPlayer 
+        user={user} 
+        isCompact={config.compactView}
+        gridConfig={config}
+      />
+    </div>
+  ))}
+  
+  {/* Empty State with better responsiveness */}
+  {visibleUsers.length === 0 && (
+    <div style={{
+      gridColumn: `1 / span ${config.gridCols}`,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '300px',
+      color: '#64748b',
+      textAlign: 'center',
+      padding: '20px'
+    }}>
+      <div style={{ 
+        fontSize: window.innerWidth < 768 ? '56px' : '72px',
+        marginBottom: '16px', 
+        opacity: 0.5,
+        animation: 'pulse 3s infinite'
+      }}>
+        👥
+      </div>
+      <h3 style={{ 
+        color: 'white', 
+        marginBottom: '8px',
+        fontSize: window.innerWidth < 768 ? '18px' : '24px'
+      }}>
+        Waiting for students to join...
+      </h3>
+      <p style={{ 
+        textAlign: 'center', 
+        maxWidth: window.innerWidth < 768 ? '300px' : '500px',
+        fontSize: window.innerWidth < 768 ? '14px' : '16px',
+        lineHeight: '1.5',
+        color: '#94a3b8'
+      }}>
+        Share the meeting link with your students. They will appear here automatically when they join.
+      </p>
+      <div style={{
+        marginTop: '20px',
+        display: 'flex',
+        gap: '8px',
+        alignItems: 'center',
+        padding: '12px 20px',
+        background: 'rgba(79, 70, 229, 0.1)',
+        borderRadius: '12px',
+        border: '1px solid rgba(79, 70, 229, 0.3)'
+      }}>
+        <span style={{ color: '#a5b4fc', fontSize: '14px' }}>
+          📋 Meeting ID: <strong>{sessionState.sessionInfo?.meetingId || 'Loading...'}</strong>
+        </span>
+      </div>
+    </div>
+  )}
+</div>
         
         {/* Side Panel (Participants/Chat) */}
         <div style={{ 
