@@ -806,3 +806,23 @@
     user-select: none !important;
   }
 }
+/* Mobile video fixes */
+video {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Prevent zoom on mobile */
+@media (max-width: 768px) {
+  video {
+    touch-action: manipulation;
+  }
+  
+  .video-call-container {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}

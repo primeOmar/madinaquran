@@ -32,37 +32,59 @@ const RemoteVideoPlayer = React.memo(({ user, isCompact = false, gridConfig }) =
   const [hasError, setHasError] = useState(false);
 
   // Play video when track is available
-  useEffect(() => {
-    if (!videoRef.current || !user.videoTrack || hasError) return;
 
-    const playVideo = async () => {
-      try {
-        // Stop if already playing
-        if (user.videoTrack.isPlaying) {
-          user.videoTrack.stop();
-        }
-        
-        // Use proper video configuration
-        await user.videoTrack.play(videoRef.current, {
-          fit: 'contain', // Ensures aspect ratio is maintained
-          mirror: false
-        });
-        
-        console.log(`✅ Video playing for user ${user.uid}`);
-      } catch (error) {
-        console.warn(`❌ Video play error for user ${user.uid}:`, error);
-        setHasError(true);
-      }
-    };
+useEffect(() => {
+  if (!videoRef.current || !user.videoTrack || hasError) return;
 
-    playVideo();
-
-    return () => {
-      if (user.videoTrack?.isPlaying) {
+  const playVideo = async () => {
+    try {
+      // Stop if already playing
+      if (user.videoTrack.isPlaying) {
         user.videoTrack.stop();
       }
-    };
-  }, [user.videoTrack, user.uid, hasError]);
+      
+      // ✅ MOBILE FIX: Play without options first
+      try {
+        await user.videoTrack.play(videoRef.current);
+      } catch (firstError) {
+        // ✅ Retry with explicit mobile-friendly config
+        await user.videoTrack.play(videoRef.current, {
+          fit: 'cover', // Changed from 'contain' for mobile
+          mirror: false
+        });
+      }
+      
+      console.log(`✅ Video playing for user ${user.uid}`);
+      setHasError(false);
+    } catch (error) {
+      console.error(`❌ Video play error for user ${user.uid}:`, error);
+      
+      // ✅ Try one more time after delay (mobile browser issue)
+      setTimeout(async () => {
+        try {
+          await user.videoTrack.play(videoRef.current);
+          console.log(`✅ Video playing on retry for user ${user.uid}`);
+          setHasError(false);
+        } catch (retryError) {
+          console.error(`❌ Retry failed for user ${user.uid}:`, retryError);
+          setHasError(true);
+        }
+      }, 1000);
+    }
+  };
+
+  playVideo();
+
+  return () => {
+    if (user.videoTrack?.isPlaying) {
+      try {
+        user.videoTrack.stop();
+      } catch (err) {
+        console.warn('Error stopping video:', err);
+      }
+    }
+  };
+}, [user.videoTrack, user.uid]);
 
   // Handle container resize
   useEffect(() => {
@@ -131,15 +153,19 @@ const RemoteVideoPlayer = React.memo(({ user, isCompact = false, gridConfig }) =
       }}
     >
       {/* Video Element */}
-      <div 
-        ref={videoRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain', // Changed from 'cover' to 'contain'
-          backgroundColor: '#000'
-        }}
-      />
+     <div 
+  ref={videoRef} 
+  style={{ 
+    width: '100%', 
+    height: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#000', 
+    // ✅ MOBILE FIX: Ensure proper rendering
+    WebkitTransform: 'translateZ(0)', 
+    transform: 'translateZ(0)'
+  }} 
+/>
       
       {/* Fallback UI when no video */}
       {(!user.videoTrack || hasError) && (
@@ -335,12 +361,53 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   const controlsTimeoutRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const videoApiRef = useRef(videoApi);
+
+  // ✅ MOBILE DETECTION
+const isMobile = useMemo(() => {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}, []);
+
+// ✅ MOBILE-SPECIFIC EFFECT: Handle screen wake lock
+useEffect(() => {
+  if (!isMobile || !sessionState.isJoined) return;
+  
+  let wakeLock = null;
+  
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        console.log('✅ Screen wake lock active');
+      }
+    } catch (err) {
+      console.warn('Wake lock failed:', err);
+    }
+  };
+  
+  requestWakeLock();
+  
+  // Re-request on visibility change
+  const handleVisibilityChange = () => {
+    if (wakeLock !== null && document.visibilityState === 'visible') {
+      requestWakeLock();
+    }
+  };
+  
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    if (wakeLock !== null) {
+      wakeLock.release();
+    }
+  };
+}, [isMobile, sessionState.isJoined]);
   
   // ============================================
   // RESPONSIVE CALCULATIONS
   // ============================================
   
-// Replace the calculateGridConfig function (lines 69-88) with:
+
 
 const calculateGridConfig = useCallback(() => {
   const screenWidth = window.innerWidth;
@@ -600,7 +667,7 @@ useEffect(() => {
       // Create new Agora client
       clientRef.current = AgoraRTC.createClient({ 
         mode: 'rtc', 
-        codec: 'vp8' 
+        codec: isMobile ? 'h264' : 'vp8'  
       });
       
       // Get fresh session data from backend
@@ -630,7 +697,7 @@ useEffect(() => {
       // ✅ Create a NEW client for rejoin
       clientRef.current = AgoraRTC.createClient({ 
         mode: 'rtc', 
-        codec: 'vp8' 
+        codec: isMobile ? 'h264' : 'vp8'
       });
       
       setSessionState(prev => ({
@@ -797,7 +864,7 @@ const syncExistingParticipants = async () => {
   }
 };
 
-// Call it after successful join
+// Callafter successful join
 useEffect(() => {
   if (sessionState.isJoined && sessionState.sessionInfo?.meetingId) {
     // Wait 3 seconds for Agora connection to stabilize
@@ -809,6 +876,35 @@ useEffect(() => {
   }
 }, [sessionState.isJoined]);
  
+// ✅ MOBILE FIX: Touch to activate video playback
+useEffect(() => {
+  if (!isMobile) return;
+  
+  const handleTouch = () => {
+    // Force play all remote videos on touch (mobile autoplay fix)
+    remoteUsers.forEach((user) => {
+      if (user.videoTrack && !user.videoTrack.isPlaying) {
+        user.videoTrack.play().catch(err => 
+          console.warn('Touch play failed:', err)
+        );
+      }
+    });
+    
+    // Force play local video
+    if (localTracks.video && !localTracks.video.isPlaying && localVideoRef.current) {
+      localTracks.video.play(localVideoRef.current).catch(err =>
+        console.warn('Local touch play failed:', err)
+      );
+    }
+  };
+  
+  document.addEventListener('touchstart', handleTouch, { once: true });
+  
+  return () => {
+    document.removeEventListener('touchstart', handleTouch);
+  };
+}, [isMobile, remoteUsers, localTracks.video]); 
+
 const optimizeVideoQuality = () => {
   if (!clientRef.current) return;
   
@@ -861,7 +957,7 @@ const showCameraWarning = (error) => {
   }, 10000);
 };
 
-const createAndPublishTracks = async () => {
+const createAndPublishTracks = useCallback(async () => {
   try {
     console.log('🎥 Creating audio/video tracks...');
     
@@ -869,47 +965,56 @@ const createAndPublishTracks = async () => {
     let videoTrack = null;
     let hasCameraError = false;
     
-    // ✅ Try to create audio track (required)
+    // ✅ MOBILE FIX: Add constraints for mobile compatibility
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // Create audio track
     try {
       audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        encoderConfig: 'music_standard',
+        encoderConfig: isMobile ? 'speech_standard' : 'music_standard',
+        AEC: true, // ✅ Echo cancellation for mobile
+        ANS: true, // ✅ Noise suppression for mobile
+        AGC: true  // ✅ Auto gain control for mobile
       });
       console.log('✅ Audio track created');
     } catch (audioError) {
       console.error('❌ Failed to create audio track:', audioError);
-      // Audio failure is more critical, but we can still continue
-      if (audioError.code === 'PERMISSION_DENIED') {
-        console.warn('⚠️ Microphone permission denied - continuing without audio');
-      }
     }
     
-    // ✅ Try to create video track (optional - graceful degradation)
+    // Create video track with mobile-optimized settings
     try {
-      videoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: '720p_3',
-      });
+      const videoConfig = isMobile 
+        ? {
+            encoderConfig: {
+              width: 640,
+              height: 480,
+              frameRate: 15, // ✅ Lower frame rate for mobile
+              bitrateMax: 600, // ✅ Lower bitrate for mobile
+              bitrateMin: 300
+            },
+            optimizationMode: 'detail' // ✅ Better for mobile
+          }
+        : {
+            encoderConfig: '720p_3'
+          };
+      
+      videoTrack = await AgoraRTC.createCameraVideoTrack(videoConfig);
       console.log('✅ Video track created');
     } catch (videoError) {
       console.error('❌ Failed to create video track:', videoError);
       hasCameraError = true;
-      
-      // ✅ Show friendly message instead of blocking
-      if (videoError.code === 'PERMISSION_DENIED') {
-        console.warn('⚠️ Camera permission denied - joining with audio only');
-      } else if (videoError.code === 'DEVICE_NOT_FOUND') {
-        console.warn('⚠️ No camera detected - joining with audio only');
-      } else {
-        console.warn('⚠️ Camera unavailable - joining with audio only');
-      }
-      
-      // ✅ Show non-blocking notification to user
       showCameraWarning(videoError);
     }
     
-    // ✅ Update state IMMEDIATELY with whatever tracks we have
+    // Update state with tracks
     setLocalTracks({ audio: audioTrack, video: videoTrack });
     
-    // ✅ Play local video ONLY if we have a video track
+    // ✅ MOBILE FIX: Wait a bit before playing on mobile
+    if (isMobile) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    // Play local video
     if (videoTrack && localVideoRef.current) {
       try {
         await videoTrack.play(localVideoRef.current);
@@ -917,50 +1022,53 @@ const createAndPublishTracks = async () => {
         console.log('✅ Local video playing');
       } catch (playError) {
         console.error('❌ Failed to play local video:', playError);
+        
+        // ✅ Retry for mobile
+        if (isMobile) {
+          setTimeout(async () => {
+            try {
+              await videoTrack.play(localVideoRef.current);
+              localVideoRef.current.style.transform = 'scaleX(-1)';
+              console.log('✅ Local video playing on retry');
+            } catch (retryError) {
+              console.error('❌ Retry failed:', retryError);
+            }
+          }, 1000);
+        }
       }
-    } else if (!videoTrack) {
-      console.log('ℹ️ No video track - displaying audio-only mode');
     }
     
-    // ✅ Publish whatever tracks we have (audio-only is fine!)
+    // Publish tracks
     const tracksToPublish = [];
     if (audioTrack) tracksToPublish.push(audioTrack);
     if (videoTrack) tracksToPublish.push(videoTrack);
     
     if (tracksToPublish.length > 0) {
       await clientRef.current.publish(tracksToPublish);
-      console.log(`✅ Published ${tracksToPublish.length} track(s): ${
-        audioTrack ? 'audio' : ''
-      }${audioTrack && videoTrack ? '+' : ''}${
-        videoTrack ? 'video' : ''
-      }`);
-    } else {
-      console.warn('⚠️ No tracks to publish - this may cause issues!');
+      console.log(`✅ Published ${tracksToPublish.length} track(s)`);
     }
     
-    // ✅ Update controls state
+    // Update controls
     setControls(prev => ({
       ...prev,
       audioEnabled: !!audioTrack,
       videoEnabled: !!videoTrack
     }));
     
-    // ✅ If no camera, show audio-only indicator
     if (hasCameraError) {
       setUiState(prev => ({ ...prev, audioOnlyMode: true }));
     }
     
   } catch (error) {
     console.error('❌ Error in createAndPublishTracks:', error);
-    // ✅ Only fail if we couldn't create ANY tracks
     if (!localTracks.audio && !localTracks.video) {
       setSessionState(prev => ({
         ...prev,
-        error: `Failed to initialize any media devices: ${error.message}`
+        error: `Failed to initialize media: ${error.message}`
       }));
     }
   }
-};
+}, [localTracks.audio, localTracks.video, showCameraWarning]);
   
 const leaveSession = async () => {
   try {
@@ -1770,32 +1878,52 @@ const cleanup = async () => {
   transition: 'transform 0.3s'
 }}>
   {/* ✅ Show video if available */}
-  {localTracks.video && (
-    <video
-      ref={(el) => {
-        localVideoRef.current = el;
-        if (el && localTracks.video && !localTracks.video.isPlaying) {
-          localTracks.video.play(el).then(() => {
+
+{localTracks.video && (
+  <video
+    ref={(el) => {
+      localVideoRef.current = el;
+      if (el && localTracks.video && !localTracks.video.isPlaying) {
+        // ✅ MOBILE FIX: Play immediately when ref is attached
+        const playMobileVideo = async () => {
+          try {
+            await localTracks.video.play(el);
             el.style.transform = 'scaleX(-1)';
-            console.log('✅ Video playing from ref callback');
-          }).catch(err => {
-            console.error('❌ Video play error from ref:', err);
-          });
-        }
-      }}
-      autoPlay
-      playsInline
-      muted
-      style={{
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover',
-        transform: 'scaleX(-1)',
-        display: controls.videoEnabled ? 'block' : 'none',
-        backgroundColor: '#000'
-      }}
-    />
-  )}
+            console.log('✅ Local video playing from ref callback');
+          } catch (err) {
+            console.error('❌ Local video play error:', err);
+            // ✅ Retry after delay for mobile
+            setTimeout(async () => {
+              try {
+                await localTracks.video.play(el);
+                el.style.transform = 'scaleX(-1)';
+              } catch (retryErr) {
+                console.error('❌ Local video retry failed:', retryErr);
+              }
+            }, 500);
+          }
+        };
+        playMobileVideo();
+      }
+    }}
+    autoPlay
+    playsInline
+    muted
+    webkit-playsinline="true" // ✅ iOS specific
+    style={{
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      transform: 'scaleX(-1)',
+      display: controls.videoEnabled ? 'block' : 'none',
+      backgroundColor: '#000',
+      // ✅ MOBILE FIX: Hardware acceleration
+      WebkitTransform: 'translateZ(0) scaleX(-1)',
+      backfaceVisibility: 'hidden',
+      WebkitBackfaceVisibility: 'hidden'
+    }}
+  />
+)}
   
   {/* ✅ Show audio-only indicator when no camera */}
   {(!localTracks.video || !controls.videoEnabled) && (
