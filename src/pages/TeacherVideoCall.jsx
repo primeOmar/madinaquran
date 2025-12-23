@@ -377,20 +377,26 @@ useEffect(() => {
   // CORE FUNCTIONS
   // ============================================
   
-  const initializeSession = async () => {
-    if (loading.isConnecting) return;
+ const initializeSession = async () => {
+  if (loading.isConnecting) return;
+  
+  try {
+    setLoading(prev => ({ ...prev, isConnecting: true }));
     
-    try {
-      setLoading(prev => ({ ...prev, isConnecting: true }));
+    // ✅ Check if we already have session info (rejoining case)
+    let sessionData = sessionState.sessionInfo;
+    
+    if (!sessionData || !sessionData.token) {
+      console.log('🆕 Starting NEW session...');
       
-      // Create Agora client
+      // Create new Agora client
       clientRef.current = AgoraRTC.createClient({ 
         mode: 'rtc', 
         codec: 'vp8' 
       });
       
-      // Get session data
-      const sessionData = await videoApi.startVideoSession(classId, teacherId);
+      // Get fresh session data from backend
+      sessionData = await videoApi.startVideoSession(classId, teacherId);
       
       if (!sessionData.success) {
         throw new Error(sessionData.error || 'Failed to start session');
@@ -410,20 +416,41 @@ useEffect(() => {
         sessionInfo: sessionData,
         error: null
       });
+    } else {
+      console.log('🔄 REJOINING existing session...');
       
-      // Join channel
-      await joinChannel(sessionData);
+      // ✅ Create a NEW client for rejoin
+      clientRef.current = AgoraRTC.createClient({ 
+        mode: 'rtc', 
+        codec: 'vp8' 
+      });
       
-    } catch (error) {
-      console.error('Initialization error:', error);
-      setSessionState(prev => ({ ...prev, error: error.message }));
-    } finally {
-      setLoading(prev => ({ ...prev, isConnecting: false }));
+      setSessionState(prev => ({
+        ...prev,
+        isInitialized: true,
+        isJoined: false,
+        error: null
+      }));
     }
-  };
-  const joinChannel = async (sessionData) => {
+    
+    // Join channel (works for both new and rejoin)
+    await joinChannel(sessionData);
+    
+  } catch (error) {
+    console.error('Initialization error:', error);
+    setSessionState(prev => ({ ...prev, error: error.message }));
+  } finally {
+    setLoading(prev => ({ ...prev, isConnecting: false }));
+  }
+};
+
+
+const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
+    
+    // ✅ Setup event listeners BEFORE joining
+    setupAgoraEventListeners();
     
     const assignedUid = await clientRef.current.join(
       appId,
@@ -432,25 +459,25 @@ useEffect(() => {
       uid || null
     );
     
-    console.log('✅ Teacher rejoined channel:', { 
+    console.log('✅ Teacher joined channel:', { 
       channel, 
       assignedUid,
+      isRejoin: !!sessionState.sessionInfo,
       timestamp: new Date().toISOString()
     });
-    
-    // ✅ CRITICAL: After joining, resubscribe to existing users
-    setTimeout(() => {
-      resubscribeToAllUsers();
-    }, 2000); // Wait 2 seconds for connection to stabilize
     
     // Create and publish tracks
     await createAndPublishTracks();
     
     setSessionState(prev => ({ ...prev, isJoined: true }));
     
-    // Start tracking and listeners
+    // Start tracking
     startDurationTracking();
-    setupAgoraEventListeners();
+    
+    // ✅ CRITICAL: Wait for connection to stabilize, then resubscribe
+    setTimeout(async () => {
+      await forceResubscribeToAllUsers();
+    }, 2000);
     
   } catch (error) {
     console.error('Join channel error:', error);
@@ -458,6 +485,79 @@ useEffect(() => {
   }
 };
 
+const forceResubscribeToAllUsers = async () => {
+  try {
+    console.log('🔄 Force resubscribing to all users in channel...');
+    
+    const client = clientRef.current;
+    if (!client) {
+      console.warn('⚠️ No client available for resubscribe');
+      return;
+    }
+    
+    // Get ALL remote users currently in the channel
+    const remoteUsersList = client.remoteUsers || [];
+    console.log(`👥 Found ${remoteUsersList.length} remote users in channel`);
+    
+    if (remoteUsersList.length === 0) {
+      console.log('ℹ️ No remote users to subscribe to yet');
+      return;
+    }
+    
+    // Subscribe to each user's tracks
+    for (const user of remoteUsersList) {
+      console.log(`🔌 Processing user ${user.uid}:`, {
+        hasAudio: user.hasAudio,
+        hasVideo: user.hasVideo
+      });
+      
+      try {
+        // Subscribe to audio if published
+        if (user.hasAudio && !user.audioTrack) {
+          await client.subscribe(user, 'audio');
+          console.log(`✅ Subscribed to AUDIO from user ${user.uid}`);
+          
+          // Auto-play audio
+          if (user.audioTrack) {
+            user.audioTrack.play().catch(err => 
+              console.warn(`Audio play error for ${user.uid}:`, err)
+            );
+          }
+        }
+        
+        // Subscribe to video if published
+        if (user.hasVideo && !user.videoTrack) {
+          await client.subscribe(user, 'video');
+          console.log(`✅ Subscribed to VIDEO from user ${user.uid}`);
+        }
+        
+        // ✅ Add user to remoteUsers Map
+        setRemoteUsers(prev => {
+          const updated = new Map(prev);
+          updated.set(user.uid, {
+            uid: user.uid,
+            videoTrack: user.videoTrack,
+            audioTrack: user.audioTrack
+          });
+          return updated;
+        });
+        
+      } catch (error) {
+        console.error(`❌ Failed to subscribe to user ${user.uid}:`, error);
+      }
+    }
+    
+    // Force UI refresh after 500ms
+    setTimeout(() => {
+      setRemoteUsers(prev => new Map(prev));
+      updateParticipantCount();
+      console.log('✅ Force resubscribe complete. Remote users count:', remoteUsersList.length);
+    }, 500);
+    
+  } catch (error) {
+    console.error('❌ Force resubscribe error:', error);
+  }
+};
 
 const syncExistingParticipants = async () => {
   if (!sessionState.sessionInfo?.meetingId || !teacherId) return;
@@ -611,37 +711,49 @@ const resubscribeToAllUsers = async () => {
     const client = clientRef.current;
     if (!client) return;
     
-    client.on('user-published', async (user, mediaType) => {
-      try {
-        await client.subscribe(user, mediaType);
-        
-        setRemoteUsers(prev => {
-          const updated = new Map(prev);
-          const existing = updated.get(user.uid) || { uid: user.uid };
-          
-          if (mediaType === 'video') existing.videoTrack = user.videoTrack;
-          if (mediaType === 'audio') existing.audioTrack = user.audioTrack;
-          
-          updated.set(user.uid, existing);
-          return updated;
-        });
-        
-        // Auto-play audio
-        if (mediaType === 'audio' && user.audioTrack) {
-          user.audioTrack.play().catch(() => {});
-        }
-        
-        updateParticipantCount();
-        
-        // Set as active speaker if first user
-        if (remoteUsers.size === 0) {
-          setUiState(prev => ({ ...prev, activeSpeakerId: user.uid }));
-        }
-        
-      } catch (error) {
-        console.error('Subscribe error:', error);
+   client.on('user-published', async (user, mediaType) => {
+  try {
+    console.log(`📢 User ${user.uid} published ${mediaType}`);
+    
+    // Subscribe to the media
+    await client.subscribe(user, mediaType);
+    console.log(`✅ Subscribed to ${mediaType} from user ${user.uid}`);
+    
+    // Update remote users map
+    setRemoteUsers(prev => {
+      const updated = new Map(prev);
+      const existing = updated.get(user.uid) || { uid: user.uid };
+      
+      if (mediaType === 'video') {
+        existing.videoTrack = user.videoTrack;
       }
+      if (mediaType === 'audio') {
+        existing.audioTrack = user.audioTrack;
+      }
+      
+      updated.set(user.uid, existing);
+      console.log(`📊 Remote users updated. Total: ${updated.size}`);
+      return updated;
     });
+    
+    // Auto-play audio
+    if (mediaType === 'audio' && user.audioTrack) {
+      user.audioTrack.play().catch(err => 
+        console.warn(`Audio play error for ${user.uid}:`, err)
+      );
+    }
+    
+    updateParticipantCount();
+    
+    // Set as active speaker if first user
+    if (remoteUsers.size === 0) {
+      setUiState(prev => ({ ...prev, activeSpeakerId: user.uid }));
+    }
+    
+  } catch (error) {
+    console.error(`❌ Subscribe error for user ${user.uid}:`, error);
+  }
+});
     
     client.on('user-unpublished', (user, mediaType) => {
       setRemoteUsers(prev => {
@@ -830,40 +942,55 @@ const resubscribeToAllUsers = async () => {
   // CLEANUP
   // ============================================
   
-  const cleanup = async () => {
-    // Clear intervals
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-      durationIntervalRef.current = null;
-    }
-    
-    // Unpublish and cleanup local tracks
-    if (localTracks.audio) {
+const cleanup = async () => {
+  // Clear intervals
+  if (durationIntervalRef.current) {
+    clearInterval(durationIntervalRef.current);
+    durationIntervalRef.current = null;
+  }
+  
+  // Unpublish and cleanup local tracks
+  if (localTracks.audio) {
+    try {
       await clientRef.current?.unpublish([localTracks.audio]);
       localTracks.audio.stop();
       localTracks.audio.close();
+    } catch (err) {
+      console.warn('Audio cleanup error:', err);
     }
-    
-    if (localTracks.video) {
+  }
+  
+  if (localTracks.video) {
+    try {
       await clientRef.current?.unpublish([localTracks.video]);
       localTracks.video.stop();
       localTracks.video.close();
+    } catch (err) {
+      console.warn('Video cleanup error:', err);
     }
-    
-    // Leave channel
-    if (clientRef.current) {
+  }
+  
+  // Leave channel
+  if (clientRef.current) {
+    try {
       await clientRef.current.leave();
+    } catch (err) {
+      console.warn('Leave channel error:', err);
     }
-    
-    // Reset state
-    setLocalTracks({ audio: null, video: null });
-    setSessionState({
-      isInitialized: false,
-      isJoined: false,
-      sessionInfo: null,
-      error: null
-    });
-  };
+  }
+  
+  // Reset state BUT PRESERVE sessionInfo for rejoin
+  setLocalTracks({ audio: null, video: null });
+  setRemoteUsers(new Map()); // ✅ Clear remote users
+  
+  // ✅ DON'T reset sessionInfo - keep it for rejoin
+  setSessionState(prev => ({
+    ...prev,
+    isJoined: false,
+    isInitialized: false
+    // Keep sessionInfo!
+  }));
+};
 
   // ============================================
   // RENDER
