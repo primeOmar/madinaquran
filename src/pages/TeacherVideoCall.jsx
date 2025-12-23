@@ -157,7 +157,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     isInitialized: false,
     isJoined: false,
     sessionInfo: null,
-    error: null
+    error: null,
+     cameraWarning: null
   });
 
   const [participantSync, setParticipantSync] = useState({
@@ -175,6 +176,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
     showControls: true,
     isFullscreen: false,
     activeSpeakerId: null,
+    audioOnlyMode: false,
     pagination: {
       page: 0,
       pageSize: 8
@@ -317,6 +319,47 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [sessionState.isJoined, sessionState.sessionInfo?.meetingId, teacherId]);
   
+
+// ✅ Check camera/mic permissions early (non-blocking)
+useEffect(() => {
+  const checkPermissions = async () => {
+    try {
+      // Try to get both video and audio
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true, 
+        audio: true 
+      });
+      
+      // Stop immediately
+      stream.getTracks().forEach(track => track.stop());
+      
+      console.log('✅ Camera and mic permissions granted');
+    } catch (error) {
+      console.warn('⚠️ Permission check failed:', error);
+      
+      // ✅ Try audio-only as fallback
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true 
+        });
+        audioStream.getTracks().forEach(track => track.stop());
+        console.log('✅ Microphone permission granted (camera unavailable)');
+      } catch (audioError) {
+        console.error('❌ No media permissions available:', audioError);
+        // Only show error if BOTH fail
+        if (audioError.name === 'NotAllowedError') {
+          setSessionState(prev => ({
+            ...prev,
+            error: 'Microphone permission denied. Please allow microphone access to join the call.'
+          }));
+        }
+      }
+    }
+  };
+  
+  checkPermissions();
+}, []);
+
   useEffect(() => {
     const handleMouseMove = () => {
       setUiState(prev => ({ ...prev, showControls: true }));
@@ -346,6 +389,29 @@ useEffect(() => {
     };
   }, []);
   
+  // ✅ Watch for local video track changes and play it
+useEffect(() => {
+  const playLocalVideo = async () => {
+    if (localTracks.video && localVideoRef.current) {
+      try {
+        // Stop any existing playback first
+        if (localTracks.video.isPlaying) {
+          localTracks.video.stop();
+        }
+        
+        // Play the video track
+        await localTracks.video.play(localVideoRef.current);
+        localVideoRef.current.style.transform = 'scaleX(-1)';
+        console.log('✅ Local video played in useEffect');
+      } catch (error) {
+        console.error('❌ Failed to play local video in useEffect:', error);
+      }
+    }
+  };
+  
+  playLocalVideo();
+}, [localTracks.video]);
+
   useEffect(() => {
     if (!videoApiRef.current) {
       setSessionState(prev => ({
@@ -449,9 +515,9 @@ const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
     
-    // ✅ Setup event listeners BEFORE joining
-    setupAgoraEventListeners();
+    console.log('🔗 Joining channel...', { channel, uid });
     
+    // ✅ Join channel FIRST
     const assignedUid = await clientRef.current.join(
       appId,
       channel,
@@ -466,21 +532,25 @@ const joinChannel = async (sessionData) => {
       timestamp: new Date().toISOString()
     });
     
-    // Create and publish tracks
+    // ✅ Create and publish tracks SECOND (this publishes to the channel you just joined)
     await createAndPublishTracks();
     
+    // ✅ Update state THIRD
     setSessionState(prev => ({ ...prev, isJoined: true }));
     
-    // Start tracking
+    // ✅ Setup event listeners FOURTH
+    setupAgoraEventListeners();
+    
+    // ✅ Start tracking FIFTH
     startDurationTracking();
     
-    // ✅ CRITICAL: Wait for connection to stabilize, then resubscribe
+    // ✅ Resubscribe to existing users LAST (after 2 seconds)
     setTimeout(async () => {
       await forceResubscribeToAllUsers();
     }, 2000);
     
   } catch (error) {
-    console.error('Join channel error:', error);
+    console.error('❌ Join channel error:', error);
     throw error;
   }
 };
@@ -596,34 +666,133 @@ useEffect(() => {
     return () => clearTimeout(timeout);
   }
 }, [sessionState.isJoined]);
+ 
+const showCameraWarning = (error) => {
+  let message = 'Joining with audio only.';
   
-  const createAndPublishTracks = async () => {
+  if (error.code === 'PERMISSION_DENIED') {
+    message = 'Camera access denied. You can still teach with audio only. Enable camera in browser settings to share video.';
+  } else if (error.code === 'DEVICE_NOT_FOUND') {
+    message = 'No camera detected. You can still teach with audio only.';
+  } else {
+    message = 'Camera unavailable. You can still teach with audio only.';
+  }
+  
+  // ✅ Store warning in state to show in UI
+  setSessionState(prev => ({
+    ...prev,
+    cameraWarning: message
+  }));
+  
+  // ✅ Auto-dismiss after 10 seconds
+  setTimeout(() => {
+    setSessionState(prev => ({
+      ...prev,
+      cameraWarning: null
+    }));
+  }, 10000);
+};
+
+const createAndPublishTracks = async () => {
+  try {
+    console.log('🎥 Creating audio/video tracks...');
+    
+    let audioTrack = null;
+    let videoTrack = null;
+    let hasCameraError = false;
+    
+    // ✅ Try to create audio track (required)
     try {
-      const [audioTrack, videoTrack] = await Promise.all([
-        AgoraRTC.createMicrophoneAudioTrack().catch(() => null),
-        AgoraRTC.createCameraVideoTrack().catch(() => null)
-      ]);
-      
-      setLocalTracks({ audio: audioTrack, video: videoTrack });
-      
-      const tracksToPublish = [];
-      if (audioTrack) tracksToPublish.push(audioTrack);
-      if (videoTrack) tracksToPublish.push(videoTrack);
-      
-      if (tracksToPublish.length > 0) {
-        await clientRef.current.publish(tracksToPublish);
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: 'music_standard',
+      });
+      console.log('✅ Audio track created');
+    } catch (audioError) {
+      console.error('❌ Failed to create audio track:', audioError);
+      // Audio failure is more critical, but we can still continue
+      if (audioError.code === 'PERMISSION_DENIED') {
+        console.warn('⚠️ Microphone permission denied - continuing without audio');
       }
-      
-      // Play local video
-      if (videoTrack && localVideoRef.current) {
-        videoTrack.play(localVideoRef.current);
-        localVideoRef.current.style.transform = 'scaleX(-1)';
-      }
-      
-    } catch (error) {
-      console.error('Error creating tracks:', error);
     }
-  };
+    
+    // ✅ Try to create video track (optional - graceful degradation)
+    try {
+      videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: '720p_3',
+      });
+      console.log('✅ Video track created');
+    } catch (videoError) {
+      console.error('❌ Failed to create video track:', videoError);
+      hasCameraError = true;
+      
+      // ✅ Show friendly message instead of blocking
+      if (videoError.code === 'PERMISSION_DENIED') {
+        console.warn('⚠️ Camera permission denied - joining with audio only');
+      } else if (videoError.code === 'DEVICE_NOT_FOUND') {
+        console.warn('⚠️ No camera detected - joining with audio only');
+      } else {
+        console.warn('⚠️ Camera unavailable - joining with audio only');
+      }
+      
+      // ✅ Show non-blocking notification to user
+      showCameraWarning(videoError);
+    }
+    
+    // ✅ Update state IMMEDIATELY with whatever tracks we have
+    setLocalTracks({ audio: audioTrack, video: videoTrack });
+    
+    // ✅ Play local video ONLY if we have a video track
+    if (videoTrack && localVideoRef.current) {
+      try {
+        await videoTrack.play(localVideoRef.current);
+        localVideoRef.current.style.transform = 'scaleX(-1)';
+        console.log('✅ Local video playing');
+      } catch (playError) {
+        console.error('❌ Failed to play local video:', playError);
+      }
+    } else if (!videoTrack) {
+      console.log('ℹ️ No video track - displaying audio-only mode');
+    }
+    
+    // ✅ Publish whatever tracks we have (audio-only is fine!)
+    const tracksToPublish = [];
+    if (audioTrack) tracksToPublish.push(audioTrack);
+    if (videoTrack) tracksToPublish.push(videoTrack);
+    
+    if (tracksToPublish.length > 0) {
+      await clientRef.current.publish(tracksToPublish);
+      console.log(`✅ Published ${tracksToPublish.length} track(s): ${
+        audioTrack ? 'audio' : ''
+      }${audioTrack && videoTrack ? '+' : ''}${
+        videoTrack ? 'video' : ''
+      }`);
+    } else {
+      console.warn('⚠️ No tracks to publish - this may cause issues!');
+    }
+    
+    // ✅ Update controls state
+    setControls(prev => ({
+      ...prev,
+      audioEnabled: !!audioTrack,
+      videoEnabled: !!videoTrack
+    }));
+    
+    // ✅ If no camera, show audio-only indicator
+    if (hasCameraError) {
+      setUiState(prev => ({ ...prev, audioOnlyMode: true }));
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in createAndPublishTracks:', error);
+    // ✅ Only fail if we couldn't create ANY tracks
+    if (!localTracks.audio && !localTracks.video) {
+      setSessionState(prev => ({
+        ...prev,
+        error: `Failed to initialize any media devices: ${error.message}`
+      }));
+    }
+  }
+};
   
 const leaveSession = async () => {
   try {
@@ -829,17 +998,54 @@ const resubscribeToAllUsers = async () => {
     }
   };
   
-  const toggleVideo = async () => {
-    if (localTracks.video) {
-      try {
-        const newState = !controls.videoEnabled;
-        await localTracks.video.setEnabled(newState);
-        setControls(prev => ({ ...prev, videoEnabled: newState }));
-      } catch (error) {
-        console.error('Toggle video error:', error);
+ const toggleVideo = async () => {
+  // ✅ Check if we even have a video track
+  if (!localTracks.video) {
+    console.warn('⚠️ No video track available');
+    // Try to create one
+    try {
+      const videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: '720p_3',
+      });
+      
+      // Publish new track
+      await clientRef.current.publish([videoTrack]);
+      
+      // Play locally
+      if (localVideoRef.current) {
+        await videoTrack.play(localVideoRef.current);
+        localVideoRef.current.style.transform = 'scaleX(-1)';
+      }
+      
+      setLocalTracks(prev => ({ ...prev, video: videoTrack }));
+      setControls(prev => ({ ...prev, videoEnabled: true }));
+      setUiState(prev => ({ ...prev, audioOnlyMode: false }));
+      
+      console.log('✅ Camera enabled successfully');
+    } catch (error) {
+      console.error('❌ Cannot enable camera:', error);
+      alert('Camera not available. Please check your device and permissions.');
+    }
+    return;
+  }
+  
+  try {
+    const newState = !controls.videoEnabled;
+    await localTracks.video.setEnabled(newState);
+    
+    // Ensure video is playing when enabled
+    if (newState && localVideoRef.current) {
+      if (!localTracks.video.isPlaying) {
+        await localTracks.video.play(localVideoRef.current);
       }
     }
-  };
+    
+    setControls(prev => ({ ...prev, videoEnabled: newState }));
+    console.log(`✅ Video ${newState ? 'enabled' : 'disabled'}`);
+  } catch (error) {
+    console.error('❌ Toggle video error:', error);
+  }
+};
   
   const toggleScreenShare = async () => {
     try {
@@ -1416,97 +1622,138 @@ const cleanup = async () => {
       </div>
       
       {/* Local Video (PIP) */}
+     {/* Local Video (Teacher) - Bottom Right */}
+<div style={{
+  position: 'absolute',
+  bottom: '100px',
+  right: '20px',
+  width: '240px',
+  height: '180px',
+  background: '#1a1a2e',
+  borderRadius: '12px',
+  overflow: 'hidden',
+  border: '2px solid rgba(79, 70, 229, 0.5)',
+  zIndex: 50,
+  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+  transition: 'transform 0.3s'
+}}>
+  {/* ✅ Show video if available */}
+  {localTracks.video && (
+    <video
+      ref={(el) => {
+        localVideoRef.current = el;
+        if (el && localTracks.video && !localTracks.video.isPlaying) {
+          localTracks.video.play(el).then(() => {
+            el.style.transform = 'scaleX(-1)';
+            console.log('✅ Video playing from ref callback');
+          }).catch(err => {
+            console.error('❌ Video play error from ref:', err);
+          });
+        }
+      }}
+      autoPlay
+      playsInline
+      muted
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        transform: 'scaleX(-1)',
+        display: controls.videoEnabled ? 'block' : 'none',
+        backgroundColor: '#000'
+      }}
+    />
+  )}
+  
+  {/* ✅ Show audio-only indicator when no camera */}
+  {(!localTracks.video || !controls.videoEnabled) && (
+    <div style={{
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '8px'
+    }}>
       <div style={{
-        position: 'absolute',
-        bottom: '120px',
-        right: '20px',
-        width: '200px',
-        height: '150px',
-        borderRadius: '12px',
-        overflow: 'hidden',
-        border: '2px solid rgba(79, 70, 229, 0.5)',
-        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
-        zIndex: 50,
-        transition: 'transform 0.3s'
+        width: '60px',
+        height: '60px',
+        borderRadius: '50%',
+        background: controls.audioEnabled 
+          ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)'
+          : '#374151',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'white',
+        fontSize: '24px',
+        boxShadow: controls.audioEnabled 
+          ? '0 0 20px rgba(79, 70, 229, 0.5)' 
+          : 'none'
       }}>
-        <video
-          ref={localVideoRef}
-          autoPlay
-          playsInline
-          muted
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            transform: 'scaleX(-1)',
-            display: controls.videoEnabled ? 'block' : 'none'
-          }}
-        />
-        
-        {!controls.videoEnabled && (
-          <div style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: '#1a1a2e',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <div style={{
-              width: '50px',
-              height: '50px',
-              borderRadius: '50%',
-              background: '#4f46e5',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontSize: '16px'
-            }}>
-              YOU
-            </div>
-          </div>
-        )}
-        
-        <div style={{
-          position: 'absolute',
-          bottom: '8px',
-          left: '8px',
-          right: '8px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <span style={{
-            background: 'rgba(0, 0, 0, 0.7)',
-            color: 'white',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            fontSize: '11px'
-          }}>
-            You
-          </span>
-          
-          {controls.screenSharing && (
-            <span style={{
-              background: 'rgba(59, 130, 246, 0.8)',
-              color: 'white',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              fontSize: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}>
-              <Share2 size={10} />
-              Screen
-            </span>
-          )}
-        </div>
+        {controls.audioEnabled ? '🎤' : '🔇'}
       </div>
+      <span style={{ 
+        color: 'white', 
+        fontSize: '14px',
+        fontWeight: '500'
+      }}>
+        {!localTracks.video ? 'Audio Only' : 'Camera Off'}
+      </span>
+      {!localTracks.video && (
+        <span style={{ 
+          color: '#94a3b8', 
+          fontSize: '11px',
+          textAlign: 'center',
+          padding: '0 12px'
+        }}>
+          No camera detected
+        </span>
+      )}
+    </div>
+  )}
+  
+  <div style={{
+    position: 'absolute',
+    bottom: '8px',
+    left: '8px',
+    right: '8px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  }}>
+    <span style={{
+      background: 'rgba(0, 0, 0, 0.7)',
+      color: 'white',
+      padding: '2px 8px',
+      borderRadius: '4px',
+      fontSize: '11px'
+    }}>
+      You {!localTracks.video && '(Audio)'}
+    </span>
+    
+    {controls.screenSharing && (
+      <span style={{
+        background: 'rgba(59, 130, 246, 0.8)',
+        color: 'white',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        fontSize: '10px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px'
+      }}>
+        <Share2 size={10} />
+        Screen
+      </span>
+    )}
+  </div>
+</div>
       
       {/* Main Controls */}
       {/* Futuristic Floating Controls */}
@@ -1523,15 +1770,35 @@ const cleanup = async () => {
         </span>
       </button>
 
-      <button 
-        className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
-        onClick={toggleVideo}
-        title={controls.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-      >
-        <span className="orb-icon">
-          {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-        </span>
-      </button>
+     <button 
+  className={`control-orb video-orb ${controls.videoEnabled ? 'active' : 'inactive'}`}
+  onClick={toggleVideo}
+  title={
+    !localTracks.video 
+      ? 'Camera not available' 
+      : controls.videoEnabled 
+        ? 'Turn off camera' 
+        : 'Turn on camera'
+  }
+  disabled={!localTracks.video && !navigator.mediaDevices} // ✅ Disable if no camera possible
+>
+  <span className="orb-icon">
+    {controls.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+  </span>
+  {/* ✅ Show indicator if no camera at all */}
+  {!localTracks.video && (
+    <span style={{
+      position: 'absolute',
+      top: '-4px',
+      right: '-4px',
+      width: '12px',
+      height: '12px',
+      background: '#f59e0b',
+      borderRadius: '50%',
+      border: '2px solid #0f172a'
+    }} />
+  )}
+</button>
 
       <button 
         className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
