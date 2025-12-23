@@ -273,40 +273,8 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
      cameraWarning: null
   });
 
-const optimizeVideoQuality = () => {
-  if (!clientRef.current) return;
-  
-  // Get network quality
-  const quality = clientRef.current.getNetworkQuality();
-  
-  // Adjust video quality based on network
-  if (localTracks.video) {
-    let encoderConfig;
-    
-    if (quality.uplinkNetworkQuality >= 4) { // Excellent
-      encoderConfig = '1080p_3'; // High quality
-    } else if (quality.uplinkNetworkQuality >= 2) { // Good
-      encoderConfig = '720p_3'; // Medium quality
-    } else { // Poor
-      encoderConfig = '480p_3'; // Low quality
-    }
-    
-    try {
-      localTracks.video.setEncoderConfiguration(encoderConfig);
-      console.log(`🎥 Video quality set to: ${encoderConfig}`);
-    } catch (error) {
-      console.warn('Cannot adjust video quality:', error);
-    }
-  }
-};
 
-// Call this periodically
-useEffect(() => {
-  if (sessionState.isJoined) {
-    const interval = setInterval(optimizeVideoQuality, 10000);
-    return () => clearInterval(interval);
-  }
-}, [sessionState.isJoined, localTracks.video]);
+
 
   const [participantSync, setParticipantSync] = useState({
   lastSync: 0,
@@ -485,6 +453,14 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [sessionState.isJoined, sessionState.sessionInfo?.meetingId, teacherId]);
   
+// Call this periodically
+useEffect(() => {
+  if (sessionState.isJoined) {
+    const interval = setInterval(optimizeVideoQuality, 10000);
+    return () => clearInterval(interval);
+  }
+}, [sessionState.isJoined, localTracks.video]);
+
 
 // ✅ Check camera/mic permissions early (non-blocking)
 useEffect(() => {
@@ -833,6 +809,32 @@ useEffect(() => {
   }
 }, [sessionState.isJoined]);
  
+const optimizeVideoQuality = () => {
+  if (!clientRef.current) return;
+  
+  // Get network quality
+  const quality = clientRef.current.getNetworkQuality();
+  
+  // Adjust video quality based on network
+  if (localTracks.video) {
+    let encoderConfig;
+    
+    if (quality.uplinkNetworkQuality >= 4) { // Excellent
+      encoderConfig = '1080p_3'; // High quality
+    } else if (quality.uplinkNetworkQuality >= 2) { // Good
+      encoderConfig = '720p_3'; // Medium quality
+    } else { // Poor
+      encoderConfig = '480p_3'; // Low quality
+    }
+    
+    try {
+      localTracks.video.setEncoderConfiguration(encoderConfig);
+      console.log(`🎥 Video quality set to: ${encoderConfig}`);
+    } catch (error) {
+      console.warn('Cannot adjust video quality:', error);
+    }
+  }
+};
 const showCameraWarning = (error) => {
   let message = 'Joining with audio only.';
   
