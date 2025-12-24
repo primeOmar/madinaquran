@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo  } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import studentvideoApi from '../lib/agora/studentvideoApi';
 import './TeacherVideoCall.css'; 
@@ -212,6 +212,10 @@ const [participantsSort, setParticipantsSort] = useState('name'); // 'name', 'ro
 const [participantsFilter, setParticipantsFilter] = useState('all'); // 'all', 'teachers', 'students'
 
 
+const teacherTracks = useMemo(() => {
+  if (!teacherUid) return null;
+  return remoteTracks.get(Number(teacherUid)) || null;
+}, [teacherUid, remoteTracks]);
 
 useEffect(() => {
   const playLocalVideo = async () => {
@@ -2312,10 +2316,7 @@ useEffect(() => {
     );
   }
 
-  // Get teacher's remote tracks
-  const teacherTracks = teacherUid ? remoteTracks.get(Number(teacherUid)) : null;
-  const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
-
+ 
   // ============================================
   // Main Render - Only show when joined
   // ============================================
