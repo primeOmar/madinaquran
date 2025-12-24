@@ -1323,45 +1323,152 @@ const resubscribeToAllUsers = async () => {
   }
 };
   
-  const toggleScreenShare = async () => {
-    try {
-      if (!controls.screenSharing) {
-        const screenTrack = await AgoraRTC.createScreenVideoTrack();
+ const toggleScreenShare = async () => {
+  try {
+    if (!controls.screenSharing) {
+      // ========== START SCREEN SHARING ==========
+      console.log('🖥️ Starting screen share...');
+      
+      let screenTrack;
+      try {
+        screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: '1080p_1', // High quality for screen
+          optimizationMode: 'detail' // Better for text/details
+        });
+      } catch (screenError) {
+        console.error('❌ Screen share creation failed:', screenError);
         
-        if (localTracks.video) {
-          await clientRef.current.unpublish([localTracks.video]);
-          localTracks.video.stop();
-          localTracks.video.close();
+        // User cancelled the screen share dialog
+        if (screenError.code === 'PERMISSION_DENIED' || 
+            screenError.message.includes('cancel')) {
+          console.log('ℹ️ Screen share cancelled by user');
+          return;
         }
         
-        await clientRef.current.publish([screenTrack]);
-        setLocalTracks(prev => ({ ...prev, video: screenTrack }));
-        setControls(prev => ({ ...prev, screenSharing: true }));
-        
-      } else {
-        const screenTrack = localTracks.video;
-        
-        if (screenTrack) {
-          await clientRef.current.unpublish([screenTrack]);
-          screenTrack.stop();
-          screenTrack.close();
-        }
-        
-        const cameraTrack = await AgoraRTC.createCameraVideoTrack();
-        await clientRef.current.publish([cameraTrack]);
-        
-        if (localVideoRef.current) {
-          cameraTrack.play(localVideoRef.current);
-        }
-        
-        setLocalTracks(prev => ({ ...prev, video: cameraTrack }));
-        setControls(prev => ({ ...prev, screenSharing: false, videoEnabled: true }));
+        alert('Screen sharing failed. Please try again.');
+        return;
       }
-    } catch (error) {
-      console.error('Screen share error:', error);
-      setControls(prev => ({ ...prev, screenSharing: false }));
+      
+      // Store original camera track
+      const originalCameraTrack = localTracks.video;
+      
+      // Unpublish camera if it exists
+      if (originalCameraTrack) {
+        try {
+          await clientRef.current.unpublish([originalCameraTrack]);
+          originalCameraTrack.stop();
+          console.log('✅ Camera unpublished');
+        } catch (err) {
+          console.warn('⚠️ Error unpublishing camera:', err);
+        }
+      }
+      
+      // Publish screen track
+      await clientRef.current.publish([screenTrack]);
+      console.log('✅ Screen track published');
+      
+      // ✅ CRITICAL: Play screen track locally so teacher can see it
+      if (localVideoRef.current) {
+        try {
+          await screenTrack.play(localVideoRef.current);
+          // Don't mirror screen share
+          localVideoRef.current.style.transform = 'scaleX(1)';
+          console.log('✅ Screen track playing locally');
+        } catch (playError) {
+          console.warn('⚠️ Could not play screen locally:', playError);
+        }
+      }
+      
+      // Update state
+      setLocalTracks(prev => ({ ...prev, video: screenTrack }));
+      setControls(prev => ({ 
+        ...prev, 
+        screenSharing: true,
+        videoEnabled: false // Camera is off during screen share
+      }));
+      
+      // ✅ CRITICAL: Listen for when user stops sharing via browser UI
+      screenTrack.on('track-ended', async () => {
+        console.log('🛑 Screen share ended by user (browser button)');
+        await stopScreenShareAndRestoreCamera();
+      });
+      
+      console.log('✅ Screen sharing started successfully');
+      
+    } else {
+      // ========== STOP SCREEN SHARING ==========
+      await stopScreenShareAndRestoreCamera();
     }
-  };
+    
+  } catch (error) {
+    console.error('❌ Screen share error:', error);
+    setControls(prev => ({ ...prev, screenSharing: false }));
+    alert('Screen sharing encountered an error. Please try again.');
+  }
+};
+
+// ✅ Helper function to stop screen share and restore camera
+const stopScreenShareAndRestoreCamera = async () => {
+  console.log('🔄 Stopping screen share and restoring camera...');
+  
+  const screenTrack = localTracks.video;
+  
+  // Stop and unpublish screen track
+  if (screenTrack) {
+    try {
+      await clientRef.current.unpublish([screenTrack]);
+      screenTrack.stop();
+      screenTrack.close();
+      console.log('✅ Screen track stopped');
+    } catch (err) {
+      console.warn('⚠️ Error stopping screen track:', err);
+    }
+  }
+  
+  // Recreate camera track
+  let cameraTrack = null;
+  try {
+    cameraTrack = await AgoraRTC.createCameraVideoTrack({
+      encoderConfig: '720p_3',
+    });
+    console.log('✅ Camera track recreated');
+    
+    // Publish camera
+    await clientRef.current.publish([cameraTrack]);
+    console.log('✅ Camera track published');
+    
+    // Play camera locally
+    if (localVideoRef.current) {
+      await cameraTrack.play(localVideoRef.current);
+      // Restore mirror for camera
+      localVideoRef.current.style.transform = 'scaleX(-1)';
+      console.log('✅ Camera playing locally');
+    }
+    
+    // Update state
+    setLocalTracks(prev => ({ ...prev, video: cameraTrack }));
+    setControls(prev => ({ 
+      ...prev, 
+      screenSharing: false, 
+      videoEnabled: true 
+    }));
+    
+    console.log('✅ Camera restored successfully');
+    
+  } catch (cameraError) {
+    console.error('❌ Failed to restore camera:', cameraError);
+    
+    // If camera fails, at least update state
+    setLocalTracks(prev => ({ ...prev, video: null }));
+    setControls(prev => ({ 
+      ...prev, 
+      screenSharing: false, 
+      videoEnabled: false 
+    }));
+    
+    alert('Could not restore camera. You can continue with audio only or try toggling video.');
+  }
+};
   
   const toggleFullscreen = () => {
     const container = mainContainerRef.current;
