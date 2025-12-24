@@ -23,6 +23,9 @@ import {
 // ============================================
 // FIXED: useDraggable Hook with Proper Error Handling
 // ============================================
+// ============================================
+// FIXED: useDraggable Hook - No Conditional Returns
+// ============================================
 const useDraggable = () => {
   const [position, setPosition] = useState(() => {
     try {
@@ -38,7 +41,6 @@ const useDraggable = () => {
         y: Math.max(20, viewportHeight - pipHeight - 20)
       };
     } catch (error) {
-      console.error('Error initializing PIP position:', error);
       return { x: 20, y: 20 };
     }
   });
@@ -54,81 +56,90 @@ const useDraggable = () => {
     };
   }, []);
 
-  const handleMouseDown = (e) => {
-    if (e.target.closest('.no-drag')) return;
+  // ✅ Move event handler definitions OUTSIDE useEffect
+  const handleMouseMove = useCallback((e) => {
     e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-    dragStart.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y
-    };
-  };
+    if (!isDragging) return;
+    
+    let newX = e.clientX - dragStart.current.x;
+    let newY = e.clientY - dragStart.current.y;
+    
+    const pipSize = getPipSize();
+    const maxX = window.innerWidth - pipSize.width;
+    const maxY = window.innerHeight - pipSize.height;
+    
+    newX = Math.max(10, Math.min(newX, maxX - 10));
+    newY = Math.max(10, Math.min(newY, maxY - 10));
+    
+    setPosition({ x: newX, y: newY });
+  }, [isDragging, getPipSize]);
 
-  const handleTouchStart = (e) => {
-    if (e.target.closest('.no-drag')) return;
+  const handleTouchMove = useCallback((e) => {
     e.preventDefault();
+    if (!isDragging) return;
+    
     const touch = e.touches[0];
-    setIsDragging(true);
-    dragStart.current = {
-      x: touch.clientX - position.x,
-      y: touch.clientY - position.y
-    };
-  };
+    let newX = touch.clientX - dragStart.current.x;
+    let newY = touch.clientY - dragStart.current.y;
+    
+    const pipSize = getPipSize();
+    const maxX = window.innerWidth - pipSize.width;
+    const maxY = window.innerHeight - pipSize.height;
+    
+    newX = Math.max(10, Math.min(newX, maxX - 10));
+    newY = Math.max(10, Math.min(newY, maxY - 10));
+    
+    setPosition({ x: newX, y: newY });
+  }, [isDragging, getPipSize]);
+
+  const handleEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
 
   useEffect(() => {
-    const handleMove = (clientX, clientY) => {
-      if (!isDragging) return;
-      
-      let newX = clientX - dragStart.current.x;
-      let newY = clientY - dragStart.current.y;
-      
-      const pipSize = getPipSize();
-      const maxX = window.innerWidth - pipSize.width;
-      const maxY = window.innerHeight - pipSize.height;
-      
-      newX = Math.max(10, Math.min(newX, maxX - 10));
-      newY = Math.max(10, Math.min(newY, maxY - 10));
-      
-      setPosition({ x: newX, y: newY });
-    };
-
-    const handleMouseMove = (e) => {
-      e.preventDefault();
-      handleMove(e.clientX, e.clientY);
-    };
-    
-    const handleTouchMove = (e) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      handleMove(touch.clientX, touch.clientY);
-    };
-    
-    const handleEnd = () => setIsDragging(false);
-
+    // ✅ ALWAYS return a cleanup function (consistent hook behavior)
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleEnd);
       document.addEventListener('touchmove', handleTouchMove, { passive: false });
       document.addEventListener('touchend', handleEnd);
       document.addEventListener('touchcancel', handleEnd);
-      
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleEnd);
-        document.removeEventListener('touchmove', handleTouchMove);
-        document.removeEventListener('touchend', handleEnd);
-        document.removeEventListener('touchcancel', handleEnd);
-      };
     }
-  }, [isDragging, getPipSize]);
+
+    // ✅ ALWAYS return cleanup
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleEnd);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleEnd);
+      document.removeEventListener('touchcancel', handleEnd);
+    };
+  }, [isDragging, handleMouseMove, handleTouchMove, handleEnd]);
 
   return {
     position,
     isDragging,
     setPosition,
-    handleMouseDown,
-    handleTouchStart
+    handleMouseDown: (e) => {
+      if (e.target.closest('.no-drag')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+      dragStart.current = {
+        x: e.clientX - position.x,
+        y: e.clientY - position.y
+      };
+    },
+    handleTouchStart: (e) => {
+      if (e.target.closest('.no-drag')) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      setIsDragging(true);
+      dragStart.current = {
+        x: touch.clientX - position.x,
+        y: touch.clientY - position.y
+      };
+    }
   };
 };
 
@@ -200,14 +211,7 @@ const [showParticipants, setShowParticipants] = useState(false);
 const [participantsSort, setParticipantsSort] = useState('name'); // 'name', 'role', 'joinTime'
 const [participantsFilter, setParticipantsFilter] = useState('all'); // 'all', 'teachers', 'students'
 
-const toggleParticipants = () => {
-  setShowParticipants(prev => !prev);
-  
-  // If opening participants panel, refresh participant list
-  if (!showParticipants && sessionState.sessionInfo?.meetingId) {
-    fetchParticipants(sessionState.sessionInfo.meetingId);
-  }
-};
+
 
 useEffect(() => {
   const playLocalVideo = async () => {
@@ -996,7 +1000,14 @@ const updateVideoSettings = (setting, value) => {
       console.error('Failed to fetch participants:', error);
     }
   };
-
+const toggleParticipants = () => {
+  setShowParticipants(prev => !prev);
+  
+  // If opening participants panel, refresh participant list
+  if (!showParticipants && sessionState.sessionInfo?.meetingId) {
+    fetchParticipants(sessionState.sessionInfo.meetingId);
+  }
+};
   const syncProfilesWithTracks = () => {
     const remoteUids = Array.from(remoteTracks.keys()).map(uid => String(uid));
     const profileUids = Array.from(userProfiles.keys());
