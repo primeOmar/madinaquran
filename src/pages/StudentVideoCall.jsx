@@ -195,16 +195,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [showChat, setShowChat] = useState(false);
-
-  // In initializeSession
-setLoadingProgress({ step: 'Connecting...', progress: 25 });
-// After session lookup
-setLoadingProgress({ step: 'Joining session...', progress: 50 });
-// After joinChannel starts
-setLoadingProgress({ step: 'Setting up audio/video...', progress: 75 });
-// After complete
-setLoadingProgress({ step: 'Ready!', progress: 100 });
-
   const clientRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const messagesPollIntervalRef = useRef(null);
@@ -1085,35 +1075,45 @@ const updateProgress = (step, progress) => {
   });
 };
 
+// ============================================
+// OPTIMIZED INITIALIZATION WITH PROGRESS TRACKING
+// ============================================
+
 const initializeSession = async () => {
   try {
+    // ✅ Guard: Prevent duplicate initialization
     if (initializationRef.current.clientCreated) {
-      console.log('Client already created, skipping initialization');
+      console.log('✅ Client already created, skipping re-initialization');
       return;
     }
 
-    console.log('⚡ Starting FAST initialization...');
+    console.log('🚀 Starting optimized initialization...');
     const initStart = Date.now();
 
-    // Show initial loading state
-    updateProgress('Checking session availability...', 10);
+    // ============================================
+    // STEP 1: Initial Setup (0-20%)
+    // ============================================
+    setLoadingProgress({ step: 'Connecting to server...', progress: 10 });
 
-    // ✅ OPTIMIZATION 1: Run ALL operations in parallel with progress
-    updateProgress('Checking media devices...', 20);
-    
+    // Parallel device check and session lookup
     const [sessionLookup, devicesCheck] = await Promise.all([
       studentvideoApi.getSessionByClassId(classId),
       AgoraRTC.getDevices().catch(() => [])
     ]);
     
+    console.log(`📊 Devices found: ${devicesCheck.length}`);
+    
     if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
-      throw new Error(sessionLookup.error || 'No active session found');
+      throw new Error(sessionLookup.error || 'No active session found for this class');
     }
 
     const effectiveMeetingId = sessionLookup.meetingId;
+    console.log(`✅ Session found: ${effectiveMeetingId}`);
     
-    // ✅ OPTIMIZATION 2: Create client immediately
-    updateProgress('Setting up video client...', 30);
+    // ============================================
+    // STEP 2: Create Agora Client (20-35%)
+    // ============================================
+    setLoadingProgress({ step: 'Setting up video connection...', progress: 25 });
     
     if (!clientRef.current) {
       clientRef.current = AgoraRTC.createClient({ 
@@ -1121,36 +1121,46 @@ const initializeSession = async () => {
         codec: 'vp8' 
       });
       initializationRef.current.clientCreated = true;
-      console.log('✅ Client created');
+      console.log('✅ Agora client created');
     }
 
-    // ✅ OPTIMIZATION 3: Setup listeners
-    updateProgress('Configuring connection...', 40);
+    // ============================================
+    // STEP 3: Setup Event Listeners (35-45%)
+    // ============================================
+    setLoadingProgress({ step: 'Configuring connection...', progress: 35 });
     
     if (!initializationRef.current.listenersSet) {
       setupAgoraEventListeners();
       initializationRef.current.listenersSet = true;
-      console.log('✅ Listeners set');
+      console.log('✅ Event listeners configured');
     }
 
-    // ✅ OPTIMIZATION 4: Join session and fetch participants in parallel
-    updateProgress('Connecting to classroom...', 50);
+    // ============================================
+    // STEP 4: Join Session + Fetch Participants (45-70%)
+    // ============================================
+    setLoadingProgress({ step: 'Joining classroom...', progress: 50 });
     
+    // Run in parallel for speed
     const [sessionData] = await Promise.all([
       studentvideoApi.joinVideoSession(effectiveMeetingId, studentId, 'student'),
-      fetchParticipants(effectiveMeetingId).catch(err => 
-        console.warn('Participants fetch failed (non-critical):', err)
-      )
+      // Fire and forget - don't block on participants
+      fetchParticipants(effectiveMeetingId).catch(err => {
+        console.warn('⚠️ Participants fetch failed (non-critical):', err);
+        return null;
+      })
     ]);
 
     if (!sessionData.success || !sessionData.token) {
-      throw new Error(sessionData.error || 'Failed to join session');
+      throw new Error(sessionData.error || 'Failed to join session - invalid credentials');
     }
 
     const studentAgoraUid = sessionData.uid;
+    console.log(`✅ Received Agora UID: ${studentAgoraUid}`);
 
-    // ✅ OPTIMIZATION 5: Update state
-    updateProgress('Finalizing connection...', 70);
+    // ============================================
+    // STEP 5: Update Session State (70-75%)
+    // ============================================
+    setLoadingProgress({ step: 'Finalizing setup...', progress: 70 });
     
     setSessionState({
       isInitialized: true,
@@ -1163,37 +1173,46 @@ const initializeSession = async () => {
       error: null
     });
 
-    console.log(`⚡ Init phase 1 complete: ${Date.now() - initStart}ms`);
+    console.log(`⚡ Phase 1 complete in ${Date.now() - initStart}ms`);
 
-    // ✅ OPTIMIZATION 6: Join channel
-    updateProgress('Starting video call...', 85);
+    // ============================================
+    // STEP 6: Join Agora Channel (75-95%)
+    // ============================================
+    setLoadingProgress({ step: 'Starting video call...', progress: 80 });
     
     await joinChannel({
       ...sessionData,
       uid: studentAgoraUid
     });
 
-    updateProgress('Ready!', 100);
+    // ============================================
+    // STEP 7: Complete! (95-100%)
+    // ============================================
+    setLoadingProgress({ step: 'Ready!', progress: 100 });
     
-    console.log(`✅ Total init time: ${Date.now() - initStart}ms`);
-
-    // Hide loading after a short delay
-    setTimeout(() => {
-      setLoadingProgress(prev => ({ ...prev, showLoading: false }));
-    }, 1000);
+    const totalTime = Date.now() - initStart;
+    console.log(`✅ 🎉 Initialization complete in ${totalTime}ms`);
+    
+    // Performance logging
+    if (totalTime > 5000) {
+      console.warn(`⚠️ Slow initialization: ${totalTime}ms (target: <5000ms)`);
+    } else if (totalTime < 3000) {
+      console.log(`🚀 Fast initialization: ${totalTime}ms`);
+    }
 
   } catch (error) {
-    console.error('Init Error:', error);
+    console.error('❌ Initialization Error:', error);
     
-    updateProgress('Connection failed', 0);
+    // Show error state
+    setLoadingProgress({ 
+      step: 'Connection failed', 
+      progress: 0 
+    });
     
-    setTimeout(() => {
-      setLoadingProgress(prev => ({ ...prev, showLoading: false }));
-    }, 2000);
-    
+    // Set error in session state
     setSessionState(prev => ({ 
       ...prev, 
-      error: error.message || 'Failed to connect' 
+      error: error.message || 'Failed to connect to classroom' 
     }));
   }
 };
