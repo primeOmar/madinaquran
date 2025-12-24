@@ -143,6 +143,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     error: null
   });
 
+  const [teacherScreenSharing, setTeacherScreenSharing] = useState(false);
   const remoteVideoRefs = useRef(new Map());
   const pipRef = useRef(null);
   
@@ -300,6 +301,62 @@ useEffect(() => {
 
   playRemoteVideos();
 }, [remoteTracks]);
+
+// ============================================
+// ⚠️ CRITICAL FIX: Teacher Video Playback
+// ============================================
+useEffect(() => {
+  const playTeacherVideo = async () => {
+    if (!teacherUid || !teacherTracks?.video) {
+      console.log('⏸️ Teacher video not available');
+      return;
+    }
+
+    const container = remoteVideoRefs.current.get(teacherUid);
+    if (!container) {
+      console.log('⏸️ Teacher video container not ready');
+      return;
+    }
+
+    try {
+      // Check if already playing
+      if (teacherTracks.video.isPlaying) {
+        return;
+      }
+
+      console.log(`▶️ Playing teacher video for UID: ${teacherUid}`);
+      
+      // ✅ CRITICAL: Use video element play method
+      if (container.tagName === 'VIDEO') {
+        await teacherTracks.video.play(container);
+        console.log('✅ Teacher video playing');
+      } else {
+        // Fallback for div container
+        await teacherTracks.video.play();
+        console.log('✅ Teacher video playing (fallback)');
+      }
+    } catch (error) {
+      console.error('❌ Failed to play teacher video:', error);
+      
+      // Retry after delay
+      setTimeout(async () => {
+        try {
+          if (teacherTracks.video && !teacherTracks.video.isPlaying) {
+            if (container.tagName === 'VIDEO') {
+              await teacherTracks.video.play(container);
+            } else {
+              await teacherTracks.video.play();
+            }
+          }
+        } catch (retryError) {
+          console.error('❌ Teacher video retry failed:', retryError);
+        }
+      }, 1000);
+    }
+  };
+
+  playTeacherVideo();
+}, [teacherUid, teacherTracks?.video]);
 
 // Enhanced participant sorting function
 const getSortedParticipants = () => {
@@ -787,43 +844,40 @@ const updateVideoSettings = (setting, value) => {
   // ⚠️ CRITICAL FIX #3: Separate Remote Video Playback Effect
   // ============================================
   useEffect(() => {
-    const playRemoteVideos = async () => {
-      for (const [uid, tracks] of remoteTracks.entries()) {
-        const container = remoteVideoRefs.current.get(String(uid));
-        
-        if (container && tracks.video) {
-          try {
-            // Check if already playing
-            if (tracks.video.isPlaying) {
-              console.log(`✅ Remote video ${uid} already playing`);
-              continue;
-            }
-            
-            console.log(`▶️ Playing remote video for user ${uid}...`);
-            await tracks.video.play(container);
-            console.log(`✅ Remote video ${uid} playing successfully`);
-          } catch (error) {
-            console.error(`❌ Failed to play remote video ${uid}:`, error);
-            
-            // Retry once
-            setTimeout(async () => {
-              try {
-                if (container && tracks.video) {
-                  await tracks.video.play(container);
-                  console.log(`✅ Remote video ${uid} playing after retry`);
-                }
-              } catch (retryError) {
-                console.error(`❌ Retry failed for ${uid}:`, retryError);
-              }
-            }, 300);
+  const playRemoteVideos = async () => {
+    for (const [uid, tracks] of remoteTracks.entries()) {
+      // ✅ Skip teacher - handled separately
+      if (teacherUid && String(uid) === teacherUid) {
+        continue;
+      }
+      
+      const container = remoteVideoRefs.current.get(String(uid));
+      
+      if (container && tracks.video) {
+        try {
+          if (tracks.video.isPlaying) {
+            continue;
           }
+          
+          console.log(`▶️ Playing remote video ${uid}`);
+          
+          // ✅ Check container type
+          if (container.tagName === 'VIDEO') {
+            await tracks.video.play(container);
+          } else {
+            await tracks.video.play();
+          }
+          
+          console.log(`✅ Remote video ${uid} playing`);
+        } catch (error) {
+          console.error(`❌ Failed to play remote ${uid}:`, error);
         }
       }
-    };
+    }
+  };
 
-    playRemoteVideos();
-  }, [remoteTracks]);
-
+  playRemoteVideos();
+}, [remoteTracks, teacherUid]);
   // ============================================
   // FIXED: Initialization - Run Once (From Second File)
   // ============================================
@@ -1099,32 +1153,46 @@ const updateVideoSettings = (setting, value) => {
       updateParticipantCount();
     });
 
-    client.on('user-published', async (user, mediaType) => {
-      console.log(`User published: ${user.uid}, media: ${mediaType}`);
-      const uid = String(user.uid);
+   client.on('user-published', async (user, mediaType) => {
+  console.log(`User published: ${user.uid}, media: ${mediaType}`);
+  
+  // ✅ Detect screen share by checking track properties
+  if (mediaType === 'video' && user.videoTrack) {
+    const trackLabel = user.videoTrack.getTrackLabel ? user.videoTrack.getTrackLabel() : '';
+    const isScreenShare = trackLabel.toLowerCase().includes('screen') || 
+                         trackLabel.toLowerCase().includes('window');
+    
+    if (String(user.uid) === teacherUid && isScreenShare) {
+      console.log('🖥️ Teacher is screen sharing');
+      setTeacherScreenSharing(true);
+    }
+  }
+  
+  try {
+    const remoteTrack = await client.subscribe(user, mediaType);
+    console.log(`✅ Subscribed to ${mediaType} of user ${user.uid}`);
+    
+    const uid = String(user.uid);
+    
+    setRemoteTracks(prev => {
+      const newMap = new Map(prev);
+      const existing = newMap.get(uid) || { audio: null, video: null };
       
-      try {
-        await client.subscribe(user, mediaType);
-        
-        setRemoteTracks(prev => {
-          const newMap = new Map(prev);
-          const existing = newMap.get(uid) || { audio: null, video: null };
-          
-          if (mediaType === 'video') {
-            existing.video = user.videoTrack;
-          } else if (mediaType === 'audio') {
-            existing.audio = user.audioTrack;
-            user.audioTrack?.play();
-          }
-          
-          newMap.set(uid, existing);
-          return newMap;
-        });
-        
-      } catch (error) {
-        console.error('Subscribe error:', error);
+      if (mediaType === 'video') {
+        existing.video = remoteTrack;
+      } else if (mediaType === 'audio') {
+        existing.audio = remoteTrack;
       }
+      
+      newMap.set(uid, existing);
+      return newMap;
     });
+    
+  } catch (error) {
+    console.error(`❌ Failed to subscribe to ${mediaType} of user ${user.uid}:`, error);
+  }
+});
+
 
     client.on('user-unpublished', (user, mediaType) => {
       console.log(`User unpublished: ${user.uid}, media: ${mediaType}`);
@@ -2246,33 +2314,50 @@ useEffect(() => {
   return (
     <div className="fixed inset-0 z-50 bg-black">
     <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
-      {/* Main Video Area - Teacher's Video */}
+      {/* Main Video Area - Teacher's Video or Screen Share */}
       <div className="absolute inset-0">
         <div className="relative w-full h-full bg-black">
-  {teacherTracks?.video ? (
-    <div 
-      ref={el => {
-        if (el && teacherTracks.video) {
-          remoteVideoRefs.current.set(teacherUid, el);
-        }
+           {/* ✅ Use video element for proper rendering */}
+            <video
+            ref={el => {
+              if (el && teacherTracks?.video) {
+                remoteVideoRefs.current.set(teacherUid, el);
+              }
       }}
-      className="remote-video-container w-full h-full"
+      className="w-full h-full object-contain bg-black"
+      autoPlay
+      playsInline
+      style={{
+        display: teacherTracks?.video ? 'block' : 'none',
+        backgroundColor: '#000'
+      }}
     />
-  ) : (
-    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-      <div className="text-center">
-        <div className="w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 mx-auto">
-          <span className="text-6xl">👨‍🏫</span>
+    
+    {/* ✅ Fallback when no teacher video */}
+    {!teacherTracks?.video && (
+      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+        <div className="text-center">
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 mx-auto">
+            <span className="text-6xl">👨‍🏫</span>
+          </div>
+          <p className="text-cyan-300 text-xl font-semibold">
+            {teacherProfile?.name || 'Teacher'}
+          </p>
+          <p className="text-cyan-400/60 text-sm mt-2">
+            {teacherTracks?.audio ? 'Audio only' : 'Connecting...'}
+          </p>
         </div>
-        <p className="text-cyan-300 text-xl font-semibold">
-          {teacherProfile?.name || 'Teacher'}
-        </p>
-        <p className="text-cyan-400/60 text-sm mt-2">Camera is off</p>
       </div>
-    </div>
-  )}
+    )}
+  
+{teacherScreenSharing && (
+  <div className="absolute top-4 left-4 z-10 bg-black/70 text-white px-3 py-2 rounded-lg flex items-center gap-2">
+    <Share2 size={16} />
+    <span className="text-sm font-medium">Teacher is sharing screen</span>
+  </div>
+)}
+  </div>
 </div>
-      </div>
 
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-lg p-4 lg:p-6 z-30 border-b border-cyan-500/30">
