@@ -2229,18 +2229,19 @@ useEffect(() => {
     );
   }
 
-  if (!sessionState.isJoined) {
-    return (
-      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-        <div className="text-center text-white">
-          <div className="animate-spin h-20 w-20 border-b-2 border-cyan-500 rounded-full mx-auto mb-6"></div>
-          <h3 className="text-2xl font-semibold mb-3">Joining Session...</h3>
-          <p className="text-gray-400">Connecting to video call</p>
-        </div>
+ if (!sessionState.isJoined) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+      <div className="text-center text-white">
+        <div className="animate-spin h-20 w-20 border-b-2 border-cyan-500 rounded-full mx-auto mb-6"></div>
+        <h3 className="text-2xl font-semibold mb-3">Joining Session...</h3>
+        <p className="text-gray-400">Connecting to video call</p>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
+const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
  
   // ============================================
   // Main Render - Only show when joined
