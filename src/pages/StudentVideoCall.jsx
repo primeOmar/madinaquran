@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 
 // ============================================
-// FIXED: useDraggable Hook - Moved Outside Component
+// FIXED: useDraggable Hook - Correct Implementation
 // ============================================
 const useDraggable = () => {
   const [position, setPosition] = useState(() => {
@@ -146,11 +146,11 @@ const useDraggable = () => {
 };
 
 // ============================================
-// MAIN COMPONENT - PRODUCTION READY
+// MAIN COMPONENT - FIXED VERSION
 // ============================================
 const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   // ============================================
-  // State Declarations (All hooks at top level)
+  // State Declarations (All at top level)
   // ============================================
   const [sessionState, setSessionState] = useState({
     isInitialized: false,
@@ -160,9 +160,9 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   });
 
   const [loadingProgress, setLoadingProgress] = useState({
-    step: '',
+    step: 'Initializing...',
     progress: 0,
-    showLoading: false
+    showLoading: true
   });
 
   const [localTracks, setLocalTracks] = useState({ audio: null, video: null });
@@ -193,15 +193,16 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [showChat, setShowChat] = useState(false);
+  const [teacherScreenSharing, setTeacherScreenSharing] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [screenTrack, setScreenTrack] = useState(null);
   const [showParticipants, setShowParticipants] = useState(false);
   const [participantsSort, setParticipantsSort] = useState('name');
   const [participantsFilter, setParticipantsFilter] = useState('all');
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [screenTrack, setScreenTrack] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [teacherScreenSharing, setTeacherScreenSharing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [reactions, setReactions] = useState([]);
+  const [reactionTimeout, setReactionTimeout] = useState({});
   const [availableDevices, setAvailableDevices] = useState({
     cameras: [],
     microphones: [],
@@ -225,7 +226,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   });
 
   // ============================================
-  // Refs Declarations
+  // Refs Declarations (All at top level)
   // ============================================
   const remoteVideoRefs = useRef(new Map());
   const pipRef = useRef(null);
@@ -238,12 +239,14 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const initializationRef = useRef({
     clientCreated: false,
     listenersSet: false,
-    joined: false
+    joined: false,
+    isInitializing: false
   });
+  const isMountedRef = useRef(true);
   const reactionTimeoutRef = useRef({});
 
   // ============================================
-  // Custom Hook Calls (Must be before any conditional logic)
+  // Custom Hook Calls (Must be at top level)
   // ============================================
   const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
 
@@ -261,16 +264,17 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   }, [teacherUid, userProfiles]);
 
   // ============================================
-  // Helper Functions
+  // Helper Functions (All useCallback wrapped)
   // ============================================
-  const formatDuration = (seconds) => {
+  const formatDuration = useCallback((seconds) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+  }, []);
 
   const updateProgress = useCallback((step, progress) => {
+    if (!isMountedRef.current) return;
     setLoadingProgress({
       step,
       progress: Math.min(100, Math.max(0, progress)),
@@ -379,8 +383,30 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     }
   }, [sessionState.sessionInfo?.meetingId]);
 
+  const updateParticipantStatus = useCallback(async (updates) => {
+    try {
+      if (!sessionState.sessionInfo?.session?.id) return;
+
+      const statusUpdate = {
+        ...updates,
+        timestamp: new Date().toISOString(),
+        student_id: studentId,
+        session_id: sessionState.sessionInfo.session.id
+      };
+      
+      await studentvideoApi.updateParticipantStatus(
+        sessionState.sessionInfo.session.id,
+        studentId,
+        statusUpdate
+      );
+
+    } catch (error) {
+      console.warn('Participant status update error:', error.message);
+    }
+  }, [sessionState.sessionInfo?.session?.id, studentId]);
+
   // ============================================
-  // Agora Event Listeners
+  // Agora Event Listeners Setup
   // ============================================
   const setupAgoraEventListeners = useCallback(() => {
     const client = clientRef.current;
@@ -594,6 +620,115 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     }
   }, []);
 
+  // ============================================
+  // Session Initialization
+  // ============================================
+  const initializeSession = useCallback(async () => {
+    try {
+      if (initializationRef.current.clientCreated) {
+        console.log('Client already created, skipping initialization');
+        return;
+      }
+
+      console.log('⚡ Starting FAST initialization...');
+      const initStart = Date.now();
+
+      updateProgress('Checking session availability...', 10);
+
+      const [sessionLookup, devicesCheck] = await Promise.all([
+        studentvideoApi.getSessionByClassId(classId),
+        AgoraRTC.getDevices().catch(() => [])
+      ]);
+      
+      if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
+        throw new Error(sessionLookup.error || 'No active session found');
+      }
+
+      const effectiveMeetingId = sessionLookup.meetingId;
+      
+      updateProgress('Setting up video client...', 30);
+      
+      if (!clientRef.current) {
+        clientRef.current = AgoraRTC.createClient({ 
+          mode: 'rtc', 
+          codec: 'vp8' 
+        });
+        initializationRef.current.clientCreated = true;
+        console.log('✅ Client created');
+      }
+
+      updateProgress('Configuring connection...', 40);
+      
+      if (!initializationRef.current.listenersSet) {
+        setupAgoraEventListeners();
+        initializationRef.current.listenersSet = true;
+        console.log('✅ Listeners set');
+      }
+
+      updateProgress('Connecting to classroom...', 50);
+      
+      const [sessionData] = await Promise.all([
+        studentvideoApi.joinVideoSession(effectiveMeetingId, studentId, 'student'),
+        fetchParticipants(effectiveMeetingId).catch(err => 
+          console.warn('Participants fetch failed (non-critical):', err)
+        )
+      ]);
+
+      if (!sessionData.success || !sessionData.token) {
+        throw new Error(sessionData.error || 'Failed to join session');
+      }
+
+      const studentAgoraUid = sessionData.uid;
+
+      updateProgress('Finalizing connection...', 70);
+      
+      setSessionState({
+        isInitialized: true,
+        isJoined: false,
+        sessionInfo: {
+          ...sessionData,
+          uid: studentAgoraUid,
+          meetingId: effectiveMeetingId
+        },
+        error: null
+      });
+
+      console.log(`⚡ Init phase 1 complete: ${Date.now() - initStart}ms`);
+
+      updateProgress('Starting video call...', 85);
+      
+      await joinChannel({
+        ...sessionData,
+        uid: studentAgoraUid
+      });
+
+      updateProgress('Ready!', 100);
+      
+      console.log(`✅ Total init time: ${Date.now() - initStart}ms`);
+
+      setTimeout(() => {
+        setLoadingProgress(prev => ({ ...prev, showLoading: false }));
+      }, 1000);
+
+    } catch (error) {
+      console.error('Init Error:', error);
+      
+      updateProgress('Connection failed', 0);
+      
+      setTimeout(() => {
+        setLoadingProgress(prev => ({ ...prev, showLoading: false }));
+      }, 2000);
+      
+      setSessionState(prev => ({ 
+        ...prev, 
+        error: error.message || 'Failed to connect' 
+      }));
+    }
+  }, [classId, studentId, updateProgress, setupAgoraEventListeners, fetchParticipants]);
+
+  // ============================================
+  // Join Channel
+  // ============================================
   const joinChannel = useCallback(async (sessionData) => {
     try {
       const { channel, token, uid, appId } = sessionData;
@@ -660,7 +795,55 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       console.error('Join channel error:', error);
       throw error;
     }
-  }, [createLocalTracks, sessionState.sessionInfo?.meetingId, fetchParticipants]);
+  }, [sessionState.sessionInfo?.meetingId, fetchParticipants, createLocalTracks, updateParticipantStatus]);
+
+  // ============================================
+  // Control Functions
+  // ============================================
+  const toggleVideo = useCallback(async () => {
+    if (!localTracks.video || !controls.hasCamera) return;
+    
+    try {
+      const newState = !controls.videoEnabled;
+      await localTracks.video.setEnabled(newState);
+      setControls(prev => ({ ...prev, videoEnabled: newState }));
+      console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
+    } catch (error) {
+      console.error('Failed to toggle video:', error);
+    }
+  }, [localTracks.video, controls.hasCamera, controls.videoEnabled]);
+
+  const toggleAudio = useCallback(async () => {
+    if (!localTracks.audio || !controls.hasMicrophone) return;
+    
+    try {
+      const newState = !controls.audioEnabled;
+      await localTracks.audio.setEnabled(newState);
+      setControls(prev => ({ ...prev, audioEnabled: newState }));
+      console.log(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
+    } catch (error) {
+      console.error('Failed to toggle audio:', error);
+    }
+  }, [localTracks.audio, controls.hasMicrophone, controls.audioEnabled]);
+
+  const toggleHandRaise = useCallback(async () => {
+    const newState = !controls.handRaised;
+    setControls(prev => ({ ...prev, handRaised: newState }));
+    
+    try {
+      await updateParticipantStatus({ handRaised: newState });
+      console.log(`✋ Hand ${newState ? 'raised' : 'lowered'}`);
+      
+      if (sessionState.sessionInfo?.session?.id) {
+        sendMessage(
+          newState ? '✋ Raised hand' : 'Lowered hand',
+          'system'
+        );
+      }
+    } catch (error) {
+      console.error('Failed to toggle hand raise:', error);
+    }
+  }, [controls.handRaised, sessionState.sessionInfo?.session?.id, updateParticipantStatus]);
 
   // ============================================
   // Message Functions
@@ -717,76 +900,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       console.error('Send message error:', error);
     }
   }, [newMessage, sessionState.sessionInfo?.session?.id, studentId]);
-
-  // ============================================
-  // Control Functions
-  // ============================================
-  const toggleVideo = useCallback(async () => {
-    if (!localTracks.video || !controls.hasCamera) return;
-    
-    try {
-      const newState = !controls.videoEnabled;
-      await localTracks.video.setEnabled(newState);
-      setControls(prev => ({ ...prev, videoEnabled: newState }));
-      console.log(`📹 Video ${newState ? 'enabled' : 'disabled'}`);
-    } catch (error) {
-      console.error('Failed to toggle video:', error);
-    }
-  }, [localTracks.video, controls.hasCamera, controls.videoEnabled]);
-
-  const toggleAudio = useCallback(async () => {
-    if (!localTracks.audio || !controls.hasMicrophone) return;
-    
-    try {
-      const newState = !controls.audioEnabled;
-      await localTracks.audio.setEnabled(newState);
-      setControls(prev => ({ ...prev, audioEnabled: newState }));
-      console.log(`🎤 Audio ${newState ? 'enabled' : 'disabled'}`);
-    } catch (error) {
-      console.error('Failed to toggle audio:', error);
-    }
-  }, [localTracks.audio, controls.hasMicrophone, controls.audioEnabled]);
-
-  const toggleHandRaise = useCallback(async () => {
-    const newState = !controls.handRaised;
-    setControls(prev => ({ ...prev, handRaised: newState }));
-    
-    try {
-      await updateParticipantStatus({ handRaised: newState });
-      console.log(`✋ Hand ${newState ? 'raised' : 'lowered'}`);
-      
-      if (sessionState.sessionInfo?.session?.id) {
-        sendMessage(
-          newState ? '✋ Raised hand' : 'Lowered hand',
-          'system'
-        );
-      }
-    } catch (error) {
-      console.error('Failed to toggle hand raise:', error);
-    }
-  }, [controls.handRaised, sessionState.sessionInfo?.session?.id, sendMessage]);
-
-  const updateParticipantStatus = useCallback(async (updates) => {
-    try {
-      if (!sessionState.sessionInfo?.session?.id) return;
-
-      const statusUpdate = {
-        ...updates,
-        timestamp: new Date().toISOString(),
-        student_id: studentId,
-        session_id: sessionState.sessionInfo.session.id
-      };
-      
-      await studentvideoApi.updateParticipantStatus(
-        sessionState.sessionInfo.session.id,
-        studentId,
-        statusUpdate
-      );
-
-    } catch (error) {
-      console.warn('Participant status update error:', error.message);
-    }
-  }, [sessionState.sessionInfo?.session?.id, studentId]);
 
   // ============================================
   // Screen Sharing Functions
@@ -904,6 +1017,22 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
       sendMessage(`⚠️ ${errorMessage}`, 'system');
     }
   }, [isScreenSharing, screenTrack, localTracks.video, controls.hasCamera, stopScreenShare, sendMessage]);
+
+  // ============================================
+  // Duration Tracking
+  // ============================================
+  const startDurationTracking = useCallback(() => {
+    const startTime = Date.now();
+    
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+    }
+    
+    durationIntervalRef.current = setInterval(() => {
+      const diff = Math.floor((Date.now() - startTime) / 1000);
+      setStats(prev => ({ ...prev, duration: diff }));
+    }, 1000);
+  }, []);
 
   // ============================================
   // Cleanup Functions
@@ -1189,212 +1318,166 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   }, [sessionState.sessionInfo, isScreenSharing, controls.handRaised, screenTrack, localTracks.video, controls.hasCamera, studentId, cleanup, onLeaveCall, updateParticipantStatus]);
 
   // ============================================
-  // Initialization
+  // Device Management Functions
   // ============================================
-  const initializeSession = useCallback(async () => {
-    try {
-      if (initializationRef.current.clientCreated) {
-        console.log('Client already created, skipping initialization');
-        return;
-      }
-
-      console.log('⚡ Starting FAST initialization...');
-      const initStart = Date.now();
-
-      updateProgress('Checking session availability...', 10);
-      
-      const [sessionLookup, devicesCheck] = await Promise.all([
-        studentvideoApi.getSessionByClassId(classId),
-        AgoraRTC.getDevices().catch(() => [])
-      ]);
-      
-      if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
-        throw new Error(sessionLookup.error || 'No active session found');
-      }
-
-      const effectiveMeetingId = sessionLookup.meetingId;
-      
-      updateProgress('Setting up video client...', 30);
-      
-      if (!clientRef.current) {
-        clientRef.current = AgoraRTC.createClient({ 
-          mode: 'rtc', 
-          codec: 'vp8' 
-        });
-        initializationRef.current.clientCreated = true;
-        console.log('✅ Client created');
-      }
-
-      updateProgress('Configuring connection...', 40);
-      
-      if (!initializationRef.current.listenersSet) {
-        setupAgoraEventListeners();
-        initializationRef.current.listenersSet = true;
-        console.log('✅ Listeners set');
-      }
-
-      updateProgress('Connecting to classroom...', 50);
-      
-      const [sessionData] = await Promise.all([
-        studentvideoApi.joinVideoSession(effectiveMeetingId, studentId, 'student'),
-        fetchParticipants(effectiveMeetingId).catch(err => 
-          console.warn('Participants fetch failed (non-critical):', err)
-        )
-      ]);
-
-      if (!sessionData.success || !sessionData.token) {
-        throw new Error(sessionData.error || 'Failed to join session');
-      }
-
-      const studentAgoraUid = sessionData.uid;
-
-      updateProgress('Finalizing connection...', 70);
-      
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: {
-          ...sessionData,
-          uid: studentAgoraUid,
-          meetingId: effectiveMeetingId
-        },
-        error: null
-      });
-
-      console.log(`⚡ Init phase 1 complete: ${Date.now() - initStart}ms`);
-
-      updateProgress('Starting video call...', 85);
-      
-      await joinChannel({
-        ...sessionData,
-        uid: studentAgoraUid
-      });
-
-      updateProgress('Ready!', 100);
-      
-      console.log(`✅ Total init time: ${Date.now() - initStart}ms`);
-
-      setTimeout(() => {
-        setLoadingProgress(prev => ({ ...prev, showLoading: false }));
-      }, 1000);
-
-    } catch (error) {
-      console.error('Init Error:', error);
-      
-      updateProgress('Connection failed', 0);
-      
-      setTimeout(() => {
-        setLoadingProgress(prev => ({ ...prev, showLoading: false }));
-      }, 2000);
-      
-      setSessionState(prev => ({ 
-        ...prev, 
-        error: error.message || 'Failed to connect' 
-      }));
-    }
-  }, [classId, studentId, setupAgoraEventListeners, joinChannel, fetchParticipants, updateProgress]);
-
-  // ============================================
-  // Duration Tracking
-  // ============================================
-  const startDurationTracking = useCallback(() => {
-    const startTime = Date.now();
-    
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-    }
-    
-    durationIntervalRef.current = setInterval(() => {
-      const diff = Math.floor((Date.now() - startTime) / 1000);
-      setStats(prev => ({ ...prev, duration: diff }));
-    }, 1000);
-  }, []);
-
-  // ============================================
-  // UI Helper Functions
-  // ============================================
-  const toggleParticipants = useCallback(() => {
-    setShowParticipants(prev => !prev);
-    
-    if (!showParticipants && sessionState.sessionInfo?.meetingId) {
-      fetchParticipants(sessionState.sessionInfo.meetingId);
-    }
-  }, [showParticipants, sessionState.sessionInfo?.meetingId, fetchParticipants]);
-
   const toggleSettings = useCallback(async () => {
     if (!showSettings) {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        
-        const cameras = devices
-          .filter(device => device.kind === 'videoinput')
-          .map(device => ({
-            id: device.deviceId,
-            label: device.label || `Camera ${cameras.length + 1}`,
-            group: device.groupId
-          }));
-        
-        const microphones = devices
-          .filter(device => device.kind === 'audioinput')
-          .map(device => ({
-            id: device.deviceId,
-            label: device.label || `Microphone ${microphones.length + 1}`,
-            group: device.groupId
-          }));
-        
-        const speakers = devices
-          .filter(device => device.kind === 'audiooutput')
-          .map(device => ({
-            id: device.deviceId,
-            label: device.label || `Speaker ${speakers.length + 1}`,
-            group: device.groupId
-          }));
-        
-        setAvailableDevices({ cameras, microphones, speakers });
-        
-        if (localTracks.video?.getTrackLabel) {
-          const currentCamera = localTracks.video.getTrackLabel();
-          setSelectedDevices(prev => ({
-            ...prev,
-            cameraId: cameras.find(cam => cam.label === currentCamera)?.id || ''
-          }));
-        }
-        
-      } catch (error) {
-        console.error('❌ Failed to load devices:', error);
-      }
+      await loadAvailableDevices();
     }
     setShowSettings(prev => !prev);
-  }, [showSettings, localTracks.video]);
+  }, [showSettings]);
 
-  const toggleFullscreen = useCallback(() => {
-    const element = document.documentElement;
-    
-    if (!document.fullscreenElement) {
-      if (element.requestFullscreen) {
-        element.requestFullscreen();
-      } else if (element.mozRequestFullScreen) {
-        element.mozRequestFullScreen();
-      } else if (element.webkitRequestFullscreen) {
-        element.webkitRequestFullscreen();
-      } else if (element.msRequestFullscreen) {
-        element.msRequestFullscreen();
+  const loadAvailableDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      
+      const cameras = devices
+        .filter(device => device.kind === 'videoinput')
+        .map(device => ({
+          id: device.deviceId,
+          label: device.label || `Camera ${cameras.length + 1}`,
+          group: device.groupId
+        }));
+      
+      const microphones = devices
+        .filter(device => device.kind === 'audioinput')
+        .map(device => ({
+          id: device.deviceId,
+          label: device.label || `Microphone ${microphones.length + 1}`,
+          group: device.groupId
+        }));
+      
+      const speakers = devices
+        .filter(device => device.kind === 'audiooutput')
+        .map(device => ({
+          id: device.deviceId,
+          label: device.label || `Speaker ${speakers.length + 1}`,
+          group: device.groupId
+        }));
+      
+      setAvailableDevices({ cameras, microphones, speakers });
+      
+      if (localTracks.video?.getTrackLabel) {
+        const currentCamera = localTracks.video.getTrackLabel();
+        setSelectedDevices(prev => ({
+          ...prev,
+          cameraId: cameras.find(cam => cam.label === currentCamera)?.id || ''
+        }));
       }
-      setIsFullscreen(true);
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      } else if (document.mozCancelFullScreen) {
-        document.mozCancelFullScreen();
-      } else if (document.webkitExitFullscreen) {
-        document.webkitExitFullscreen();
-      } else if (document.msExitFullscreen) {
-        document.msExitFullscreen();
-      }
-      setIsFullscreen(false);
+      
+    } catch (error) {
+      console.error('❌ Failed to load devices:', error);
     }
-  }, []);
+  }, [localTracks.video]);
 
+  const switchCamera = useCallback(async (deviceId) => {
+    try {
+      if (!localTracks.video || !controls.hasCamera) return;
+      
+      console.log(`📷 Switching to camera: ${deviceId}`);
+      
+      await localTracks.video.close();
+      
+      const newVideoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: videoSettings.resolution === '720p' ? '720p_3' : 
+                      videoSettings.resolution === '480p' ? '480p_1' : '1080p_3',
+        cameraId: deviceId,
+        optimizationMode: 'detail'
+      });
+      
+      if (clientRef.current) {
+        await clientRef.current.unpublish(localTracks.video);
+        
+        setLocalTracks(prev => ({ ...prev, video: newVideoTrack }));
+        
+        await clientRef.current.publish(newVideoTrack);
+        
+        setSelectedDevices(prev => ({ ...prev, cameraId: deviceId }));
+        
+        console.log('✅ Camera switched successfully');
+        sendMessage('Switched camera', 'system');
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to switch camera:', error);
+      sendMessage('Failed to switch camera', 'system');
+    }
+  }, [localTracks.video, controls.hasCamera, videoSettings.resolution, sendMessage]);
+
+  const switchMicrophone = useCallback(async (deviceId) => {
+    try {
+      if (!localTracks.audio || !controls.hasMicrophone) return;
+      
+      console.log(`🎤 Switching to microphone: ${deviceId}`);
+      
+      await localTracks.audio.close();
+      
+      const newAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        microphoneId: deviceId,
+        AEC: audioSettings.echoCancellation,
+        ANS: audioSettings.noiseSuppression,
+        AGC: audioSettings.autoGainControl,
+        encoderConfig: 'music_standard'
+      });
+      
+      if (clientRef.current) {
+        await clientRef.current.unpublish(localTracks.audio);
+        
+        setLocalTracks(prev => ({ ...prev, audio: newAudioTrack }));
+        
+        await clientRef.current.publish(newAudioTrack);
+        
+        setSelectedDevices(prev => ({ ...prev, microphoneId: deviceId }));
+        
+        console.log('✅ Microphone switched successfully');
+        sendMessage('Switched microphone', 'system');
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to switch microphone:', error);
+      sendMessage('Failed to switch microphone', 'system');
+    }
+  }, [localTracks.audio, controls.hasMicrophone, audioSettings, sendMessage]);
+
+  const updateAudioSettings = useCallback((setting, value) => {
+    setAudioSettings(prev => ({ ...prev, [setting]: value }));
+    
+    if (localTracks.audio) {
+      try {
+        if (setting === 'volume') {
+          localTracks.audio.setVolume(value);
+        } else if (setting === 'noiseSuppression') {
+          localTracks.audio.setNoiseSuppression(value);
+        } else if (setting === 'echoCancellation') {
+          localTracks.audio.setEchoCancellation(value);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Failed to update audio setting ${setting}:`, error);
+      }
+    }
+  }, [localTracks.audio]);
+
+  const updateVideoSettings = useCallback((setting, value) => {
+    setVideoSettings(prev => ({ ...prev, [setting]: value }));
+    
+    if (localTracks.video && setting === 'resolution') {
+      try {
+        const encoderConfig = 
+          value === '720p' ? '720p_3' :
+          value === '480p' ? '480p_1' :
+          '1080p_3';
+        
+        localTracks.video.setEncoderConfiguration(encoderConfig);
+        console.log(`✅ Video resolution updated to ${value}`);
+      } catch (error) {
+        console.warn('⚠️ Failed to update video resolution:', error);
+      }
+    }
+  }, [localTracks.video]);
+
+  // ============================================
+  // Reaction Functions
+  // ============================================
   const sendReaction = useCallback((reaction) => {
     try {
       if (sessionState.sessionInfo?.session?.id) {
@@ -1425,15 +1508,21 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
         setReactions(prev => prev.filter(r => r.id !== reactionId));
       }, 3000);
       
-      clearTimeout(reactionTimeoutRef.current[reaction]);
-      reactionTimeoutRef.current[reaction] = setTimeout(() => {}, 1000);
+      clearTimeout(reactionTimeout[reaction]);
+      setReactionTimeout(prev => ({
+        ...prev,
+        [reaction]: setTimeout(() => {}, 1000)
+      }));
       
     } catch (error) {
       console.error('❌ Reaction error:', error);
       sendMessage(reaction, 'reaction');
     }
-  }, [sessionState.sessionInfo?.session?.id, studentId, sendMessage]);
+  }, [sessionState.sessionInfo?.session?.id, studentId, sendMessage, reactionTimeout]);
 
+  // ============================================
+  // Participant Functions
+  // ============================================
   const getSortedParticipants = useCallback(() => {
     const allParticipants = Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
       const uidString = uid.toString();
@@ -1489,8 +1578,75 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     return filtered;
   }, [remoteTracks, userProfiles, teacherUid, sessionState.sessionInfo?.uid, studentId, localTracks, controls.audioEnabled, controls.videoEnabled, participantsFilter, participantsSort]);
 
+  const kickParticipant = useCallback(async (uid) => {
+    try {
+      const response = await studentvideoApi.kickParticipant(
+        sessionState.sessionInfo?.meetingId,
+        uid,
+        studentId
+      );
+      
+      if (response.success) {
+        sendMessage(`Removed participant: ${userProfiles.get(uid)?.name || 'User'}`, 'system');
+        console.log(`✅ Kicked participant ${uid}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to kick participant:', error);
+    }
+  }, [sessionState.sessionInfo?.meetingId, studentId, sendMessage, userProfiles]);
+
+  const toggleParticipants = useCallback(() => {
+    setShowParticipants(prev => !prev);
+    
+    if (!showParticipants && sessionState.sessionInfo?.meetingId) {
+      fetchParticipants(sessionState.sessionInfo.meetingId);
+    }
+  }, [showParticipants, sessionState.sessionInfo?.meetingId, fetchParticipants]);
+
   // ============================================
-  // Effects
+  // UI Helper Functions
+  // ============================================
+  const toggleFullscreen = useCallback(() => {
+    const element = document.documentElement;
+    
+    if (!document.fullscreenElement) {
+      if (element.requestFullscreen) {
+        element.requestFullscreen();
+      } else if (element.mozRequestFullScreen) {
+        element.mozRequestFullScreen();
+      } else if (element.webkitRequestFullscreen) {
+        element.webkitRequestFullscreen();
+      } else if (element.msRequestFullscreen) {
+        element.msRequestFullscreen();
+      }
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if (document.mozCancelFullScreen) {
+        document.mozCancelFullScreen();
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      } else if (document.msExitFullscreen) {
+        document.msExitFullscreen();
+      }
+      setIsFullscreen(false);
+    }
+  }, []);
+
+  const quickReactions = [
+    { emoji: '👍', label: 'Like' },
+    { emoji: '👏', label: 'Clap' },
+    { emoji: '🎉', label: 'Celebrate' },
+    { emoji: '🙋', label: 'Raise Hand' },
+    { emoji: '❤️', label: 'Heart' },
+    { emoji: '😂', label: 'Laugh' },
+    { emoji: '🤔', label: 'Thinking' },
+    { emoji: '👀', label: 'Eyes' }
+  ];
+
+  // ============================================
+  // Effects (All at top level, no conditional hooks)
   // ============================================
   useEffect(() => {
     if (initializationRef.current.joined) {
@@ -1599,30 +1755,31 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   }, []);
 
   useEffect(() => {
-    setStats(prev => ({
-      ...prev,
-      participantCount: remoteTracks.size + 1
-    }));
-  }, [remoteTracks]);
-
-  // Video Playback Effects
-  useEffect(() => {
     const playLocalVideo = async () => {
       if (!localTracks.video || !localVideoRef.current) {
+        console.log('⏸️ Local video not ready:', { 
+          hasTrack: !!localTracks.video, 
+          hasRef: !!localVideoRef.current 
+        });
         return;
       }
 
       if (!controls.videoEnabled) {
+        console.log('⏸️ Video disabled by user');
         return;
       }
 
       try {
+        console.log('▶️ Playing local video...');
+        
         if (localVideoTrackRef.current && localVideoTrackRef.current !== localTracks.video) {
           localVideoTrackRef.current.stop();
         }
 
         await localTracks.video.play(localVideoRef.current);
         localVideoTrackRef.current = localTracks.video;
+        
+        console.log('✅ Local video playing');
       } catch (error) {
         console.error('❌ Failed to play local video:', error);
         
@@ -1631,6 +1788,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
             if (localTracks.video && localVideoRef.current) {
               await localTracks.video.play(localVideoRef.current);
               localVideoTrackRef.current = localTracks.video;
+              console.log('✅ Local video retry successful');
             }
           } catch (retryError) {
             console.error('❌ Retry failed:', retryError);
@@ -1655,10 +1813,6 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   useEffect(() => {
     const playRemoteVideos = async () => {
       for (const [uid, tracks] of remoteTracks.entries()) {
-        if (teacherUid && String(uid) === teacherUid) {
-          continue;
-        }
-        
         const container = remoteVideoRefs.current.get(String(uid));
         
         if (container && tracks.video) {
@@ -1667,29 +1821,39 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
               continue;
             }
             
-            if (container.tagName === 'VIDEO') {
-              await tracks.video.play(container);
-            } else {
-              await tracks.video.play();
-            }
+            console.log(`▶️ Playing remote video ${uid}`);
+            await tracks.video.play(container);
+            console.log(`✅ Remote video ${uid} playing`);
           } catch (error) {
             console.error(`❌ Failed to play remote ${uid}:`, error);
+            
+            setTimeout(async () => {
+              try {
+                if (container && tracks.video && !tracks.video.isPlaying) {
+                  await tracks.video.play(container);
+                }
+              } catch (e) {
+                console.error(`❌ Retry failed for ${uid}:`, e);
+              }
+            }, 300);
           }
         }
       }
     };
 
     playRemoteVideos();
-  }, [remoteTracks, teacherUid]);
+  }, [remoteTracks]);
 
   useEffect(() => {
     const playTeacherVideo = async () => {
       if (!teacherUid || !teacherTracks?.video) {
+        console.log('⏸️ Teacher video not available');
         return;
       }
 
       const container = remoteVideoRefs.current.get(teacherUid);
       if (!container) {
+        console.log('⏸️ Teacher video container not ready');
         return;
       }
 
@@ -1698,10 +1862,14 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
           return;
         }
 
+        console.log(`▶️ Playing teacher video for UID: ${teacherUid}`);
+        
         if (container.tagName === 'VIDEO') {
           await teacherTracks.video.play(container);
+          console.log('✅ Teacher video playing');
         } else {
           await teacherTracks.video.play();
+          console.log('✅ Teacher video playing (fallback)');
         }
       } catch (error) {
         console.error('❌ Failed to play teacher video:', error);
@@ -1725,7 +1893,13 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
     playTeacherVideo();
   }, [teacherUid, teacherTracks?.video]);
 
-  // Cleanup on unmount
+  useEffect(() => {
+    setStats(prev => ({
+      ...prev,
+      participantCount: remoteTracks.size + 1
+    }));
+  }, [remoteTracks]);
+
   useEffect(() => {
     return () => {
       console.log('🧹 Component unmounting - starting cleanup...');
@@ -1925,7 +2099,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
             
             <button 
               onClick={toggleParticipants}
-              className={`p-3 rounded-xl transition-all duration-200 relative ${
+              className={`p-3 rounded-xl transition-all duration-200 ${
                 showParticipants 
                   ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
                   : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
@@ -2119,6 +2293,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
         {/* Participants Overlay for All Screen Sizes */}
         {showParticipants && (
           <div className="absolute inset-0 bg-black/95 backdrop-blur-xl z-50 overflow-hidden flex flex-col">
+            {/* Header */}
             <div className="p-4 lg:p-6 border-b border-cyan-500/30 bg-gradient-to-b from-black/80 to-transparent">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -2138,6 +2313,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  {/* Filter buttons - Desktop only */}
                   <div className="hidden lg:flex items-center gap-2 bg-gray-800/50 rounded-xl p-1">
                     <button
                       onClick={() => setParticipantsFilter('all')}
@@ -2171,6 +2347,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                     </button>
                   </div>
                   
+                  {/* Sort dropdown - Mobile */}
                   <div className="lg:hidden">
                     <select
                       value={participantsSort}
@@ -2183,6 +2360,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                     </select>
                   </div>
                   
+                  {/* Close button */}
                   <button 
                     onClick={() => setShowParticipants(false)}
                     className="p-2 lg:p-3 bg-gray-800/50 hover:bg-red-500/20 rounded-xl text-cyan-300 hover:text-white transition-all duration-200 ml-2"
@@ -2193,6 +2371,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
               </div>
             </div>
 
+            {/* Participants Grid */}
             <div className="flex-1 overflow-y-auto p-4 lg:p-6">
               {getSortedParticipants().length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center py-12">
@@ -2206,7 +2385,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {getSortedParticipants().map((participant) => {
+                  {getSortedParticipants().map((participant, index) => {
                     const isCurrentUser = participant.uid === String(sessionState.sessionInfo?.uid || studentId);
                     const isTeacher = participant.isTeacher;
                     const displayName = participant.profile?.name || 
@@ -2218,6 +2397,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                         key={participant.uid}
                         className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-cyan-500/20 hover:border-cyan-500/40 transition-all duration-300"
                       >
+                        {/* Video/Avatar Container */}
                         <div className="relative aspect-video bg-gradient-to-br from-gray-900 to-gray-950">
                           {participant.tracks.video && participant.hasVideo ? (
                             <div 
@@ -2238,6 +2418,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                             </div>
                           )}
                           
+                          {/* Status Overlay */}
                           <div className="absolute top-3 left-3 flex items-center gap-2">
                             <div className={`w-2 h-2 rounded-full ${
                               participant.hasAudio ? 'bg-green-500 animate-pulse' : 'bg-red-500'
@@ -2254,6 +2435,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                             )}
                           </div>
                           
+                          {/* Video/Audio Status */}
                           <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
                             {!participant.hasVideo && (
                               <div className="bg-black/70 backdrop-blur-sm p-1.5 rounded-lg">
@@ -2268,6 +2450,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                           </div>
                         </div>
                         
+                        {/* Participant Info */}
                         <div className="p-4">
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="font-semibold text-white truncate text-sm lg:text-base">
@@ -2291,6 +2474,17 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                                 {participant.hasVideo ? 'Video On' : 'Video Off'}
                               </span>
                             </div>
+                            
+                            {/* Admin actions - only for teachers/own user */}
+                            {!isCurrentUser && isTeacher && (
+                              <button
+                                onClick={() => kickParticipant(participant.uid)}
+                                className="text-xs text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 hover:bg-red-500/10 rounded-lg"
+                                title="Remove participant"
+                              >
+                                Remove
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2300,6 +2494,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
               )}
             </div>
 
+            {/* Footer Controls */}
             <div className="p-4 lg:p-6 border-t border-cyan-500/30 bg-gradient-to-t from-black/80 to-transparent">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -2315,6 +2510,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                 </div>
                 
                 <div className="flex items-center gap-3">
+                  {/* Copy participant list */}
                   <button
                     onClick={() => {
                       const participantNames = getSortedParticipants()
@@ -2328,6 +2524,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                     Copy List
                   </button>
                   
+                  {/* Refresh button */}
                   <button
                     onClick={() => fetchParticipants(sessionState.sessionInfo?.meetingId)}
                     className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 rounded-xl text-cyan-300 text-sm transition-all"
@@ -2416,7 +2613,9 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
             className={`local-video-pip ${isDragging ? 'local-video-pip-dragging' : ''}`}
           >
             <div className="relative w-full h-full bg-black">
+              {/* Video Container - Full Size with Better Styling */}
               <div className="w-full h-full relative">
+                {/* Local Video Display */}
                 <div 
                   ref={localVideoRef}
                   className="w-full h-full bg-black"
@@ -2427,6 +2626,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                   }}
                 />
                 
+                {/* Placeholder when video is off */}
                 {(!controls.videoEnabled || !localTracks.video) && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
                     <div className="text-center p-4">
@@ -2440,6 +2640,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                 )}
               </div>
               
+              {/* Status Indicator - Bottom Left */}
               <div className="absolute bottom-3 left-3 z-10">
                 <div className="flex items-center gap-2 bg-black/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-white/10 shadow-lg">
                   <div className={`w-3 h-3 rounded-full ${
@@ -2452,11 +2653,13 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
                 </div>
               </div>
               
+              {/* Drag Handle - Top Center */}
               <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 no-drag">
                 <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
               </div>
             </div>
             
+            {/* Optional: Add a subtle glow effect when video is active */}
             {controls.videoEnabled && localTracks.video && (
               <div className="absolute inset-0 pointer-events-none">
                 <div className="absolute inset-0 border border-cyan-500/20 rounded-xl shadow-[0_0_30px_rgba(6,182,212,0.15)]"></div>
