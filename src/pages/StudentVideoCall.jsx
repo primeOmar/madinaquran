@@ -191,10 +191,7 @@ const StudentVideoCall = ({ classId, studentId, meetingId, onLeaveCall }) => {
   const profilePollingRef = useRef();
 
 
-const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable({
-  x: window.innerWidth - 300, 
-  y: window.innerHeight - 200
-});
+const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
 
 const [isScreenSharing, setIsScreenSharing] = useState(false);
 const [screenTrack, setScreenTrack] = useState(null);
@@ -2673,7 +2670,7 @@ useEffect(() => {
         </div>
       )}
 
-      // Add this to your component after the chat panel but before the settings panel
+     
 
 {/* Participants Overlay for All Screen Sizes */}
 {showParticipants && (
