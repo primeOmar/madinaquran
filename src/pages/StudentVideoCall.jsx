@@ -20,9 +20,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-// ============================================
-// FIXED: useDraggable Hook with Proper Error Handling
-// ============================================
+
 // ============================================
 // FIXED: useDraggable Hook - No Conditional Returns
 // ============================================
@@ -215,8 +213,41 @@ const [participantsFilter, setParticipantsFilter] = useState('all'); // 'all', '
 
 
 const teacherTracks = useMemo(() => {
-  if (!teacherUid) return null;
-  return remoteTracks.get(Number(teacherUid)) || null;
+  console.log('🔍 Computing teacherTracks...');
+  console.log('  Teacher UID:', teacherUid);
+  console.log('  Remote tracks size:', remoteTracks.size);
+  
+  if (!teacherUid) {
+    console.log('  ❌ No teacher UID');
+    return null;
+  }
+  
+  // Try multiple key formats
+  const uidString = String(teacherUid);
+  const uidNumber = Number(teacherUid);
+  
+  let tracks = remoteTracks.get(teacherUid) || 
+               remoteTracks.get(uidString) || 
+               remoteTracks.get(uidNumber);
+  
+  console.log('  Tracks found:', {
+    original: remoteTracks.get(teacherUid),
+    string: remoteTracks.get(uidString),
+    number: remoteTracks.get(uidNumber),
+    final: tracks
+  });
+  
+  if (tracks) {
+    console.log('  ✅ Teacher tracks:', {
+      hasVideo: !!tracks.video,
+      hasAudio: !!tracks.audio
+    });
+  } else {
+    console.log('  ❌ No tracks found for teacher');
+    console.log('  Available UIDs in map:', Array.from(remoteTracks.keys()));
+  }
+  
+  return tracks || null;
 }, [teacherUid, remoteTracks]);
 
 useEffect(() => {
@@ -1527,12 +1558,15 @@ const createLocalTracks = async () => {
     if (clientRef.current) {
       const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
       
-      if (tracksToPublish.length > 0) {
-        // Fire and forget - don't await
-        clientRef.current.publish(tracksToPublish)
-          .then(() => console.log(`✅ Published in ${Date.now() - startTime}ms`))
-          .catch(err => console.warn('Publish failed (will retry):', err));
-      }
+     if (tracksToPublish.length > 0) {
+  await clientRef.current.publish(tracksToPublish);
+  console.log(`✅ 🎉 TEACHER PUBLISHED ${tracksToPublish.length} track(s)!`);
+  console.log(`   📹 Video: ${!!videoTrack}`);
+  console.log(`   🎤 Audio: ${!!audioTrack}`);
+  console.log(`   🆔 My UID: ${clientRef.current.uid}`);
+} else {
+  console.warn('⚠️ No tracks to publish!');
+}
     }
 
     // ✅ OPTIMIZATION 10: Auto-play video asynchronously
@@ -2285,6 +2319,7 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
     <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
       {/* Main Video Area - Teacher's Video or Screen Share */}
    {/* Main Video Area - Teacher's Video */}
+{/* Main Video Area - Teacher's Video */}
 <div className="absolute inset-0">
   <div className="relative w-full h-full bg-black">
     {/* Teacher Video Player */}
@@ -2292,25 +2327,52 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
       <video
         ref={el => {
           if (el) {
-            // Store ref immediately
-            remoteVideoRefs.current.set(teacherUid, el);
-            remoteVideoRefs.current.set(String(teacherUid), el);
+            console.log('🎬 Video element ref attached for teacher');
             
-            // ✅ CRITICAL: Play video immediately when ref is attached
-            if (teacherTracks.video && !teacherTracks.video.isPlaying) {
-              teacherTracks.video.play(el)
-                .then(() => {
-                  console.log('✅ Teacher video playing from ref');
-                })
-                .catch(err => {
+            // Store ref with multiple key formats
+            const uidString = String(teacherUid);
+            const uidNumber = Number(teacherUid);
+            
+            remoteVideoRefs.current.set(teacherUid, el);
+            remoteVideoRefs.current.set(uidString, el);
+            remoteVideoRefs.current.set(uidNumber, el);
+            
+            console.log('📺 Video refs stored:', {
+              original: teacherUid,
+              string: uidString,
+              number: uidNumber
+            });
+            
+            // ✅ Play video immediately when ref is attached
+            if (teacherTracks.video) {
+              const playVideo = async () => {
+                try {
+                  if (teacherTracks.video.isPlaying) {
+                    console.log('✅ Teacher video already playing');
+                    return;
+                  }
+                  
+                  console.log('▶️ Attempting to play teacher video...');
+                  await teacherTracks.video.play(el);
+                  console.log('✅ 🎉 Teacher video playing successfully!');
+                } catch (err) {
                   console.error('❌ Teacher video play error:', err);
+                  
                   // Retry after 500ms
-                  setTimeout(() => {
-                    if (teacherTracks.video && !teacherTracks.video.isPlaying) {
-                      teacherTracks.video.play(el).catch(console.error);
+                  setTimeout(async () => {
+                    try {
+                      if (teacherTracks.video && !teacherTracks.video.isPlaying) {
+                        await teacherTracks.video.play(el);
+                        console.log('✅ Teacher video playing on retry');
+                      }
+                    } catch (retryErr) {
+                      console.error('❌ Retry failed:', retryErr);
                     }
                   }, 500);
-                });
+                }
+              };
+              
+              playVideo();
             }
           }
         }}
@@ -2328,24 +2390,52 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
     ) : (
       /* Fallback when no teacher video */
       <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-        <div className="text-center">
+        <div className="text-center max-w-md px-4">
           <div className="w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 mx-auto">
             <span className="text-6xl">👨‍🏫</span>
           </div>
-          <p className="text-cyan-300 text-xl font-semibold">
+          <p className="text-cyan-300 text-xl font-semibold mb-2">
             {teacherProfile?.name || 'Teacher'}
           </p>
-          <p className="text-cyan-400/60 text-sm mt-2">
-            {teacherTracks?.audio ? 'Audio only' : 'Connecting...'}
+          <p className="text-cyan-400/60 text-sm mb-4">
+            {teacherTracks?.audio ? '🎤 Audio only' : '⏳ Connecting...'}
           </p>
           
-          {/* Debug info */}
-          <p className="text-xs text-gray-500 mt-4">
-            Teacher UID: {teacherUid || 'Not set'}
-          </p>
-          <p className="text-xs text-gray-500">
-            Video track: {teacherTracks?.video ? '✓ Available' : '✗ Not available'}
-          </p>
+          {/* Enhanced Debug Info */}
+          <div className="mt-6 p-4 bg-black/50 rounded-lg text-left text-xs font-mono">
+            <div className="font-bold text-cyan-300 mb-2">📊 Debug Info:</div>
+            <div className="text-gray-400 space-y-1">
+              <div>Teacher UID: <span className="text-white">{teacherUid || '❌ Not set'}</span></div>
+              <div>Video Track: <span className={teacherTracks?.video ? 'text-green-400' : 'text-red-400'}>
+                {teacherTracks?.video ? '✅ Available' : '❌ Not available'}
+              </span></div>
+              <div>Audio Track: <span className={teacherTracks?.audio ? 'text-green-400' : 'text-red-400'}>
+                {teacherTracks?.audio ? '✅ Available' : '❌ Not available'}
+              </span></div>
+              <div>Remote Tracks: <span className="text-white">{remoteTracks.size}</span></div>
+              <div className="mt-2 pt-2 border-t border-gray-700">
+                <div className="font-bold text-yellow-300 mb-1">All Remote Users:</div>
+                {Array.from(remoteTracks.entries()).map(([uid, tracks]) => (
+                  <div key={uid} className="text-gray-400">
+                    UID {uid}: 
+                    <span className={tracks.video ? 'text-green-400' : 'text-red-400'}> V:{tracks.video ? '✓' : '✗'}</span>
+                    <span className={tracks.audio ? 'text-green-400' : 'text-red-400'}> A:{tracks.audio ? '✓' : '✗'}</span>
+                    {String(uid) === String(teacherUid) && <span className="text-cyan-400"> ← TEACHER</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          {/* Troubleshooting tips */}
+          {!teacherTracks?.video && remoteTracks.size > 0 && (
+            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <p className="text-yellow-400 text-xs">
+                💡 Others are connected but teacher video not showing. 
+                Teacher may need to enable their camera.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     )}
