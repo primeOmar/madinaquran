@@ -2351,45 +2351,75 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
     <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
       {/* Main Video Area - Teacher's Video or Screen Share */}
    {/* Main Video Area - Teacher's Video */}
-   <div className="absolute inset-0">
+   {/* Main Video Area - Teacher's Video */}
+<div className="absolute inset-0">
   <div className="relative w-full h-full bg-black">
     {/* Teacher Video */}
     {teacherTracks?.video ? (
       <div
         ref={el => {
-          if (el) {
-            console.log('🎬 Teacher video container ref attached');
+          if (!el) return;
+          
+          console.log('🎬 Teacher video container ref attached');
+          
+          // Store with ALL possible key formats
+          const keys = [
+            teacherUid,
+            String(teacherUid),
+            Number(teacherUid)
+          ].filter(k => k !== null && k !== undefined);
+          
+          keys.forEach(key => {
+            remoteVideoRefs.current.set(key, el);
+          });
+          
+          console.log('  📺 Stored refs for keys:', keys);
+          
+          // ✅ SAFE PLAYBACK: Check everything exists before calling
+          const videoTrack = teacherTracks?.video;
+          
+          if (videoTrack && typeof videoTrack.play === 'function') {
+            // Check if already playing
+            if (videoTrack.isPlaying) {
+              console.log('  ✅ Already playing');
+              return;
+            }
             
-            // Store with ALL possible key formats
-            const keys = [
-              teacherUid,
-              String(teacherUid),
-              Number(teacherUid)
-            ];
+            console.log('  ▶️ Playing immediately from ref callback');
             
-            keys.forEach(key => {
-              if (key !== null && key !== undefined) {
-                remoteVideoRefs.current.set(key, el);
-              }
-            });
+            // Call play and handle the promise safely
+            const playPromise = videoTrack.play(el);
             
-            console.log('  📺 Stored refs for keys:', keys);
-            
-            // ✅ IMMEDIATE PLAYBACK when ref is attached
-            if (teacherTracks.video && !teacherTracks.video.isPlaying) {
-              console.log('  ▶️ Playing immediately from ref callback');
-              teacherTracks.video.play(el)
-                .then(() => console.log('  ✅ Playing!'))
+            // ✅ CRITICAL: Check if play() returned a promise
+            if (playPromise && typeof playPromise.then === 'function') {
+              playPromise
+                .then(() => {
+                  console.log('  ✅ Playing!');
+                })
                 .catch(err => {
                   console.error('  ❌ Play failed:', err);
-                  // Retry
+                  
+                  // Retry after delay
                   setTimeout(() => {
-                    if (teacherTracks.video && !teacherTracks.video.isPlaying) {
-                      teacherTracks.video.play(el).catch(console.error);
+                    const track = teacherTracks?.video;
+                    if (track && typeof track.play === 'function' && !track.isPlaying) {
+                      const retryPromise = track.play(el);
+                      if (retryPromise && typeof retryPromise.then === 'function') {
+                        retryPromise.catch(retryErr => {
+                          console.error('  ❌ Retry failed:', retryErr);
+                        });
+                      }
                     }
                   }, 500);
                 });
+            } else {
+              console.warn('  ⚠️ play() did not return a promise');
             }
+          } else {
+            console.warn('  ⚠️ Invalid video track:', {
+              hasTrack: !!videoTrack,
+              hasPlayMethod: videoTrack && typeof videoTrack.play === 'function'
+            });
           }
         }}
         className="w-full h-full bg-black"
@@ -2455,7 +2485,7 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
       </div>
     )}
   </div>
-</div>
+  </div>
 
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-lg p-4 lg:p-6 z-30 border-b border-cyan-500/30">
@@ -2882,30 +2912,37 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
               >
                 {/* Video/Avatar Container */}
                 <div className="relative aspect-video bg-gradient-to-br from-gray-900 to-gray-950">
- {participant.tracks.video && participant.hasVideo ? (
+{/* Participant Video Container */}
+{participant.tracks.video && participant.hasVideo ? (
   <div 
     ref={el => {
-      if (el) {
-        // Store with multiple key formats
-        const keys = [
-          participant.uid,
-          String(participant.uid),
-          Number(participant.uid)
-        ];
+      if (!el) return;
+      
+      // Store with multiple key formats
+      const keys = [
+        participant.uid,
+        String(participant.uid),
+        Number(participant.uid)
+      ].filter(k => k !== null && k !== undefined);
+      
+      keys.forEach(key => {
+        remoteVideoRefs.current.set(key, el);
+      });
+      
+      console.log(`👤 Stored video ref for participant ${participant.uid}`);
+      
+      // ✅ SAFE PLAYBACK
+      const videoTrack = participant.tracks?.video;
+      
+      if (videoTrack && typeof videoTrack.play === 'function' && !videoTrack.isPlaying) {
+        const playPromise = videoTrack.play(el);
         
-        keys.forEach(key => {
-          if (key !== null && key !== undefined) {
-            remoteVideoRefs.current.set(key, el);
-          }
-        });
-        
-        console.log(`👤 Stored video ref for participant ${participant.uid}`);
-        
-        // ✅ IMMEDIATE PLAYBACK
-        if (participant.tracks.video && !participant.tracks.video.isPlaying) {
-          participant.tracks.video.play(el)
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise
             .then(() => console.log(`✅ Participant ${participant.uid} video playing`))
-            .catch(err => console.error(`❌ Participant ${participant.uid} play failed:`, err));
+            .catch(err => {
+              console.error(`❌ Participant ${participant.uid} play failed:`, err);
+            });
         }
       }
     }}
