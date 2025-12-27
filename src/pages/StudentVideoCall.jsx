@@ -1335,7 +1335,6 @@ const initializeSession = async () => {
       setTeacherScreenSharing(true);
     }
   }
-  
 try {
   console.log(`🔌 Subscribing to ${mediaType} from user ${user.uid}...`);
   const remoteTrack = await client.subscribe(user, mediaType);
