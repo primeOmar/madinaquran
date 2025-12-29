@@ -22,12 +22,18 @@ import {
 
 
 // ============================================
-// FIXED: useDraggable Hook - No Conditional Returns
+//  useDraggable Hook - With PROPER isClient Usage
 // ============================================
+
 const useDraggable = () => {
   const isClient = typeof window !== 'undefined';
   
   const [position, setPosition] = useState(() => {
+    // ✅ CRITICAL: Actually use isClient to guard window access
+    if (!isClient) {
+      return { x: 20, y: 20 };
+    }
+    
     try {
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
@@ -49,15 +55,21 @@ const useDraggable = () => {
   const dragStart = useRef({ x: 0, y: 0 });
 
   const getPipSize = useCallback(() => {
+    // ✅ Guard getPipSize as well
+    if (!isClient) {
+      return { width: 280, height: 210 };
+    }
+    
     const isMobile = window.innerWidth < 768;
     return {
       width: isMobile ? 160 : 280,
       height: isMobile ? 120 : 210
     };
-  },[isClient]);
+  }, [isClient]); // ✅ Add isClient to dependencies
 
-  
+  // ✅ Move event handler definitions OUTSIDE useEffect
   const handleMouseMove = useCallback((e) => {
+    if (!isClient) return;
     e.preventDefault();
     if (!isDragging) return;
     
@@ -72,9 +84,10 @@ const useDraggable = () => {
     newY = Math.max(10, Math.min(newY, maxY - 10));
     
     setPosition({ x: newX, y: newY });
-  }, [isDragging, getPipSize]);
+  }, [isDragging, getPipSize, isClient]);
 
   const handleTouchMove = useCallback((e) => {
+    if (!isClient) return;
     e.preventDefault();
     if (!isDragging) return;
     
@@ -90,13 +103,16 @@ const useDraggable = () => {
     newY = Math.max(10, Math.min(newY, maxY - 10));
     
     setPosition({ x: newX, y: newY });
-  }, [isDragging, getPipSize]);
+  }, [isDragging, getPipSize, isClient]);
 
   const handleEnd = useCallback(() => {
     setIsDragging(false);
   }, []);
 
   useEffect(() => {
+    // ✅ Skip if not client
+    if (!isClient) return;
+    
     // ✅ ALWAYS return a cleanup function (consistent hook behavior)
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
@@ -114,13 +130,14 @@ const useDraggable = () => {
       document.removeEventListener('touchend', handleEnd);
       document.removeEventListener('touchcancel', handleEnd);
     };
-  }, [isDragging, handleMouseMove, handleTouchMove, handleEnd]);
+  }, [isDragging, handleMouseMove, handleTouchMove, handleEnd, isClient]);
 
   return {
     position,
     isDragging,
     setPosition,
     handleMouseDown: (e) => {
+      if (!isClient) return;
       if (e.target.closest('.no-drag')) return;
       e.preventDefault();
       e.stopPropagation();
@@ -131,6 +148,7 @@ const useDraggable = () => {
       };
     },
     handleTouchStart: (e) => {
+      if (!isClient) return;
       if (e.target.closest('.no-drag')) return;
       e.preventDefault();
       const touch = e.touches[0];
@@ -212,8 +230,6 @@ const [showParticipants, setShowParticipants] = useState(false);
 const [participantsSort, setParticipantsSort] = useState('name'); // 'name', 'role', 'joinTime'
 const [participantsFilter, setParticipantsFilter] = useState('all'); // 'all', 'teachers', 'students'
 
-const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
-
 
 const teacherTracks = useMemo(() => {
   console.log('🔍 Computing teacherTracks...');
@@ -254,6 +270,16 @@ const teacherTracks = useMemo(() => {
   
   return tracks || null;
 }, [teacherUid, remoteTracks]);
+
+const draggableProps = isClient ? useDraggable() : {
+    position: { x: 20, y: 20 },
+    isDragging: false,
+    setPosition: () => {},
+    handleMouseDown: () => {},
+    handleTouchStart: () => {}
+  };
+
+  const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
 
 useEffect(() => {
   const playLocalVideo = async () => {
@@ -876,6 +902,28 @@ const updateVideoSettings = (setting, value) => {
   // ============================================
   // Window Resize Handler
   // ============================================
+
+  useEffect(() => {
+  if (!isClient) return; // ✅ Guard against SSR
+  
+  const handleWindowResize = () => {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    const isMobile = window.innerWidth < 768;
+    const pipWidth = isMobile ? 160 : 280;
+    const pipHeight = isMobile ? 120 : 210;
+    
+    setPosition(prev => ({
+      x: Math.max(20, Math.min(prev.x, viewportWidth - pipWidth - 20)),
+      y: Math.max(20, Math.min(prev.y, viewportHeight - pipHeight - 20))
+    }));
+  };
+  
+  window.addEventListener('resize', handleWindowResize);
+  return () => window.removeEventListener('resize', handleWindowResize);
+}, [setPosition, isClient]); 
+
   useEffect(() => {
     const handleWindowResize = () => {
       const viewportWidth = window.innerWidth;
@@ -3162,7 +3210,7 @@ useEffect(() => {
 )}
 
 {/* ⚠️ CRITICAL FIX #5: PIP with Better Rendering - ENLARGED */}
-{(controls.hasCamera || controls.hasMicrophone) && (
+{isClient && (controls.hasCamera || controls.hasMicrophone) && (
   <div 
     ref={pipRef}
     style={{
