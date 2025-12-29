@@ -441,6 +441,14 @@ useEffect(() => {
   playTeacherVideo();
 }, [teacherUid, teacherTracks, teacherTracks?.video]);
 
+// Ensure teacher video continues playing when UI state changes
+useEffect(() => {
+  if (teacherTracks?.video && !teacherTracks.video.isPlaying) {
+    console.log('🔄 UI state changed, checking teacher video playback');
+    playTeacherVideo();
+  }
+}, [showParticipants, showSettings]); // Re-run when panels open/close
+
 // Enhanced participant sorting function
 const getSortedParticipants = () => {
   const allParticipants = Array.from(remoteTracks.entries()).map(([uid, tracks]) => {
@@ -459,8 +467,11 @@ const getSortedParticipants = () => {
     };
   });
   
+  // Filter out teacher from participants list (teacher has dedicated main video area)
+  const filteredRemoteParticipants = allParticipants.filter(p => !p.isTeacher);
+  
   // Add current user
-  allParticipants.push({
+  filteredRemoteParticipants.push({
     uid: String(sessionState.sessionInfo?.uid || studentId),
     tracks: localTracks,
     profile: {
@@ -476,7 +487,7 @@ const getSortedParticipants = () => {
   });
   
   // Apply filter
-  let filtered = allParticipants;
+  let filtered = filteredRemoteParticipants;
   if (participantsFilter === 'teachers') {
     filtered = filtered.filter(p => p.isTeacher);
   } else if (participantsFilter === 'students') {
@@ -2355,7 +2366,6 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
 <div className="absolute inset-0">
   <div className="relative w-full h-full bg-black">
     {/* Teacher Video */}
-    {teacherTracks?.video ? (
       <div
         ref={el => {
           if (!el) return;
@@ -2422,7 +2432,7 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
             });
           }
         }}
-        className="w-full h-full bg-black"
+        className="w-full h-full bg-black teacher-video-container"
         style={{
           width: '100%',
           height: '100%'
@@ -2475,7 +2485,6 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
           </div>
         </div>
       </div>
-    )}
     
     {/* Screen Share Indicator */}
     {teacherScreenSharing && (
@@ -2946,9 +2955,19 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
         }
       }
     }}
-    className="w-full h-full bg-black"
+    className="w-full h-full bg-black relative overflow-hidden"
     style={{ width: '100%', height: '100%' }}
-  />
+  >
+    {/* Ensure video element fills container properly */}
+    <style jsx>{`
+      div > video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        border-radius: 0 !important;
+      }
+    `}</style>
+  </div>
 ) : (
   /* Fallback Avatar */
   <div className="w-full h-full flex items-center justify-center">

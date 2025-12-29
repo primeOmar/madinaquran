@@ -826,3 +826,21 @@ video {
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/* ============================================
+   PARTICIPANT VIDEO CONTAINERS
+============================================ */
+
+.participant-video-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 0 !important;
+}
+
+.teacher-video-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  border-radius: 0 !important;
+}
