@@ -583,6 +583,29 @@ useEffect(() => {
 const [reactions, setReactions] = useState([]);
 const [reactionTimeout, setReactionTimeout] = useState({});
 
+// ============================================
+// Message Functions
+// ============================================
+
+const sendMessage = async (text = null, type = 'text') => {
+  const messageText = text || newMessage.trim();
+  if (!messageText || !sessionState.sessionInfo?.session?.id) return;
+
+  try {
+    const message = await studentvideoApi.sendMessage(
+      sessionState.sessionInfo.session.id,
+      studentId,
+      messageText,
+      type
+    );
+
+    setMessages(prev => [...prev, message]);
+    if (!text) setNewMessage('');
+  } catch (error) {
+    console.error('Send message error:', error);
+  }
+};
+
 const sendReaction = (reaction) => {
   try {
     // Send reaction via API
@@ -1743,25 +1766,6 @@ const toggleAudio = async () => {
       });
     } catch (error) {
       console.error('Load messages error:', error);
-    }
-  };
-
-  const sendMessage = async (text = null, type = 'text') => {
-    const messageText = text || newMessage.trim();
-    if (!messageText || !sessionState.sessionInfo?.session?.id) return;
-
-    try {
-      const message = await studentvideoApi.sendMessage(
-        sessionState.sessionInfo.session.id,
-        studentId,
-        messageText,
-        type
-      );
-
-      setMessages(prev => [...prev, message]);
-      if (!text) setNewMessage('');
-    } catch (error) {
-      console.error('Send message error:', error);
     }
   };
 
