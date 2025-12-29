@@ -1063,17 +1063,6 @@ const updateVideoSettings = (setting, value) => {
   // ============================================
   // FIXED: Participant Sync Interval (From Second File)
   // ============================================
-  useEffect(() => {
-    if (!sessionState.isJoined || !sessionState.sessionInfo?.meetingId) return;
-    
-    const syncInterval = setInterval(() => {
-      fetchParticipants(sessionState.sessionInfo.meetingId);
-    }, 15000);
-    
-    return () => clearInterval(syncInterval);
-  }, [sessionState.isJoined, sessionState.sessionInfo?.meetingId]);
-
-  // ============================================
   // FIXED: Helper Functions (From Second File)
   // ============================================
   const fetchParticipants = async (meetingId) => {
@@ -1116,7 +1105,19 @@ const updateVideoSettings = (setting, value) => {
       console.error('Failed to fetch participants:', error);
     }
   };
-const toggleParticipants = () => {
+
+  // ============================================
+  useEffect(() => {
+    if (!sessionState.isJoined || !sessionState.sessionInfo?.meetingId) return;
+    
+    const syncInterval = setInterval(() => {
+      fetchParticipants(sessionState.sessionInfo.meetingId);
+    }, 15000);
+    
+    return () => clearInterval(syncInterval);
+  }, [sessionState.isJoined, sessionState.sessionInfo?.meetingId]);
+
+  const toggleParticipants = () => {
   setShowParticipants(prev => !prev);
   
   // If opening participants panel, refresh participant list
@@ -1124,17 +1125,6 @@ const toggleParticipants = () => {
     fetchParticipants(sessionState.sessionInfo.meetingId);
   }
 };
-  const syncProfilesWithTracks = () => {
-    const remoteUids = Array.from(remoteTracks.keys()).map(uid => String(uid));
-    const profileUids = Array.from(userProfiles.keys());
-    
-    const missingUids = remoteUids.filter(uid => !profileUids.includes(uid));
-    
-    if (missingUids.length > 0 && sessionState.sessionInfo?.meetingId) {
-      fetchProfilesByUids(missingUids);
-    }
-  };
-
   const fetchProfilesByUids = async (uids) => {
     try {
       if (!sessionState.sessionInfo?.meetingId || !uids.length) return;
@@ -1170,6 +1160,17 @@ const toggleParticipants = () => {
       }
     } catch (error) {
       console.warn('Failed to fetch profiles by UIDs:', error);
+    }
+  };
+
+  const syncProfilesWithTracks = () => {
+    const remoteUids = Array.from(remoteTracks.keys()).map(uid => String(uid));
+    const profileUids = Array.from(userProfiles.keys());
+    
+    const missingUids = remoteUids.filter(uid => !profileUids.includes(uid));
+    
+    if (missingUids.length > 0 && sessionState.sessionInfo?.meetingId) {
+      fetchProfilesByUids(missingUids);
     }
   };
 
@@ -2327,13 +2328,15 @@ useEffect(() => {
   // ============================================
   // Render - Error States (From Second File)
   // ============================================
+  // Early Returns for Error/Loading States
+  // ============================================
   if (sessionState.error) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-cyan-500/30 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
+    return (
+      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+        <div className="bg-gray-900/90 backdrop-blur-xl border border-cyan-500/30 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
           <h2 className="text-2xl font-bold mb-4 text-red-400">Cannot Join Session</h2>
           <p className="mb-6 text-gray-300">{sessionState.error}</p>
-          <button 
+          <button
             onClick={() => onLeaveCall && onLeaveCall()}
             className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-xl font-semibold transition-all duration-200"
           >
@@ -2344,30 +2347,26 @@ useEffect(() => {
     );
   }
 
- if (!sessionState.isJoined) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-      <div className="text-center text-white">
-        <div className="animate-spin h-20 w-20 border-b-2 border-cyan-500 rounded-full mx-auto mb-6"></div>
-        <h3 className="text-2xl font-semibold mb-3">Joining Session...</h3>
-        <p className="text-gray-400">Connecting to video call</p>
+  if (!sessionState.isJoined) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="animate-spin h-20 w-20 border-b-2 border-cyan-500 rounded-full mx-auto mb-6"></div>
+          <h3 className="text-2xl font-semibold mb-3">Joining Session...</h3>
+          <p className="text-gray-400">Connecting to video call</p>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
- 
+  const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
+
   // ============================================
   // Main Render - Only show when joined
   // ============================================
   return (
     <div className="fixed inset-0 z-50 bg-black">
-    <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
-      {/* Main Video Area - Teacher's Video or Screen Share */}
-   {/* Main Video Area - Teacher's Video */}
-   {/* Main Video Area - Teacher's Video */}
-<div className="absolute inset-0">
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
   <div className="relative w-full h-full bg-black">
     {/* Teacher Video */}
       <div
@@ -3232,9 +3231,6 @@ const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
     )}
   </div>
 )}
-    </div>
-    </div>
-  );
-};
-
+</div>
+  )}
 export default StudentVideoCall;
