@@ -370,76 +370,76 @@ useEffect(() => {
 }, [remoteTracks, teacherUid]);
 
 // ============================================
-// ENHANCED: Teacher Video Playback with Multiple Triggers
+// ENHANCED: Teacher Video Playback Function
 // ============================================
 
-useEffect(() => {
-  const playTeacherVideo = async () => {
-    console.log('👨‍🏫 Teacher video effect triggered');
+const playTeacherVideo = useCallback(async () => {
+  console.log('👨‍🏫 Teacher video playback triggered');
+  
+  if (!teacherUid) {
+    console.log('  ⏸️ No teacher UID');
+    return;
+  }
+  
+  if (!teacherTracks?.video) {
+    console.log('  ⏸️ No teacher video track');
+    return;
+  }
+
+  // Wait for container with retries
+  let attempts = 0;
+  const maxAttempts = 5;
+  
+  const tryPlay = async () => {
+    attempts++;
     
-    if (!teacherUid) {
-      console.log('  ⏸️ No teacher UID');
+    // Try multiple container keys
+    let container = remoteVideoRefs.current.get(teacherUid) || 
+                   remoteVideoRefs.current.get(String(teacherUid)) ||
+                   remoteVideoRefs.current.get(Number(teacherUid));
+    
+    if (!container) {
+      console.log(`  ⏸️ Container not ready (attempt ${attempts}/${maxAttempts})`);
+      
+      if (attempts < maxAttempts) {
+        setTimeout(tryPlay, 500);
+      } else {
+        console.error('  ❌ Container never became available');
+      }
       return;
     }
-    
-    if (!teacherTracks?.video) {
-      console.log('  ⏸️ No teacher video track');
+
+    // Check if already playing
+    if (teacherTracks.video.isPlaying) {
+      console.log('  ✅ Teacher video already playing');
       return;
     }
 
-    // Wait for container with retries
-    let attempts = 0;
-    const maxAttempts = 5;
-    
-    const tryPlay = async () => {
-      attempts++;
+    try {
+      console.log(`  ▶️ Playing teacher video (attempt ${attempts})`);
+      console.log('    Container:', container.tagName || container.className);
+      console.log('    Track enabled:', teacherTracks.video.enabled);
       
-      // Try multiple container keys
-      let container = remoteVideoRefs.current.get(teacherUid) || 
-                     remoteVideoRefs.current.get(String(teacherUid)) ||
-                     remoteVideoRefs.current.get(Number(teacherUid));
+      // ✅ CRITICAL: Play with container for both VIDEO and DIV elements
+      await teacherTracks.video.play(container);
       
-      if (!container) {
-        console.log(`  ⏸️ Container not ready (attempt ${attempts}/${maxAttempts})`);
-        
-        if (attempts < maxAttempts) {
-          setTimeout(tryPlay, 500);
-        } else {
-          console.error('  ❌ Container never became available');
-        }
-        return;
+      console.log('  ✅ 🎉 Teacher video playing successfully!');
+      
+    } catch (error) {
+      console.error(`  ❌ Play failed (attempt ${attempts}):`, error);
+      
+      if (attempts < maxAttempts) {
+        setTimeout(tryPlay, 1000);
       }
-
-      // Check if already playing
-      if (teacherTracks.video.isPlaying) {
-        console.log('  ✅ Teacher video already playing');
-        return;
-      }
-
-      try {
-        console.log(`  ▶️ Playing teacher video (attempt ${attempts})`);
-        console.log('    Container:', container.tagName || container.className);
-        console.log('    Track enabled:', teacherTracks.video.enabled);
-        
-        // ✅ CRITICAL: Play with container for both VIDEO and DIV elements
-        await teacherTracks.video.play(container);
-        
-        console.log('  ✅ 🎉 Teacher video playing successfully!');
-        
-      } catch (error) {
-        console.error(`  ❌ Play failed (attempt ${attempts}):`, error);
-        
-        if (attempts < maxAttempts) {
-          setTimeout(tryPlay, 1000);
-        }
-      }
-    };
-    
-    tryPlay();
+    }
   };
+  
+  tryPlay();
+}, [teacherUid, teacherTracks]);
 
+useEffect(() => {
   playTeacherVideo();
-}, [teacherUid, teacherTracks, teacherTracks?.video]);
+}, [playTeacherVideo]);
 
 // Ensure teacher video continues playing when UI state changes
 useEffect(() => {
@@ -447,7 +447,7 @@ useEffect(() => {
     console.log('🔄 UI state changed, checking teacher video playback');
     playTeacherVideo();
   }
-}, [showParticipants, showSettings]); // Re-run when panels open/close
+}, [showParticipants, showSettings, playTeacherVideo]); // Re-run when panels open/close
 
 // Enhanced participant sorting function
 const getSortedParticipants = () => {
