@@ -25,6 +25,8 @@ import {
 // FIXED: useDraggable Hook - No Conditional Returns
 // ============================================
 const useDraggable = () => {
+  const isClient = typeof window !== 'undefined';
+  
   const [position, setPosition] = useState(() => {
     try {
       const viewportWidth = window.innerWidth;
@@ -52,9 +54,9 @@ const useDraggable = () => {
       width: isMobile ? 160 : 280,
       height: isMobile ? 120 : 210
     };
-  }, []);
+  },[isClient]);
 
-  // ✅ Move event handler definitions OUTSIDE useEffect
+  
   const handleMouseMove = useCallback((e) => {
     e.preventDefault();
     if (!isDragging) return;
@@ -202,7 +204,6 @@ const [loadingProgress, setLoadingProgress] = useState({
   step: '',
   progress: 0
 });
-const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
 
 const [isScreenSharing, setIsScreenSharing] = useState(false);
 const [screenTrack, setScreenTrack] = useState(null);
@@ -210,6 +211,8 @@ const [screenTrack, setScreenTrack] = useState(null);
 const [showParticipants, setShowParticipants] = useState(false);
 const [participantsSort, setParticipantsSort] = useState('name'); // 'name', 'role', 'joinTime'
 const [participantsFilter, setParticipantsFilter] = useState('all'); // 'all', 'teachers', 'students'
+
+const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
 
 
 const teacherTracks = useMemo(() => {
