@@ -511,6 +511,29 @@ const getSortedParticipants = () => {
   return filtered;
 };
 
+// ============================================
+// Message Functions
+// ============================================
+
+const sendMessage = async (text = null, type = 'text') => {
+  const messageText = text || newMessage.trim();
+  if (!messageText || !sessionState.sessionInfo?.session?.id) return;
+
+  try {
+    const message = await studentvideoApi.sendMessage(
+      sessionState.sessionInfo.session.id,
+      studentId,
+      messageText,
+      type
+    );
+
+    setMessages(prev => [...prev, message]);
+    if (!text) setNewMessage('');
+  } catch (error) {
+    console.error('Send message error:', error);
+  }
+};
+
 // Kick participant (admin function - would need permissions)
 const kickParticipant = async (uid) => {
   try {
@@ -586,25 +609,6 @@ const [reactionTimeout, setReactionTimeout] = useState({});
 // ============================================
 // Message Functions
 // ============================================
-
-const sendMessage = async (text = null, type = 'text') => {
-  const messageText = text || newMessage.trim();
-  if (!messageText || !sessionState.sessionInfo?.session?.id) return;
-
-  try {
-    const message = await studentvideoApi.sendMessage(
-      sessionState.sessionInfo.session.id,
-      studentId,
-      messageText,
-      type
-    );
-
-    setMessages(prev => [...prev, message]);
-    if (!text) setNewMessage('');
-  } catch (error) {
-    console.error('Send message error:', error);
-  }
-};
 
 const sendReaction = (reaction) => {
   try {
