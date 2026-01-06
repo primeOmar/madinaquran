@@ -1644,7 +1644,7 @@ const toggleScreenShare = async () => {
 const screenShareCleanupRef = useRef(null);
 const screenStreamRef = useRef(null);
 
-// Add this effect for cleanup
+
 useEffect(() => {
   return () => {
     // Cleanup screen share
