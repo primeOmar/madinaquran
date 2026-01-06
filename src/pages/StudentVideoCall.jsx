@@ -3193,51 +3193,101 @@ useEffect(() => {
     className={`local-video-pip ${isDragging ? 'local-video-pip-dragging' : ''}`}
   >
     <div className="relative w-full h-full bg-black">
-      {/* Video Container - Full Size with Better Styling */}
-      <div className="w-full h-full relative">
-        {/* Local Video Display */}
-        <div 
-          ref={localVideoRef}
-          className="w-full h-full bg-black"
-          style={{ 
-            transform: 'scaleX(-1)', // Mirror for self-view
-            borderRadius: '10px',
-            overflow: 'hidden'
-          }}
-        />
+  {/* Teacher Video */}
+  {teacherTracks?.video ? (
+    <div
+      ref={el => {
+        if (!el) return;
         
-        {/* Placeholder when video is off */}
-        {(!controls.videoEnabled || !localTracks.video) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
-            <div className="text-center p-4">
-              <div className="w-16 h-16 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <CameraOff className="text-gray-400 w-8 h-8" />
-              </div>
-              <p className="text-gray-400 text-sm font-medium">Camera Off</p>
-              <p className="text-gray-500 text-xs mt-1">Tap to enable</p>
-            </div>
-          </div>
-        )}
-      </div>
-      
-      {/* Status Indicator - Bottom Left */}
-      <div className="absolute bottom-3 left-3 z-10">
-        <div className="flex items-center gap-2 bg-black/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-white/10 shadow-lg">
-          <div className={`w-3 h-3 rounded-full ${
-            controls.audioEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-          }`} />
-          <span className="text-white text-xs font-bold tracking-wider">YOU</span>
-          {controls.videoEnabled && (
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full ml-1" />
-          )}
+        console.log('🎬 Teacher video container ref attached');
+        
+        // Store with ALL possible key formats
+        const keys = [
+          teacherUid,
+          String(teacherUid),
+          Number(teacherUid)
+        ].filter(k => k !== null && k !== undefined);
+        
+        keys.forEach(key => {
+          remoteVideoRefs.current.set(key, el);
+        });
+        
+        console.log('  📺 Stored refs for keys:', keys);
+        
+        // ✅ SAFE PLAYBACK: Check everything exists before calling
+        const videoTrack = teacherTracks?.video;
+        
+        if (videoTrack && typeof videoTrack.play === 'function') {
+          // Check if already playing
+          if (videoTrack.isPlaying) {
+            console.log('  ✅ Already playing');
+            return;
+          }
+          
+          console.log('  ▶️ Playing immediately from ref callback');
+          
+          // Call play and handle the promise safely
+          const playPromise = videoTrack.play(el);
+          
+          // ✅ CRITICAL: Check if play() returned a promise
+          if (playPromise && typeof playPromise.then === 'function') {
+            playPromise
+              .then(() => {
+                console.log('  ✅ Playing!');
+              })
+              .catch(err => {
+                console.error('  ❌ Play failed:', err);
+                
+                // Retry after delay
+                setTimeout(() => {
+                  const track = teacherTracks?.video;
+                  if (track && typeof track.play === 'function' && !track.isPlaying) {
+                    const retryPromise = track.play(el);
+                    if (retryPromise && typeof retryPromise.then === 'function') {
+                      retryPromise.catch(retryErr => {
+                        console.error('  ❌ Retry failed:', retryErr);
+                      });
+                    }
+                  }
+                }, 500);
+              });
+          } else {
+            console.warn('  ⚠️ play() did not return a promise');
+          }
+        } else {
+          console.warn('  ⚠️ Invalid video track:', {
+            hasTrack: !!videoTrack,
+            hasPlayMethod: videoTrack && typeof videoTrack.play === 'function'
+          });
+        }
+      }}
+      className="w-full h-full bg-black teacher-video-container"
+    />
+  ) : (
+    /* No Teacher Video Fallback */
+    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+      <div className="text-center max-w-md px-4">
+        <div className="w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 mx-auto">
+          <span className="text-6xl">👨‍🏫</span>
         </div>
-      </div>
-      
-      {/* Drag Handle - Top Center */}
-      <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 no-drag">
-        <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
+        <p className="text-cyan-300 text-xl font-semibold mb-2">
+          {teacherProfile?.name || 'Teacher'}
+        </p>
+        <p className="text-cyan-400/60 text-sm mb-4">
+          {teacherTracks?.audio ? '🎤 Audio only' : '⏳ Connecting...'}
+        </p>
       </div>
     </div>
+  )}
+  
+  {/* Screen Share Indicator */}
+  {teacherScreenSharing && (
+    <div className="absolute top-4 left-4 z-10 bg-black/70 text-white px-3 py-2 rounded-lg flex items-center gap-2">
+      <Share2 size={16} />
+      <span className="text-sm font-medium">Teacher is sharing screen</span>
+    </div>
+  )}
+</div>
     
     {/* Optional: Add a subtle glow effect when video is active */}
     {controls.videoEnabled && localTracks.video && (
