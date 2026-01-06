@@ -1361,7 +1361,7 @@ const resubscribeToAllUsers = async () => {
   }
 };
   
-// Helper function must be defined BEFORE toggleScreenShare
+
 const stopScreenShareAndRestoreCamera = async () => {
   try {
     const screenTrack = localTracks.video;
