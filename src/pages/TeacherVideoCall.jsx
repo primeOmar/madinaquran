@@ -1361,7 +1361,7 @@ const resubscribeToAllUsers = async () => {
   }
 };
   
-
+// Helper function must be defined BEFORE toggleScreenShare
 const stopScreenShareAndRestoreCamera = async () => {
   try {
     const screenTrack = localTracks.video;
@@ -1381,6 +1381,7 @@ const stopScreenShareAndRestoreCamera = async () => {
     if (localVideoRef.current) {
       await cameraTrack.play(localVideoRef.current);
       localVideoRef.current.style.transform = 'scaleX(-1)'; // Mirror camera
+      localVideoRef.current.style.objectFit = 'cover'; // Reset to default
     }
     
     // Update state
@@ -1393,40 +1394,48 @@ const stopScreenShareAndRestoreCamera = async () => {
     
   } catch (error) {
     console.error('❌ Error restoring camera:', error);
-    // Fallback: try to re-join or refresh connection
-    alert('Error switching back to camera. Please refresh the page if issues persist.');
+    // Fallback: create new connection or refresh
+    alert('Error switching back to camera. Please refresh if needed.');
   }
 };
 
 const toggleScreenShare = async () => {
   // Device detection
-  const userAgent = navigator.userAgent;
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-  const isAndroidChrome = /Android.*Chrome\//i.test(userAgent);
-  const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
-  const isSafari = /Safari/i.test(userAgent) && !/Chrome/i.test(userAgent);
+  const userAgent = navigator.userAgent.toLowerCase();
+  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+  const isAndroid = /android/i.test(userAgent);
+  const isIOS = /iphone|ipad|ipod/i.test(userAgent);
+  const isChrome = /chrome/i.test(userAgent);
+  const isSafari = /safari/i.test(userAgent) && !/chrome/i.test(userAgent);
+  const isFirefox = /firefox/i.test(userAgent);
   
-  // Platform-specific handling
-  if (isIOS && isSafari) {
-    alert('iOS Safari: Please use "Share" button in Safari menu (not supported programmatically)');
+  // Check browser compatibility
+  const isScreenShareSupported = () => {
+    // Modern browsers support getDisplayMedia API
+    return navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices;
+  };
+  
+  if (!isScreenShareSupported()) {
+    alert('Your browser does not support screen sharing. Please use Chrome 72+, Firefox 66+, Safari 13+, or Edge 79+.');
     return;
   }
   
-  if (isAndroidChrome) {
-    // Check Chrome version (screen sharing requires Chrome 81+)
-    const chromeVersion = userAgent.match(/Chrome\/(\d+)/);
+  // Platform-specific guidance
+  if (isIOS && isSafari) {
+    alert('iOS Safari: Tap "Share" button in Safari menu, then "Screen" option');
+    return;
+  }
+  
+  if (isAndroid && isChrome) {
+    // Chrome 81+ supports screen sharing on Android
+    const chromeVersion = userAgent.match(/chrome\/(\d+)/);
     if (chromeVersion && parseInt(chromeVersion[1]) < 81) {
-      alert('Android Chrome 81+ required for screen sharing. Please update your browser.');
+      alert('Android Chrome 81+ required for screen sharing. Please update Chrome.');
       return;
     }
     
-    // Check if extension might be needed
-    const hasExtension = await checkForScreenShareExtension();
-    if (!hasExtension) {
-      if (confirm('For better screen sharing on Android, install the Agora extension? (Recommended)')) {
-        window.open('https://chrome.google.com/webstore/detail/agora-web-extension/minllpmhdgpndnkomcoccfekfegnlikg', '_blank');
-      }
-    }
+    // Show Android-specific instructions
+    alert('Android Chrome: You may need to:\n1. Enable "Desktop site" in Chrome menu\n2. Grant permission when prompted\n3. Select your screen/window');
   }
   
   try {
@@ -1437,49 +1446,58 @@ const toggleScreenShare = async () => {
       let screenTrack;
       try {
         const screenConfig = {
-          encoderConfig: isMobile ? '720p_1' : '1080p_1', // Lower for mobile
+          encoderConfig: isMobile ? '720p_1' : '1080p_1',
           optimizationMode: 'detail',
-          // Platform-specific configurations
-          screenSourceType: ['screen', 'window', 'browser'],
+          // Important: Use the new API format for mobile compatibility
+          withAudio: false, // Screen sharing doesn't need audio track
         };
         
-        // Add extension for desktop Chrome (optional)
-        if (!isMobile && userAgent.includes('Chrome')) {
-          screenConfig.extensionId = 'minllpmhdgpndnkomcoccfekfegnlikg';
-        }
-        
-        // For Safari, use different API
-        if (isSafari) {
-          delete screenConfig.extensionId;
-          delete screenConfig.screenSourceType;
+        // For Firefox, use different settings
+        if (isFirefox) {
+          screenConfig.encoderConfig = '720p_1'; // Firefox performs better with 720p
         }
         
         screenTrack = await AgoraRTC.createScreenVideoTrack(screenConfig);
+        
       } catch (screenError) {
         console.error('❌ Screen share creation failed:', screenError);
         
         // Handle specific error cases
         if (screenError.code === 'PERMISSION_DENIED' || 
-            screenError.message?.includes('cancel') ||
-            screenError.message?.includes('permission')) {
-          console.log('ℹ️ Screen share cancelled or permission denied');
+            screenError.message?.toLowerCase().includes('permission') ||
+            screenError.message?.toLowerCase().includes('denied')) {
+          console.log('ℹ️ Screen share permission denied');
           
           if (isMobile) {
-            alert('Please allow screen sharing permission in browser settings');
+            alert('Please grant screen sharing permission in your browser settings');
+          } else {
+            alert('Please allow screen sharing when the permission dialog appears');
           }
           return;
         }
         
-        if (screenError.name === 'NotSupportedError' || 
-            screenError.message?.includes('not supported')) {
-          const errorMsg = isMobile 
-            ? 'Screen sharing not supported on this device. Try Chrome on Android or Safari on iOS.'
-            : 'Your browser does not support screen sharing. Try Chrome, Firefox, or Edge.';
-          alert(errorMsg);
+        if (screenError.message?.toLowerCase().includes('cancel') ||
+            screenError.message?.toLowerCase().includes('dismiss')) {
+          console.log('ℹ️ Screen share cancelled by user');
           return;
         }
         
-        alert('Screen sharing failed. Please try again.');
+        if (screenError.name === 'NotSupportedError' || 
+            screenError.message?.toLowerCase().includes('not supported')) {
+          
+          let specificHelp = '';
+          if (isAndroid) {
+            specificHelp = '\n\nOn Android Chrome:\n1. Update Chrome to latest version\n2. Enable "Desktop site"\n3. Try sharing a Chrome tab instead of entire screen';
+          } else if (isIOS) {
+            specificHelp = '\n\nOn iOS Safari:\n1. Use Safari (not Chrome/Firefox)\n2. Tap "Share" button in Safari menu\n3. Select "Screen" option';
+          }
+          
+          alert(`Screen sharing not supported in this configuration.${specificHelp}`);
+          return;
+        }
+        
+        // Generic error fallback
+        alert('Unable to start screen sharing. Please try:\n1. Refreshing the page\n2. Using a different browser\n3. Sharing a specific tab instead of entire screen');
         return;
       }
       
@@ -1498,11 +1516,16 @@ const toggleScreenShare = async () => {
       }
       
       // Publish screen track with retry logic
+      let publishSuccess = false;
       try {
         await clientRef.current.publish([screenTrack]);
+        publishSuccess = true;
         console.log('✅ Screen track published');
       } catch (publishError) {
         console.error('❌ Failed to publish screen:', publishError);
+        
+        // Clean up screen track
+        screenTrack.stop();
         
         // Restore camera on publish failure
         if (originalCameraTrack) {
@@ -1510,9 +1533,12 @@ const toggleScreenShare = async () => {
           setLocalTracks(prev => ({ ...prev, video: originalCameraTrack }));
         }
         
-        alert('Failed to share screen. Please try again.');
+        alert('Failed to start screen sharing. Please try again.');
         return;
       }
+      
+      // Only proceed if publishing was successful
+      if (!publishSuccess) return;
       
       // ✅ CRITICAL: Play screen track locally so teacher can see it
       if (localVideoRef.current) {
@@ -1521,6 +1547,7 @@ const toggleScreenShare = async () => {
           // Don't mirror screen share
           localVideoRef.current.style.transform = 'scaleX(1)';
           localVideoRef.current.style.objectFit = 'contain'; // Better for screen content
+          localVideoRef.current.style.backgroundColor = '#000'; // Black background for screen
           console.log('✅ Screen track playing locally');
         } catch (playError) {
           console.warn('⚠️ Could not play screen locally:', playError);
@@ -1541,15 +1568,27 @@ const toggleScreenShare = async () => {
         await stopScreenShareAndRestoreCamera();
       });
       
-      // Additional cleanup on component unmount
-      const cleanup = () => {
+      // Handle browser tab close/refresh
+      window.addEventListener('beforeunload', () => {
         if (screenTrack) {
           screenTrack.close();
         }
-      };
+      });
       
-      // Store cleanup reference
-      screenShareCleanupRef.current = cleanup;
+      // Add performance monitoring for mobile
+      if (isMobile) {
+        console.log('📱 Mobile screen share active - monitoring performance');
+        // Reduce frame rate on mobile for better performance
+        setTimeout(() => {
+          try {
+            if (screenTrack.setEncoderConfiguration) {
+              screenTrack.setEncoderConfiguration('480p_1');
+            }
+          } catch (e) {
+            // Ignore if not supported
+          }
+        }, 3000);
+      }
       
       console.log('✅ Screen sharing started successfully');
       
@@ -1563,20 +1602,16 @@ const toggleScreenShare = async () => {
     setControls(prev => ({ ...prev, screenSharing: false }));
     
     // User-friendly error messages
-    const errorMsg = isMobile 
-      ? 'Screen sharing error. Please ensure you have the latest browser version.'
-      : 'Screen sharing encountered an error. Please try again.';
+    let errorMsg = 'Screen sharing error occurred. ';
+    
+    if (isMobile) {
+      errorMsg += 'On mobile, try:\n• Updating your browser\n• Enabling "Desktop site"\n• Granting all permissions';
+    } else {
+      errorMsg += 'Please refresh and try again.';
+    }
     
     alert(errorMsg);
   }
-};
-
-// Helper function to check for extension (simplified)
-const checkForScreenShareExtension = async () => {
-  return new Promise((resolve) => {
-    // This is a simplified check - implement based on your needs
-    setTimeout(() => resolve(false), 100);
-  });
 };
 
 // Add this ref in your component
@@ -1590,7 +1625,6 @@ useEffect(() => {
     }
   };
 }, []);
-
   
   const toggleFullscreen = () => {
     const container = mainContainerRef.current;
