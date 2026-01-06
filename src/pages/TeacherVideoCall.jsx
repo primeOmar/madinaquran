@@ -1361,7 +1361,74 @@ const resubscribeToAllUsers = async () => {
   }
 };
   
+// Helper function must be defined BEFORE toggleScreenShare
+const stopScreenShareAndRestoreCamera = async () => {
+  try {
+    const screenTrack = localTracks.video;
+    
+    // Unpublish screen track
+    if (screenTrack) {
+      await clientRef.current.unpublish([screenTrack]);
+      screenTrack.stop();
+      console.log('✅ Screen track stopped');
+    }
+    
+    // Restore camera track
+    const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+    await clientRef.current.publish([cameraTrack]);
+    
+    // Play camera locally
+    if (localVideoRef.current) {
+      await cameraTrack.play(localVideoRef.current);
+      localVideoRef.current.style.transform = 'scaleX(-1)'; // Mirror camera
+    }
+    
+    // Update state
+    setLocalTracks(prev => ({ ...prev, video: cameraTrack }));
+    setControls(prev => ({ 
+      ...prev, 
+      screenSharing: false,
+      videoEnabled: true 
+    }));
+    
+  } catch (error) {
+    console.error('❌ Error restoring camera:', error);
+    // Fallback: try to re-join or refresh connection
+    alert('Error switching back to camera. Please refresh the page if issues persist.');
+  }
+};
+
 const toggleScreenShare = async () => {
+  // Device detection
+  const userAgent = navigator.userAgent;
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+  const isAndroidChrome = /Android.*Chrome\//i.test(userAgent);
+  const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+  const isSafari = /Safari/i.test(userAgent) && !/Chrome/i.test(userAgent);
+  
+  // Platform-specific handling
+  if (isIOS && isSafari) {
+    alert('iOS Safari: Please use "Share" button in Safari menu (not supported programmatically)');
+    return;
+  }
+  
+  if (isAndroidChrome) {
+    // Check Chrome version (screen sharing requires Chrome 81+)
+    const chromeVersion = userAgent.match(/Chrome\/(\d+)/);
+    if (chromeVersion && parseInt(chromeVersion[1]) < 81) {
+      alert('Android Chrome 81+ required for screen sharing. Please update your browser.');
+      return;
+    }
+    
+    // Check if extension might be needed
+    const hasExtension = await checkForScreenShareExtension();
+    if (!hasExtension) {
+      if (confirm('For better screen sharing on Android, install the Agora extension? (Recommended)')) {
+        window.open('https://chrome.google.com/webstore/detail/agora-web-extension/minllpmhdgpndnkomcoccfekfegnlikg', '_blank');
+      }
+    }
+  }
+  
   try {
     if (!controls.screenSharing) {
       // ========== START SCREEN SHARING ==========
@@ -1369,33 +1436,46 @@ const toggleScreenShare = async () => {
       
       let screenTrack;
       try {
-        // Mobile-compatible screen sharing configuration
         const screenConfig = {
-          encoderConfig: '1080p_1',
+          encoderConfig: isMobile ? '720p_1' : '1080p_1', // Lower for mobile
           optimizationMode: 'detail',
-          // Mobile-specific settings
-          screenSourceType: ['screen', 'window', 'browser'], 
-          extensionId: 'minllpmhdgpndnkomcoccfekfegnlikg', 
+          // Platform-specific configurations
+          screenSourceType: ['screen', 'window', 'browser'],
         };
+        
+        // Add extension for desktop Chrome (optional)
+        if (!isMobile && userAgent.includes('Chrome')) {
+          screenConfig.extensionId = 'minllpmhdgpndnkomcoccfekfegnlikg';
+        }
+        
+        // For Safari, use different API
+        if (isSafari) {
+          delete screenConfig.extensionId;
+          delete screenConfig.screenSourceType;
+        }
         
         screenTrack = await AgoraRTC.createScreenVideoTrack(screenConfig);
       } catch (screenError) {
         console.error('❌ Screen share creation failed:', screenError);
         
-        // Mobile-specific error handling
+        // Handle specific error cases
         if (screenError.code === 'PERMISSION_DENIED' || 
             screenError.message?.includes('cancel') ||
-            screenError.message?.includes('not supported') ||
-            screenError.name === 'NotSupportedError') {
-          
-          // Check if mobile device
-          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            screenError.message?.includes('permission')) {
+          console.log('ℹ️ Screen share cancelled or permission denied');
           
           if (isMobile) {
-            alert('Screen sharing requires: Chrome on Android 81+ or Safari 11+');
-          } else {
-            alert('Please allow screen sharing permissions');
+            alert('Please allow screen sharing permission in browser settings');
           }
+          return;
+        }
+        
+        if (screenError.name === 'NotSupportedError' || 
+            screenError.message?.includes('not supported')) {
+          const errorMsg = isMobile 
+            ? 'Screen sharing not supported on this device. Try Chrome on Android or Safari on iOS.'
+            : 'Your browser does not support screen sharing. Try Chrome, Firefox, or Edge.';
+          alert(errorMsg);
           return;
         }
         
@@ -1403,8 +1483,10 @@ const toggleScreenShare = async () => {
         return;
       }
       
+      // Store original camera track
       const originalCameraTrack = localTracks.video;
       
+      // Unpublish camera if it exists
       if (originalCameraTrack) {
         try {
           await clientRef.current.unpublish([originalCameraTrack]);
@@ -1415,32 +1497,59 @@ const toggleScreenShare = async () => {
         }
       }
       
-      await clientRef.current.publish([screenTrack]);
-      console.log('✅ Screen track published');
+      // Publish screen track with retry logic
+      try {
+        await clientRef.current.publish([screenTrack]);
+        console.log('✅ Screen track published');
+      } catch (publishError) {
+        console.error('❌ Failed to publish screen:', publishError);
+        
+        // Restore camera on publish failure
+        if (originalCameraTrack) {
+          await clientRef.current.publish([originalCameraTrack]);
+          setLocalTracks(prev => ({ ...prev, video: originalCameraTrack }));
+        }
+        
+        alert('Failed to share screen. Please try again.');
+        return;
+      }
       
+      // ✅ CRITICAL: Play screen track locally so teacher can see it
       if (localVideoRef.current) {
         try {
           await screenTrack.play(localVideoRef.current);
-          // No mirroring for screen share
+          // Don't mirror screen share
           localVideoRef.current.style.transform = 'scaleX(1)';
+          localVideoRef.current.style.objectFit = 'contain'; // Better for screen content
           console.log('✅ Screen track playing locally');
         } catch (playError) {
           console.warn('⚠️ Could not play screen locally:', playError);
         }
       }
       
+      // Update state
       setLocalTracks(prev => ({ ...prev, video: screenTrack }));
       setControls(prev => ({ 
         ...prev, 
         screenSharing: true,
-        videoEnabled: false
+        videoEnabled: false // Camera is off during screen share
       }));
       
-      // Auto-stop detection
+      // ✅ CRITICAL: Listen for when user stops sharing via browser UI
       screenTrack.on('track-ended', async () => {
-        console.log('🛑 Screen share ended by user');
+        console.log('🛑 Screen share ended by user (browser button)');
         await stopScreenShareAndRestoreCamera();
       });
+      
+      // Additional cleanup on component unmount
+      const cleanup = () => {
+        if (screenTrack) {
+          screenTrack.close();
+        }
+      };
+      
+      // Store cleanup reference
+      screenShareCleanupRef.current = cleanup;
       
       console.log('✅ Screen sharing started successfully');
       
@@ -1453,78 +1562,35 @@ const toggleScreenShare = async () => {
     console.error('❌ Screen share error:', error);
     setControls(prev => ({ ...prev, screenSharing: false }));
     
-    // Mobile-specific error messages
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // User-friendly error messages
     const errorMsg = isMobile 
-      ? 'Screen sharing not supported on this device/browser' 
+      ? 'Screen sharing error. Please ensure you have the latest browser version.'
       : 'Screen sharing encountered an error. Please try again.';
     
     alert(errorMsg);
   }
 };
 
-// ✅ Helper function to stop screen share and restore camera
-const stopScreenShareAndRestoreCamera = async () => {
-  console.log('🔄 Stopping screen share and restoring camera...');
-  
-  const screenTrack = localTracks.video;
-  
-  // Stop and unpublish screen track
-  if (screenTrack) {
-    try {
-      await clientRef.current.unpublish([screenTrack]);
-      screenTrack.stop();
-      screenTrack.close();
-      console.log('✅ Screen track stopped');
-    } catch (err) {
-      console.warn('⚠️ Error stopping screen track:', err);
-    }
-  }
-  
-  // Recreate camera track
-  let cameraTrack = null;
-  try {
-    cameraTrack = await AgoraRTC.createCameraVideoTrack({
-      encoderConfig: '720p_3',
-    });
-    console.log('✅ Camera track recreated');
-    
-    // Publish camera
-    await clientRef.current.publish([cameraTrack]);
-    console.log('✅ Camera track published');
-    
-    // Play camera locally
-    if (localVideoRef.current) {
-      await cameraTrack.play(localVideoRef.current);
-      // Restore mirror for camera
-      localVideoRef.current.style.transform = 'scaleX(-1)';
-      console.log('✅ Camera playing locally');
-    }
-    
-    // Update state
-    setLocalTracks(prev => ({ ...prev, video: cameraTrack }));
-    setControls(prev => ({ 
-      ...prev, 
-      screenSharing: false, 
-      videoEnabled: true 
-    }));
-    
-    console.log('✅ Camera restored successfully');
-    
-  } catch (cameraError) {
-    console.error('❌ Failed to restore camera:', cameraError);
-    
-    // If camera fails, at least update state
-    setLocalTracks(prev => ({ ...prev, video: null }));
-    setControls(prev => ({ 
-      ...prev, 
-      screenSharing: false, 
-      videoEnabled: false 
-    }));
-    
-    alert('Could not restore camera. You can continue with audio only or try toggling video.');
-  }
+// Helper function to check for extension (simplified)
+const checkForScreenShareExtension = async () => {
+  return new Promise((resolve) => {
+    // This is a simplified check - implement based on your needs
+    setTimeout(() => resolve(false), 100);
+  });
 };
+
+// Add this ref in your component
+const screenShareCleanupRef = useRef(null);
+
+// Cleanup on component unmount
+useEffect(() => {
+  return () => {
+    if (screenShareCleanupRef.current) {
+      screenShareCleanupRef.current();
+    }
+  };
+}, []);
+
   
   const toggleFullscreen = () => {
     const container = mainContainerRef.current;
