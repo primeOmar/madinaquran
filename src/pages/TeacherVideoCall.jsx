@@ -299,8 +299,12 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
      cameraWarning: null
   });
 
-
-
+  const [mobileScreenShare, setMobileScreenShare] = useState({
+  isAvailable: false,
+  isActive: false,
+  permissionGranted: false,
+  isRequesting: false
+});
 
   const [participantSync, setParticipantSync] = useState({
   lastSync: 0,
@@ -467,6 +471,40 @@ const calculateGridConfig = useCallback(() => {
   // ============================================
   // EFFECTS
   // ============================================
+useEffect(() => {
+  // Check if screen sharing is available on this device/browser
+  const checkScreenShareSupport = async () => {
+    if (!isMobile) return;
+    
+    try {
+      // Different mobile browsers have different APIs
+      const hasGetDisplayMedia = 
+        navigator.mediaDevices && 
+        'getDisplayMedia' in navigator.mediaDevices;
+      
+      const hasUserMedia =
+        navigator.mediaDevices &&
+        'getUserMedia' in navigator.mediaDevices;
+      
+      // iOS Safari workaround
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isChrome = /Chrome/.test(navigator.userAgent);
+      
+      setMobileScreenShare(prev => ({
+        ...prev,
+        isAvailable: hasGetDisplayMedia || (isIOS && isChrome),
+        supportedBrowser: isChrome ? 'Chrome' : 
+                         isIOS ? 'Safari' : 
+                         'Unknown'
+      }));
+    } catch (error) {
+      console.warn('Screen share check failed:', error);
+    }
+  };
+  
+  checkScreenShareSupport();
+}, [isMobile]);
+
 
 useEffect(() => {
   if (!sessionState.isJoined || !sessionState.sessionInfo?.meetingId) return;
@@ -1323,7 +1361,7 @@ const resubscribeToAllUsers = async () => {
   }
 };
   
- const toggleScreenShare = async () => {
+const toggleScreenShare = async () => {
   try {
     if (!controls.screenSharing) {
       // ========== START SCREEN SHARING ==========
@@ -1331,17 +1369,33 @@ const resubscribeToAllUsers = async () => {
       
       let screenTrack;
       try {
-        screenTrack = await AgoraRTC.createScreenVideoTrack({
-          encoderConfig: '1080p_1', // High quality for screen
-          optimizationMode: 'detail' // Better for text/details
-        });
+        // Mobile-compatible screen sharing configuration
+        const screenConfig = {
+          encoderConfig: '1080p_1',
+          optimizationMode: 'detail',
+          // Mobile-specific settings
+          screenSourceType: ['screen', 'window', 'browser'], 
+          extensionId: 'minllpmhdgpndnkomcoccfekfegnlikg', 
+        };
+        
+        screenTrack = await AgoraRTC.createScreenVideoTrack(screenConfig);
       } catch (screenError) {
         console.error('❌ Screen share creation failed:', screenError);
         
-        // User cancelled the screen share dialog
+        // Mobile-specific error handling
         if (screenError.code === 'PERMISSION_DENIED' || 
-            screenError.message.includes('cancel')) {
-          console.log('ℹ️ Screen share cancelled by user');
+            screenError.message?.includes('cancel') ||
+            screenError.message?.includes('not supported') ||
+            screenError.name === 'NotSupportedError') {
+          
+          // Check if mobile device
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          
+          if (isMobile) {
+            alert('Screen sharing requires: Chrome on Android 81+ or Safari 11+');
+          } else {
+            alert('Please allow screen sharing permissions');
+          }
           return;
         }
         
@@ -1349,10 +1403,8 @@ const resubscribeToAllUsers = async () => {
         return;
       }
       
-      // Store original camera track
       const originalCameraTrack = localTracks.video;
       
-      // Unpublish camera if it exists
       if (originalCameraTrack) {
         try {
           await clientRef.current.unpublish([originalCameraTrack]);
@@ -1363,15 +1415,13 @@ const resubscribeToAllUsers = async () => {
         }
       }
       
-      // Publish screen track
       await clientRef.current.publish([screenTrack]);
       console.log('✅ Screen track published');
       
-      // ✅ CRITICAL: Play screen track locally so teacher can see it
       if (localVideoRef.current) {
         try {
           await screenTrack.play(localVideoRef.current);
-          // Don't mirror screen share
+          // No mirroring for screen share
           localVideoRef.current.style.transform = 'scaleX(1)';
           console.log('✅ Screen track playing locally');
         } catch (playError) {
@@ -1379,17 +1429,16 @@ const resubscribeToAllUsers = async () => {
         }
       }
       
-      // Update state
       setLocalTracks(prev => ({ ...prev, video: screenTrack }));
       setControls(prev => ({ 
         ...prev, 
         screenSharing: true,
-        videoEnabled: false // Camera is off during screen share
+        videoEnabled: false
       }));
       
-      // ✅ CRITICAL: Listen for when user stops sharing via browser UI
+      // Auto-stop detection
       screenTrack.on('track-ended', async () => {
-        console.log('🛑 Screen share ended by user (browser button)');
+        console.log('🛑 Screen share ended by user');
         await stopScreenShareAndRestoreCamera();
       });
       
@@ -1403,7 +1452,14 @@ const resubscribeToAllUsers = async () => {
   } catch (error) {
     console.error('❌ Screen share error:', error);
     setControls(prev => ({ ...prev, screenSharing: false }));
-    alert('Screen sharing encountered an error. Please try again.');
+    
+    // Mobile-specific error messages
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const errorMsg = isMobile 
+      ? 'Screen sharing not supported on this device/browser' 
+      : 'Screen sharing encountered an error. Please try again.';
+    
+    alert(errorMsg);
   }
 };
 
