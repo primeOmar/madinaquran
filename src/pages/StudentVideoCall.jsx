@@ -2502,37 +2502,6 @@ useEffect(() => {
             {teacherTracks?.audio ? '🎤 Audio only' : '⏳ Connecting...'}
           </p>
           
-          {/* Debug Panel */}
-          <div className="mt-6 p-4 bg-black/50 rounded-lg text-left text-xs font-mono">
-            <div className="font-bold text-cyan-300 mb-2">📊 Debug Info:</div>
-            <div className="text-gray-400 space-y-1">
-              <div>Teacher UID: <span className="text-white">{teacherUid || '❌ Not set'}</span></div>
-              <div>Teacher UID Type: <span className="text-white">{typeof teacherUid}</span></div>
-              <div>Video Track: <span className={teacherTracks?.video ? 'text-green-400' : 'text-red-400'}>
-                {teacherTracks?.video ? '✅ Available' : '❌ Missing'}
-              </span></div>
-              <div>Audio Track: <span className={teacherTracks?.audio ? 'text-green-400' : 'text-red-400'}>
-                {teacherTracks?.audio ? '✅ Available' : '❌ Missing'}
-              </span></div>
-              <div>Remote Tracks Total: <span className="text-white">{remoteTracks.size}</span></div>
-              
-              <div className="mt-2 pt-2 border-t border-gray-700">
-                <div className="font-bold text-yellow-300 mb-1">All Remote Users:</div>
-                {remoteTracks.size === 0 ? (
-                  <div className="text-red-400">No remote users connected</div>
-                ) : (
-                  Array.from(remoteTracks.entries()).map(([uid, tracks]) => (
-                    <div key={uid} className="text-gray-400">
-                      UID: {uid} (type: {typeof uid})
-                      <span className={tracks.video ? 'text-green-400' : 'text-red-400'}> V:{tracks.video ? '✓' : '✗'}</span>
-                      <span className={tracks.audio ? 'text-green-400' : 'text-red-400'}> A:{tracks.audio ? '✓' : '✗'}</span>
-                      {String(uid) === String(teacherUid) && <span className="text-cyan-400"> ← TEACHER</span>}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     
