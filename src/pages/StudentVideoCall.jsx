@@ -270,16 +270,8 @@ const teacherTracks = useMemo(() => {
   
   return tracks || null;
 }, [teacherUid, remoteTracks]);
-
-const draggableProps = isClient ? useDraggable() : {
-    position: { x: 20, y: 20 },
-    isDragging: false,
-    setPosition: () => {},
-    handleMouseDown: () => {},
-    handleTouchStart: () => {}
-  };
-
-  const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
+const isClient = typeof window !== 'undefined';
+const { position, isDragging, setPosition, handleMouseDown, handleTouchStart } = useDraggable();
 
 useEffect(() => {
   const playLocalVideo = async () => {
@@ -3210,7 +3202,7 @@ useEffect(() => {
 )}
 
 {/* ⚠️ CRITICAL FIX #5: PIP with Better Rendering - ENLARGED */}
-{isClient && (controls.hasCamera || controls.hasMicrophone) && (
+{(typeof window !== 'undefined') && (controls.hasCamera || controls.hasMicrophone) && (
   <div 
     ref={pipRef}
     style={{
