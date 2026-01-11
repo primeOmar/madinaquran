@@ -2,6 +2,13 @@ apply plugin: 'com.android.application'
 
 android {
     namespace = "com.madinaquranclasses.videocall"
+    
+     compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.madinaquranclasses.videocall"

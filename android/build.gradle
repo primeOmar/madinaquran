@@ -21,6 +21,9 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://www.jitpack.io' }
+        maven { url 'https://download.agora.io/sdk/release' }
+        maven { url 'https://agora-sdk-releases.s3.cn-north-1.amazonaws.com.cn/repository/maven/' }
     }
 }
 
