@@ -2,8 +2,10 @@
   "appId": "com.madinaquranclasses.videocall",
   "appName": "madina-quran",
   "webDir": "dist",
-   "bundledWebRuntime": false,
+  "bundledWebRuntime": false,
   "server": {
-    "allowNavigation": ["*"]
+    "allowNavigation": [
+      "*"
+    ]
   }
 }

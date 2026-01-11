@@ -25,6 +25,30 @@ const messageVariants = {
 };
 
 export default function Login() {
+  const [clickCount, setClickCount] = useState(0);
+  
+  // Triple click detection
+  useEffect(() => {
+    const handleClick = () => {
+      setClickCount(prev => {
+        const newCount = prev + 1;
+        if (newCount === 3) {
+          setTimeout(() => window.location.href = "/teacher-login", 300);
+          return 0;
+        }
+        return newCount;
+      });
+    };
+
+    // Reset count after 1 second
+    const timer = setTimeout(() => setClickCount(0), 1000);
+    
+    window.addEventListener('click', handleClick);
+    return () => {
+      window.removeEventListener('click', handleClick);
+      clearTimeout(timer);
+    };
+  }, [clickCount]);
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -172,6 +196,7 @@ export default function Login() {
             Register
           </a>
         </p>
+       
       </div>
     </div>
   );

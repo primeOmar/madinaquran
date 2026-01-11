@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import './TeacherVideoCall.css';
 import videoApi from '../lib/agora/videoApi';
+
 import { 
   Mic, MicOff, 
   Video, VideoOff, 
@@ -21,7 +22,9 @@ import {
   VolumeX
 } from 'lucide-react';
 
+import { Capacitor } from '@capacitor/core';
 
+import { AgoraScreenshare } from 'capacitor-agora-screenshare';
 // ============================================
 // RESPONSIVE REMOTE VIDEO PLAYER
 // ============================================
@@ -361,45 +364,32 @@ const checkScreenSharePermission = async () => {
 
 // 2. Screen Share with Quality Settings
 const startScreenShareWithQuality = async (quality = 'auto') => {
-  const configs = {
-    low: { width: 1280, height: 720, frameRate: 15 },
-    medium: { width: 1920, height: 1080, frameRate: 24 },
-    high: { width: 2560, height: 1440, frameRate: 30 },
-    auto: { width: 1920, height: 1080, frameRate: 24 }
-  };
-  
-  const selectedConfig = configs[quality];
-  
-  // Adjust for mobile devices
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  
-  if (isMobile) {
-    // Mobile devices need lower settings
-    selectedConfig.width = 1280;
-    selectedConfig.height = 720;
-    selectedConfig.frameRate = isIOS ? 15 : 20;
+  if (Capacitor.isNativePlatform()) {
+    // Use native plugin
+    const result = await AgoraScreenshare.startScreenShare();
+    // Handle the result and integrate with Agora
+    // You'll need to modify your Agora setup to use the MediaProjection
+    return null; // Adjust based on your integration
+  } else {
+    // Use web API
+    const configs = {
+      low: { width: 1280, height: 720, frameRate: 15 },
+      medium: { width: 1920, height: 1080, frameRate: 24 },
+      high: { width: 2560, height: 1440, frameRate: 30 },
+      auto: { width: 1920, height: 1080, frameRate: 24 }
+    };
+    
+    const selectedConfig = configs[quality];
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        width: { ideal: selectedConfig.width },
+        height: { ideal: selectedConfig.height },
+        frameRate: { ideal: selectedConfig.frameRate }
+      },
+      audio: false
+    });
+    return screenStream;
   }
-  
-  const screenStream = await navigator.mediaDevices.getDisplayMedia({
-    video: {
-      width: { ideal: selectedConfig.width },
-      height: { ideal: selectedConfig.height },
-      frameRate: { ideal: selectedConfig.frameRate },
-      // Platform-specific options
-      ...(isIOS && {
-        mediaSource: 'screen',
-        cursor: 'never'
-      }),
-      ...(!isMobile && {
-        displaySurface: 'monitor',
-        logicalSurface: true
-      })
-    },
-    audio: false
-  });
-  
-  return screenStream;
 };
   const [participantSync, setParticipantSync] = useState({
   lastSync: 0,
@@ -1569,15 +1559,21 @@ const toggleScreenShare = async () => {
     if (isScreenSharing) {
       console.log('🛑 Stopping screen share...');
       
-      if (screenTrack) {
-        await clientRef.current?.unpublish([screenTrack]);
-        screenTrack.stop();
-        screenTrack.close();
-      }
-      
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach(track => track.stop());
-        screenStreamRef.current = null;
+      if (Capacitor.isNativePlatform()) {
+        // For native, call plugin to stop
+        const { AgoraScreenshare } = await import('capacitor-agora-screenshare');
+        await AgoraScreenshare.stopScreenShare();
+      } else {
+        if (screenTrack) {
+          await clientRef.current?.unpublish([screenTrack]);
+          screenTrack.stop();
+          screenTrack.close();
+        }
+        
+        if (screenStreamRef.current) {
+          screenStreamRef.current.getTracks().forEach(track => track.stop());
+          screenStreamRef.current = null;
+        }
       }
       
       // Restore camera
@@ -1604,50 +1600,77 @@ const toggleScreenShare = async () => {
     // Store original camera
     originalCameraRef.current = localTracks.video;
     
+    // For native platforms, configure Agora in plugin
+    if (Capacitor.isNativePlatform()) {
+      const { AgoraScreenshare } = await import('capacitor-agora-screenshare');
+      await AgoraScreenshare.setAgoraConfig({
+        appId: sessionData.appId,
+        channel: sessionData.channel,
+        token: sessionData.token,
+        uid: sessionData.uid
+      });
+    }
+    
     // Get screen stream with quality settings
     let screenStream;
-    try {
-      screenStream = await startScreenShareWithQuality(screenShareQuality);
-      screenStreamRef.current = screenStream;
-    } catch (qualityError) {
-      console.log('Quality settings failed, falling back to default:', qualityError);
-      // Fallback to simple getDisplayMedia
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ 
-        video: true, 
-        audio: false 
+    if (Capacitor.isNativePlatform()) {
+      // For native, call plugin and handle differently
+      const { AgoraScreenshare } = await import('capacitor-agora-screenshare');
+      await AgoraScreenshare.startScreenShare();
+      screenStream = null; // No stream for native
+    } else {
+      try {
+        screenStream = await startScreenShareWithQuality(screenShareQuality);
+        screenStreamRef.current = screenStream;
+      } catch (qualityError) {
+        console.log('Quality settings failed, falling back to default:', qualityError);
+        // Fallback to simple getDisplayMedia
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ 
+          video: true, 
+          audio: false 
+        });
+        screenStreamRef.current = screenStream;
+      }
+    }
+    
+    if (!Capacitor.isNativePlatform()) {
+      const videoTrack = screenStream.getVideoTracks()[0];
+      
+      // Create Agora track
+      const agoraScreenTrack = AgoraRTC.createCustomVideoTrack({
+        mediaStreamTrack: videoTrack,
+        encoderConfig: '1080p_1'
       });
-      screenStreamRef.current = screenStream;
-    }
-    
-    const videoTrack = screenStream.getVideoTracks()[0];
-    
-    // Create Agora track
-    const agoraScreenTrack = AgoraRTC.createCustomVideoTrack({
-      mediaStreamTrack: videoTrack,
-      encoderConfig: '1080p_1'
-    });
-    
-    setScreenTrack(agoraScreenTrack);
-    
-    // Handle auto-stop via browser UI
-    videoTrack.onended = () => {
-      console.log('🛑 Screen share ended by user (browser UI)');
-      toggleScreenShare(); // This will stop the screen share
-    };
-    
-    // Unpublish camera
-    if (originalCameraRef.current) {
-      await clientRef.current?.unpublish([originalCameraRef.current]);
-    }
-    
-    // Publish screen track
-    await clientRef.current?.publish([agoraScreenTrack]);
-    
-    // Play screen locally
-    if (localVideoRef.current) {
-      await agoraScreenTrack.play(localVideoRef.current);
-      localVideoRef.current.style.transform = 'scaleX(1)';
-      localVideoRef.current.style.objectFit = 'contain';
+      
+      setScreenTrack(agoraScreenTrack);
+      
+      // Handle auto-stop via browser UI
+      videoTrack.onended = () => {
+        console.log('🛑 Screen share ended by user (browser UI)');
+        toggleScreenShare(); // This will stop the screen share
+      };
+      
+      // Unpublish camera
+      if (originalCameraRef.current) {
+        await clientRef.current?.unpublish([originalCameraRef.current]);
+      }
+      
+      // Publish screen track
+      await clientRef.current?.publish([agoraScreenTrack]);
+      
+      // Play screen locally
+      if (localVideoRef.current) {
+        await agoraScreenTrack.play(localVideoRef.current);
+        localVideoRef.current.style.transform = 'scaleX(1)';
+        localVideoRef.current.style.objectFit = 'contain';
+      }
+    } else {
+      // For native, assume plugin handled publishing
+      // Unpublish camera
+      if (originalCameraRef.current) {
+        await clientRef.current?.unpublish([originalCameraRef.current]);
+      }
+      // No local play for native
     }
     
     // Update state

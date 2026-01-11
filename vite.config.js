@@ -25,8 +25,7 @@ export default defineConfig({
     'process.env': {}
   },
   optimizeDeps: {
-    include: ['agora-rtc-sdk-ng', 'lucide-react'],
-    include: ['src/lib/agora/videoApi.js']
+    include: ['agora-rtc-sdk-ng', 'lucide-react', 'src/lib/agora/videoApi.js']
   }
    
 })
