@@ -25,18 +25,21 @@ const isWeb = !isNative;
 // Will be set only on native platforms if plugin exists
 let nativeScreensharePlugin = null;
 
-// Try to load the plugin dynamically ONLY on native
+// load he plugin dynamically ONLY on native
 if (isNative) {
-  import('capacitor-agora-screenshare')
-    .then(module => {
+  // Use a try-catch 
+  const loadPlugin = async () => {
+    try {
+      const module = await import('capacitor-agora-screenshare');
       nativeScreensharePlugin = module.AgoraScreenshare;
-      console.log('✅ Native AgoraScreenshare plugin loaded successfully');
-    })
-    .catch(err => {
-      console.warn('⚠️ Could not load capacitor-agora-screenshare plugin:', err);
-      console.warn('Native screen sharing will be disabled.');
-    });
-}// ============================================
+      console.log('✅ Native AgoraScreenshare plugin loaded');
+    } catch (err) {
+      console.warn('⚠️ Native plugin not found in this environment:', err);
+    }
+  };
+  loadPlugin();
+}
+// ============================================
 // RESPONSIVE REMOTE VIDEO PLAYER
 // ============================================
 
@@ -1559,21 +1562,21 @@ const stopScreenShareAndRestoreCamera = async () => {
 const toggleScreenShare = async () => {
   try {
     console.log('🖥️ Toggling screen share...');
-    console.log('Permission state:', screenSharePermission);
     
     // 1. Check permission first
     if (!screenSharePermission.checked) {
       await checkScreenSharePermission();
     }
     
-    // 2. Stop screen sharing if active
+    // 2. STOP SCREEN SHARING IF ACTIVE
     if (isScreenSharing) {
       console.log('🛑 Stopping screen share...');
       
-      if (Capacitor.isNativePlatform()) {
-        // For native, call plugin to stop
-        const { AgoraScreenshare } = await import('capacitor-agora-screenshare');
-        await AgoraScreenshare.stopScreenShare();
+      if (isNative) {
+        // Use the safely loaded plugin reference
+        if (nativeScreensharePlugin) {
+          await nativeScreensharePlugin.stopScreenShare();
+        }
       } else {
         if (screenTrack) {
           await clientRef.current?.unpublish([screenTrack]);
@@ -1611,31 +1614,28 @@ const toggleScreenShare = async () => {
     // Store original camera
     originalCameraRef.current = localTracks.video;
     
-    // For native platforms, configure Agora in plugin
-    if (Capacitor.isNativePlatform()) {
-      const { AgoraScreenshare } = await import('capacitor-agora-screenshare');
-      await AgoraScreenshare.setAgoraConfig({
-        appId: sessionData.appId,
-        channel: sessionData.channel,
-        token: sessionData.token,
-        uid: sessionData.uid
-      });
-    }
-    
-    // Get screen stream with quality settings
-    let screenStream;
-    if (Capacitor.isNativePlatform()) {
-      // For native, call plugin and handle differently
-      const { AgoraScreenshare } = await import('capacitor-agora-screenshare');
-      await AgoraScreenshare.startScreenShare();
-      screenStream = null; // No stream for native
+    let screenStream = null;
+
+    if (isNative) {
+      if (nativeScreensharePlugin) {
+        // FIX: Using sessionState.sessionInfo as defined in your component
+        await nativeScreensharePlugin.setAgoraConfig({
+          appId: sessionState.sessionInfo.appId,
+          channel: sessionState.sessionInfo.channel,
+          token: sessionState.sessionInfo.token,
+          uid: sessionState.sessionInfo.uid
+        });
+        await nativeScreensharePlugin.startScreenShare();
+      } else {
+        throw new Error("Native screenshare plugin not available");
+      }
     } else {
+      // WEB LOGIC
       try {
         screenStream = await startScreenShareWithQuality(screenShareQuality);
         screenStreamRef.current = screenStream;
       } catch (qualityError) {
         console.log('Quality settings failed, falling back to default:', qualityError);
-        // Fallback to simple getDisplayMedia
         screenStream = await navigator.mediaDevices.getDisplayMedia({ 
           video: true, 
           audio: false 
@@ -1644,10 +1644,10 @@ const toggleScreenShare = async () => {
       }
     }
     
-    if (!Capacitor.isNativePlatform()) {
+    // 4. Handle Track Publishing (Web Only)
+    if (!isNative && screenStream) {
       const videoTrack = screenStream.getVideoTracks()[0];
       
-      // Create Agora track
       const agoraScreenTrack = AgoraRTC.createCustomVideoTrack({
         mediaStreamTrack: videoTrack,
         encoderConfig: '1080p_1'
@@ -1655,36 +1655,30 @@ const toggleScreenShare = async () => {
       
       setScreenTrack(agoraScreenTrack);
       
-      // Handle auto-stop via browser UI
       videoTrack.onended = () => {
         console.log('🛑 Screen share ended by user (browser UI)');
-        toggleScreenShare(); // This will stop the screen share
+        toggleScreenShare(); 
       };
       
-      // Unpublish camera
       if (originalCameraRef.current) {
         await clientRef.current?.unpublish([originalCameraRef.current]);
       }
       
-      // Publish screen track
       await clientRef.current?.publish([agoraScreenTrack]);
       
-      // Play screen locally
       if (localVideoRef.current) {
         await agoraScreenTrack.play(localVideoRef.current);
         localVideoRef.current.style.transform = 'scaleX(1)';
         localVideoRef.current.style.objectFit = 'contain';
       }
-    } else {
-      // For native, assume plugin handled publishing
-      // Unpublish camera
+    } else if (isNative) {
+      // Native Publishing cleanup
       if (originalCameraRef.current) {
         await clientRef.current?.unpublish([originalCameraRef.current]);
       }
-      // No local play for native
     }
     
-    // Update state
+    // 5. Update state
     setIsScreenSharing(true);
     setControls(prev => ({ 
       ...prev, 
@@ -1692,35 +1686,19 @@ const toggleScreenShare = async () => {
       videoEnabled: false 
     }));
     
-    // Update permission state (user granted permission)
     setScreenSharePermission({ state: 'granted', checked: true });
-    
     console.log('✅ Screen sharing started successfully');
     
   } catch (error) {
     console.error('❌ Screen share error:', error);
-    
-    // Reset states
     setIsScreenSharing(false);
     setControls(prev => ({ ...prev, screenSharing: false }));
     
-    // Update permission state if denied
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       setScreenSharePermission({ state: 'denied', checked: true });
     }
     
-    // User-friendly error messages
-    let errorMessage = `Screen sharing failed: ${error.message}`;
-    
-    if (error.name === 'NotAllowedError') {
-      errorMessage = '❌ Permission denied\n\nPlease allow screen sharing when prompted.';
-    } else if (error.name === 'NotFoundError') {
-      errorMessage = '❌ No screen source found\n\nMake sure you have a screen/window to share.';
-    } else if (error.name === 'NotSupportedError') {
-      errorMessage = '❌ Not supported\n\nYour browser/device does not support screen sharing.';
-    }
-    
-    alert(errorMessage);
+    alert(`Screen sharing failed: ${error.message}`);
   }
 };
 // Add cleanup on unmount
