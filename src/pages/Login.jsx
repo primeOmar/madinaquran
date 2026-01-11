@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FcGoogle } from "react-icons/fc";
 import { supabase } from "../lib/supabaseClient";
@@ -26,33 +26,39 @@ const messageVariants = {
 
 export default function Login() {
   const [clickCount, setClickCount] = useState(0);
-  
-  // Triple click detection
-  useEffect(() => {
-    const handleClick = () => {
-      setClickCount(prev => {
-        const newCount = prev + 1;
-        if (newCount === 3) {
-          setTimeout(() => window.location.href = "/teacher-login", 300);
-          return 0;
-        }
-        return newCount;
-      });
-    };
-
-    // Reset count after 1 second
-    const timer = setTimeout(() => setClickCount(0), 1000);
-    
-    window.addEventListener('click', handleClick);
-    return () => {
-      window.removeEventListener('click', handleClick);
-      clearTimeout(timer);
-    };
-  }, [clickCount]);
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Triple click detection - only on the login form area
+  useEffect(() => {
+    const loginForm = document.querySelector('.login-form-container');
+    
+    if (!loginForm) return;
+    
+    const handleClick = (e) => {
+      // Only count clicks within the login form
+      if (e.target.closest('.login-form-container')) {
+        setClickCount(prev => {
+          const newCount = prev + 1;
+          if (newCount === 3) {
+            setTimeout(() => window.location.href = "/teacher-login", 300);
+            return 0;
+          }
+          return newCount;
+        });
+      }
+    };
+
+    const timer = setTimeout(() => setClickCount(0), 1000);
+    
+    loginForm.addEventListener('click', handleClick);
+    return () => {
+      loginForm.removeEventListener('click', handleClick);
+      clearTimeout(timer);
+    };
+  }, [clickCount]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -89,7 +95,7 @@ export default function Login() {
 
   return (
     <div className="pt-16 min-h-screen w-screen flex items-center justify-center bg-gradient-to-r from-green-700 via-green-800 to-green-900">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 sm:p-12 w-full max-w-md">
+      <div className="login-form-container bg-white rounded-2xl shadow-2xl p-8 sm:p-12 w-full max-w-md">
         <h2 className="text-3xl font-bold text-center text-green-700">
           Welcome Back
         </h2>
@@ -188,7 +194,7 @@ export default function Login() {
           )}
         </AnimatePresence>
         <p className="text-center mt-6 text-gray-600">
-          Don’t have an account?{" "}
+          Don't have an account?{" "}
           <a
             href="/register"
             className="text-green-600 font-semibold hover:underline"
@@ -196,7 +202,6 @@ export default function Login() {
             Register
           </a>
         </p>
-       
       </div>
     </div>
   );
