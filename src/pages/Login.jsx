@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { FcGoogle } from "react-icons/fc";
 import { supabase } from "../lib/supabaseClient";
 import { REDIRECT_URL } from "./config";
+import { Capacitor } from '@capacitor/core';  // Add this import
 
 const buttonVariants = {
   idle: { scale: 1, boxShadow: "0px 0px 6px rgba(0, 255, 0, 0.6)" },
@@ -26,19 +27,79 @@ const messageVariants = {
 
 export default function Login() {
   const [clickCount, setClickCount] = useState(0);
+  const [tapPattern, setTapPattern] = useState([]); // For mobile gesture recognition
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isApp, setIsApp] = useState(false);
 
-  // Triple click detection - only on the login form area
+  // ✅ Detect if running in Capacitor app
   useEffect(() => {
-    const loginForm = document.querySelector('.login-form-container');
+    const checkEnvironment = () => {
+      const isNativeApp = Capacitor.isNativePlatform();
+      const isWebView = /WebView|Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+      setIsApp(isNativeApp || isWebView);
+    };
     
+    checkEnvironment();
+  }, []);
+
+  // ✅ WORLD-CLASS TRIPLE-TAP FOR APP (Mobile Optimized)
+  useEffect(() => {
+    if (!isApp) return; // Only run in app
+    
+    const handleTripleTap = (e) => {
+      // Only trigger in specific area (title area)
+      const isTitleArea = e.target.closest('h2') || 
+                         e.target.closest('.teacher-tap-zone') ||
+                         e.pageY < 100; // Top 100px of screen
+      
+      if (!isTitleArea) return;
+      
+      const now = Date.now();
+      const taps = [...tapPattern, now];
+      
+      // Keep only taps from last 2 seconds
+      const recentTaps = taps.filter(time => now - time < 2000);
+      setTapPattern(recentTaps);
+      
+      // If 3 taps in 2 seconds, trigger
+      if (recentTaps.length >= 3) {
+        console.log('🔓 Teacher access unlocked via triple-tap');
+        setTapPattern([]); // Reset
+        
+        // Visual feedback
+        document.body.style.backgroundColor = '#059669';
+        setTimeout(() => {
+          document.body.style.backgroundColor = '';
+        }, 300);
+        
+        // Navigate after feedback
+        setTimeout(() => {
+          window.location.href = "/teacher-login";
+        }, 500);
+      }
+    };
+
+    // ✅ Use BOTH touch and click for maximum compatibility
+    window.addEventListener('click', handleTripleTap);
+    window.addEventListener('touchstart', handleTripleTap, { passive: true });
+    
+    return () => {
+      window.removeEventListener('click', handleTripleTap);
+      window.removeEventListener('touchstart', handleTripleTap);
+    };
+  }, [isApp, tapPattern]);
+
+  // ✅ Web Triple-Tap (Original - keeps working for web)
+  useEffect(() => {
+    if (isApp) return; // Skip if in app
+    
+    const loginForm = document.querySelector('.login-form-container');
     if (!loginForm) return;
     
     const handleClick = (e) => {
-      // Only count clicks within the login form
       if (e.target.closest('.login-form-container')) {
         setClickCount(prev => {
           const newCount = prev + 1;
@@ -58,7 +119,7 @@ export default function Login() {
       loginForm.removeEventListener('click', handleClick);
       clearTimeout(timer);
     };
-  }, [clickCount]);
+  }, [clickCount, isApp]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -96,12 +157,26 @@ export default function Login() {
   return (
     <div className="pt-16 min-h-screen w-screen flex items-center justify-center bg-gradient-to-r from-green-700 via-green-800 to-green-900">
       <div className="login-form-container bg-white rounded-2xl shadow-2xl p-8 sm:p-12 w-full max-w-md">
-        <h2 className="text-3xl font-bold text-center text-green-700">
+        {/* ✅ Hidden Teacher Tap Zone for App */}
+        {isApp && (
+          <div className="teacher-tap-zone absolute top-0 left-0 right-0 h-20 opacity-0">
+            {/* Invisible tap area for teachers */}
+          </div>
+        )}
+        
+        <h2 className="text-3xl font-bold text-center text-green-700 relative">
           Welcome Back
+          {isApp && (
+            <span className="absolute -top-6 right-0 text-xs text-gray-400 opacity-30">
+              👆👆👆
+            </span>
+          )}
         </h2>
+        
         <p className="text-gray-600 text-center mt-2 mb-6">
           Login to continue your learning journey
         </p>
+        
         <form onSubmit={handleLogin} className="space-y-4">
           <motion.input
             whileFocus={{ scale: 1.02 }}
@@ -123,6 +198,7 @@ export default function Login() {
             required
             className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500"
           />
+          
           <motion.button
             variants={buttonVariants}
             initial="idle"
@@ -156,11 +232,13 @@ export default function Login() {
             )}
           </motion.button>
         </form>
+        
         <div className="my-6 flex items-center justify-center">
           <span className="w-1/3 border-b"></span>
           <span className="px-2 text-gray-500">or</span>
           <span className="w-1/3 border-b"></span>
         </div>
+        
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -169,6 +247,7 @@ export default function Login() {
         >
           <FcGoogle size={24} /> Continue with Google
         </motion.button>
+        
         <AnimatePresence>
           {error && (
             <motion.p
@@ -193,6 +272,7 @@ export default function Login() {
             </motion.p>
           )}
         </AnimatePresence>
+        
         <p className="text-center mt-6 text-gray-600">
           Don't have an account?{" "}
           <a
