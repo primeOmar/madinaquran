@@ -1,31 +1,42 @@
-// src/pages/TeacherVideoCall.js - WORLD-CLASS CLASSROOM VERSION
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import './TeacherVideoCall.css';
 import videoApi from '../lib/agora/videoApi';
-
-import { 
-  Mic, MicOff, 
-  Video, VideoOff, 
-  Share2, X, 
-  Circle, Square, 
-  MessageCircle, Users, 
-  LogOut, PhoneOff, 
+import {
+  Mic, MicOff,
+  Video, VideoOff,
+  Share2, X,
+  Circle,
+  MessageCircle, Users,
+  LogOut, PhoneOff,
   Send, MessageSquare,
-  Grid3x3,
-  Maximize2,
-  Minimize2,
-  ChevronLeft,
-  ChevronRight,
-  User,
-  Volume2,
-  VolumeX
+  Maximize2, Minimize2,
+  ChevronLeft, ChevronRight,
+  Volume2, VolumeX
 } from 'lucide-react';
-
 import { Capacitor } from '@capacitor/core';
 
-import { AgoraScreenshare } from 'capacitor-agora-screenshare';
-// ============================================
+// ────────────────────────────────────────────────────────────────
+// Platform detection helper
+// ────────────────────────────────────────────────────────────────
+const isNative = Capacitor.isNativePlatform();
+const isWeb = !isNative;
+
+// Will be set only on native platforms if plugin exists
+let nativeScreensharePlugin = null;
+
+// Try to load the plugin dynamically ONLY on native
+if (isNative) {
+  import('capacitor-agora-screenshare')
+    .then(module => {
+      nativeScreensharePlugin = module.AgoraScreenshare;
+      console.log('✅ Native AgoraScreenshare plugin loaded successfully');
+    })
+    .catch(err => {
+      console.warn('⚠️ Could not load capacitor-agora-screenshare plugin:', err);
+      console.warn('Native screen sharing will be disabled.');
+    });
+}// ============================================
 // RESPONSIVE REMOTE VIDEO PLAYER
 // ============================================
 
