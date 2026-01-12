@@ -4,7 +4,7 @@
   "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://madinaquranclasses.com",
+    "androidScheme": "https",
     "cleartext": false
   }
 }
