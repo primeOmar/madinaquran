@@ -15,6 +15,8 @@ import {
   Volume2, VolumeX
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
+import { Platform } from 'react-native';
+import RtcEngine from 'react-native-agora';
 
 // ────────────────────────────────────────────────────────────────
 // Platform detection helper
@@ -307,7 +309,7 @@ const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // ============================================
   // STATE MANAGEMENT
   // ============================================
-  
+  const [screenShareEngine, setScreenShareEngine] = useState(null);
   const [sessionState, setSessionState] = useState({
     isInitialized: false,
     isJoined: false,
@@ -1563,177 +1565,57 @@ const stopScreenShareAndRestoreCamera = async () => {
 // SCREEN SHARE - Production Ready for Web & Android
 // ────────────────────────────────────────────────────────────────
 const toggleScreenShare = useCallback(async () => {
-  console.log('🔄 Toggling screen share...');
-  
+  const isAndroid = Platform.OS === 'android' || Capacitor.getPlatform() === 'android';
+  const isWeb = Platform.OS === 'web';
+
   try {
-    // ════════════════════════════════════════════════════════════
-    // STOP SCREEN SHARE
-    // ════════════════════════════════════════════════════════════
-    if (controls.screenSharing && localTracks.screenTrack) {
-      console.log('🛑 Stopping screen share...');
-      
-      // Stop and close the screen track
-      localTracks.screenTrack.stop();
-      localTracks.screenTrack.close();
-      
-      // Unpublish from Agora
-      if (agoraClient.current) {
-        await agoraClient.current.unpublish(localTracks.screenTrack);
+    // 1. STOP LOGIC
+    if (controls.screenSharing) {
+      if (isAndroid && screenShareEngine) {
+        await screenShareEngine.stopScreenCapture();
+        await screenShareEngine.leaveChannel(); 
+        await screenShareEngine.destroy();
+        setScreenShareEngine(null);
+      } else if (localTracks.screenTrack) {
+        localTracks.screenTrack.stop();
+        localTracks.screenTrack.close();
+        await clientRef.current.unpublish(localTracks.screenTrack);
+        setLocalTracks(prev => ({ ...prev, screenTrack: null }));
       }
-      
-      setLocalTracks(prev => ({ ...prev, screenTrack: null }));
       setControls(prev => ({ ...prev, screenSharing: false }));
-      
-      console.log('✅ Screen share stopped');
       return;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // START SCREEN SHARE
-    // ════════════════════════════════════════════════════════════
-    console.log('🚀 Starting screen share...');
-    const platform = Capacitor.getPlatform();
-    console.log('📱 Platform detected:', platform);
+    // 2. START LOGIC
+    const { appId, channel, token } = sessionState.sessionInfo || {};
+    if (!appId || !channel) throw new Error('Session not initialized');
 
-    // ──────────────────────────────────────────────────────────
-    // ANDROID - Use Native Plugin
-    // ──────────────────────────────────────────────────────────
-    if (platform === 'android') {
-      console.log('🤖 Using Android native screen share');
+    if (isAndroid) {
+      console.log('🤖 Starting Native Android screen share');
+      const engine = await RtcEngine.create(appId);
       
-      // Check if plugin is available
-      if (!nativeScreensharePlugin) {
-        throw new Error('Native screen share plugin not available. Please ensure capacitor-agora-screenshare is installed.');
-      }
-
-      try {
-        // Request screen capture permission
-        console.log('📋 Requesting screen capture permission...');
-        const permissionResult = await nativeScreensharePlugin.requestScreenCapturePermission();
-        console.log('✅ Permission result:', permissionResult);
-
-        if (!permissionResult.granted) {
-          throw new Error('Screen capture permission denied');
-        }
-
-        // Create screen track for Android
-        console.log('📺 Creating Android screen track...');
-        const screenTrack = await AgoraRTC.createScreenVideoTrack(
-          {
-            encoderConfig: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              frameRate: { ideal: 15, max: 30 },
-              bitrateMin: 600,
-              bitrateMax: 1500,
-            },
-            optimizationMode: 'detail',
-            // Android specific - use the native screen capture
-            extensionId: 'screenshare'
-          },
-          'disable' // Disable audio from screen share on Android
-        );
-
-        // Publish to Agora
-        if (agoraClient.current) {
-          await agoraClient.current.publish(screenTrack);
-          console.log('✅ Android screen track published to Agora');
-        }
-
-        setLocalTracks(prev => ({ ...prev, screenTrack }));
-        setControls(prev => ({ ...prev, screenSharing: true }));
-
-        // Handle screen share ending
-        screenTrack.on('track-ended', () => {
-          console.log('📺 Android screen share ended by system');
-          toggleScreenShare(); // Stop sharing
-        });
-
-        console.log('✅ Android screen sharing started successfully');
-
-      } catch (androidError) {
-        console.error('❌ Android screen share error:', androidError);
-        throw new Error(`Android screen share failed: ${androidError.message}`);
-      }
+      // CREATE UNIQUE UID (prevents kicking yourself out)
+      const screenUid = (sessionState.sessionInfo.uid || 0) + 1000;
+      
+      await engine.enableVideo();
+      await engine.startScreenCapture();
+      await engine.joinChannel(token, channel, null, screenUid);
+      
+      setScreenShareEngine(engine);
+      setControls(prev => ({ ...prev, screenSharing: true }));
+    } 
+    else if (isWeb) {
+      const screenTrack = await AgoraRTC.createScreenVideoTrack({ optimizationMode: 'detail' }, 'disable');
+      await clientRef.current.publish(screenTrack);
+      setLocalTracks(prev => ({ ...prev, screenTrack }));
+      setControls(prev => ({ ...prev, screenSharing: true }));
+      screenTrack.on('track-ended', () => toggleScreenShare());
     }
-    
-    // ──────────────────────────────────────────────────────────
-    // WEB - Use Browser API
-    // ──────────────────────────────────────────────────────────
-    else if (platform === 'web') {
-      console.log('🌐 Using web browser screen share');
-
-      // Check if browser supports screen sharing
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-        throw new Error('Screen sharing is not supported in this browser');
-      }
-
-      try {
-        // Create screen track for web
-        console.log('📺 Creating web screen track...');
-        const screenTrack = await AgoraRTC.createScreenVideoTrack(
-          {
-            encoderConfig: {
-              width: { ideal: 1920, max: 1920 },
-              height: { ideal: 1080, max: 1080 },
-              frameRate: { ideal: 15, max: 30 },
-              bitrateMin: 800,
-              bitrateMax: 2000,
-            },
-            optimizationMode: 'detail'
-          },
-          'disable' // Disable audio from screen share
-        );
-
-        // Publish to Agora
-        if (agoraClient.current) {
-          await agoraClient.current.publish(screenTrack);
-          console.log('✅ Web screen track published to Agora');
-        }
-
-        setLocalTracks(prev => ({ ...prev, screenTrack }));
-        setControls(prev => ({ ...prev, screenSharing: true }));
-
-        // Handle user clicking "Stop Sharing" in browser
-        screenTrack.on('track-ended', () => {
-          console.log('📺 Web screen share stopped by user');
-          toggleScreenShare(); // Stop sharing
-        });
-
-        console.log('✅ Web screen sharing started successfully');
-
-      } catch (webError) {
-        console.error('❌ Web screen share error:', webError);
-        
-        // User cancelled or browser blocked
-        if (webError.name === 'NotAllowedError') {
-          throw new Error('Screen sharing permission denied. Please allow screen sharing when prompted.');
-        } else if (webError.name === 'NotFoundError') {
-          throw new Error('No screen available to share');
-        } else {
-          throw new Error(`Web screen share failed: ${webError.message}`);
-        }
-      }
-    }
-    
-    // ──────────────────────────────────────────────────────────
-    // UNSUPPORTED PLATFORM
-    // ──────────────────────────────────────────────────────────
-    else {
-      throw new Error(`Screen sharing is not supported on ${platform} platform`);
-    }
-
   } catch (error) {
     console.error('❌ Screen share error:', error);
-    
-    // Show user-friendly error message
-    alert(`Screen Share Failed: ${error.message || 'Unknown error occurred'}`);
-    
-    // Reset state
     setControls(prev => ({ ...prev, screenSharing: false }));
   }
-}, [controls.screenSharing, localTracks.screenTrack, agoraClient]);
-
+}, [controls.screenSharing, screenShareEngine, localTracks.screenTrack, sessionState.sessionInfo]);
 // Add cleanup on unmount
 useEffect(() => {
   return () => {

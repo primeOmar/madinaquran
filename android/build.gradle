@@ -1,27 +1,27 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-
 buildscript {
-    
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.0'
-        classpath 'com.google.gms:google-services:4.4.4'
-
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
+        // Downgraded to 8.2.2 for maximum compatibility with Capacitor 6/7 and SDK 34
+        classpath 'com.android.tools.build:gradle:8.2.2'
+        classpath 'com.google.gms:google-services:4.4.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.20"
     }
 }
 
+// Loads variables defined in the file above
 apply from: "variables.gradle"
 
 allprojects {
     repositories {
         google()
         mavenCentral()
+        
         maven { url 'https://www.jitpack.io' }
+        
+        // Agora Specific Repositories
         maven { url 'https://download.agora.io/sdk/release' }
         maven { url 'https://agora-sdk-releases.s3.cn-north-1.amazonaws.com.cn/repository/maven/' }
     }
