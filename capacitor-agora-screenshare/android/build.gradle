@@ -1,0 +1,22 @@
+apply plugin: 'com.android.library'
+
+android {
+    namespace "com.madinaquranclasses.videocall" 
+    compileSdkVersion 34
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 34
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation project(':capacitor-android')
+    implementation 'io.agora.rtc:full-sdk:4.2.2'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}

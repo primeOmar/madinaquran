@@ -1,0 +1,10 @@
+{
+  "appId": "com.madinaquranclasses.videocall",
+  "appName": "madina-quran",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  }
+}

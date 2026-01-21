@@ -1,0 +1,2 @@
+[functions.register-admin]
+entrypoint = "index.js"

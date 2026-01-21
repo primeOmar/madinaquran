@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">madina-quran</string>
+    <string name="title_activity_main">madina-quran</string>
+    <string name="package_name">com.madinaquranclasses.videocall</string>
+    <string name="custom_url_scheme">com.madinaquranclasses.videocall</string>
+</resources>
