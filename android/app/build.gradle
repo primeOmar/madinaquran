@@ -51,7 +51,7 @@ dependencies {
     // ============================================
     implementation project(':capacitor-android')
     implementation project(':capacitor-cordova-android-plugins')
-    
+
     // ============================================
     // ANDROIDX LIBRARIES
     // ============================================
@@ -69,17 +69,19 @@ dependencies {
     // Multidex
     implementation 'androidx.multidex:multidex:2.0.1'
     
-    // SPLASH SCREEN (FIXES Theme.SplashScreen ERROR)
+    // SPLASH SCREEN
     implementation 'androidx.core:core-splashscreen:1.0.1'
     
     // ============================================
-    // AGORA RTC SDK (CRITICAL FOR SCREEN SHARE)
+    // AGORA RTC SDK (Unified to 4.3.0)
     // ============================================
+    // Use 'implementation' for the main SDK
     implementation 'io.agora.rtc:full-sdk:4.3.0'
-    implementation 'io.agora.rtc:full-screen-sharing:4.3.0'
+    // This is the specific helper for Android screen capture
+    implementation 'io.agora.rtc:screen-capture:4.3.0' 
     
     // ============================================
-    // TESTING (Optional)
+    // TESTING
     // ============================================
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

@@ -36,8 +36,16 @@
         </activity>
 
         <service 
+            android:name=".ScreenShareService"
+            android:foregroundServiceType="mediaProjection"
+            android:enabled="true"
+            android:exported="false">
+        </service>
+
+        <service 
             android:name="io.agora.rtc.ss.impl.ScreenSharingService"
             android:foregroundServiceType="mediaProjection"
+            android:enabled="true"
             android:exported="false">
         </service>
 
