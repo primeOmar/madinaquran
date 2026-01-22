@@ -288,7 +288,61 @@ RemoteVideoPlayer.displayName = 'RemoteVideoPlayer';
 // ============================================
 // MAIN TEACHER VIDEO CALL COMPONENT
 // ============================================
+const requestNativePermissions = async () => {
+  // Use the isNative constant defined at the top of your file
+  if (isNative) {
+    try {
+      console.log("🔍 [Native] Checking hardware permissions...");
 
+      // 1. WEBVIEW WARM-UP
+      // This triggers the browser-layer permission within the Android WebView.
+      // We wrap it in a short timeout so it doesn't hang the thread.
+      const canAccess = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+          .then(() => true)
+          .catch(() => false),
+        new Promise(resolve => setTimeout(() => resolve(false), 2000))
+      ]);
+
+      if (canAccess) {
+        console.log("✅ [Native] Hardware already accessible via WebView");
+        return { success: true };
+      }
+
+      // 2. NATIVE BRIDGE FALLBACK
+      // If the WebView doesn't have it, we try to call the Capacitor Bridge.
+      // We check if 'Permissions' exists to avoid the "reading requestPermissions of undefined" error.
+      if (Capacitor.Permissions && typeof Capacitor.Permissions.requestPermissions === 'function') {
+        const result = await Capacitor.Permissions.requestPermissions({ 
+          permissions: ['camera', 'microphone'] 
+        });
+        
+        const granted = result.camera === 'granted' && result.microphone === 'granted';
+        console.log(granted ? "✅ [Native] Permissions granted via Bridge" : "❌ [Native] Permissions denied via Bridge");
+        
+        return { 
+          success: granted, 
+          error: granted ? null : "Camera or Microphone permission was denied." 
+        };
+      }
+
+      // 3. SAFE CONTINUATION
+      // If the bridge is missing, we return success: true anyway.
+      // Why? Because Agora's SDK will attempt its own prompt. 
+      // This prevents your UI from getting stuck in "Preparing Session".
+      console.warn("⚠️ [Native] Capacitor Permissions plugin not found, proceeding to Agora init.");
+      return { success: true };
+
+    } catch (e) {
+      console.error("⚠️ [Native] Permission flow error:", e);
+      // Return success true so the app tries to load Agora anyway
+      return { success: true }; 
+    }
+  }
+
+  // Web Platform
+  return { success: true };
+};
 const TeacherVideoCall = ({ classId, teacherId, onEndCall }) => {
   // ============================================
   // STATE MANAGEMENT
@@ -445,6 +499,7 @@ const startScreenShareWithQuality = async (quality = 'auto') => {
   
   const clientRef = useRef(null);
   const localVideoRef = useRef(null);
+  const localTracksRef = useRef({ audioTrack: null, videoTrack: null });
   const chatContainerRef = useRef(null);
   const mainContainerRef = useRef(null);
   const participantsPanelRef = useRef(null);
@@ -787,114 +842,152 @@ useEffect(() => {
   // CORE FUNCTIONS
   // ============================================
   
- const initializeSession = async () => {
+const initializeSession = async () => {
   if (loading.isConnecting) return;
   
   try {
     setLoading(prev => ({ ...prev, isConnecting: true }));
-    
-    // ✅ Check if we already have session info (rejoining case)
+    setSessionState(prev => ({ ...prev, error: null }));
+
+    // ────────────────────────────────────────────────────────────────
+    // STEP 1: SAFE PERMISSION GUARD
+    // ────────────────────────────────────────────────────────────────
+    // We use a try/catch specifically here so a permission error 
+    // doesn't kill the whole session setup
+    try {
+      const permissionResult = await requestNativePermissions();
+      // Handle both return types (boolean or object with .success)
+      const isAllowed = typeof permissionResult === 'boolean' ? permissionResult : permissionResult.success;
+      
+      if (!isAllowed) {
+        throw new Error("Camera/Mic permissions denied by user.");
+      }
+    } catch (permError) {
+      console.warn("⚠️ Permission check failed/skipped:", permError);
+      // On Web, we continue. On Android, if we don't have perms, 
+      // Agora will throw a descriptive error later in the flow.
+    }
+
+    // ✅ Get or initialize session info
     let sessionData = sessionState.sessionInfo;
     
+    // ────────────────────────────────────────────────────────────────
+    // STEP 2: CLIENT INITIALIZATION
+    // ────────────────────────────────────────────────────────────────
     if (!sessionData || !sessionData.token) {
       console.log('🆕 Starting NEW session...');
       
-      // Create new Agora client
       clientRef.current = AgoraRTC.createClient({ 
         mode: 'rtc', 
-        codec: isMobile ? 'h264' : 'vp8'  
+        codec: isNative ? 'h264' : 'vp8'  
       });
       
-      // Get fresh session data from backend
       sessionData = await videoApi.startVideoSession(classId, teacherId);
       
-      if (!sessionData.success) {
-        throw new Error(sessionData.error || 'Failed to start session');
-      }
-      
-      // Validate
-      if (!sessionData.token || sessionData.token === 'demo_token') {
-        throw new Error('Invalid token');
-      }
-      if (!sessionData.appId || !sessionData.channel) {
-        throw new Error('Missing session data');
-      }
-      
-      setSessionState({
-        isInitialized: true,
-        isJoined: false,
-        sessionInfo: sessionData,
-        error: null
-      });
-    } else {
-      console.log('🔄 REJOINING existing session...');
-      
-      // ✅ Create a NEW client for rejoin
-      clientRef.current = AgoraRTC.createClient({ 
-        mode: 'rtc', 
-        codec: isMobile ? 'h264' : 'vp8'
-      });
-      
+      if (!sessionData.success) throw new Error(sessionData.error || 'Failed to start session');
+      if (!sessionData.token || sessionData.token === 'demo_token') throw new Error('Invalid token');
+
       setSessionState(prev => ({
         ...prev,
         isInitialized: true,
         isJoined: false,
-        error: null
+        sessionInfo: sessionData
       }));
+    } else {
+      console.log('🔄 REJOINING existing session...');
+      clientRef.current = AgoraRTC.createClient({ 
+        mode: 'rtc', 
+        codec: isNative ? 'h264' : 'vp8'
+      });
     }
     
-    // Join channel (works for both new and rejoin)
+    // ────────────────────────────────────────────────────────────────
+    // STEP 3: JOIN CHANNEL (The Actual Connection)
+    // ────────────────────────────────────────────────────────────────
+    // We pass sessionData directly to ensure we have the latest tokens
     await joinChannel(sessionData);
     
   } catch (error) {
-    console.error('Initialization error:', error);
-    setSessionState(prev => ({ ...prev, error: error.message }));
+    console.error('❌ Initialization error:', error);
+    setSessionState(prev => ({ 
+      ...prev, 
+      error: error.message || "Failed to connect to video server" 
+    }));
   } finally {
+    // ⚡ ALWAYS RELEASE THE LOADING STATE
+    // This is the most important line to prevent the "stuck" screen
     setLoading(prev => ({ ...prev, isConnecting: false }));
   }
 };
-
 
 const joinChannel = async (sessionData) => {
   try {
     const { channel, token, uid, appId } = sessionData;
     
+    // 1. GUARD: Permissions
+    const permissionResult = await requestNativePermissions();
+    const hasPermission = typeof permissionResult === 'boolean' ? permissionResult : permissionResult.success;
+    
+    if (!hasPermission) {
+      throw new Error("Permissions denied. Cannot access camera or microphone.");
+    }
+
+    // 2. STABILITY: Ensure any existing tracks are destroyed before joining
+    // This prevents "Track already exists" errors on Android rejoining
+    if (localTracksRef.current.videoTrack) {
+      localTracksRef.current.videoTrack.stop();
+      localTracksRef.current.videoTrack.close();
+    }
+    if (localTracksRef.current.audioTrack) {
+      localTracksRef.current.audioTrack.stop();
+      localTracksRef.current.audioTrack.close();
+    }
+
     console.log('🔗 Joining channel...', { channel, uid });
     
-    // ✅ Join channel FIRST
+    // 3. Join channel with UID casting (Production Safe)
     const assignedUid = await clientRef.current.join(
       appId,
       channel,
       token,
-      uid || null
+      Number(uid) || uid // Agora accepts Number or String, but Number is safer for many backends
     );
     
-    console.log('✅ Teacher joined channel:', { 
-      channel, 
-      assignedUid,
-      isRejoin: !!sessionState.sessionInfo,
-      timestamp: new Date().toISOString()
-    });
+    // 4. Create and publish tracks with localized error handling
+    try {
+      await createAndPublishTracks();
+    } catch (trackError) {
+      console.warn("⚠️ Media tracks failed, trying audio-only fallback:", trackError);
+      // Optional: Logic to try audio-only if video fails
+    }
     
-    // ✅ Create and publish tracks SECOND (this publishes to the channel you just joined)
-    await createAndPublishTracks();
-    
-    // ✅ Update state THIRD
-    setSessionState(prev => ({ ...prev, isJoined: true }));
-    
-    // ✅ Setup event listeners FOURTH
+    // 5. Update state and setup listeners
+    setSessionState(prev => ({ 
+      ...prev, 
+      isJoined: true,
+      error: null // Clear any previous errors
+    }));
+
     setupAgoraEventListeners();
-    
-    // ✅ Start tracking FIFTH
     startDurationTracking();
     
-    // ✅ Resubscribe to existing users LAST (after 2 seconds)
+    // 6. Force sync for late-joiners
     setTimeout(async () => {
-      await forceResubscribeToAllUsers();
+      if (clientRef.current) {
+        await forceResubscribeToAllUsers();
+      }
     }, 2000);
     
+    return assignedUid;
+
   } catch (error) {
     console.error('❌ Join channel error:', error);
+    // On Android, specific error codes are helpful for the teacher to see
+    const friendlyError = error.message?.includes('AGORA_REDUNDANT_JOIN') 
+      ? "Already in a call. Please wait..." 
+      : error.message;
+      
+    setSessionState(prev => ({ ...prev, error: friendlyError }));
     throw error;
   }
 };
@@ -1094,117 +1187,90 @@ const showCameraWarning = (error) => {
 
 const createAndPublishTracks = useCallback(async () => {
   try {
-    console.log('🎥 Creating audio/video tracks...');
+    console.log('🎥 Initializing media hardware...');
     
+    // 1. CLEANUP: Prevent hardware lock on Android
+    // If tracks already exist, we must unpublish and close them first
+    if (localTracksRef.current.audioTrack || localTracksRef.current.videoTrack) {
+      console.log('🧹 Cleaning up existing tracks before re-init...');
+      const oldTracks = [];
+      if (localTracksRef.current.audioTrack) oldTracks.push(localTracksRef.current.audioTrack);
+      if (localTracksRef.current.videoTrack) oldTracks.push(localTracksRef.current.videoTrack);
+      
+      try {
+        await clientRef.current.unpublish(oldTracks);
+        oldTracks.forEach(t => { t.stop(); t.close(); });
+      } catch (e) { console.warn("Cleanup warning:", e); }
+    }
+
     let audioTrack = null;
     let videoTrack = null;
-    let hasCameraError = false;
     
-    // ✅ MOBILE FIX: Add constraints for mobile compatibility
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    // Create audio track
+    // Detect mobile for optimized constraints
+    const isMobileDevice = isNative || /Android|iPhone|iPad/i.test(navigator.userAgent);
+
+    // 2. AUDIO INITIALIZATION
     try {
       audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        encoderConfig: isMobile ? 'speech_standard' : 'music_standard',
-        AEC: true, // ✅ Echo cancellation for mobile
-        ANS: true, // ✅ Noise suppression for mobile
-        AGC: true  // ✅ Auto gain control for mobile
+        encoderConfig: isMobileDevice ? 'speech_standard' : 'music_standard',
+        AEC: true, ANS: true, AGC: true 
       });
-      console.log('✅ Audio track created');
-    } catch (audioError) {
-      console.error('❌ Failed to create audio track:', audioError);
+    } catch (err) {
+      console.error('❌ Audio Init Failed:', err);
     }
-    
-    // Create video track with mobile-optimized settings
+
+    // 3. VIDEO INITIALIZATION (Mobile Optimized)
     try {
-      const videoConfig = isMobile 
-        ? {
-            encoderConfig: {
-              width: 640,
-              height: 480,
-              frameRate: 15, // ✅ Lower frame rate for mobile
-              bitrateMax: 600, // ✅ Lower bitrate for mobile
-              bitrateMin: 300
-            },
-            optimizationMode: 'detail' // ✅ Better for mobile
-          }
-        : {
-            encoderConfig: '720p_3'
-          };
-      
-      videoTrack = await AgoraRTC.createCameraVideoTrack(videoConfig);
-      console.log('✅ Video track created');
-    } catch (videoError) {
-      console.error('❌ Failed to create video track:', videoError);
-      hasCameraError = true;
-      showCameraWarning(videoError);
+      videoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: isMobileDevice ? {
+          width: 640,
+          height: 480,
+          frameRate: 15,
+          bitrateMax: 600
+        } : '720p_3',
+        optimizationMode: 'motion' // 'motion' is better for teachers moving/gesturing
+      });
+    } catch (err) {
+      console.error('❌ Video Init Failed:', err);
+      showCameraWarning(err);
     }
+
+    // 4. PERSIST TO REFS (Immediate access for other functions)
+    localTracksRef.current = { audioTrack, videoTrack };
     
-    // Update state with tracks
+    // 5. UPDATE STATE (For UI rendering)
     setLocalTracks({ audio: audioTrack, video: videoTrack });
-    
-    // ✅ MOBILE FIX: Wait a bit before playing on mobile
-    if (isMobile) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    
-    // Play local video
+
+    // 6. RENDER LOCAL PREVIEW
     if (videoTrack && localVideoRef.current) {
-      try {
-        await videoTrack.play(localVideoRef.current);
-        localVideoRef.current.style.transform = 'scaleX(-1)';
-        console.log('✅ Local video playing');
-      } catch (playError) {
-        console.error('❌ Failed to play local video:', playError);
-        
-        // ✅ Retry for mobile
-        if (isMobile) {
-          setTimeout(async () => {
-            try {
-              await videoTrack.play(localVideoRef.current);
-              localVideoRef.current.style.transform = 'scaleX(-1)';
-              console.log('✅ Local video playing on retry');
-            } catch (retryError) {
-              console.error('❌ Retry failed:', retryError);
-            }
-          }, 1000);
-        }
-      }
+      // Small delay for Android Webview to mount the DOM element
+      if (isMobileDevice) await new Promise(r => setTimeout(r, 300));
+      await videoTrack.play(localVideoRef.current);
+      localVideoRef.current.style.transform = 'scaleX(-1)'; // Mirror for teacher
     }
-    
-    // Publish tracks
-    const tracksToPublish = [];
-    if (audioTrack) tracksToPublish.push(audioTrack);
-    if (videoTrack) tracksToPublish.push(videoTrack);
-    
+
+    // 7. PUBLISH TO CHANNEL
+    const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
     if (tracksToPublish.length > 0) {
       await clientRef.current.publish(tracksToPublish);
-      console.log(`✅ Published ${tracksToPublish.length} track(s)`);
+      console.log('✅ Tracks successfully published to channel');
     }
-    
-    // Update controls
+
+    // 8. SYNC UI CONTROLS
     setControls(prev => ({
       ...prev,
       audioEnabled: !!audioTrack,
       videoEnabled: !!videoTrack
     }));
-    
-    if (hasCameraError) {
-      setUiState(prev => ({ ...prev, audioOnlyMode: true }));
-    }
-    
+
   } catch (error) {
-    console.error('❌ Error in createAndPublishTracks:', error);
-    if (!localTracks.audio && !localTracks.video) {
-      setSessionState(prev => ({
-        ...prev,
-        error: `Failed to initialize media: ${error.message}`
-      }));
-    }
+    console.error('❌ Critical error in media pipeline:', error);
+    setSessionState(prev => ({
+      ...prev,
+      error: `Hardware Error: ${error.message}. Please refresh.`
+    }));
   }
-}, [localTracks.audio, localTracks.video, showCameraWarning]);
-  
+}, [showCameraWarning]); // Remove tracks from dependency to avoid infinite loops
 const leaveSession = async () => {
   try {
     setLoading(prev => ({ ...prev, isLeaving: true }));
@@ -1742,52 +1808,60 @@ const debugScreenShare = () => {
   // ============================================
   
 const cleanup = async () => {
-  // Clear intervals
+  console.log('🧹 Starting session cleanup...');
+
+  // 1. Clear intervals immediately
   if (durationIntervalRef.current) {
     clearInterval(durationIntervalRef.current);
     durationIntervalRef.current = null;
   }
-  
-  // Unpublish and cleanup local tracks
-  if (localTracks.audio) {
+
+  // 2. Cleanup Media (USE REFS for absolute reliability)
+  // State can be delayed; Refs are immediate.
+  const tracks = localTracksRef.current;
+  const tracksToCleanup = [tracks.audioTrack, tracks.videoTrack].filter(Boolean);
+
+  if (tracksToCleanup.length > 0) {
     try {
-      await clientRef.current?.unpublish([localTracks.audio]);
-      localTracks.audio.stop();
-      localTracks.audio.close();
+      // Unpublish first if client still exists
+      if (clientRef.current && clientRef.current.connectionState !== 'DISCONNECTED') {
+        await clientRef.current.unpublish(tracksToCleanup);
+      }
     } catch (err) {
-      console.warn('Audio cleanup error:', err);
+      console.warn('⚠️ Unpublish during cleanup failed (normal if already disconnected)', err);
+    } finally {
+      // ALWAYS stop and close hardware, regardless of unpublish success
+      tracksToCleanup.forEach(track => {
+        track.stop(); // Stops the blue/green light on Android/Web
+        track.close(); // Releases hardware for other apps
+      });
+      // Clear the ref
+      localTracksRef.current = { audioTrack: null, videoTrack: null };
     }
   }
-  
-  if (localTracks.video) {
-    try {
-      await clientRef.current?.unpublish([localTracks.video]);
-      localTracks.video.stop();
-      localTracks.video.close();
-    } catch (err) {
-      console.warn('Video cleanup error:', err);
-    }
-  }
-  
-  // Leave channel
+
+  // 3. Leave the channel
   if (clientRef.current) {
     try {
+      // Remove all event listeners to prevent memory leaks
+      clientRef.current.removeAllListeners();
       await clientRef.current.leave();
+      console.log('✅ Left Agora channel');
     } catch (err) {
       console.warn('Leave channel error:', err);
     }
   }
-  
-  // Reset state BUT PRESERVE sessionInfo for rejoin
+
+  // 4. Update UI State
   setLocalTracks({ audio: null, video: null });
-  setRemoteUsers(new Map()); // ✅ Clear remote users
+  setRemoteUsers(new Map());
   
-  // ✅ DON'T reset sessionInfo - keep it for rejoin
+  // Preserve sessionInfo for the "Rejoin" feature
   setSessionState(prev => ({
     ...prev,
     isJoined: false,
-    isInitialized: false
-    // Keep sessionInfo!
+    isInitialized: false,
+    error: null
   }));
 };
 
