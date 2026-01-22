@@ -1,94 +1,54 @@
-
 apply plugin: 'com.android.application'
 
 android {
-    // ============================================
-    // CRITICAL: Set these SDK versions
-    // ============================================
-    compileSdk 35              // Changed to 35 for Android 15 support
-    namespace "com.madinaquranclasses.videocall"
-    
+    namespace = "com.madinaquranclasses.videocall"
+    compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.madinaquranclasses.videocall"
-        minSdk 24              // Android 7.0+ (required for Agora)
-        targetSdk 34           // Keep at 34 for stability
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        
-        // Enable multidex (needed for large apps)
-        multiDexEnabled true
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
     }
-    
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
-    }
-    
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-    
-    buildFeatures {
-        buildConfig true
     }
 }
 
 repositories {
-    google()
-    mavenCentral()
-    flatDir {
+    flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
 
 dependencies {
-    // ============================================
-    // CAPACITOR CORE
-    // ============================================
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
-
-    // ============================================
-    // ANDROIDX LIBRARIES
-    // ============================================
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.activity:activity:1.8.2'
-    implementation 'androidx.fragment:fragment:1.6.2'
-    implementation 'androidx.coordinatorlayout:coordinatorlayout:1.2.0'
-    implementation 'androidx.webkit:webkit:1.9.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    
-    // Google Material Design
-    implementation 'com.google.android.material:material:1.11.0'
-    
-    // Multidex
-    implementation 'androidx.multidex:multidex:2.0.1'
-    
-    // SPLASH SCREEN
-    implementation 'androidx.core:core-splashscreen:1.0.1'
-    
-    // ============================================
-    // AGORA RTC SDK (Unified to 4.3.0)
-    // ============================================
-    // Use 'implementation' for the main SDK
-    implementation 'io.agora.rtc:full-sdk:4.3.0'
-    // This is the specific helper for Android screen capture
-    implementation 'io.agora.rtc:screen-capture:4.3.0' 
-    
-    // ============================================
-    // TESTING
-    // ============================================
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-// ============================================
-// APPLY CAPACITOR CONFIG
-// ============================================
 apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

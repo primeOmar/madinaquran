@@ -20,9 +20,10 @@ import { registerPlugin } from '@capacitor/core';
 // ────────────────────────────────────────────────────────────────
 // Platform detection helper
 // ────────────────────────────────────────────────────────────────
-const AgoraScreenShare = registerPlugin('AgoraScreenSharePlugin');
+const AgoraScreenShare = registerPlugin('AgoraScreenShare');
 const isNative = Capacitor.isNativePlatform();
-const isWeb = !isNative;
+const isAndroid = Capacitor.getPlatform() === 'android';
+const isWeb = Capacitor.getPlatform() === 'web';
 
 // ============================================
 // RESPONSIVE REMOTE VIDEO PLAYER
@@ -363,11 +364,14 @@ const checkScreenSharePermission = async () => {
 // 2. Screen Share with Quality Settings
 const startScreenShareWithQuality = async (quality = 'auto') => {
   if (Capacitor.isNativePlatform()) {
-    // Use native plugin
-    const result = await AgoraScreenshare.startScreenShare();
-    // Handle the result and integrate with Agora
-    // You'll need to modify your Agora setup to use the MediaProjection
-    return null; // Adjust based on your integration
+    try {
+      // Use native plugin - Ensure the plugin name matches your registration
+      const result = await AgoraScreenShare.startScreenShare(); 
+      return { type: 'native', success: true }; 
+    } catch (error) {
+      console.error("Native Screen Share Error:", error);
+      throw error;
+    }
   } else {
     // Use web API
     const configs = {
@@ -1549,64 +1553,107 @@ const stopScreenShareAndRestoreCamera = async () => {
 const toggleScreenShare = useCallback(async () => {
   const platform = Capacitor.getPlatform();
   const isAndroid = platform === 'android';
-  const isWebBrowser = platform === 'web';
 
   try {
-    // 1. STOP LOGIC
-   if (controls.screenSharing) {
-  if (isAndroid) {
-    try {
-      await AgoraScreenShare.stopScreenShare();
-      console.log('✅ Screen share stopped');
-    } catch (error) {
-      console.error('❌ Error stopping screen share:', error);
-    }
-  }
-   else if (localTracks.screenTrack) {
-        localTracks.screenTrack.stop();
-        localTracks.screenTrack.close();
-        await clientRef.current.unpublish(localTracks.screenTrack);
-        setLocalTracks(prev => ({ ...prev, screenTrack: null }));
+    // ==========================================
+    // 1. STOP LOGIC (Turning it OFF)
+    // ==========================================
+    if (controls.screenSharing) {
+      setLoading(prev => ({ ...prev, isScreenSharing: true }));
+      
+      if (isAndroid) {
+        // Native: Stop the Foreground Service & Projection
+        await AgoraScreenShare.stopScreenShare();
+      } else {
+        // Web: Close the screen track and unpublish
+        if (localTracks.screenTrack) {
+          localTracks.screenTrack.stop();
+          localTracks.screenTrack.close();
+          await clientRef.current.unpublish(localTracks.screenTrack);
+        }
       }
-      setControls(prev => ({ ...prev, screenSharing: false }));
+
+      // Restore Camera for both platforms
+      try {
+        const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+        await clientRef.current.publish(cameraTrack);
+        setLocalTracks(prev => ({ ...prev, video: cameraTrack, screenTrack: null }));
+        
+        if (localVideoRef.current) {
+          cameraTrack.play(localVideoRef.current);
+        }
+      } catch (camError) {
+        console.error("Could not restore camera:", camError);
+      }
+
+      setControls(prev => ({ ...prev, screenSharing: false, videoEnabled: true }));
+      setLoading(prev => ({ ...prev, isScreenSharing: false }));
       return;
     }
 
-    // 2. START LOGIC
-    const { appId, channel, token } = sessionState.sessionInfo || {};
+    // ==========================================
+    // 2. START LOGIC (Turning it ON)
+    // ==========================================
+    const { appId, channel, token, uid } = sessionState.sessionInfo || {};
     if (!appId || !channel) throw new Error('Session not initialized');
 
-  if (isAndroid) {
-  console.log('🤖 Starting Native Android screen share via Capacitor plugin');
-  
-  try {
-    // Use your registered Capacitor plugin
-    const result = await AgoraScreenShare.startScreenShare({
-      appId: appId,
-      token: token,
-      channelId: channel,
-      uid: (sessionState.sessionInfo.uid || 0) + 1000
-    });
-    
-    console.log('✅ Screen share plugin response:', result);
-    setControls(prev => ({ ...prev, screenSharing: true }));
-  } catch (pluginError) {
-    console.error('❌ Plugin error:', pluginError);
-    throw pluginError;
-  }
-}
-    else if (isWeb) {
-      const screenTrack = await AgoraRTC.createScreenVideoTrack({ optimizationMode: 'detail' }, 'disable');
-      await clientRef.current.publish(screenTrack);
-      setLocalTracks(prev => ({ ...prev, screenTrack }));
-      setControls(prev => ({ ...prev, screenSharing: true }));
-      screenTrack.on('track-ended', () => toggleScreenShare());
+    setLoading(prev => ({ ...prev, isScreenSharing: true }));
+
+    // STEP A: Stop and Unpublish Camera first (Agora only allows 1 local video track)
+    if (localTracks.video) {
+      localTracks.video.stop();
+      await clientRef.current.unpublish(localTracks.video);
     }
+
+    if (isAndroid) {
+      console.log('🤖 Starting Native Android screen share');
+      
+      // STEP B: Call the Native Plugin
+      // We send the credentials so the Native side can join as a secondary UID if needed
+      await AgoraScreenShare.startScreenShare({
+        appId: appId,
+        token: token,
+        channelId: channel,
+        uid: Number(uid) + 10000 // Use a high offset for screen share UID
+      });
+      
+      setControls(prev => ({ ...prev, screenSharing: true, videoEnabled: false }));
+    } 
+    else {
+      console.log('🌐 Starting Web screen share');
+      
+      // STEP C: Web RTC Screen Track
+      const screenTrack = await AgoraRTC.createScreenVideoTrack({ 
+        optimizationMode: 'detail',
+        encoderConfig: '1080p_1' 
+      }, 'disable');
+
+      await clientRef.current.publish(screenTrack);
+      
+      // Handle "Stop Sharing" button in the browser UI
+      screenTrack.on('track-ended', () => {
+        toggleScreenShare(); 
+      });
+
+      setLocalTracks(prev => ({ ...prev, screenTrack }));
+      setControls(prev => ({ ...prev, screenSharing: true, videoEnabled: false }));
+      
+      if (localVideoRef.current) {
+        screenTrack.play(localVideoRef.current);
+      }
+    }
+
   } catch (error) {
     console.error('❌ Screen share error:', error);
+    // Attempt to restore camera if screen share fails
+    if (localTracks.video && !localTracks.video.isPlaying) {
+        localTracks.video.play(localVideoRef.current);
+    }
     setControls(prev => ({ ...prev, screenSharing: false }));
+  } finally {
+    setLoading(prev => ({ ...prev, isScreenSharing: false }));
   }
-}, [controls.screenSharing, localTracks.screenTrack, sessionState.sessionInfo]);
+}, [controls.screenSharing, localTracks, sessionState.sessionInfo]);
 // Add cleanup on unmount
 useEffect(() => {
   return () => {
