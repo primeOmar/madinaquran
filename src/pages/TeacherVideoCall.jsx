@@ -503,7 +503,7 @@ const startScreenShareWithQuality = async (quality = 'auto') => {
   const chatContainerRef = useRef(null);
   const mainContainerRef = useRef(null);
   const participantsPanelRef = useRef(null);
-  
+  const screenSharePending = useRef(false);
   const controlsTimeoutRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const videoApiRef = useRef(videoApi);
@@ -1617,111 +1617,92 @@ const stopScreenShareAndRestoreCamera = async () => {
 // SCREEN SHARE - Production Ready for Web & Android
 // ────────────────────────────────────────────────────────────────
 const toggleScreenShare = useCallback(async () => {
+  if (screenSharePending.current) return; // Block if already in progress
+
   const platform = Capacitor.getPlatform();
   const isAndroid = platform === 'android';
 
   try {
-    // ==========================================
-    // 1. STOP LOGIC (Turning it OFF)
-    // ==========================================
+    // 1. STOP LOGIC
     if (controls.screenSharing) {
+      screenSharePending.current = true;
       setLoading(prev => ({ ...prev, isScreenSharing: true }));
       
       if (isAndroid) {
-        // Native: Stop the Foreground Service & Projection
         await AgoraScreenShare.stopScreenShare();
-      } else {
-        // Web: Close the screen track and unpublish
-        if (localTracks.screenTrack) {
-          localTracks.screenTrack.stop();
-          localTracks.screenTrack.close();
-          await clientRef.current.unpublish(localTracks.screenTrack);
-        }
+      } else if (localTracks.screenTrack) {
+        localTracks.screenTrack.stop();
+        localTracks.screenTrack.close();
+        await clientRef.current.unpublish(localTracks.screenTrack);
       }
 
-      // Restore Camera for both platforms
-      try {
-        const cameraTrack = await AgoraRTC.createCameraVideoTrack();
-        await clientRef.current.publish(cameraTrack);
-        setLocalTracks(prev => ({ ...prev, video: cameraTrack, screenTrack: null }));
-        
-        if (localVideoRef.current) {
-          cameraTrack.play(localVideoRef.current);
-        }
-      } catch (camError) {
-        console.error("Could not restore camera:", camError);
-      }
+      // Restore Camera
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack();
+      await clientRef.current.publish(cameraTrack);
+      setLocalTracks(prev => ({ ...prev, video: cameraTrack, screenTrack: null }));
+      if (localVideoRef.current) cameraTrack.play(localVideoRef.current);
 
       setControls(prev => ({ ...prev, screenSharing: false, videoEnabled: true }));
+      screenSharePending.current = false;
       setLoading(prev => ({ ...prev, isScreenSharing: false }));
       return;
     }
 
-    // ==========================================
-    // 2. START LOGIC (Turning it ON)
-    // ==========================================
+    // 2. START LOGIC
     const { appId, channel, token, uid } = sessionState.sessionInfo || {};
     if (!appId || !channel) throw new Error('Session not initialized');
 
+    screenSharePending.current = true; // LOCK
     setLoading(prev => ({ ...prev, isScreenSharing: true }));
 
-    // STEP A: Stop and Unpublish Camera first (Agora only allows 1 local video track)
+    // STEP A: Complete Shutdown of Camera (Crucial for Android logs you sent)
     if (localTracks.video) {
-      localTracks.video.stop();
       await clientRef.current.unpublish(localTracks.video);
+      localTracks.video.stop();
+      localTracks.video.close(); 
+      setLocalTracks(prev => ({ ...prev, video: null }));
     }
 
+    // STEP B: The Stability Delay (Clears hardware buffers)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     if (isAndroid) {
-      console.log('🤖 Starting Native Android screen share');
-      
-      // STEP B: Call the Native Plugin
-      // We send the credentials so the Native side can join as a secondary UID if needed
+      // STEP C: Native Plugin Call
       await AgoraScreenShare.startScreenShare({
         appId: appId,
         token: token,
         channelId: channel,
-        uid: Number(uid) + 10000 // Use a high offset for screen share UID
+        uid: Number(uid) + 10000 
       });
       
       setControls(prev => ({ ...prev, screenSharing: true, videoEnabled: false }));
-    } 
-    else {
-      console.log('🌐 Starting Web screen share');
-      
-      // STEP C: Web RTC Screen Track
+    } else {
+      // Web Implementation
       const screenTrack = await AgoraRTC.createScreenVideoTrack({ 
         optimizationMode: 'detail',
         encoderConfig: '1080p_1' 
       }, 'disable');
 
       await clientRef.current.publish(screenTrack);
-      
-      // Handle "Stop Sharing" button in the browser UI
-      screenTrack.on('track-ended', () => {
-        toggleScreenShare(); 
-      });
-
+      screenTrack.on('track-ended', () => toggleScreenShare());
       setLocalTracks(prev => ({ ...prev, screenTrack }));
       setControls(prev => ({ ...prev, screenSharing: true, videoEnabled: false }));
-      
-      if (localVideoRef.current) {
-        screenTrack.play(localVideoRef.current);
-      }
     }
 
   } catch (error) {
     console.error('❌ Screen share error:', error);
-    // Attempt to restore camera if screen share fails
-    if (localTracks.video && !localTracks.video.isPlaying) {
-        localTracks.video.play(localVideoRef.current);
-    }
+    // Auto-recovery of camera
+    try {
+        const recoverCam = await AgoraRTC.createCameraVideoTrack();
+        await clientRef.current.publish(recoverCam);
+        setLocalTracks(prev => ({ ...prev, video: recoverCam }));
+    } catch (e) { console.error("Recovery failed", e); }
     setControls(prev => ({ ...prev, screenSharing: false }));
   } finally {
+    screenSharePending.current = false; // UNLOCK
     setLoading(prev => ({ ...prev, isScreenSharing: false }));
   }
-}, [controls.screenSharing, localTracks, sessionState.sessionInfo]);
-// Add cleanup on unmount
-useEffect(() => {
+}, [controls.screenSharing, localTracks, sessionState.sessionInfo]);useEffect(() => {
   return () => {
     if (screenShareCleanupRef.current) {
       screenShareCleanupRef.current();
@@ -1816,8 +1797,7 @@ const cleanup = async () => {
     durationIntervalRef.current = null;
   }
 
-  // 2. Cleanup Media (USE REFS for absolute reliability)
-  // State can be delayed; Refs are immediate.
+  
   const tracks = localTracksRef.current;
   const tracksToCleanup = [tracks.audioTrack, tracks.videoTrack].filter(Boolean);
 
