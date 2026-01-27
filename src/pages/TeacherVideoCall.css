@@ -867,3 +867,27 @@ video {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* * VIDEO SCALING CLASSES**/
+
+.object-cover {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit; 
+  background-color: #0f172a; 
+  transition: opacity 0.3s ease;
+}
+
+.object-contain {
+  object-fit: contain !important;
+  width: 100% !important;
+  height: 100% !important;
+  background-color: #020617; 
+  transition: opacity 0.3s ease;
+}
+
+/* Standard Agora Video Container Reset */
+.agora_video_player {
+  background-color: transparent !important;
+  border-radius: inherit;
+}
