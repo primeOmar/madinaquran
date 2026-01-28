@@ -861,46 +861,70 @@ const setupAgoraEventListeners = () => {
 
     console.log("🛠️ Agora Listeners: Initializing production event handlers");
 
-    client.on("user-published", async (user, mediaType) => {
-      // 1. Subscribe immediately
-      await client.subscribe(user, mediaType);
+  client.on("user-published", async (user, mediaType) => {
+  // 1. Subscribe to the incoming track
+  try {
+    await client.subscribe(user, mediaType);
+    
+    const uidNumber = Number(user.uid);
+    // Logic: Is it the Teacher's Screen (+10000 offset)? 
+    // Fallback: Is the UID > 1,000,000? (Agora screen share UIDs are usually high)
+    const isTeacherScreen = teacherUid ? (uidNumber === Number(teacherUid) + 10000) : (uidNumber > 1000000);
+    const isTeacherCamera = teacherUid ? (uidNumber === Number(teacherUid)) : false;
+
+    console.log(`📡 Incoming Track: UID=${uidNumber}, Type=${mediaType}, isScreen=${isTeacherScreen}`);
+
+    if (mediaType === "video") {
+      if (isTeacherScreen) {
+        console.log("✅ SUCCESS: Screen track received. Mapping to main stage...");
+        
+        // Update states to trigger UI change
+        setTeacherScreenSharing(true);
+        setScreenShareTrack({ video: user.videoTrack });
+
+        // Diagnostic: Force play into the container after a short delay
+        setTimeout(() => {
+          const container = document.getElementById('screen-share-container');
+          if (container) {
+            console.log("🎬 Playing screen track in container");
+            user.videoTrack.play(container);
+          } else {
+            console.warn("⚠️ Container 'screen-share-container' not found in DOM yet!");
+          }
+        }, 500);
+
+      } else if (isTeacherCamera) {
+        console.log("👨‍🏫 Teacher face camera detected");
+        setTeacherFaceTrack({ video: user.videoTrack });
+      } else {
+        // Handle normal student video
+        setRemoteTracks(prev => {
+          const next = new Map(prev);
+          const existing = next.get(user.uid) || {};
+          next.set(user.uid, { ...existing, video: user.videoTrack });
+          return next;
+        });
+      }
+    }
+
+    if (mediaType === "audio") {
+      console.log(`🔊 Playing audio for UID: ${uidNumber}`);
+      user.audioTrack.play();
       
-      const uidNumber = Number(user.uid);
-      const isTeacherScreen = uidNumber === (Number(teacherUid) + 10000);
-      const isTeacherCamera = uidNumber === Number(teacherUid);
-
-      if (mediaType === "video") {
-        if (isTeacherScreen) {
-          console.log("🖥️ SCREEN SHARE: Detected teacher screen");
-          setTeacherScreenSharing(true);
-          // 💡 FIXED: Using the variable name from your StudentVideoCall.jsx
-          setScreenShareTrack({ video: user.videoTrack }); 
-        } else if (isTeacherCamera) {
-          console.log("👨‍🏫 TEACHER: Detected teacher camera");
-          setTeacherFaceTrack({ video: user.videoTrack });
-        } else {
-          // Normal student video - Store in Map for the participant list
-          setRemoteTracks(prev => {
-            const next = new Map(prev);
-            const existing = next.get(user.uid) || {};
-            next.set(user.uid, { ...existing, video: user.videoTrack });
-            return next;
-          });
-        }
+      // We keep audio in the map for volume indicators, unless it's the screen share
+      if (!isTeacherScreen) {
+        setRemoteTracks(prev => {
+          const next = new Map(prev);
+          const existing = next.get(user.uid) || {};
+          next.set(user.uid, { ...existing, audio: user.audioTrack });
+          return next;
+        });
       }
-
-      if (mediaType === "audio") {
-        user.audioTrack.play(); // Auto-play audio
-        if (!isTeacherScreen) {
-          setRemoteTracks(prev => {
-            const next = new Map(prev);
-            const existing = next.get(user.uid) || {};
-            next.set(user.uid, { ...existing, audio: user.audioTrack });
-            return next;
-          });
-        }
-      }
-    });
+    }
+  } catch (error) {
+    console.error("❌ Agora Subscription/Play Error:", error);
+  }
+});
 
     client.on("user-unpublished", (user, mediaType) => {
       const uidNumber = Number(user.uid);
@@ -1500,270 +1524,182 @@ const joinChannel = async (sessionData) => {
   const teacherProfile = teacherUid ? userProfiles.get(teacherUid) : null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black">
-      <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
-        {/* MAIN VIEWPORT */}
-<div className="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
-  {teacherScreenSharing ? (
-    /* SCREEN SHARE LOGIC */
-    screenShareTrack?.video ? (
-      <div className="w-full h-full bg-slate-900">
-        <div 
-          ref={(el) => el && screenShareTrack.video.play(el)} 
-          className="w-full h-full object-contain"
-        />
-        <div className="absolute bottom-4 left-4 bg-red-600/80 text-white px-3 py-1 rounded-md text-sm animate-pulse flex items-center gap-2">
-          <div className="w-2 h-2 bg-white rounded-full" />
-          Live: Teacher's Screen
-        </div>
+  <div className="fixed inset-0 z-50 bg-black overflow-hidden select-none">
+    {/* --- 1. MAIN VIEWPORT (The Stage) --- */}
+    <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900 flex flex-col">
+      <div className="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
+        {teacherScreenSharing ? (
+          /* SCREEN SHARE VIEW */
+          screenShareTrack?.video ? (
+            <div className="w-full h-full bg-slate-900 animate-in fade-in duration-500">
+              <div 
+                id="screen-share-container"
+                ref={(el) => {
+                  if (el && screenShareTrack.video) {
+                    console.log("🎬 Playing Screen Share");
+                    screenShareTrack.video.play(el);
+                  }
+                }} 
+                className="w-full h-full object-contain"
+              />
+              <div className="absolute top-20 left-6 bg-red-600/90 backdrop-blur-md text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg animate-pulse flex items-center gap-2">
+                <div className="w-2 h-2 bg-white rounded-full" />
+                PRESENTING: TEACHER'S SCREEN
+              </div>
+            </div>
+          ) : (
+            /* LOADING STATE FOR SCREEN */
+            <div className="flex flex-col items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mb-4"></div>
+              <p className="text-cyan-300 font-medium">Connecting to Screen Share...</p>
+            </div>
+          )
+        ) : teacherFaceTrack?.video ? (
+          /* NORMAL TEACHER FACE VIEW (Full Screen) */
+          <div className="w-full h-full animate-in fade-in duration-700">
+            <div 
+              ref={(el) => el && teacherFaceTrack.video.play(el)} 
+              className="w-full h-full object-cover" 
+            />
+          </div>
+        ) : (
+          /* IDLE / WAITING STATE */
+          <div className="flex flex-col items-center animate-pulse">
+            <div className="w-24 h-24 rounded-full bg-gray-800 mb-4 flex items-center justify-center border border-gray-700">
+              <span className="text-4xl">👨‍🏫</span>
+            </div>
+            <p className="text-gray-400 font-medium">Waiting for teacher to start video...</p>
+          </div>
+        )}
       </div>
-    ) : (
-      /* 🟢 NEW: LOADING SPINNER FOR SCREEN SHARE */
-      <div className="flex flex-col items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mb-4"></div>
-        <p className="text-cyan-300 font-medium">Connecting to Teacher's Screen...</p>
-      </div>
-    )
-  ) : teacherFaceTrack?.video ? (
-    /* NORMAL TEACHER FACE VIEW */
-    <div className="w-full h-full">
-      <div ref={(el) => el && teacherFaceTrack.video.play(el)} className="w-full h-full object-cover" />
     </div>
-  ) : (
-    /* LOADING / NO VIDEO STATE */
-    <div className="flex flex-col items-center">
-      <div className="w-24 h-24 rounded-full bg-gray-800 animate-pulse mb-4 flex items-center justify-center">
-        <span className="text-4xl">👨‍🏫</span>
-      </div>
-      <p className="text-gray-400">Waiting for teacher...</p>
-    </div>
-  )}
-</div>
-      </div>
 
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-lg p-4 lg:p-6 z-30 border-b border-cyan-500/30">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-white font-semibold text-sm lg:text-base">Live Class</span>
-            </div>
-            <div className="flex items-center gap-2 text-cyan-300">
-              <Clock size={16} />
-              <span className="text-sm lg:text-base font-mono">{formatDuration(stats.duration)}</span>
-            </div>
+    {/* --- 2. TOP NAVIGATION BAR --- */}
+    <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/90 to-transparent backdrop-blur-sm p-4 lg:p-6 z-30 border-b border-white/5">
+      <div className="flex items-center justify-between max-w-[1920px] mx-auto">
+        <div className="flex items-center gap-4">
+          <div className="bg-green-500/10 border border-green-500/50 px-3 py-1 rounded-full flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <span className="text-white font-bold text-xs uppercase tracking-wider">Live Class</span>
           </div>
-          
-          <div className="flex items-center gap-2 lg:gap-3">
-            <div className="hidden lg:flex items-center gap-2 bg-gray-800/50 px-3 py-2 rounded-xl">
-              <Users size={16} className="text-cyan-400" />
-              <span className="text-white text-sm">{stats.participantCount}</span>
-            </div>
-            
-            <button
-              onClick={() => setShowChat(!showChat)}
-              className="relative p-2 lg:p-3 bg-gray-800/50 hover:bg-cyan-500/20 rounded-xl transition-all duration-200"
-            >
-              <MessageCircle size={18} className="text-cyan-300" />
-              {messages.length > 0 && (
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-xs">{messages.length > 9 ? '9+' : messages.length}</span>
-                </div>
-              )}
-            </button>
+          <div className="flex items-center gap-2 text-cyan-300 bg-gray-900/50 px-3 py-1 rounded-full border border-white/5">
+            <Clock size={14} />
+            <span className="text-xs font-mono">{formatDuration(stats.duration)}</span>
           </div>
-        </div>
-      </div>
-
-      <div className="absolute top-4 right-4 z-30">
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={toggleFullscreen}
-            className="p-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-xl text-white transition-all duration-200"
-            title="Fullscreen"
-          >
-            <ChevronUp size={18} className="transform rotate-45" />
-          </button>
-          
-          <div className="flex items-center gap-1.5 bg-gray-900/70 backdrop-blur-sm px-3 py-1.5 rounded-xl">
-            <div className={`w-2 h-2 rounded-full ${
-              stats.connectionQuality === 'good' ? 'bg-green-500 animate-pulse' :
-              stats.connectionQuality === 'fair' ? 'bg-yellow-500' :
-              'bg-red-500'
-            }`} />
-            <span className="text-white text-xs font-medium">
-              {stats.connectionQuality === 'good' ? 'Good' :
-              stats.connectionQuality === 'fair' ? 'Fair' : 'Poor'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="hidden lg:flex absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900/80 backdrop-blur-lg rounded-2xl p-4 border border-cyan-500/30 shadow-2xl z-30">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleAudio}
-            disabled={!controls.hasMicrophone}
-            className={`p-3 rounded-xl transition-all duration-200 ${
-              controls.audioEnabled 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
-                : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
-            } ${!controls.hasMicrophone ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={controls.audioEnabled ? "Mute" : "Unmute"}
-          >
-            {controls.audioEnabled ? <Mic size={22} /> : <MicOff size={22} />}
-          </button>
-          
-          <button
-            onClick={toggleVideo}
-            disabled={!controls.hasCamera}
-            className={`p-3 rounded-xl transition-all duration-200 ${
-              controls.videoEnabled 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white' 
-                : 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white'
-            } ${!controls.hasCamera ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={controls.videoEnabled ? "Turn off camera" : "Turn on camera"}
-          >
-            {controls.videoEnabled ? <Camera size={22} /> : <CameraOff size={22} />}
-          </button>
-          
-          <button
-            onClick={toggleScreenShare}
-            className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200"
-            title="Share screen"
-          >
-            <Share2 size={22} />
-          </button>
-          
-          <button 
-            onClick={toggleHandRaise}
-            className={`p-3 rounded-xl transition-all duration-200 ${
-              controls.handRaised 
-                ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
-                : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
-            }`}
-            title={controls.handRaised ? "Lower hand" : "Raise hand"}
-          >
-            <Hand size={22} />
-          </button>
-          
-          <button 
-            onClick={toggleParticipants}
-            className={`p-3 rounded-xl transition-all duration-200 ${
-              showParticipants 
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
-                : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white'
-            }`}
-            title="Participants"
-          >
-            <Users size={22} />
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {stats.participantCount}
-            </span>
-          </button>
-          
-          <button 
-            onClick={toggleSettings}
-            className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white transition-all duration-200"
-            title="Settings"
-          >
-            <MoreVertical size={22} />
-          </button>
-          
-          <button 
-            onClick={leaveSession}
-            className="p-3 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-500/30 transition-all duration-200 ml-2"
-            title="Leave call"
-          >
-            <PhoneOff size={22} />
-          </button>
-        </div>
-      </div>
-
-      <div className="lg:hidden absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent backdrop-blur-lg p-4 border-t border-cyan-500/30 z-30">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={toggleAudio}
-              disabled={!controls.hasMicrophone}
-              className={`p-3 rounded-xl ${
-                controls.audioEnabled 
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
-                  : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
-              }`}
-            >
-              {controls.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-            </button>
-            
-            <button
-              onClick={toggleVideo}
-              disabled={!controls.hasCamera}
-              className={`p-3 rounded-xl ${
-                controls.videoEnabled 
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' 
-                  : 'bg-gradient-to-r from-red-600 to-pink-600 text-white'
-              }`}
-            >
-              {controls.videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
-            </button>
-            
-            <button 
-              onClick={toggleHandRaise}
-              className={`p-3 rounded-xl ${
-                controls.handRaised 
-                  ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white animate-pulse' 
-                  : 'bg-gradient-to-r from-gray-700 to-gray-800 text-white'
-              }`}
-            >
-              <Hand size={20} />
-            </button>
-            
-            <button 
-              onClick={toggleParticipants}
-              className="p-3 rounded-xl bg-gradient-to-r from-gray-700 to-gray-800 text-white relative"
-            >
-              <Users size={20} />
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                {stats.participantCount}
-              </span>
-            </button>
-          </div>
-          
-          <button 
-            onClick={leaveSession}
-            className="p-3 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white"
-          >
-            <PhoneOff size={20} />
-          </button>
         </div>
         
-        <div className="flex items-center justify-center gap-2 mt-3">
-          <button 
-            onClick={() => sendReaction('👍')}
-            className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
+        <div className="flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-2 bg-gray-900/80 px-4 py-2 rounded-xl border border-white/5">
+            <Users size={16} className="text-cyan-400" />
+            <span className="text-white text-sm font-medium">{stats.participantCount} Students</span>
+          </div>
+          
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className={`p-3 rounded-xl transition-all duration-300 ${showChat ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/20' : 'bg-gray-900/80 text-cyan-300 hover:bg-gray-800'}`}
           >
-            👍
-          </button>
-          <button 
-            onClick={() => sendReaction('👏')}
-            className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
-          >
-            👏
-          </button>
-          <button 
-            onClick={() => sendReaction('🎉')}
-            className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
-          >
-            🎉
-          </button>
-          <button 
-            onClick={() => sendReaction('🙋')}
-            className="p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 transition-all duration-200"
-          >
-            🙋
+            <MessageSquare size={20} />
+            {messages.length > 0 && !showChat && (
+              <span className="absolute top-2 right-2 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center ring-2 ring-black">
+                {messages.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
+    </div>
+
+    {/* --- 3. FLOATING PiP WINDOW (Smart Swap) --- */}
+    {(typeof window !== 'undefined') && (
+      <div 
+        ref={pipRef}
+        style={{
+          position: 'fixed',
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          width: '280px', 
+          height: '180px', 
+          zIndex: 40,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          transition: isDragging ? 'none' : 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
+          touchAction: 'none',
+        }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        className={`local-video-pip group shadow-2xl rounded-2xl overflow-hidden border-2 ${isDragging ? 'border-cyan-400 scale-105' : 'border-white/10 hover:border-cyan-500/50'}`}
+      >
+        <div className="relative w-full h-full bg-slate-900">
+          {/* CASE A: If teacher is sharing screen, move Teacher Face to PiP */}
+          {teacherScreenSharing && teacherFaceTrack?.video ? (
+            <div className="w-full h-full">
+               <div 
+                ref={(el) => el && teacherFaceTrack.video.play(el)} 
+                className="w-full h-full object-cover" 
+              />
+              <div className="absolute bottom-2 left-2 bg-black/80 backdrop-blur-md text-white text-[10px] px-2 py-1 rounded-md border border-white/10 font-bold uppercase">
+                Teacher (Live)
+              </div>
+            </div>
+          ) : localTracks.video ? (
+            /* CASE B: Standard view - show Student (You) in PiP */
+            <div className="w-full h-full">
+              <div 
+                ref={(el) => el && localTracks.video.play(el)} 
+                className="w-full h-full object-cover" 
+              />
+              <div className="absolute bottom-2 left-2 bg-cyan-600/90 backdrop-blur-md text-white text-[10px] px-2 py-1 rounded-md font-bold uppercase">
+                You
+              </div>
+            </div>
+          ) : (
+            /* CASE C: Fallback Avatar */
+            <div className="w-full h-full flex items-center justify-center bg-slate-800">
+              <div className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center border border-white/5">
+                 <span className="text-xl">👤</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Drag Handle Overlay (Visible on hover) */}
+          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <Share2 size={24} className="text-white/20" />
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* --- 4. BOTTOM CONTROL BAR --- */}
+    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-gray-950/90 backdrop-blur-xl p-3 rounded-2xl border border-white/10 shadow-2xl z-30">
+      <button
+        onClick={toggleAudio}
+        className={`p-4 rounded-xl transition-all ${controls.audioEnabled ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-red-500 text-white animate-pulse'}`}
+      >
+        {controls.audioEnabled ? <Mic size={22} /> : <MicOff size={22} />}
+      </button>
+      
+      <button
+        onClick={toggleVideo}
+        className={`p-4 rounded-xl transition-all ${controls.videoEnabled ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-red-500 text-white'}`}
+      >
+        {controls.videoEnabled ? <Camera size={22} /> : <CameraOff size={22} />}
+      </button>
+
+      <div className="w-px h-8 bg-white/10 mx-2" />
+
+      <button 
+        onClick={toggleHandRaise}
+        className={`p-4 rounded-xl transition-all ${controls.handRaised ? 'bg-yellow-500 text-black scale-110 shadow-lg shadow-yellow-500/20' : 'bg-gray-800 text-white hover:bg-gray-700'}`}
+      >
+        <Hand size={22} fill={controls.handRaised ? "currentColor" : "none"} />
+      </button>
+
+      <button 
+        onClick={leaveSession}
+        className="p-4 rounded-xl bg-red-600 text-white hover:bg-red-500 transition-all hover:scale-105 active:scale-95 shadow-lg shadow-red-600/20"
+      >
+        <PhoneOff size={22} />
+      </button>
+    </div>
 
       {showChat && (
         <div className="absolute inset-0 bg-black/90 backdrop-blur-lg flex items-center justify-center z-50">
