@@ -666,8 +666,11 @@ const teacherFaceTrack = useMemo(() => {
   }, []);
 
   const fetchParticipants = async (meetingId) => {
+    if (!meetingId) return;
+    
     try {
-      const response = await studentvideoApi.getSessionParticipants(meetingId);
+      // Using the method name from your studentvideoApi.js
+      const response = await studentvideoApi.getParticipants(meetingId);
       
       if (response.success && response.participants) {
         const newProfiles = new Map();
@@ -676,7 +679,8 @@ const teacherFaceTrack = useMemo(() => {
         response.participants.forEach(participant => {
           if (participant.agora_uid) {
             const uidString = String(participant.agora_uid);
-            const isTeacher = participant.role === 'teacher' || participant.is_teacher;
+            // Logic to catch both potential flags from your backend (agora.js)
+            const isTeacher = participant.is_teacher === true || participant.role === 'teacher';
             
             newProfiles.set(uidString, {
               id: participant.user_id,
@@ -689,19 +693,29 @@ const teacherFaceTrack = useMemo(() => {
             });
             
             if (isTeacher) {
-              teacherUidFound = uidString;
+              // Store teacherUid as a Number to ensure math works (Number(uid) + 10000)
+              teacherUidFound = Number(participant.agora_uid);
+              console.log('👑 Teacher found in participant list:', teacherUidFound);
             }
           }
         });
         
         setUserProfiles(newProfiles);
+        
         if (teacherUidFound) {
           setTeacherUid(teacherUidFound);
         }
         
+        // Update general stats and participant list
         setParticipants(response.participants);
+        setStats(prev => ({
+          ...prev,
+          participantCount: response.participants.length
+        }));
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error('❌ Error in fetchParticipants:', error);
+    }
   };
 
   useEffect(() => {
@@ -777,37 +791,32 @@ const teacherFaceTrack = useMemo(() => {
     });
   };
 
-  const initializeSession = async () => {
+ const initializeSession = async () => {
     try {
-      if (initializationRef.current.clientCreated) return;
-
-      const initStart = Date.now();
+      if (initializationRef.current.clientCreated && sessionState.isJoined) return;
 
       setLoadingProgress({ step: 'Connecting to server...', progress: 10 });
 
-      const [sessionLookup, devicesCheck] = await Promise.all([
-        studentvideoApi.getSessionByClassId(classId),
-        AgoraRTC.getDevices().catch(() => [])
-      ]);
-      
+      // 1. Find Session
+      const sessionLookup = await studentvideoApi.getSessionByClassId(classId);
       if (!sessionLookup.success || !sessionLookup.exists || !sessionLookup.isActive) {
-        throw new Error(sessionLookup.error || 'No active session found for this class');
+        throw new Error('No active session found for this class. Please wait for the teacher.');
       }
 
       const effectiveMeetingId = sessionLookup.meetingId;
       
-      setLoadingProgress({ step: 'Setting up video connection...', progress: 25 });
-      
+      setLoadingProgress({ step: 'Identifying Teacher...', progress: 25 });
+
+      // 2. CRITICAL: Fetch participants FIRST to set teacherUid before listeners start
+      await fetchParticipants(effectiveMeetingId);
+
+      // 3. Setup Client
       if (!clientRef.current) {
-        clientRef.current = AgoraRTC.createClient({ 
-          mode: 'rtc', 
-          codec: 'vp8' 
-        });
+        clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
         initializationRef.current.clientCreated = true;
       }
 
-      setLoadingProgress({ step: 'Configuring connection...', progress: 35 });
-      
+      // 4. Set Listeners
       if (!initializationRef.current.listenersSet) {
         setupAgoraEventListeners();
         initializationRef.current.listenersSet = true;
@@ -815,181 +824,128 @@ const teacherFaceTrack = useMemo(() => {
 
       setLoadingProgress({ step: 'Joining classroom...', progress: 50 });
       
-      const [sessionData] = await Promise.all([
-        studentvideoApi.joinVideoSession(effectiveMeetingId, studentId, 'student'),
-        fetchParticipants(effectiveMeetingId).catch(() => null)
-      ]);
-
+      // 5. Join Session API
+      const sessionData = await studentvideoApi.joinVideoSession(effectiveMeetingId, studentId, 'student');
       if (!sessionData.success || !sessionData.token) {
-        throw new Error(sessionData.error || 'Failed to join session - invalid credentials');
+        throw new Error(sessionData.error || 'Failed to join session');
       }
 
-      const studentAgoraUid = sessionData.uid;
-
-      setLoadingProgress({ step: 'Finalizing setup...', progress: 70 });
-      
-      setSessionState({
+      setSessionState(prev => ({
+        ...prev,
         isInitialized: true,
-        isJoined: false,
-        sessionInfo: {
-          ...sessionData,
-          uid: studentAgoraUid,
-          meetingId: effectiveMeetingId
-        },
-        error: null
-      });
+        sessionInfo: { ...sessionData, meetingId: effectiveMeetingId }
+      }));
 
       setLoadingProgress({ step: 'Starting video call...', progress: 80 });
       
+      // 6. Connect to Agora Channel
       await joinChannel({
         ...sessionData,
-        uid: studentAgoraUid
+        uid: sessionData.uid
       });
 
       setLoadingProgress({ step: 'Ready!', progress: 100 });
 
     } catch (error) {
-      setLoadingProgress({ 
-        step: 'Connection failed', 
-        progress: 0 
-      });
-      
+      console.error("🔥 Initialization Error:", error);
+      setLoadingProgress({ step: 'Connection failed', progress: 0 });
       setSessionState(prev => ({ 
         ...prev, 
-        error: error.message || 'Failed to connect to classroom' 
+        error: error.message || 'Failed to connect' 
       }));
     }
   };
-
 const setupAgoraEventListeners = () => {
-  const client = clientRef.current;
-  if (!client) return;
+    const client = clientRef.current;
+    if (!client) return;
 
-  // Helper to ensure we always use String UIDs for the Map keys
-  const getUidKey = (uid) => String(uid);
+    console.log("🛠️ Agora Listeners: Initializing production event handlers");
 
-  // --- 1. User Joined ---
-  client.on('user-joined', (user) => {
-    const uidKey = getUidKey(user.uid);
-    
-    // Safety check: Ignore self
-    if (sessionState.sessionInfo && getUidKey(sessionState.sessionInfo.uid) === uidKey) return;
-
-    setRemoteTracks(prev => {
-      const newMap = new Map(prev);
-      if (!newMap.has(uidKey)) {
-        newMap.set(uidKey, { audio: null, video: null });
-      }
-      return newMap;
-    });
-    updateParticipantCount();
-  });
-
-  // --- 2. User Published ---
-  client.on('user-published', async (user, mediaType) => {
-    try {
-      // Subscribe to the stream
-      const remoteTrack = await client.subscribe(user, mediaType);
-      const uidKey = getUidKey(user.uid);
+    client.on("user-published", async (user, mediaType) => {
+      // 1. Subscribe immediately
+      await client.subscribe(user, mediaType);
+      
       const uidNumber = Number(user.uid);
-      const teacherUidNumber = Number(teacherUid);
+      const isTeacherScreen = uidNumber === (Number(teacherUid) + 10000);
+      const isTeacherCamera = uidNumber === Number(teacherUid);
 
-      // PRODUCTION SCREEN SHARE DETECTION
-      // Uses the +10000 UID offset logic
-      if (mediaType === 'video' && uidNumber === (teacherUidNumber + 10000)) {
-        console.log("🖥️ Screen Share Active");
-        setTeacherScreenSharing(true);
+      if (mediaType === "video") {
+        if (isTeacherScreen) {
+          console.log("🖥️ SCREEN SHARE: Detected teacher screen");
+          setTeacherScreenSharing(true);
+          // 💡 FIXED: Using the variable name from your StudentVideoCall.jsx
+          setScreenShareTrack({ video: user.videoTrack }); 
+        } else if (isTeacherCamera) {
+          console.log("👨‍🏫 TEACHER: Detected teacher camera");
+          setTeacherFaceTrack({ video: user.videoTrack });
+        } else {
+          // Normal student video - Store in Map for the participant list
+          setRemoteTracks(prev => {
+            const next = new Map(prev);
+            const existing = next.get(user.uid) || {};
+            next.set(user.uid, { ...existing, video: user.videoTrack });
+            return next;
+          });
+        }
       }
 
+      if (mediaType === "audio") {
+        user.audioTrack.play(); // Auto-play audio
+        if (!isTeacherScreen) {
+          setRemoteTracks(prev => {
+            const next = new Map(prev);
+            const existing = next.get(user.uid) || {};
+            next.set(user.uid, { ...existing, audio: user.audioTrack });
+            return next;
+          });
+        }
+      }
+    });
+
+    client.on("user-unpublished", (user, mediaType) => {
+      const uidNumber = Number(user.uid);
+      if (uidNumber === (Number(teacherUid) + 10000)) {
+        setTeacherScreenSharing(false);
+        setScreenShareTrack(null);
+      } else {
+        setRemoteTracks(prev => {
+          const next = new Map(prev);
+          const existing = next.get(user.uid);
+          if (existing) {
+            if (mediaType === 'video') existing.video = null;
+            if (mediaType === 'audio') existing.audio = null;
+            // If both tracks are gone, remove user entirely
+            if (!existing.video && !existing.audio) next.delete(user.uid);
+            else next.set(user.uid, existing);
+          }
+          return next;
+        });
+      }
+    });
+
+    client.on("user-left", (user) => {
+      const uidNumber = Number(user.uid);
+      if (uidNumber === (Number(teacherUid) + 10000)) {
+        setTeacherScreenSharing(false);
+        setScreenShareTrack(null);
+      }
       setRemoteTracks(prev => {
-        const newMap = new Map(prev);
-        const existing = newMap.get(uidKey) || { audio: null, video: null };
-        
-        if (mediaType === 'video') {
-          existing.video = remoteTrack;
-        } else if (mediaType === 'audio') {
-          existing.audio = remoteTrack;
-          remoteTrack.play(); // Auto-play audio on subscribe
-        }
-        
-        newMap.set(uidKey, existing);
-        return newMap;
+        const next = new Map(prev);
+        next.delete(user.uid);
+        return next;
       });
-    } catch (error) {
-      console.error("Agora Subscribe Error:", error);
-    }
-  });
-
-  // --- 3. User Unpublished ---
-  client.on('user-unpublished', (user, mediaType) => {
-    const uidKey = getUidKey(user.uid);
-    const uidNumber = Number(user.uid);
-
-    // Turn off screen share mode if the +10000 user stops sending video
-    if (mediaType === 'video' && uidNumber === (Number(teacherUid) + 10000)) {
-      setTeacherScreenSharing(false);
-    }
-
-    setRemoteTracks(prev => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(uidKey);
-      if (existing) {
-        if (mediaType === 'video') {
-          existing.video?.stop();
-          existing.video = null;
-        } else if (mediaType === 'audio') {
-          existing.audio?.stop();
-          existing.audio = null;
-        }
-        newMap.set(uidKey, existing);
-      }
-      return newMap;
     });
-  });
 
-  // --- 4. User Left ---
-  client.on('user-left', (user) => {
-    const uidKey = getUidKey(user.uid);
-    
-    // Immediate UI cleanup for screen share
-    if (Number(user.uid) === (Number(teacherUid) + 10000)) {
-      setTeacherScreenSharing(false);
-    }
-
-    setRemoteTracks(prev => {
-      const newMap = new Map(prev);
-      const tracks = newMap.get(uidKey);
-      if (tracks) {
-        tracks.audio?.stop();
-        tracks.video?.stop();
-      }
-      newMap.delete(uidKey);
-      return newMap;
+    client.on("network-quality", (stats) => {
+      const quality = stats.downlinkNetworkQuality;
+      setStats(prev => ({
+        ...prev,
+        connectionQuality: quality <= 2 ? 'good' : quality <= 4 ? 'fair' : 'poor'
+      }));
     });
-    
-    setUserProfiles(prev => {
-      const updated = new Map(prev);
-      updated.delete(uidKey);
-      return updated;
-    });
-    updateParticipantCount();
-  });
+  };
 
-  // --- 5. Connection Management ---
-  client.on('connection-state-change', (curState) => {
-    const states = {
-      'DISCONNECTED': 'Connection lost. Reconnecting...',
-      'RECONNECTING': 'Weak signal. Reconnecting...',
-      'CONNECTED': null
-    };
-    
-    setSessionState(prev => ({ 
-      ...prev, 
-      error: states[curState] !== undefined ? states[curState] : prev.error 
-    }));
-  });
-};
-  const joinChannel = async (sessionData) => {
+const joinChannel = async (sessionData) => {
     try {
       const { channel, token, uid, appId } = sessionData;
 
@@ -1548,18 +1504,26 @@ const setupAgoraEventListeners = () => {
       <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-950 to-gray-900">
         {/* MAIN VIEWPORT */}
 <div className="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
-  {teacherScreenSharing && screenShareTrack?.video ? (
-    /* SCREEN SHARE VIEW */
-    <div className="w-full h-full bg-slate-900">
-      <div 
-        ref={(el) => el && screenShareTrack.video.play(el)} 
-        className="w-full h-full object-contain"
-        
-      />
-      <div className="absolute bottom-4 left-4 bg-red-600/80 text-white px-3 py-1 rounded-md text-sm animate-pulse">
-        Live: Teacher's Screen
+  {teacherScreenSharing ? (
+    /* SCREEN SHARE LOGIC */
+    screenShareTrack?.video ? (
+      <div className="w-full h-full bg-slate-900">
+        <div 
+          ref={(el) => el && screenShareTrack.video.play(el)} 
+          className="w-full h-full object-contain"
+        />
+        <div className="absolute bottom-4 left-4 bg-red-600/80 text-white px-3 py-1 rounded-md text-sm animate-pulse flex items-center gap-2">
+          <div className="w-2 h-2 bg-white rounded-full" />
+          Live: Teacher's Screen
+        </div>
       </div>
-    </div>
+    ) : (
+      /* 🟢 NEW: LOADING SPINNER FOR SCREEN SHARE */
+      <div className="flex flex-col items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mb-4"></div>
+        <p className="text-cyan-300 font-medium">Connecting to Teacher's Screen...</p>
+      </div>
+    )
   ) : teacherFaceTrack?.video ? (
     /* NORMAL TEACHER FACE VIEW */
     <div className="w-full h-full">
@@ -1568,7 +1532,9 @@ const setupAgoraEventListeners = () => {
   ) : (
     /* LOADING / NO VIDEO STATE */
     <div className="flex flex-col items-center">
-      <div className="w-24 h-24 rounded-full bg-gray-800 animate-pulse mb-4" />
+      <div className="w-24 h-24 rounded-full bg-gray-800 animate-pulse mb-4 flex items-center justify-center">
+        <span className="text-4xl">👨‍🏫</span>
+      </div>
       <p className="text-gray-400">Waiting for teacher...</p>
     </div>
   )}
@@ -2084,45 +2050,39 @@ const setupAgoraEventListeners = () => {
     onTouchStart={handleTouchStart}
     className={`local-video-pip shadow-2xl ${isDragging ? 'local-video-pip-dragging' : ''}`}
   >
-    <div className="relative w-full h-full bg-slate-900">
-      {/* LOGIC: 
-        1. If teacher is sharing screen, show Teacher's FACE in PiP.
-        2. Otherwise, show Student's OWN camera in PiP.
-      */}
-      {teacherScreenSharing && teacherFaceTrack?.video ? (
-        <div className="w-full h-full">
-           <div 
-            ref={(el) => el && teacherFaceTrack.video.play(el)} 
-            className="w-full h-full object-cover" 
-          />
-          <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-md border border-white/10">
-            Teacher (Camera)
-          </div>
-        </div>
-      ) : localTracks.video ? (
-        <div className="w-full h-full">
-          <div 
-            ref={(el) => el && localTracks.video.play(el)} 
-            className="w-full h-full object-cover" 
-          />
-          <div className="absolute bottom-2 left-2 bg-cyan-600/80 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-md">
-            You (Camera)
-          </div>
-        </div>
-      ) : (
-        /* FALLBACK: Show Avatar if no video is available */
-        <div className="w-full h-full flex items-center justify-center bg-slate-800">
-          <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center border border-slate-600">
-             <span className="text-2xl">👤</span>
-          </div>
-        </div>
-      )}
-
-      {/* DRAG HANDLE OVERLAY */}
-      <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex items-center justify-center">
-          <div className="w-8 h-1 bg-white/30 rounded-full" />
+   
+<div className="relative w-full h-full bg-slate-900">
+  {/* If Teacher is sharing screen, move Teacher's face here */}
+  {teacherScreenSharing && teacherFaceTrack?.video ? (
+    <div className="w-full h-full">
+       <div 
+        ref={(el) => el && teacherFaceTrack.video.play(el)} 
+        className="w-full h-full object-cover" 
+      />
+      <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-md border border-white/10">
+        Teacher (Live)
       </div>
     </div>
+  ) : localTracks.video ? (
+    /* Otherwise, show the Student's own camera */
+    <div className="w-full h-full">
+      <div 
+        ref={(el) => el && localTracks.video.play(el)} 
+        className="w-full h-full object-cover" 
+      />
+      <div className="absolute bottom-2 left-2 bg-cyan-600/80 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-md">
+        You
+      </div>
+    </div>
+  ) : (
+    /* Fallback if no video is available */
+    <div className="w-full h-full flex items-center justify-center bg-slate-800">
+      <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center border border-slate-600">
+         <span className="text-2xl">👤</span>
+      </div>
+    </div>
+  )}
+</div>
   </div>
 )}
     </div>
