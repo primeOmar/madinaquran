@@ -17,13 +17,14 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { registerPlugin } from '@capacitor/core';
 
+
 // ────────────────────────────────────────────────────────────────
 // Platform detection helper
 // ────────────────────────────────────────────────────────────────
 const AgoraScreenShare = registerPlugin('AgoraScreenShare');
 const isNative = Capacitor.isNativePlatform();
 const isAndroid = Capacitor.getPlatform() === 'android';
-const isWeb = Capacitor.getPlatform() === 'web';
+const isWeb = !isNative;
 
 // ============================================
 // RESPONSIVE REMOTE VIDEO PLAYER
@@ -39,42 +40,18 @@ const RemoteVideoPlayer = React.memo(({ user, isCompact = false, gridConfig }) =
 useEffect(() => {
   if (!videoRef.current || !user.videoTrack || hasError) return;
 
-  const playVideo = async () => {
-    try {
-      // Stop if already playing
-      if (user.videoTrack.isPlaying) {
-        user.videoTrack.stop();
-      }
-      
-      // ✅ MOBILE FIX: Play without options first
-      try {
-        await user.videoTrack.play(videoRef.current);
-      } catch (firstError) {
-        // ✅ Retry with explicit mobile-friendly config
-        await user.videoTrack.play(videoRef.current, {
-          fit: 'cover', // Changed from 'contain' for mobile
-          mirror: false
-        });
-      }
-      
-      console.log(`✅ Video playing for user ${user.uid}`);
-      setHasError(false);
-    } catch (error) {
-      console.error(`❌ Video play error for user ${user.uid}:`, error);
-      
-      // ✅ Try one more time after delay (mobile browser issue)
-      setTimeout(async () => {
-        try {
-          await user.videoTrack.play(videoRef.current);
-          console.log(`✅ Video playing on retry for user ${user.uid}`);
-          setHasError(false);
-        } catch (retryError) {
-          console.error(`❌ Retry failed for user ${user.uid}:`, retryError);
-          setHasError(true);
-        }
-      }, 1000);
-    }
-  };
+const playVideo = async () => {
+  try {
+    if (user.videoTrack.isPlaying) user.videoTrack.stop();
+    
+    // Fix: Wrap in try/catch instead of chaining .catch() 
+    // because play() might not return a promise in some SDK states
+    await user.videoTrack.play(videoRef.current);
+  } catch (err) {
+    console.error("Playback failed", err);
+    setHasError(true);
+  }
+};
 
   playVideo();
 
@@ -415,6 +392,7 @@ const checkScreenSharePermission = async () => {
   }
 };
 
+
 // 2. Screen Share with Quality Settings
 const startScreenShareWithQuality = async (quality = 'auto') => {
   if (Capacitor.isNativePlatform()) {
@@ -499,6 +477,21 @@ const startScreenShareWithQuality = async (quality = 'auto') => {
   
   const clientRef = useRef(null);
   const localVideoRef = useRef(null);
+  const screenClientRef = useRef(null);
+  const [isSharingScreen, setIsSharingScreen] = useState(false);
+
+// Screen share UID will be set dynamically based on teacher's UID
+// It will be: teacherUid + 10000 so students can identify it
+let SCREEN_SHARE_UID = null;
+
+// Production logging helper
+const logScreenShare = (level, msg) => {
+  const timestamp = new Date().toLocaleTimeString();
+  const fullMsg = `[${timestamp}] 🎬 SCREEN_SHARE: ${msg}`;
+  console.log(fullMsg);
+  if (level === 'error') console.error(fullMsg);
+  else if (level === 'warn') console.warn(fullMsg);
+};
   const localTracksRef = useRef({ audioTrack: null, videoTrack: null });
   const chatContainerRef = useRef(null);
   const mainContainerRef = useRef(null);
@@ -507,7 +500,9 @@ const startScreenShareWithQuality = async (quality = 'auto') => {
   const controlsTimeoutRef = useRef(null);
   const durationIntervalRef = useRef(null);
   const videoApiRef = useRef(videoApi);
-
+ const channelName = useMemo(() => sessionState.sessionInfo?.channel, [sessionState.sessionInfo]);
+const localUid = useMemo(() => sessionState.sessionInfo?.uid, [sessionState.sessionInfo]);
+const APP_ID = useMemo(() => sessionState.sessionInfo?.appId, [sessionState.sessionInfo]);
   // ✅ MOBILE DETECTION
 const isMobile = useMemo(() => {
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -953,6 +948,11 @@ const joinChannel = async (sessionData) => {
       Number(uid) || uid // Agora accepts Number or String, but Number is safer for many backends
     );
     
+    // 3b. SET SCREEN SHARE UID FOR STUDENTS TO IDENTIFY
+    // Screen share will use: teacherUid + 10000 so students recognize it
+    SCREEN_SHARE_UID = Number(assignedUid) + 10000;
+    console.log('🎬 Screen Share UID set to:', SCREEN_SHARE_UID, '(Teacher UID:', assignedUid, ')');
+    
     // 4. Create and publish tracks with localized error handling
     try {
       await createAndPublishTracks();
@@ -1228,7 +1228,7 @@ const createAndPublishTracks = useCallback(async () => {
           frameRate: 15,
           bitrateMax: 600
         } : '720p_3',
-        optimizationMode: 'motion' // 'motion' is better for teachers moving/gesturing
+        optimizationMode: 'motion' 
       });
     } catch (err) {
       console.error('❌ Video Init Failed:', err);
@@ -1361,6 +1361,11 @@ const resubscribeToAllUsers = async () => {
   try {
     console.log(`📢 User ${user.uid} published ${mediaType}`);
     
+    // CHECK IF THIS IS SCREEN SHARE BEING PUBLISHED
+    if (user.uid === SCREEN_SHARE_UID && mediaType === 'video') {
+      logScreenShare('success', `✅✅✅ CONFIRMED: Screen published successfully to Agora! UID: ${user.uid}`);
+    }
+    
     // Subscribe to the media
     await client.subscribe(user, mediaType);
     console.log(`✅ Subscribed to ${mediaType} from user ${user.uid}`);
@@ -1474,6 +1479,7 @@ const resubscribeToAllUsers = async () => {
       }
     }
   };
+
   
  const toggleVideo = async () => {
   // ✅ Check if we even have a video track
@@ -1524,6 +1530,8 @@ const resubscribeToAllUsers = async () => {
   }
 };
   
+
+
 // Helper function to check screen sharing support
 const checkScreenShareSupport = () => {
   const userAgent = navigator.userAgent.toLowerCase();
@@ -1616,93 +1624,150 @@ const stopScreenShareAndRestoreCamera = async () => {
 // ────────────────────────────────────────────────────────────────
 // SCREEN SHARE - Production Ready for Web & Android
 // ────────────────────────────────────────────────────────────────
-const toggleScreenShare = useCallback(async () => {
-  if (screenSharePending.current) return; // Block if already in progress
 
-  const platform = Capacitor.getPlatform();
-  const isAndroid = platform === 'android';
-
-  try {
-    // 1. STOP LOGIC
-    if (controls.screenSharing) {
-      screenSharePending.current = true;
-      setLoading(prev => ({ ...prev, isScreenSharing: true }));
+const toggleScreenShare = async () => {
+  // 1. STOP SHARING LOGIC
+  if (sessionState.isScreenSharing) {
+    try {
+      setSessionState(prev => ({ ...prev, isPreparing: true }));
       
-      if (isAndroid) {
+      if (isNative) {
+        // Stop the native Android foreground service
         await AgoraScreenShare.stopScreenShare();
-      } else if (localTracks.screenTrack) {
-        localTracks.screenTrack.stop();
-        localTracks.screenTrack.close();
-        await clientRef.current.unpublish(localTracks.screenTrack);
+      } else if (screenTrack) {
+        // Web cleanup
+        await client.unpublish(screenTrack);
+        screenTrack.close();
+        setScreenTrack(null);
       }
-
-      // Restore Camera
-      const cameraTrack = await AgoraRTC.createCameraVideoTrack();
-      await clientRef.current.publish(cameraTrack);
-      setLocalTracks(prev => ({ ...prev, video: cameraTrack, screenTrack: null }));
-      if (localVideoRef.current) cameraTrack.play(localVideoRef.current);
-
-      setControls(prev => ({ ...prev, screenSharing: false, videoEnabled: true }));
-      screenSharePending.current = false;
-      setLoading(prev => ({ ...prev, isScreenSharing: false }));
-      return;
-    }
-
-    // 2. START LOGIC
-    const { appId, channel, token, uid } = sessionState.sessionInfo || {};
-    if (!appId || !channel) throw new Error('Session not initialized');
-
-    screenSharePending.current = true; // LOCK
-    setLoading(prev => ({ ...prev, isScreenSharing: true }));
-
-    // STEP A: Complete Shutdown of Camera (Crucial for Android logs you sent)
-    if (localTracks.video) {
-      await clientRef.current.unpublish(localTracks.video);
-      localTracks.video.stop();
-      localTracks.video.close(); 
-      setLocalTracks(prev => ({ ...prev, video: null }));
-    }
-
-    // STEP B: The Stability Delay (Clears hardware buffers)
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    if (isAndroid) {
-      // STEP C: Native Plugin Call
-      await AgoraScreenShare.startScreenShare({
-        appId: appId,
-        token: token,
-        channelId: channel,
-        uid: Number(uid) + 10000 
-      });
       
-      setControls(prev => ({ ...prev, screenSharing: true, videoEnabled: false }));
-    } else {
-      // Web Implementation
-      const screenTrack = await AgoraRTC.createScreenVideoTrack({ 
-        optimizationMode: 'detail',
-        encoderConfig: '1080p_1' 
-      }, 'disable');
-
-      await clientRef.current.publish(screenTrack);
-      screenTrack.on('track-ended', () => toggleScreenShare());
-      setLocalTracks(prev => ({ ...prev, screenTrack }));
-      setControls(prev => ({ ...prev, screenSharing: true, videoEnabled: false }));
+      setSessionState(prev => ({ 
+        ...prev, 
+        isScreenSharing: false,
+        isPreparing: false 
+      }));
+    } catch (error) {
+      console.error("Failed to stop screen share:", error);
+      setSessionState(prev => ({ ...prev, isPreparing: false }));
     }
+    return;
+  }
+
+  // 2. START SHARING LOGIC
+  try {
+    logScreenShare('info', 'START: User clicked screen share button');
+    setSessionState(prev => ({ ...prev, isPreparing: true }));
+
+    // 2a. VALIDATION STEP 1: Check current SCREEN_SHARE_UID
+    logScreenShare('info', `Current SCREEN_SHARE_UID: ${SCREEN_SHARE_UID}`);
+
+    // 2b. VALIDATION STEP 2: Try fallback UID initialization if not set
+    if (!SCREEN_SHARE_UID && sessionState.sessionInfo?.uid) {
+      SCREEN_SHARE_UID = Number(sessionState.sessionInfo.uid) + 10000;
+      logScreenShare('info', `Fallback: UID initialized from sessionInfo.uid to ${SCREEN_SHARE_UID}`);
+    }
+
+    // 2c. VALIDATION STEP 3: Check if UID is valid (> 0)
+    if (!SCREEN_SHARE_UID || SCREEN_SHARE_UID <= 0) {
+      const errorMsg = `UID validation failed. SCREEN_SHARE_UID=${SCREEN_SHARE_UID}, sessionInfo.uid=${sessionState.sessionInfo?.uid}`;
+      logScreenShare('error', errorMsg);
+      throw new Error("Screen Share UID not available. Please ensure you've fully joined the session.");
+    }
+
+    logScreenShare('info', `Validated UID ${SCREEN_SHARE_UID} > 0: PASS`);
+
+    // 2d. FETCH TOKEN FROM BACKEND
+    logScreenShare('info', `Fetching screen token. Channel: ${channelName}, UID: ${SCREEN_SHARE_UID}`);
+    const tokenResponse = await videoApi.getScreenToken(
+      channelName, 
+      SCREEN_SHARE_UID
+    );
+
+    const screenToken = tokenResponse?.token;
+    if (!screenToken) {
+      logScreenShare('error', `Token fetch failed. Response: ${JSON.stringify(tokenResponse)}`);
+      throw new Error("Could not retrieve screen share token from server.");
+    }
+
+    logScreenShare('info', `Token fetch SUCCESS. Token length: ${screenToken.length}`);
+
+    // 2e. NATIVE ANDROID EXECUTION
+    if (isNative) {
+      logScreenShare('info', `Native execution path. Preparing AgoraScreenShare.startScreenShare() call.`);
+      
+      const nativeParams = {
+        appId: APP_ID,
+        channelId: channelName,
+        token: screenToken, 
+        uid: SCREEN_SHARE_UID,
+        width: 720,
+        height: 1280,
+        frameRate: 15,
+        bitrate: 1000
+      };
+      
+      logScreenShare('info', `Native params: appId=${nativeParams.appId}, channel=${nativeParams.channelId}, uid=${nativeParams.uid}, token_length=${nativeParams.token.length}`);
+      
+      const result = await AgoraScreenShare.startScreenShare(nativeParams);
+      
+      logScreenShare('info', `Native startScreenShare() call SUCCEEDED. Result: ${JSON.stringify(result)}`);
+      
+      // Add listener to detect when screen is actually published by Agora
+      logScreenShare('info', 'Waiting for Agora to publish screen stream...');
+      
+      // Set a timeout to check if screen got published
+      const publishCheckTimeout = setTimeout(() => {
+        logScreenShare('warn', `Screen track not detected in Agora within 3 seconds. Check native engine status.`);
+      }, 3000);
+    } 
+    // C. WEB BROWSER EXECUTION
+    else {
+      logScreenShare('info', 'Web execution path. Creating screen video track.');
+      const track = await AgoraRTC.createScreenVideoTrack({
+        encoderConfig: "720p_1",
+        optimizationMode: "detail"
+      }, "auto");
+
+      // Handle user clicking "Stop Sharing" in the browser UI
+      track.on("track-ended", () => {
+        logScreenShare('info', 'User stopped sharing via browser UI');
+        track.close();
+        setScreenTrack(null);
+        setSessionState(prev => ({ ...prev, isScreenSharing: false }));
+      });
+
+      await client.publish(track);
+      logScreenShare('info', 'Web screen track published');
+      setScreenTrack(track);
+    }
+
+    logScreenShare('info', 'Screen share STARTED successfully');
+    setSessionState(prev => ({ ...prev, isScreenSharing: true }));
 
   } catch (error) {
-    console.error('❌ Screen share error:', error);
-    // Auto-recovery of camera
-    try {
-        const recoverCam = await AgoraRTC.createCameraVideoTrack();
-        await clientRef.current.publish(recoverCam);
-        setLocalTracks(prev => ({ ...prev, video: recoverCam }));
-    } catch (e) { console.error("Recovery failed", e); }
-    setControls(prev => ({ ...prev, screenSharing: false }));
+    logScreenShare('error', `Screen share failed: ${error.message}`);
+    console.error("Full error details:", error);
+    
+    // Improved error feedback with detailed logging
+    let errorMessage = error.message || "Could not start screen share.";
+    if (errorMessage.includes("Permission")) {
+      logScreenShare('warn', 'Permission denied for screen recording');
+      errorMessage = "Permission denied. Please allow screen recording in Android settings.";
+    } else if (errorMessage.includes("channelId")) {
+      logScreenShare('warn', 'Channel ID missing error');
+      errorMessage = "Internal Error: Channel ID missing. Please rejoin the class.";
+    } else if (errorMessage.includes("uid") || error.message?.includes("uid")) {
+      logScreenShare('warn', `UID parameter error: SCREEN_SHARE_UID=${SCREEN_SHARE_UID}`);
+      errorMessage = `Screen Share UID Error: ${error.message}. Current UID: ${SCREEN_SHARE_UID}`;
+    }
+    
+    logScreenShare('error', `User-facing message: ${errorMessage}`);
+    alert(errorMessage);
   } finally {
-    screenSharePending.current = false; // UNLOCK
-    setLoading(prev => ({ ...prev, isScreenSharing: false }));
+    setSessionState(prev => ({ ...prev, isPreparing: false }));
   }
-}, [controls.screenSharing, localTracks, sessionState.sessionInfo]);useEffect(() => {
+};
+useEffect(() => {
   return () => {
     if (screenShareCleanupRef.current) {
       screenShareCleanupRef.current();
@@ -2449,15 +2514,17 @@ const cleanup = async () => {
 </button>
 
       <button 
-        className={`control-orb screen-orb ${controls.screenSharing ? 'active' : ''}`}
-        onClick={toggleScreenShare}
-        title={controls.screenSharing ? 'Stop sharing screen' : 'Share screen'}
-      >
-        <span className="orb-icon">
-          <Share2 size={20} />
-        </span>
-      </button>
-
+  className={`control-orb screen-orb ${isSharingScreen ? 'active bg-green-500' : 'bg-gray-700'}`}
+  onClick={toggleScreenShare}
+  title={isSharingScreen ? 'Stop sharing screen' : 'Share screen'}
+>
+  <span className="orb-icon flex flex-col items-center">
+    <Share2 size={isNative ? 20 : 24} />
+    <span className="text-[8px] font-bold uppercase mt-1">
+      {isSharingScreen ? 'Live' : 'Share'}
+    </span>
+  </span>
+</button>
      {/* <button 
         className={`control-orb record-orb ${controls.recording ? 'recording' : ''}`}
         onClick={toggleRecording}

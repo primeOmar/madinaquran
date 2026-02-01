@@ -863,6 +863,12 @@ const setupAgoraEventListeners = useCallback(() => {
   const client = clientRef.current;
   if (!client) return;
 
+  // Production logging helper for screen share debugging
+  const logScreenTrack = (msg) => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 📺 SCREEN_TRACK_STUDENT: ${msg}`);
+  };
+
   // 1. Define the Handler
   const handleUserPublished = async (user, mediaType) => {
     await client.subscribe(user, mediaType);
@@ -871,14 +877,17 @@ const setupAgoraEventListeners = useCallback(() => {
     const currentTeacherUid = teacherUidRef.current;
     
     // Identification Logic:
-    // Screen shares are usually teacherUid + 10000
-    const isTeacherScreen = currentTeacherUid && uidNumber === (Number(currentTeacherUid) + 10000);
+    // Screen shares should be teacherUid + 10000
+    const expectedScreenUid = currentTeacherUid ? Number(currentTeacherUid) + 10000 : null;
+    const isTeacherScreen = currentTeacherUid && uidNumber === expectedScreenUid;
     const isTeacherCamera = currentTeacherUid && uidNumber === Number(currentTeacherUid);
 
-    console.log(`📡 Track Received: ${uidNumber} | Screen: ${isTeacherScreen}`);
+    logScreenTrack(`user-published: uid=${uidNumber}, mediaType=${mediaType}`);
+    logScreenTrack(`  currentTeacherUid=${currentTeacherUid}, expectedScreenUid=${expectedScreenUid}, isTeacherScreen=${isTeacherScreen}`);
 
     if (mediaType === "video") {
       if (isTeacherScreen) {
+        logScreenTrack(`✅ SCREEN DETECTED! Setting teacherScreenSharing=true for uid ${uidNumber}`);
         setTeacherScreenSharing(true);
       }
       
@@ -887,6 +896,7 @@ const setupAgoraEventListeners = useCallback(() => {
         const next = new Map(prev);
         const existing = next.get(user.uid) || { audio: null, video: null };
         next.set(user.uid, { ...existing, video: user.videoTrack });
+        logScreenTrack(`  remoteTracks updated: now has keys [${Array.from(next.keys()).join(', ')}]`);
         return next;
       });
     }
@@ -914,10 +924,36 @@ const setupAgoraEventListeners = useCallback(() => {
   // Handle unpublishing
   client.on("user-unpublished", (user, mediaType) => {
     const uidNumber = Number(user.uid);
-    if (teacherUidRef.current && uidNumber === (Number(teacherUidRef.current) + 10000)) {
+    const expectedScreenUid = teacherUidRef.current ? Number(teacherUidRef.current) + 10000 : null;
+    const isTeacherScreen = teacherUidRef.current && uidNumber === expectedScreenUid;
+    
+    logScreenTrack(`user-unpublished: uid=${uidNumber}, mediaType=${mediaType}, isTeacherScreen=${isTeacherScreen}`);
+    
+    if (isTeacherScreen) {
+      logScreenTrack(`❌ SCREEN STOPPED! Setting teacherScreenSharing=false for uid ${uidNumber}`);
       setTeacherScreenSharing(false);
     }
-    // ... rest of your existing unpublish logic ...
+    
+    // Remove from tracks
+    if (mediaType === "video") {
+      setRemoteTracks(prev => {
+        const next = new Map(prev);
+        const existing = next.get(user.uid);
+        if (existing) {
+          next.set(user.uid, { ...existing, video: null });
+        }
+        return next;
+      });
+    } else if (mediaType === "audio") {
+      setRemoteTracks(prev => {
+        const next = new Map(prev);
+        const existing = next.get(user.uid);
+        if (existing) {
+          next.set(user.uid, { ...existing, audio: null });
+        }
+        return next;
+      });
+    }
   });
 
 }, []); // Keep dependencies empty as we use teacherUidRef

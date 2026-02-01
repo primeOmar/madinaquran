@@ -1,4 +1,7 @@
 # Add project specific ProGuard rules here.
+
+# Keep Agora extension classes
+-keep class io.agora.rtc2.extensions.** { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

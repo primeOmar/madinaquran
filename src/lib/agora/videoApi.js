@@ -39,6 +39,25 @@ const videoApi = {
       throw new Error(`Failed to start session: ${error.message}`);
     }
   },
+
+  //screensharetoken
+async getScreenToken(classId, screenUid) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/agora/generate-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channelName: `class_${classId}`,
+        uid: screenUid, 
+        role: 'publisher'
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Screen token error:", error);
+    throw error;
+  }
+},
   /**
    * Join a video session (for students) - UPDATED
    * Student joins using same meeting_id from teacher's session
